@@ -48,7 +48,20 @@ const node = (name) => ({ name, textContent: "", hidden: false, value: "", type:
 const metaNode = () => {
   const n = node("meta");
   let cache = { html: null, list: [] };
-  n.querySelectorAll = () => {
+  // The boxes of a dialog with checks, read back the same way: the "all" box and the rest,
+  // each with its checked and disabled state, so a handler set on one stays on it.
+  let boxes = { html: null, all: null, list: [] };
+  const readBoxes = () => {
+    if (boxes.html !== n.innerHTML) {
+      const found = [...n.innerHTML.matchAll(/<input type="checkbox" data-check(-all)?(?:="([^"]*)")? data-t="[^"]*"(?: data-t-id="[^"]*")?( checked)?( disabled)?><span>([^<]*)<\/span>/g)]
+        .map((x) => ({ all: !!x[1], dataset: { check: x[2] }, checked: !!x[3], disabled: !!x[4], label: x[5], onchange: null }));
+      boxes = { html: n.innerHTML, all: found.find((b) => b.all) || null, list: found.filter((b) => !b.all) };
+    }
+    return boxes;
+  };
+  n.querySelector = (sel) => (sel === "[data-check-all]" ? readBoxes().all : null);
+  n.querySelectorAll = (sel) => {
+    if (sel === "[data-check]") return readBoxes().list;
     if (cache.html !== n.innerHTML) {
       cache = { html: n.innerHTML, list: [...n.innerHTML.matchAll(/data-choice="([^"]*)"\s*aria-checked="(true|false)">([^<]*)</g)]
         .map((x) => ({ dataset: { choice: x[1] }, label: x[3], attrs: { "aria-checked": x[2] }, onclick: null,
@@ -58,6 +71,11 @@ const metaNode = () => {
   };
   return n;
 };
+// The boxes as the operator sees them now: [value or "all", checked, disabled, label].
+const ticks = () => { const meta = F().confirmMeta; const all = meta.querySelector("[data-check-all]");
+  return [...(all ? [["all", all.checked, all.disabled, all.label]] : []), ...meta.querySelectorAll("[data-check]").map((b) => [b.dataset.check, b.checked, b.disabled, b.label])]; };
+const POOLS = { choiceLabel: "Pools", allLabel: "All pools, new ones too", emptyLabel: "No pools yet",
+  choices: [{ value: "std", label: "Standart" }, { value: "eco", label: "Econom" }, { value: "big", label: "Big Brain" }] };
 const chips = () => F().confirmMeta.querySelectorAll().map((b) => [b.dataset.choice, b.attrs["aria-checked"], b.label]);
 const HOLDS = { choiceLabel: "Unload when unused for", choice: "-1",
   choices: [{ value: "900", label: "15 min" }, { value: "3600", label: "1 h" }, { value: "-1", label: "until I unload it" }] };
@@ -90,7 +108,7 @@ PINS = [
      'false', "negative: отмена даёт false, а не null и не «висящий» промис"),
     ("confirm_default_tone_is_danger_and_focus_on_cancel", '',
      '(() => { m.appConfirm("Stop the cell?"); return [modalOf().dataset.tone, F().confirmDelete.classList.has("danger"), [...focusLog], F().confirmTitle.textContent, F().confirmText.textContent]; })()',
-     '["danger",true,["cancel"],"Confirm service action?","Stop the cell?"]',
+     '["danger",true,["cancel"],"Confirm the action","Stop the cell?"]',
      "опасный тон по умолчанию: красная кнопка, фокус на «Отмена», заголовок переведён, текст — сообщение"),
     ("confirm_ask_tone_focuses_ok", '',
      '(() => { m.appConfirm("Adopt?", { danger: false, confirmLabel: "Adopt" }); return [modalOf().dataset.tone, F().confirmDelete.classList.has("danger"), [...focusLog], F().confirmDelete.textContent]; })()',
@@ -153,6 +171,31 @@ PINS = [
      '(() => { m.appPrompt("Name", { placeholder: "x" }); const shown = !F().confirmInputHint.hidden; m.settleAppConfirm(false); const afterSettle = F().confirmInputHint.hidden; m.appConfirm("Sure?"); const inConfirm = F().confirmInputHint.hidden; m.settleAppConfirm(false); return [shown, afterSettle, inConfirm]; })()',
      '[true,true,true]',
      "negative: клавиша видна только в открытом prompt: после закрытия и у обычного confirm она скрыта"),
+    ("checks_show_boxes_and_ticks",
+     '',
+     '(() => { m.appConfirmChecks("Pools Hermes may call", { ...POOLS, danger: false, checked: ["eco"] }); return [F().confirmMeta.hidden, ticks(), /data-t="confirm-check-all"/.test(F().confirmMeta.innerHTML), /dlg-choices-label">Pools</.test(F().confirmMeta.innerHTML), F().confirmInput.hidden, modalOf().dataset.tone]; })()',
+     '[false,[["all",false,false,"All pools, new ones too"],["std",false,false,"Standart"],["eco",true,false,"Econom"],["big",false,false,"Big Brain"]],true,true,true,"ask"]',
+     "флажки: «все» первым, потом пулы; отмечено заданное; подпись над ними; поля ввода нет"),
+    ("checks_settle_in_the_dialogs_order",
+     '',
+     'await (async () => { const p = m.appConfirmChecks("W", { ...POOLS, checked: ["eco"] }); const [std, eco, big] = F().confirmMeta.querySelectorAll("[data-check]"); big.checked = true; big.onchange(); std.checked = true; std.onchange(); eco.checked = false; eco.onchange(); m.settleAppConfirm(true); const a = await p; const q = m.appConfirmChecks("W", { ...POOLS, checked: ["eco"] }); m.settleAppConfirm(false); return [a, await q, F().confirmMeta.hidden, F().confirmMeta.innerHTML]; })()',
+     '[["std","big"],null,true,""]',
+     "отмеченное уходит в порядке окна, а не в порядке щелчков; negative: отмена — null, окно чистое"),
+    ("checks_all_box_stands_for_every_pool",
+     '',
+     'await (async () => { const p = m.appConfirmChecks("W", { ...POOLS, checked: "all" }); const before = ticks(); m.settleAppConfirm(true); const all = await p; const q = m.appConfirmChecks("W", { ...POOLS, checked: "all" }); const box = F().confirmMeta.querySelector("[data-check-all]"); box.checked = false; box.onchange(); const after = ticks(); m.settleAppConfirm(true); return [before, all, after, await q]; })()',
+     '[[["all",true,false,"All pools, new ones too"],["std",true,true,"Standart"],["eco",true,true,"Econom"],["big",true,true,"Big Brain"]],"all",[["all",false,false,"All pools, new ones too"],["std",false,false,"Standart"],["eco",false,false,"Econom"],["big",false,false,"Big Brain"]],[]]',
+     "«все» отмечено — пулы отмечены и серые, ответ «all»; снятое «все» возвращает свой выбор (пусто) и пустой ответ, а не «all»"),
+    ("checks_without_choices_or_all_box",
+     '',
+     'await (async () => { const p = m.appConfirmChecks("W", { emptyLabel: "No pools yet", choices: [] }); const html = F().confirmMeta.innerHTML; m.settleAppConfirm(true); const a = await p; const q = m.appConfirmChecks("W", { choices: POOLS.choices, checked: "all" }); const t = ticks(); m.settleAppConfirm(true); const r = m.appConfirm("Sure?"); m.settleAppConfirm(true); return [html.includes(\'dlg-checks-empty">No pools yet<\'), a, t.map((x) => x[1]), await q, await r]; })()',
+     '[true,[],[false,false,false],[],true]',
+     "negative: пустой список — сказано, что он значит, ответ — пустой; «all» без коробки «все» — не «all»: ничего не отмечено; следующий confirm снова отвечает true"),
+    ("checks_escape_labels",
+     '',
+     '(() => { m.appConfirmChecks("W", { allLabel: "<i>all</i>", choices: [{ value: "a<b", label: "<b>1</b>" }] }); const h = F().confirmMeta.innerHTML; return [h.includes("<b>"), h.includes("&lt;b&gt;1&lt;/b&gt;"), h.includes("<i>"), h.includes(`data-check="a&lt;b"`)]; })()',
+     '[false,true,false,true]',
+     "negative: подписи и значения экранированы"),
     ("choice_shows_its_label_and_press",
      '',
      '(() => { m.appConfirmChoice("Keep for how long?", { ...HOLDS, danger: false }); return [F().confirmMeta.hidden, chips(), /data-t="confirm-choice"/.test(F().confirmMeta.innerHTML), /dlg-choices-label">Unload when unused for</.test(F().confirmMeta.innerHTML), F().confirmInput.hidden]; })()',

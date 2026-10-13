@@ -1,16 +1,35 @@
-/* The width below which this board stops shrinking. Two columns with the cable
-   gutter between them is not decoration — see the note at the bottom of this
-   file. 280 + 820 minimum columns + the 28px gutter the tight breakpoint sets.
+/* The width below which this board stops shrinking. Three columns with the cable
+   gutters between them is not decoration — see the note at the bottom of this
+   file. 3 × 340 minimum columns + the two 64px gutters the tight breakpoint sets.
    One place, because the header has to stay in step with it. */
-:root { --board-min: 1128px; }
+:root { --board-min: 1148px; }
 
+/* Three columns of one width (the owner, 2026-10-12): the clients, the kanban's card, the machines
+   with the cloud providers — and between them gutters wide enough for the cables to run. */
 .topology-board {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(280px, 0.54fr) minmax(820px, 1.72fr);
-  gap: 72px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 96px;
+  row-gap: 12px;
   align-items: start;
 }
+/* The server column and its lanes give their boxes up on the main board: the kanban's lane and the
+   machines' lane are the board's second and third columns, so the three are one grid of one width.
+   They keep the layer over the cables that their column gave them. A machine's own window keeps its
+   one column (below). */
+html:not([data-board-view="machine"]) .topology-board > .topology-server-column,
+html:not([data-board-view="machine"]) .topology-server-column > .topology-lanes { display: contents; }
+html:not([data-board-view="machine"]) .topology-lanes > section { position: relative; z-index: 2; min-width: 0; }
+/* The windows are drawn inside the kanban card's lane (#topologyProxies), and each lane is its own
+   layer: the machines' lane, drawn after it, covered a window's right part and its shade — the
+   picker's × among it (2026-10-12). The lane that holds an open window stands over the others. */
+html:not([data-board-view="machine"]) .topology-lanes > section:has(.topology-policy-overlay) { z-index: 70; }
+html:not([data-board-view="machine"]) .topology-lanes > .topology-divider-lane,
+html:not([data-board-view="machine"]) .topology-lanes > .lane-stats { display: none; }
+html:not([data-board-view="machine"]) .topology-lanes.nodes-on .lane-servers { grid-column: auto; }
+/* The kanban's lane runs the board's whole height: its card stays in sight while the page scrolls. */
+html:not([data-board-view="machine"]) .topology-lanes > section:first-child { align-self: stretch; }
 
 .topology-cables {
   position: absolute;
@@ -81,7 +100,7 @@
   width: auto;
 }
 
-/* "+ Add Cloud Provider" in the head of Model servers: the lane's main action, wide and in the
+/* "+ New pool" in the head of Pools: the lane's main action, wide and in the
    accent (2026-10-04, the operator), filling the head between the title and its icon buttons —
    as "＋" does in the clients lane. It stood as a dashed button at the end of a long list. */
 .lane-servers > .topology-lane-head > .topology-head-actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
@@ -107,12 +126,11 @@
   min-width: 0;
 }
 
-/* ── Model servers: one list of machines and cloud providers ──
-   The operator's order, kept on the controller (server-order.js). The two lanes stay two
-   containers — their listeners and tests address them — and lend their cards to this
-   column: `display: contents` takes their own boxes away, and each card's inline `order`
-   places it. What is not a card — a lane's "nothing here" line, the strip of bridges
-   whose model is gone — stands after the cards. */
+/* ── Pools: one list in the operator's order ──
+   Kept on the controller (server-order.js). The pools' lane lends its cards to this
+   column: `display: contents` takes its own box away, and each card's inline `order`
+   places it. The machines stand apart, in their own section (Machines, below). What is not a card — a lane's "nothing here" line — stands after
+   the cards. */
 .server-cards {
   display: flex;
   flex-direction: column;
@@ -273,6 +291,8 @@
 .topology-route-history-chart:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
+/* The clients' activity strip under their cards: the column's width, a gap above it. */
+.board-traffic { margin-top: 14px; }
 
 /* Chart expand modals (GPU History, Token Speed, VRAM, Power) */
 #chartExpandOverlay {
@@ -754,13 +774,15 @@ details.topology-server-stats-card > .topology-processes-details {
   flex-direction: column;
   gap: 10px;
   min-width: 0;
-  /* Single router: keep it vertically centred in its column while the page
-     scrolls (cables are redrawn on scroll so they stay attached). NB: sticky `top`
+  /* Single router: keep it near the middle of the screen while the page scrolls
+     (cables are redrawn on scroll so they stay attached). NB: sticky `top`
      percentages resolve against the (huge) containing block, which flung the card
-     off-screen — use 50vh (viewport-relative) + translateY(-50%) to centre it. */
+     off-screen — so 50vh (viewport-relative), less about half the card. It was
+     50vh and translateY(-50%): the shift moved the card up by half its height even
+     where its lane was too short to scroll, and once the pools left the main board
+     (2026-10-12) a short board put the card under the page's header. */
   position: sticky;
-  top: 50vh;
-  transform: translateY(-50%);
+  top: calc(50vh - 40px);
   align-self: flex-start;
 }
 .topology-card.router-card {
@@ -772,19 +794,13 @@ details.topology-server-stats-card > .topology-processes-details {
 .topology-card.router-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
 .router-card .topology-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .router-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
-.router-outputs { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
-.router-output-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 22px;
-  padding: 3px 0;
-  border-top: 1px solid var(--line);
-}
-.router-output-row:first-child { border-top: 0; }
-.router-output-label { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.router-output-label.muted { color: var(--muted); }
+/* 📦 Models and 🤗 Hugging Face under the kanban's card (1.3.537): the caravan's other two pages, quiet text, side by
+   side — the card is a page link too. */
+.board-pages { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 4px; }
+.board-page-link { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; text-decoration: none; }
+.board-page-link:hover { color: var(--accent); }
+.board-page-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.board-page-arrow { font-size: 10px; opacity: .7; }
 .router-default-chip {
   font-size: 9px;
   text-transform: uppercase;
@@ -809,14 +825,10 @@ details.topology-server-stats-card > .topology-processes-details {
   background: var(--field); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 1.6;
 }
 .router-pill-r { font-size: 8px; font-weight: 700; color: var(--muted); }
-.router-pill.this { border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
-.router-pill.this .router-pill-r { color: var(--accent); }
 .router-pill.other, .router-pill.free { cursor: pointer; }
 .router-pill.other:hover, .router-pill.free:hover { border-color: var(--accent); }
 .router-pill-where { font-size: 8px; color: var(--muted); }
 .router-pill-503 { font-size: 8px; color: var(--bad); }
-.router-pill-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
-.router-pill-x:hover { color: var(--bad); }
 
 /* Below ~1480 the two columns stop fitting: .topology-lanes needs its four
    floors (210 + 36 + 390 + 260) plus three 44px gaps = 1028px, and the right
@@ -829,7 +841,7 @@ details.topology-server-stats-card > .topology-processes-details {
    cables are drawn through — shrinking them keeps the board two-column a good
    150px further down instead of collapsing it early. */
 @media (max-width: 1479px) {
-  .topology-board { column-gap: 28px; }
+  .topology-board { column-gap: 64px; }
   .topology-lanes { column-gap: 20px; }
 }
 
@@ -843,7 +855,7 @@ details.topology-server-stats-card > .topology-processes-details {
    page gains a horizontal scrollbar, and a narrow window means scrolling
    sideways through an intact board rather than reading a broken one. This is a
    dense control panel on a desktop, not an article: sideways is the honest
-   trade. 280 + 820 minimum columns + the 28px gutter above = 1128. */
+   trade. Three 340px columns + the two 64px gutters above = 1148. */
 .topology-board,
 .topology-view {
   min-width: var(--board-min);
@@ -863,16 +875,16 @@ body:has(.topology-view) .topbar {
   min-width: calc(var(--board-min) + 48px);   /* 48 = main's 24px padding, both sides */
 }
 
-/* ＋ Add scout, under Model servers: the one way a machine that lends its GPU
-   or CPU joins the fleet. An empty place at the end of the list: quiet at rest
-   (a dashed outline, the title muted), so the machines stay what the eye reads
-   first. Its fields and button are the board's
+/* ＋ Add scout, under the Machines head: the one way a machine that lends its GPU
+   or CPU joins the fleet. Closed until ＋ Add scout or 🔍 Find in the head opens it
+   (the owner, 2026-10-11: where "+ New pool" stands); open, it is quiet (a dashed
+   outline), so the machines stay what the eye reads first. Its fields and button are the board's
    compact size (28 px, the line's colour, the accent for the action), not the
    global form's 42 px fields with light borders, which made it the loudest thing
    on the lane (2026-10-04, the operator). While it has the focus it says so: the
    outline turns solid and takes the accent. */
 .scout-add {
-  margin: 10px 0 4px;
+  margin: 0 0 10px;
   padding: 8px 10px;
   display: grid;
   gap: 6px;
@@ -886,8 +898,6 @@ body:has(.topology-view) .topbar {
   background: color-mix(in srgb, var(--accent) 4%, transparent);
 }
 .scout-add-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.scout-add-title { margin-right: 2px; font-weight: 600; font-size: 12px; color: var(--muted); cursor: help; white-space: nowrap; }
-.scout-add:focus-within .scout-add-title { color: var(--accent); }
 .scout-add .scout-add-address,
 .scout-add .scout-add-port {
   height: 28px;
@@ -935,3 +945,169 @@ body:has(.topology-view) .topbar {
 .scout-add[data-t-state="working"] .scout-add-status { color: var(--muted); }
 .scout-add[data-t-state="ok"] .scout-add-status { color: var(--ok); }
 .scout-add[data-t-state="error"] .scout-add-status { color: var(--bad); }
+/* The scan 🔍 Find opens (scout-add.js ScoutFinder): the same compact 28 px controls as
+   the row above, quieter than Connect — finding is not pairing. */
+.scout-add .scout-find-run,
+.scout-add .scout-find-connect {
+  min-height: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--field) 84%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.scout-add .scout-find-connect { margin-left: auto; height: 24px; color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.scout-add .scout-find-run:disabled { opacity: .5; cursor: default; }
+.scout-add .scout-find-networks {
+  flex: 1 1 220px; width: auto; min-width: 0; height: 28px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 7px;
+  background: color-mix(in srgb, var(--field) 84%, transparent); color: var(--text); font-size: 13px;
+}
+.scout-find { display: grid; gap: 6px; }
+.scout-find-list { display: grid; gap: 4px; font-size: 12px; }
+.scout-find-list:empty { display: none; }
+.scout-find-note { color: var(--muted); }
+.scout-find-note.error { color: var(--bad); }
+.scout-find-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0;
+  padding: 4px 6px; border-radius: 6px; background: color-mix(in srgb, var(--field) 60%, transparent); }
+.scout-find-where, .scout-find-version { color: var(--muted); font-variant-numeric: tabular-nums; }
+.scout-find-state { padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); line-height: 18px; }
+.scout-find-state.free { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.scout-find-state.taken { color: var(--warn); }
+
+/* ── Machines (the owner, 2026-10-11) ──
+   On the main board each machine stands at a glance, in a section of its own under the pools:
+   its head and its Compute panel in one column — the card's two halves (servers | compute) are
+   one, the servers being in the machine's own window (board-view.js). ↗ opens that window. */
+.machines-head { margin-top: 18px; }
+.machine-cards { display: grid; gap: 10px; min-width: 0; }
+.machine-glance .node-body { grid-template-columns: minmax(0, 1fr); }
+/* The machine's name keeps its line (2026-10-12: a machine's name broke in two in a column of the
+   board's one width); where the head still has no room, what follows it goes to a second line, ↗ and
+   ✕ at its right. */
+.machine-glance .node-head { flex-wrap: wrap; row-gap: 4px; }
+/* The machine at a glance, compact (the owner, 2026-10-12: smaller and nicer, nothing lost; the history
+   charts stay): its head on one line, no "Compute" title, the CPU's load and RAM on one line over its
+   bar, a card's model without its maker's words, and each history chart on one line — its name, its
+   value, its sparkline — opening under it on hover and whole on a click, as before. The chart's
+   descriptor ("Util", "used / total") is the row's hover word (charts.js nodeTelemetryRowsHtml). */
+.machine-glance .node-head { padding: 8px 12px; }
+.machine-glance .node-subtitle { display: none; }
+.machine-glance .node-gpu-row { padding: 6px 12px; }
+.machine-glance .node-gpu-row .node-ram-bar, .machine-glance .node-gpu-row .node-vram-bar { height: 4px; margin: 4px 0; }
+.machine-glance .node-cpu-row { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: center; }
+.machine-glance .node-cpu-row > .node-gpu-head { grid-column: 1; grid-row: 1; }
+.machine-glance .node-cpu-row > .node-gpu-meta { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+.machine-glance .node-cpu-row > .node-ram-bar { grid-column: 1 / -1; grid-row: 2; }
+.machine-glance .node-gpu-maker, .machine-glance [data-live-gpuspark] { display: none; }
+.machine-glance .node-telemetry { padding: 4px 12px 8px; }
+.machine-glance .node-telemetry .gpu-metric {
+  display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 2px 0;
+}
+.machine-glance .node-telemetry .gpu-metric .topology-history-subhead { margin: 0; grid-column: 1; }
+.machine-glance .node-telemetry .gpu-metric .topology-card-head.compact { display: contents; }
+.machine-glance .node-telemetry .gpu-metric .topology-card-head.compact > :first-child { display: none; }
+.machine-glance .node-telemetry .gpu-metric [data-node-metric-val] {
+  grid-column: 2; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.machine-glance .node-telemetry .gpu-metric .gpu-metric-spark { grid-column: 3; margin-left: 0; }
+.machine-glance .node-telemetry .gpu-metric canvas { grid-column: 1 / -1; }
+.machine-glance .node-body::before { display: none; }
+/* The card is the way into the machine's window (main.js): it says so to the pointer, and its name is
+   the link for the keyboard, read as the name, not as a button (the owner, 2026-10-12). */
+.machine-glance { cursor: pointer; transition: border-color .12s ease; }
+.machine-glance:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.machine-glance .machine-name { color: inherit; font-size: 15px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.machine-glance .machine-name:hover, .machine-glance .machine-name:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.machine-missing { padding: 24px 4px; color: var(--muted); }
+
+/* A machine's own window: its whole card under the page's header, nothing of the main board
+   around it. The clients, the kanban's node, the pools, Add scout and the monitor stay in the
+   page, hidden — the page is the board's, and the card's dialogs and listeners live in it. */
+html[data-board-view="machine"] .topology-board > .topology-column:not(.topology-server-column),
+html[data-board-view="machine"] .topology-lanes > section:not(.lane-servers),
+html[data-board-view="machine"] .lane-servers > :not(.machines-head):not(.machine-cards),
+html[data-board-view="machine"] .machines-head h2,
+html[data-board-view="machine"] .monitor-drawer,
+html[data-board-view="machine"] .server-order,
+html[data-board-view="machine"] .topology-cables { display: none; }
+html[data-board-view="machine"] .topology-board,
+html[data-board-view="machine"] .topology-view { min-width: 0; }
+html[data-board-view="machine"] body .topbar { min-width: 0; }
+html[data-board-view="machine"] .topology-board { grid-template-columns: minmax(0, 1fr); }
+html[data-board-view="machine"] .topology-lanes { grid-template-columns: minmax(0, 1fr); }
+html[data-board-view="machine"] .topology-lanes.nodes-on .lane-servers { grid-column: 1 / -1; }
+html[data-board-view="machine"] .machines-head { margin-top: 0; justify-content: flex-end; }
+
+/* 🔍 Find in the Machines head: a word beside the icon, so it is no wider than it must be. Either
+   head button says when the box it opened is open. */
+.topology-head-actions > .icon-action.prominent.scout-find-open { width: auto; padding: 0 12px; white-space: nowrap; }
+.topology-head-actions > [data-scout-add-open][aria-expanded="true"],
+.topology-head-actions > [data-scout-add-find][aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+/* A machine's own window: adding and finding scouts are the main board's. */
+html[data-board-view="machine"] .machines-head [data-scout-add-open],
+html[data-board-view="machine"] .machines-head [data-scout-add-find] { display: none; }
+
+/* A client's recent requests on its own card (consumers.js activityHtml, charts.js
+   drawClientActivity): one row of the activity chart, across the card; a click opens them all. */
+.consumer-activity { display: block; width: 100%; height: 16px; margin-top: 6px; border-radius: 4px; cursor: zoom-in; }
+
+/* The cloud providers under the machines (provider-glances.js; the owner, 2026-10-12): each provider a
+   block of its accounts — its sign and name, an account a row (its head, then a subscription's windows
+   or an API key's spend), and "＋" at its foot, the kanban's way of adding. No models: the kanban has
+   them. */
+.providers-head { margin-top: 18px; }
+/* In a column of the board's one width the heads of the machines and of the providers keep their
+   title on the first line and their buttons on the second, across the column — the way the clients'
+   column puts its ＋ under its title. On one line the buttons were cut. */
+html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head { flex-wrap: wrap; }
+html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head > .topology-head-actions { flex: 1 1 100%; flex-wrap: wrap; row-gap: 6px; }
+html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head > .topology-head-actions > .topology-head-add { flex: 1 1 170px; }
+.provider-cards { display: grid; gap: 10px; min-width: 0; }
+.provider-group { overflow: hidden; }
+.provider-group-head {
+  display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 85%, var(--bg, #111) 15%);
+}
+.provider-group-head strong { min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-group-icon {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 8px;
+  color: var(--provider-accent, #94a3b8); background: color-mix(in srgb, var(--provider-accent, #94a3b8) 14%, transparent);
+}
+.provider-group-icon svg { width: 15px; height: 15px; }
+.provider-group-count {
+  flex: none; min-width: 18px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--muted); font-size: 11px; font-weight: 650; text-align: center; font-variant-numeric: tabular-nums;
+}
+.lane-servers .provider-group-remove {
+  margin-left: auto; flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 7px;
+  background: transparent; color: var(--muted); font-size: 12px; line-height: 1; cursor: pointer;
+}
+.lane-servers .provider-group-remove:hover, .lane-servers .provider-group-remove:focus-visible { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.provider-account + .provider-account { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+.provider-account .node-head {
+  flex-wrap: wrap; align-items: center; gap: 2px 8px; padding: 9px 14px 2px; border: 0; border-radius: 0; background: none;
+}
+.provider-account .node-head strong { min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-tools { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.provider-state { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.provider-state.warn { color: var(--warn, #f59e0b); }
+.provider-body, .provider-issues { padding: 4px 14px 10px; font-size: 12px; min-width: 0; }
+.provider-body .sub-usage-panel { margin: 0; padding: 0; border: 0; background: none; }
+.provider-group-empty { margin: 0; padding: 12px 14px 2px; color: var(--muted); font-size: 12px; }
+/* "＋ subscription" / "＋ API key": the kanban's "＋ row" and "＋ model" look (pool-board.css). */
+.lane-servers .provider-group-add {
+  display: block; width: calc(100% - 28px); min-height: 0; height: auto; margin: 8px 14px 12px; padding: 6px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 9px; background: transparent;
+  color: var(--accent-strong, var(--accent)); font: inherit; font-size: 12px; text-align: center; cursor: pointer;
+}
+.lane-servers .provider-group-add:hover, .lane-servers .provider-group-add:focus-visible { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+html[data-board-view="machine"] [data-board-providers-head],
+html[data-board-view="machine"] #boardProviderCards { display: none; }
+

@@ -863,6 +863,13 @@ PINS = [
      '(h.match(/<span class="mbadge mbadge-ctx"[^>]*>🪟 ([^<]*)<\\/span>/) || [])[1] ?? null',
      '"32.8k"',
      'positive: без ctxMax токенная ячейка (runner с tokenContext в state.runners) берёт окно из CTX_SIZE'),
+    ('ctx_slot_runner_own_field',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true, contextField: "CTX_SIZE" }, { id: "vllm", tokenContext: true, contextField: "MAX_MODEL_LEN" }, { id: "strata", tokenContext: true, contextField: "STRATA_CONTEXT" }], artifacts: [], models: [], paths: {} });'
+     ' const ctx = (cfg) => (norm(m.nodeServerCardHtml(node, mk({ slotConfig: cfg }))).match(/<span class="mbadge mbadge-ctx"[^>]*>🪟 ([^<]*)<\\/span>/) || [])[1] ?? null;',
+     '[ctx({ RUNNER: "strata", CTX_SIZE: "4096", STRATA_CONTEXT: "131072" }), ctx({ RUNNER: "vllm", CTX_SIZE: "4096", MAX_MODEL_LEN: "65536" }), ctx({ RUNNER: "vllm", CTX_SIZE: "4096" })]',
+     '["131k","65.5k",null]',
+     'defect-history: окно ячейки без отчёта машины — из поля самого раннера (Strata — STRATA_CONTEXT, vLLM — MAX_MODEL_LEN), '
+     'а не из CTX_SIZE, который наследует каждый конфиг; negative: у vLLM без MAX_MODEL_LEN окна нет, а не чужие 4096'),
     ('ctx_slot_cfg_no_runner_registry_asis',
      'const h = norm(m.nodeServerCardHtml(node, mk({ slotConfig: { RUNNER: "llama-server", CTX_SIZE: "32768" } })));',
      '(h.match(/<span class="mbadge mbadge-ctx"[^>]*>🪟 ([^<]*)<\\/span>/) || [])[1] ?? null',
@@ -1145,6 +1152,12 @@ PINS = [
      '[h.match(/<article class="([^"]*)"/)[1], (h.match(/<span class="mbadge mbadge-(?:gpu|cpu|dev)"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null]',
      '["node-server configured-cell","⚡ GPU"]',
      'boundary: N_GPU_LAYERS="1" — граница: не CPU, llama по умолчанию GPU → чип ⚡ GPU'),
+    ('dev_stopped_strata_gpu',
+     'st.setState({ config: {}, runners: [{ id: "strata", labelKey: "runnerStrata", icon: "🪨", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ slotConfig: { RUNNER: "strata", MODEL_FILE: "q-00001-of-00002.gguf" } })));',
+     '[h.match(/<article class="([^"]*)"/)[1], (h.match(/<span class="mbadge mbadge-(?:gpu|cpu|dev)"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null]',
+     '["node-server configured-cell","⚡ GPU"]',
+     'остановленная ячейка Strata — ⚡ GPU: без видеокарты Strata не работает; до 1.3.512 её команда рисовалась «⚙ auto», '
+     'а работающая — «🧮 CPU» при 31 ГБ видеопамяти'),
     ('dev_stopped_cuda_visible_empty_cpu',
      'const h = norm(m.nodeServerCardHtml(node, mk({ slotConfig: { RUNNER: "llama-server", ENV: \'CUDA_VISIBLE_DEVICES=""\' } })));',
      '[h.match(/<article class="([^"]*)"/)[1], (h.match(/<span class="mbadge mbadge-(?:gpu|cpu|dev)"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null]',
@@ -1856,6 +1869,18 @@ PINS = [
      'norm(m.nodeGpuRowHtml(node, { index: 0, memoryTotalMiB: 1000, memoryUsedMiB: 1500 })).match(/<span style="width:(\\d+)%"><\\/span>/)[1]',
      '"100"',
      'boundary: nodeGpuRowHtml: used > total → ширина клампится на 100%'),
+    ('gpu_name_maker_apart',
+     '',
+     '["NVIDIA GeForce RTX 5090", "NVIDIA Tesla P40", "AMD Radeon RX 7900 XTX", "Intel Arc A770", "RTX 3090", "", "NVIDIA"].map((n) => m.gpuNameHtml(n))',
+     '["<span class=\\"node-gpu-maker\\">NVIDIA GeForce </span>RTX 5090","<span class=\\"node-gpu-maker\\">NVIDIA </span>Tesla P40",'
+     '"<span class=\\"node-gpu-maker\\">AMD Radeon </span>RX 7900 XTX","<span class=\\"node-gpu-maker\\">Intel Arc </span>A770","RTX 3090","GPU","NVIDIA"]',
+     'имя карты: слова производителя отдельно — главная доска показывает одну модель (2026-10-12), окно машины имя целиком; '
+     'negative: имя без производителя — как есть; пустое — «GPU»; одно слово производителя без модели не отрезается в пустоту'),
+    ('gpu_row_sets_the_maker_apart',
+     '',
+     'norm(m.nodeGpuRowHtml(node, { index: 0, name: "NVIDIA GeForce RTX 5090" })).includes(\'<span class="node-gpu-name"><span class="node-gpu-maker">NVIDIA GeForce </span>RTX 5090</span>\')',
+     'true',
+     'строка карты в машине несёт слова производителя отдельно — главная доска их прячет, окно машины показывает'),
     ('gpu_name_escaped',
      '',
      'norm(m.nodeGpuRowHtml(node, { index: 0, name: "<b>&" })).match(/<span class="node-gpu-name">([^<]*)<\\/span>/)[1]',
@@ -2388,6 +2413,24 @@ PINS = [
      "[(m.nodesLaneHtml().match(/data-fold-mode=\"line\"/g) || []).length, (cf.CARD_FOLD.densities = { cells: \"full\" }, (m.nodesLaneHtml().match(/data-fold-mode=/g) || []).length), (m.nodesLaneHtml().match(/data-t=\"cell-card\"/g) || []).length]",
      "[2,0,2]",
      "positive: лента ячеек просит сворачивание — две тихие ячейки стоят строками; лента «full» — ни одной строки, те же две карточки"),
+    # The cell window's COMMAND names the type a cell with none of its own runs
+    # its draft with — the server's rule (draft-file.js): a head in the model's
+    # mtp/ folder is draft-mtp, as the server's builder names it.
+    ("cell_window_command_names_the_draft_type",
+     "",
+     "(() => { const made = document.createElement; const put = document.body.appendChild; let html = '';"
+     " document.createElement = () => ({ style: {}, dataset: {}, setAttribute() {}, appendChild() {},"
+     " set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } });"
+     " document.body.appendChild = () => {};"
+     " const type = (draft, specType) => { html = '';"
+     " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"g/q4/a.gguf\", SPEC_DRAFT_MODEL_FILE: draft, SPEC_TYPE: specType } })] }] });"
+     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {}"
+     " return (html.match(/--spec-type (\\S+?)[\\s<\"]/) || [])[1] || null; };"
+     " try { return [type(\"g/mtp/head.gguf\", \"\"), type(\"m/dflash-x.gguf\", \"\"), type(\"m/plain.gguf\", \"\"), type(\"g/mtp/head.gguf\", \"draft-eagle3\"), type(\"\", \"\")]; }"
+     " finally { document.createElement = made; document.body.appendChild = put; } })()",
+     "[\"draft-mtp\",\"draft-dflash\",\"draft-simple\",\"draft-eagle3\",null]",
+     "positive: окно ячейки называет тип черновика по правилу сервера — голова из папки mtp/ — draft-mtp, DFlash — DFlash; "
+     "negative: обычный файл — draft-simple, тип оператора не угадывается заново, без файла и без типа флага нет"),
 ]
 
 
@@ -2561,6 +2604,53 @@ PINS += [
      "карточка машины — одна в списке Model servers: ключ node:<id> и место; ничего не сохранено — место одно на всех "
      "(порядок полос, как раньше), сохранено — индекс, а не названная — после всех названных; первыми в шапке — кнопки ↑ ↓, "
      "одна пара на машину"),
+]
+
+# The main board shows each machine at a glance; its whole card lives in the machine's own window
+# (board-view.js; the owner, 2026-10-11).
+GLANCE = ('{ ...' + HOST + ', online: true, platform: "linux", cpu: { loadPct: 7, ram: { usedGb: 3, totalGb: 16 } },'
+          ' servers: [{ port: 22001, phase: "running" }] }')
+PINS += [
+    ("machine_glance_head_and_compute",
+     f"st.setTopology({{ ...st.topology, nodes: [{GLANCE}] }});",
+     "(h => [h.includes('<section class=\"node-card machine-glance online\" data-node-id=\"h2\" data-t=\"machine-glance\" data-t-id=\"h2\"'),"
+     f" h.includes('title=\"{_esc(_en("machineOpenTitle").replace("{name}", "Box"))}\">'),"
+     " h.includes('<a class=\"machine-name\" href=\"/machine?host=h2\" target=\"caravan-machine-h2\" data-machine-open=\"h2\" data-t=\"machine-open\" data-t-id=\"h2\">Box</a>')"
+     " && h.includes('<span class=\"topology-muted\">10.0.0.6</span>') && !h.includes('data-live-nodemeta'),"
+     f" h.includes(norm(m.nodeComputeHtml({GLANCE}))) && h.includes('▶ 22001'),"
+     " ['↗', 'class=\"machine-open\"', 'data-scout-disconnect', 'node-disconnect', 'node-servers', 'data-server-card', 'node-reboot', 'data-node-cell-port', 'node-caravan', 'node-collapse'].filter((x) => h.includes(x))])"
+     "(norm(m.machinesLaneHtml()))",
+     "[true,true,true,true,[]]",
+     "главная доска: машина одним взглядом — шапка (имя — ссылка в её окно, адрес) и панель Compute — та же, что в карточке "
+     "(порты ячеек на процессоре видны); вся карточка открывает окно машины и так и подписана (2026-10-12); negative: ни кнопки "
+     "↗ Open, ни ✕ скаута — машину отпускают в её окне, ни ячеек, ни запуска, ни питания, ни сворачивания, ни места в списке "
+     "пулов, ни слова системы — это окно машины"),
+    ("machine_window_holds_one_card",
+     f"st.setTopology({{ ...st.topology, nodes: [{HOST}, {{ ...{HOST}, id: \"h3\", name: \"Other\" }}] }});",
+     "[(h => [h.includes('data-node-id=\"h3\"'), h.includes('data-node-id=\"h2\"')])(m.nodesLaneHtml(\"h3\")),"
+     " (h => [h.includes('data-node-id=\"h3\"'), h.includes('data-node-id=\"h2\"')])(m.nodesLaneHtml())]",
+     "[[true,false],[true,true]]",
+     "окно машины рисует её одну, целой карточкой; negative: без имени машины — все, как раньше"),
+    ("machine_window_without_its_machine",
+     f"st.setTopology({{ ...st.topology, nodes: [{HOST}] }});",
+     "[norm(m.nodesLaneHtml(\"gone\")), norm(m.nodesLaneHtml(\"\"))]",
+     json.dumps([f'<div class="machine-missing" data-t="machine-missing">{_esc(_en("machineNotOnBoard").replace("{id}", "gone"))}'
+                 f' <a href="/board" data-t="machine-missing-back">{_esc(_en("machineBackToBoard"))}</a></div>',
+                 f'<div class="machine-missing" data-t="machine-missing">{_esc(_en("machineNotNamed"))}'
+                 f' <a href="/board" data-t="machine-missing-back">{_esc(_en("machineBackToBoard"))}</a></div>'], ensure_ascii=False),
+     "negative: окно машины, которой нет на доске (скаут отпущен, не добавляли), — так и сказано, с дорогой на главную доску; "
+     "окно без имени машины — тоже сказано, а не пустая страница «ещё грузится»"),
+    ("machine_glance_compute_is_the_cards",
+     f"st.setTopology({{ ...st.topology, nodes: [{GLANCE}] }});",
+     f"[norm(m.nodesLaneHtml()).includes(norm(m.nodeComputeHtml({GLANCE}))), (norm(m.nodesLaneHtml()).match(/class=\"node-gpus\"/g) || []).length]",
+     "[true,1]",
+     "панель Compute одна на обе карточки: целая карточка в окне машины несёт её ровно такой же, ровно один раз"),
+    ("machine_glance_escapes_its_id",
+     f"st.setTopology({{ ...st.topology, nodes: [{{ ...{HOST}, id: \"a&b <c>\", name: \"Odd\" }}] }});",
+     "(h => [h.includes('href=\"/machine?host=a%26b%20%3Cc%3E\"'), h.includes('target=\"caravan-machine-a_b__c_\"'), h.includes('data-machine-open=\"a&amp;b &lt;c&gt;\"'),"
+     " h.includes('<c>')])(m.machinesLaneHtml())",
+     "[true,true,true,false]",
+     "negative: странное имя машины не ломает ни адрес окна, ни имя окна, ни разметку"),
 ]
 
 # The engines next to the cells (scout 2.12+) and the memory their processes

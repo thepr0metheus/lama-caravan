@@ -8,7 +8,9 @@ import {
   topologyIncidentForItem,
   topologyIsQueuedItem,
 } from "./topology-activity.js";
-import { agentIsIdle, canvasBoardClients } from "./topology-proxies.js";
+import { ConsumerCards } from "./consumers.js";
+import { OutputCells } from "./output-cells.js";
+import { agentIsIdle, canvasBoardClients, feedsRouters, isEntryClient } from "./topology-proxies.js";
 import { $, escapeHtml, formatMemoryMiB } from "./utils.js";
 
 export function formatRate(bytesPerSecond) {
@@ -24,11 +26,14 @@ export function systemSamples(data) {
   return Array.isArray(data?.samples) ? data.samples : [];
 }
 
-export function chartSize(canvas) {
+// `minHeight` is the floor of the drawing's height in device pixels. A strip of rows sets its own
+// height on the page and needs no floor: with the floor of 120 a strip of two clients (43 px at
+// dpr 2 = 86) was drawn 120 high and squeezed into 43 — its rows and names flattened.
+export function chartSize(canvas, { minHeight = 120 } = {}) {
   const rect = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
   const width = Math.max(320, Math.round(rect.width * dpr));
-  const height = Math.max(120, Math.round(rect.height * dpr));
+  const height = Math.max(minHeight, Math.round(rect.height * dpr));
   if (canvas.width !== width || canvas.height !== height) {
     canvas.width = width;
     canvas.height = height;
@@ -228,6 +233,7 @@ export function drawTopologyGpuHistory() {
   drawTopologyServerStats(samples);
   renderTopologyIncidents(samples);
   drawNodeTelemetry();
+  drawClientActivity();
 }
 
 // Per-node telemetry — built with the SAME markup + classes + canvases as the
@@ -253,6 +259,13 @@ export function nodeEndpointSet(node) {
       if (node.controllerMachine) endpoints.add(`127.0.0.1:${s.port}`);
     }
   });
+  // The models of its entry (1.3.506): a request to one stands in the model's own queue,
+  // "host:port/model" — the address of the machine's scout serves them all.
+  (topology?.routers || []).forEach((r) => (r.outputs || []).forEach((o) => {
+    if (String(o.upstreamType || "") === "machine" && String(o.hostId || "") === String(node?.id || "")) {
+      endpoints.add(OutputCells.upstream(o));
+    }
+  }));
   return endpoints;
 }
 
@@ -293,6 +306,39 @@ export function orderedRouteLabels(proxies) {
   return out;
 }
 
+// The client activity chart's rows (the owner, 2026-10-11, missing "the chart where the clients'
+// recent activity was seen"): the clients of the entry as their cards stand (ConsumerCards.of — the
+// operator's order, then by name), then the routes of the older clients in their cards' order: the
+// rows of the window opened whole, ⤢.
+export function clientActivityLabels(top = topology) {
+  const out = [];
+  const push = (label) => { const name = String(label || "").trim(); if (name && !out.includes(name)) out.push(name); };
+  ConsumerCards.of(top).forEach((p) => push(p.label));
+  orderedRouteLabels((top?.proxies || []).filter((p) => feedsRouters(p) && !isEntryClient(p))).forEach(push);
+  return out;
+}
+
+// Each client's requests over the monitor's window, the cloud's too, on its own card (consumers.js
+// activityHtml; the owner, 2026-10-12: the strip under the clients moved onto them) — one row, its
+// name already the card's head, drawn the way the strip was: a mark per moment a request ran, on the
+// dark ground (the owner, the same day: the grey bar on the card's own ground said nothing). A row
+// with no mark says so in words, with the window's length: an empty strip read as nothing at all.
+// A machine's chart shows only what its own cells served. Returns how many cards were drawn.
+export function drawClientActivity(root = document) {
+  const canvases = [...(root?.querySelectorAll?.("canvas[data-consumer-activity]") || [])];
+  if (!canvases.length) return 0;
+  const samples = systemSamples(ui.latestSystemMonitor).slice(-600);
+  const span = samples.length > 1 ? Number(samples.at(-1).time || 0) - Number(samples[0].time || 0) : 0;
+  const idle = t("consumerActivityNone", { min: String(Math.max(1, Math.round(span / 60))) });
+  for (const canvas of canvases) {
+    const { buckets, barW } = _routeBuckets(samples, canvas);
+    drawTopologyRouteHistory(samples, buckets, barW, canvas,
+      { routes: [canvas.dataset.consumerActivity], rowH: 10, rowGap: 0, pad: 3, labels: false, idle,
+        title: t("consumerActivityTitle") });
+  }
+  return canvases.length;
+}
+
 export function nodeRouteLabels(nodeId) {
   const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
   if (!node) return [];
@@ -302,7 +348,7 @@ export function nodeRouteLabels(nodeId) {
   // resolves per request) — this is what makes client cards show traffic.
   const routersTouching = new Set();
   (topology?.routers || []).forEach((r) => {
-    if ((r.outputs || []).some((o) => endpoints.has(`${o.upstreamHost}:${o.upstreamPort}`))) {
+    if ((r.outputs || []).some((o) => endpoints.has(OutputCells.upstream(o)))) {
       routersTouching.add(String(r.id));
     }
   });
@@ -337,8 +383,10 @@ export function nodeTelemetryRowsHtml(n) {
   const spark = (key) => `<span class="gpu-metric-spark" data-node-metric-spark="${escapeHtml(`${id}:${key}`)}"></span>`;
   const val = (key) => `<span class="topology-history-meta" data-node-metric-val="${escapeHtml(`${id}:${key}`)}">—</span>`;
   const cv = (key, cls, h) => `<canvas class="${cls}" ${oc(key)} data-node-canvas="${escapeHtml(`${id}:${key}`)}" width="320" height="${h}"></canvas>`;
+  // The descriptor ("Util", "used / total") is the row's hover word too: the main board's glance lays a
+  // metric on one line and shows only its name, value and sparkline (topology-board.css).
   const metric = (key, label, descriptor, chartCls, h) => `
-    <div class="gpu-metric">
+    <div class="gpu-metric" title="${escapeHtml(`${label} · ${descriptor}`)}">
       <div class="topology-history-subhead topology-history-subhead--expand" ${oc(key)}>${escapeHtml(label)} <span class="topology-expand-hint">⤢</span></div>
       <div class="topology-card-head compact">
         <span class="topology-history-meta">${escapeHtml(descriptor)}</span>
@@ -765,7 +813,7 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
   if (!panel) return;
   const incidents = topologyIncidentItems(samples || []);
   if (meta) meta.textContent = incidents.length ? t("incidentsRecent", { n: incidents.length }) : t("incidentsClear");
-  // Reflect the count on the board's incidents button (Model servers header).
+  // Reflect the count on the board's incidents button (Pools header).
   document.querySelectorAll("[data-board-incidents-count]").forEach((el) => {
     el.textContent = String(incidents.length);
   });
@@ -948,8 +996,10 @@ export function openRouteActivityModal(nodeId) {
   if (!overlay) return;
   const titleEl = overlay.querySelector(".modal-head-row strong");
   if (titleEl) {
+    // Opened whole, it is the clients' chart (the board's strip under the clients); from a machine's
+    // card, the routes its cells served.
     const node = (topology?.nodes || []).find((nd) => String(nd.id) === _routeActivityNode);
-    titleEl.textContent = node ? `${t("routeActivity")} · ${node.name || node.id}` : t("routeActivity");
+    titleEl.textContent = node ? `${t("routeActivity")} · ${node.name || node.id}` : t("clientActivity");
   }
   overlay.hidden = false;
   if (!_routeActivityHoverBound) { _routeActivityHoverBound = true; initRouteActivityCanvasHover(); }
@@ -978,8 +1028,8 @@ export function drawRouteActivityModal() {
   const plotW = cssW * dpr - 16;
   const barW = Math.max(1, plotW / Math.max(1, buckets.length));
   drawTopologyRouteHistory(samples, buckets, barW, canvas, {
-    rowH: 28, rowGap: 5,
-    routes: _routeActivityNode ? nodeRouteLabels(_routeActivityNode) : undefined,
+    rowH: 28, rowGap: 5, hover: true,
+    routes: _routeActivityNode ? nodeRouteLabels(_routeActivityNode) : clientActivityLabels(),
     filter: _routeActivityNode ? nodeActivityFilter(_routeActivityNode) : null,
   });
   const legendEl = $("routeActivityLegend");
@@ -1012,14 +1062,14 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
   // Resize canvas vertically so every row has a readable height.
   const rowH = opts.rowH ?? 14;
   const rowGap = opts.rowGap ?? 3;
-  const padTop = 6;
-  const padBottom = 6;
+  const padTop = opts.pad ?? 6;
+  const padBottom = opts.pad ?? 6;
   if (routes.length) {
     const targetCssH = padTop + padBottom + routes.length * rowH + Math.max(0, routes.length - 1) * rowGap;
     canvas.style.height = `${targetCssH}px`;
   }
   const ctx = canvas.getContext("2d");
-  const { width, height, dpr } = chartSize(canvas);
+  const { width, height, dpr } = chartSize(canvas, { minHeight: 1 });
   const pad = { left: 8, right: 8, top: padTop * dpr, bottom: padBottom * dpr };
   const plotW = width - pad.left - pad.right;
   ctx.clearRect(0, 0, width, height);
@@ -1032,8 +1082,17 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
     if (legend) legend.innerHTML = "";
     return;
   }
+  // Rows and not one sample: the monitor has not answered yet. Empty rows would read as quiet clients.
+  if (!samples.length) {
+    ctx.fillStyle = "rgba(220, 233, 233, 0.5)";
+    ctx.font = `${11 * dpr}px system-ui, sans-serif`;
+    ctx.fillText(t("chNoData"), pad.left, Math.round(height / 2));
+    if (opts.hover) _routeActivityDrawState = null;
+    return;
+  }
   const rowHpx = rowH * dpr;
   const rowGapPx = rowGap * dpr;
+  let marks = 0;
   routes.forEach((route, rowIndex) => {
     const y = pad.top + rowIndex * (rowHpx + rowGapPx);
     ctx.fillStyle = "rgba(160, 180, 185, 0.08)";
@@ -1044,19 +1103,31 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
       const x = pad.left + index * barW;
       ctx.fillStyle = topologyRouteActivityColor(route, state);
       ctx.fillRect(x, y, Math.max(1, barW - 1), rowHpx);
+      marks += 1;
     });
   });
-  // Row labels on top of bars, with a dark halo for contrast against colored fills.
+  // No request in the window, and the caller has words for it (a client's own row): said, not left
+  // as an empty row that reads as nothing.
+  if (!marks && opts.idle) {
+    ctx.fillStyle = "rgba(220, 233, 233, 0.5)";
+    ctx.font = `${9 * dpr}px system-ui, sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.fillText(opts.idle, pad.left + 4 * dpr, Math.round(height / 2));
+  }
+  // Row labels on top of bars, with a dark halo for contrast against colored fills. A row on a
+  // client's own card has its name in the card's head: none here (`labels: false`).
   ctx.font = `${10 * dpr}px ui-monospace, Menlo, monospace`;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
-  routes.forEach((route, rowIndex) => {
-    const y = pad.top + rowIndex * (rowHpx + rowGapPx) + rowHpx / 2;
-    ctx.shadowColor = "rgba(0,0,0,0.85)";
-    ctx.shadowBlur = 3 * dpr;
-    ctx.fillStyle = "rgba(232, 240, 240, 0.92)";
-    ctx.fillText(route, pad.left + 6 * dpr, y);
-  });
+  if (opts.labels !== false) {
+    routes.forEach((route, rowIndex) => {
+      const y = pad.top + rowIndex * (rowHpx + rowGapPx) + rowHpx / 2;
+      ctx.shadowColor = "rgba(0,0,0,0.85)";
+      ctx.shadowBlur = 3 * dpr;
+      ctx.fillStyle = "rgba(232, 240, 240, 0.92)";
+      ctx.fillText(route, pad.left + 6 * dpr, y);
+    });
+  }
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
   const latest = samples[samples.length - 1] || {};
@@ -1067,9 +1138,14 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
     canvas.title = latestRoutes.length
       ? `routes now: ${latestRoutes.join(", ")}`
       : `recent routes: ${routes.join(", ")}`;
+  } else if (opts.title !== undefined) {
+    canvas.title = opts.title;   // a client's own row keeps what a click on it does
   } else {
     canvas.title = "";
-    _routeActivityDrawState = { routes, buckets, barW, rowH, rowGap, padTop, dpr };
+    // The window's hover reads where its own rows and columns are. The strips are drawn after it on
+    // every sample (a machine's, the clients'), and each one took this over: the window's tooltip
+    // named another chart's rows.
+    if (opts.hover) _routeActivityDrawState = { routes, buckets, barW, rowH, rowGap, padTop, dpr };
   }
 }
 

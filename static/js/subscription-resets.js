@@ -1,11 +1,12 @@
 // Available resets are a provider fact. Consumption is an explicit confirmed
 // action, never part of pool selection; retries keep the same durable request id.
-// Two doors lead to the one spend (run): a row under a rung's fold — confirm, then spend — and the
-// counter in a pool rung's head: a window that lists the resets that can be spent and asks which,
-// its own button being the confirmation. Opening it, or choosing in it, spends nothing.
+// One door leads to the spend (run): the counter in a pool rung's head opens a window that lists the
+// resets that can be spent and asks which, its own button being the confirmation. Opening it, or
+// choosing in it, spends nothing. Until 1.3.464 a second door — the same list as rows under a rung's
+// fold — drew what the window already shows (the operator, 2026-10-11: "лишнее").
 import { t } from "./i18n.js";
 import { api, escapeHtml, toast } from "./utils.js";
-import { appConfirm, appConfirmChoice } from "./dialogs.js";
+import { appConfirmChoice } from "./dialogs.js";
 
 export class SubscriptionResetCards {
   constructor({ redraw = () => {}, refreshed = () => {}, now = () => Date.now(), choice = appConfirmChoice } = {}) {
@@ -34,8 +35,14 @@ export class SubscriptionResetCards {
     this.redraw();
   }
 
-  // What the head of a collapsed card says about this account's resets. Null while the
-  // balance is unread or the read failed: an unknown count is not "0 resets".
+  // The counter reads the account's resets itself — no list under the fold asks for them any more:
+  // at most once a minute (fetch keeps its own clock), and never for an account without a sign-in.
+  read(account) {
+    if (account?.hasCredential) this.fetch(account.testAliasOf || account.id);
+  }
+
+  // What the head of a rung says about this account's resets. Null while the balance is unread or
+  // the read failed: an unknown count is not "0 resets".
   count(account) {
     const n = this.cache.get(account.testAliasOf || account.id)?.data?.availableCount;
     return Number.isFinite(n) ? n : null;
@@ -45,7 +52,31 @@ export class SubscriptionResetCards {
     return this.attempts.has(account.testAliasOf || account.id);
   }
 
-  // How a saved reset is named and when it ends: one reading for the rows under a fold and for the window.
+  // The last read failed and nothing was read before it: the counter says "?" rather than vanish.
+  failed(account) {
+    const entry = this.cache.get(account.testAliasOf || account.id);
+    return !!entry?.error && !entry.data;
+  }
+
+  // The small door to the saved resets on a subscription's row of the main board (the owner,
+  // 2026-10-12: "the small button that enters the reset of limits — on the board's card"): ↺ and the
+  // count, a button while one can be spent; the count alone when none can; "↺ ?" when the read failed
+  // with nothing read before; ⚠ ahead of it while a spend is unresolved. Nothing while the first read
+  // is under way: a count not read yet is not "0".
+  chipHtml(account) {
+    const id = escapeHtml(String(account.testAliasOf || account.id));
+    const n = this.count(account);
+    const warn = this.pending(account) ? `<span class="pool-warn" title="${escapeHtml(t("resetPending"))}">⚠</span>` : "";
+    if (n == null) {
+      return warn + (this.failed(account) ? `<span class="pool-resets none" data-t="provider-resets" data-t-state="unknown" title="${escapeHtml(t("resetUnavailable"))}">↺ ?</span>` : "");
+    }
+    const title = escapeHtml(t(n > 0 ? "resetChoose" : "resetAvailable", { count: String(n) }));
+    return warn + (n > 0
+      ? `<button class="pool-resets" type="button" data-pool-resets="${id}" data-t="provider-resets" data-t-state="some" title="${title}" aria-label="${title}">↺ ${n}</button>`
+      : `<span class="pool-resets none" data-t="provider-resets" data-t-state="none" title="${title}">↺ 0</span>`);
+  }
+
+  // How a saved reset is named and when it ends, in the window.
   static title(credit) { return credit.resetType === "codex_rate_limits" ? t("resetFull") : credit.title || t("poolUnavailable"); }
   static expiry(credit) { return credit.expiresAt ? t("resetExpires", { date: new Date(credit.expiresAt).toLocaleString() }) : ""; }
 
@@ -62,49 +93,6 @@ export class SubscriptionResetCards {
     const ends = (credit) => { const at = Date.parse(credit.expiresAt); return Number.isFinite(at) ? at : Infinity; };
     return list.filter((credit) => credit.usable)
       .sort((a, b) => (ends(a) === ends(b) ? 0 : ends(a) < ends(b) ? -1 : 1)).map(named);
-  }
-
-  html(account) {
-    const id = account.testAliasOf || account.id;
-    if (!account.hasCredential) return "";
-    this.fetch(id);
-    const entry = this.cache.get(id), data = entry?.data;
-    const refresh = `<button type="button" class="icon-action compact" data-reset-refresh="${escapeHtml(id)}" title="${escapeHtml(t("usTitleRefreshLimits"))}"${entry?.loading || this.busy.has(id) ? " disabled" : ""}>↻</button>`;
-    if (!data && !entry?.error) return "";
-    const count = data?.availableCount;
-    const attempt = this.attempts.get(id);
-    const rows = (data?.credits || []).map((credit) => {
-      const pending = attempt?.creditId === credit.id;
-      const title = SubscriptionResetCards.title(credit), expiry = SubscriptionResetCards.expiry(credit);
-      return `<div class="reset-credit"><div><strong>${escapeHtml(title)}</strong>${expiry ? `<small>${escapeHtml(expiry)}</small>` : ""}</div>
-        <button type="button" class="ghost-action" data-reset-use="${escapeHtml(id)}" data-reset-credit="${escapeHtml(credit.id)}"${this.busy.has(id) || (!pending && (attempt || !credit.usable)) ? " disabled" : ""}>${escapeHtml(t(pending ? "resetRetry" : "resetUse"))}</button></div>`;
-    }).join("");
-    const missing = attempt && !(data?.credits || []).some((c) => c.id === attempt.creditId)
-      ? `<button type="button" class="ghost-action" data-reset-use="${escapeHtml(id)}" data-reset-credit="${escapeHtml(attempt.creditId)}"${this.busy.has(id) ? " disabled" : ""}>${escapeHtml(t("resetRetry"))}</button>` : "";
-    return `<section class="subscription-resets"><div class="reset-head"><strong>${escapeHtml(t("resetAvailable", { count: count == null ? "?" : String(count) }))}</strong>${refresh}</div>
-      ${entry?.error ? `<p class="muted" title="${escapeHtml(entry.error)}">${escapeHtml(t("resetUnavailable"))}</p>` : ""}
-      ${attempt ? `<p class="muted">${escapeHtml(t("resetPending"))}</p>` : ""}${rows}${missing}</section>`;
-  }
-
-  async handle(event, accounts) {
-    const element = event.target.closest("[data-reset-use], [data-reset-refresh]");
-    if (!element) return false;
-    event.stopPropagation();
-    const id = element.dataset.resetUse || element.dataset.resetRefresh;
-    if (this.busy.has(id)) return true;
-    if (element.hasAttribute("data-reset-refresh")) { await this.fetch(id, true); return true; }
-    const creditId = element.dataset.resetCredit;
-    await this.run(id, async () => {
-      if (this.blocked(id, creditId)) return "";   // another reset is unresolved: there is nothing to ask about
-      const account = accounts.find((a) => a.id === id);
-      const credit = this.cache.get(id)?.data?.credits?.find((c) => c.id === creditId);
-      const agreed = await appConfirm(t("resetConfirm", { account: account?.name || id }), {
-        title: t("resetConfirmTitle"), confirmLabel: t(this.attempts.has(id) ? "resetRetry" : "resetUse"),
-        detail: [account?.oauthEmail, credit ? SubscriptionResetCards.expiry(credit) : ""].filter(Boolean).join(" · "), danger: true,
-      });
-      return agreed ? creditId : "";
-    });
-    return true;
   }
 
   // The counter in the head of a pool rung. The window lists the resets that can be spent and asks which;

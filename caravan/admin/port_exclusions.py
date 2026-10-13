@@ -2,7 +2,7 @@
 
 WHY THIS EXISTS. Cell numbering is one flat fleet-wide range starting at
 SERVER_CELL_BASE_PORT, and the caravan only knows about the ports IT owns —
-cells, proxy routes, bridges, its own web port. Anything else on the box is
+cells, proxy routes, its own web port. Anything else on the box is
 invisible to it: on this fleet the range held a leftover FastAPI console on
 8091 that the picker cheerfully painted as free. Picking it produced a cell
 that reserved fine, configured fine, and then died at `systemctl start` with a
@@ -111,7 +111,7 @@ def set_exclusions(body: dict) -> dict:
 def scan_foreign_listeners(listening=None) -> dict:
     """Ports inside the cell range that are LISTENING but are not ours.
 
-    "Not ours" means: not a cell slot, not a proxy/bridge route, not the
+    "Not ours" means: not a cell slot, not a proxy route, not the
     controller's own web port, not already excluded. What is left is either
     something the operator runs deliberately (exclude it) or something they
     forgot about (also worth knowing).

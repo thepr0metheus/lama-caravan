@@ -7,8 +7,8 @@ power, the GPU driver, the GPU reading, the busiest processes, the terminal
 snapshots — and since 1.3.440 the list of its cards. The cases below have no
 scout — an empty fleet in a fresh data folder — so each of those answers
 "there is no scout on the controller's machine", the same way in both modes.
-The service journal is the controller's own and still read here: in a
-container it points at `docker logs`.
+The legacy single server's journal is not read any more (1.3.485): no page
+showed it, and in a container it only pointed at `docker logs`.
 
 Each mode runs in a child process — CARAVAN_CONTAINER is read once, at import,
 as in production — and every program start there is caught: a container
@@ -48,7 +48,7 @@ class _Caught:
 subprocess.Popen = _Caught
 
 from caravan.common.errors import AppError
-from caravan.admin import gpu_driver, host_power, monitoring, systemd_ctl
+from caravan.admin import gpu_driver, host_power, monitoring
 from caravan.admin.paths import IS_CONTAINER
 
 def refused(fn, *args):
@@ -72,8 +72,6 @@ out.update({
     "btop": monitoring.monitor_snapshot("btop"),
     "gpuState": monitoring.gpu_state(),
 })
-if IS_CONTAINER:
-    out["journal"] = systemd_ctl.logs()
 out["started"] = started
 print(json.dumps(out))
 '''
@@ -118,8 +116,6 @@ def test_in_a_container():
     got = child(container=True)
     check(got.get("inContainer") is True, "флаг контейнера прочитан при импорте")
     through_the_scout(got, "контейнер")
-    check(str(got.get("journal", "")).startswith("The journal is unavailable in a container"),
-          f"журнал службы — «недоступно» и куда смотреть (получено {got.get('journal')!r})")
 
 
 def test_outside_a_container():
@@ -127,7 +123,6 @@ def test_outside_a_container():
     got = child(container=False)
     check(got.get("inContainer") is False, "флаг контейнера не стоит")
     through_the_scout(got, "на машине")
-    check("journal" not in got, "журнал на машине не подменяется ответом контейнера")
 
 
 for fn in (test_in_a_container, test_outside_a_container):

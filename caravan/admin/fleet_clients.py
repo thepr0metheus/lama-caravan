@@ -13,8 +13,9 @@ from pathlib import Path
 
 from caravan.admin.controller_machine import ControllerMachine
 from caravan.admin.config_builder import (CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths,
-                                          run_config)
+                                          models_dir_from_config, parse_config, run_config)
 from caravan.admin.host_telemetry import HostTelemetry
+from caravan.admin.machine_models import MachineModels
 from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.domain.runner import VllmRunner, for_config
@@ -26,6 +27,7 @@ from caravan.admin.paths import (
     PORT as ADMIN_PORT,
     SERVER_BACKUPS_DIR,
     TOPOLOGY_SERVER_IP,
+    TOPOLOGY_SERVER_URL,
     is_controller_host,
 )
 from caravan.admin.proxies_config import (
@@ -33,6 +35,7 @@ from caravan.admin.proxies_config import (
     write_agent_proxy_payload,
 )
 from caravan.admin.server_cells import (
+    KEPT_CELLS,
     assert_server_cell_port_available,
     move_server_cell,
     server_slot_key,
@@ -159,22 +162,72 @@ def client_llama_suspect_dismiss(body: dict) -> dict:
         save_admin_state()
     return result
 
+class ScoutCellConfig:
+    """A cell config as it leaves for a scout, and as this controller locates
+    the cell's models.
+
+    LLAMA_MODELS_DIR in a cell config names a models folder of some machine:
+    the cell form writes the scout cache's default into every config it saves,
+    and the cells that moved from the controller's old machine carried that
+    controller's folder. For a scout's cell it is the wrong folder twice
+    (2026-10-12, the seamless cell on the NAS caravan):
+
+    * this controller located the cell's models under it — another machine's
+      path, empty in its container — found nothing, and did not tell the scout
+      that the model was a folder: the scout asked for seamless as a file and
+      the download answered 404;
+    * the start line exported it, and the scout's own LLAMA_MODELS_DIR, where it
+      put the model, lost: the command read the old folder, never the cache.
+
+    So a start locates the models in this controller's folder — the one
+    GET /api/models/download serves them from — and the config a scout gets
+    carries none: where its model lies is the scout's to say.
+    """
+
+    KEY = "LLAMA_MODELS_DIR"
+
+    def __init__(self, config, models_dir):
+        raw = config if isinstance(config, dict) else {}
+        self.sent = {key: value for key, value in raw.items() if key != self.KEY}
+        self.models_dir = str(models_dir)
+
+    def located(self, model_path=""):
+        """The config model_paths reads: this controller's models folder, and
+        the model the start names in place of the saved one."""
+        config = {**self.sent, self.KEY: self.models_dir}
+        if model_path:
+            config["MODEL_FILE"] = model_path
+        return config
+
+
+def controller_models_dir():
+    """Where this controller keeps the models it serves its scouts. A function
+    and not a value: the saved config can change it, and a test points it at a
+    folder of its own."""
+    return models_dir_from_config(parse_config())
+
+
 def scout_start_payload(body: dict) -> dict:
     """The request that starts a cell on a scout's machine — sent by a start,
     and kept by the scout for a cell that starts with the machine
     (client_llama_autostart): one sentence, written here."""
+    cell = ScoutCellConfig(body.get("config"), controller_models_dir())
     payload = {
         "modelPath": str(body.get("modelPath") or "").strip(),
         "port": int(body.get("port") or 8180),
         "gpuLayers": gpu_layers_int(body.get("gpuLayers")),
         "ctxSize": int(body.get("ctxSize") or 4096),
-        # When False (default) the remote re-downloads every start and purges
-        # on stop — no GGUF persists on the client disk. When True it keeps the
-        # model on disk and reuses it (and keeps only the active model).
+        # True: the scout keeps the model on its disk after a stop and starts
+        # from that copy — the model is written to the disk once. False: it
+        # downloads it at every start and deletes it at every stop. A scout
+        # can only start an engine from its own disk, so "no cache" writes the
+        # whole model again at every start (the owner chose the cache for the
+        # disks' sake, 2026-10-13). A command cell obeys it too (scout 2.31).
         "cacheModels": bool(body.get("cacheModels", False)),
         # Full form config — kept for download/heartbeat metadata and as a
-        # fallback for older agents that still rebuild the command themselves.
-        "config": body.get("config") if isinstance(body.get("config"), dict) else {},
+        # fallback for older agents that still rebuild the command themselves —
+        # less the models folder of another machine (ScoutCellConfig).
+        "config": cell.sent,
     }
     # Where this controller reads each model file, keyed by the path the scout
     # is sent. A scout that has the same file there — on this machine, or a
@@ -183,15 +236,20 @@ def scout_start_payload(body: dict) -> dict:
     # download, or names the library it lacks.
     command_path = uses_command_path(payload["config"])
     runner = for_config(payload["config"])
+    if runner.min_scout:
+        host = topology_store().get("hosts", {}).get(str(body.get("hostId") or ""), {})
+        have = _version_tuple(host.get("scoutVersion"))
+        if have and have < runner.min_scout:
+            need = ".".join(str(n) for n in runner.min_scout)
+            raise AppError(f"this scout ({host.get('scoutVersion')}) cannot start a {runner.id} cell — "
+                           f"it needs caravan-scout {need}: update the scout", 400)
     if runner.llama_config:
         runner.preflight_start(payload["config"], payload["modelPath"])
     if runner.id == "prism":
         host = topology_store().get("hosts", {}).get(str(body.get("hostId") or ""), {})
         if not (host.get("prismRuntime") or {}).get("supported"):
             raise AppError("This scout does not support PrismML yet — update caravan-scout and refresh the host", 400)
-    model_cfg = dict(payload["config"])
-    if payload["modelPath"] and not command_path:
-        model_cfg["MODEL_FILE"] = payload["modelPath"]
+    model_cfg = cell.located(payload["modelPath"] if not command_path else "")
     found = model_paths(model_cfg, current_locations(wait=True))
     # Command-path cells run an arbitrary managed process — no llama args.
     # custom cells send their stored COMMAND; vllm cells compile their fields
@@ -199,6 +257,9 @@ def scout_start_payload(body: dict) -> dict:
     # agent-side knowledge of runners is needed.
     if command_path:
         payload["cellKind"] = "command"
+        # The files the scout brings before the start, as the runner names
+        # them (scout 2.31): a leftover MODEL_FILE of another runner is not one.
+        payload["modelFiles"] = runner.model_file_paths(payload["config"])
         # The line names the runner's model folder where it is now: a vLLM
         # folder moved to a library is served from there (run_config); the
         # config sent along stays the saved one.
@@ -675,6 +736,10 @@ def host_from_report(payload):
             "specType": str(raw.get("specType") or "")[:40],
             "uptimeSec": raw.get("uptimeSec"),
             "pid": raw.get("pid"),
+            # The processes the cell's server started (scout 2.31): the card's
+            # memory may be a child's — Strata's engine under its server.
+            "pids": [p for p in (raw.get("pids") if isinstance(raw.get("pids"), list) else [])
+                     if type(p) is int and p > 1][:64],
             "lastError": str(raw.get("lastError") or "")[:200],
             "phase": str(raw.get("phase") or "")[:20],
             "downloadedBytes": int(raw.get("downloadedBytes") or 0),
@@ -756,11 +821,15 @@ def host_from_report(payload):
         "telemetry": ({k: payload["telemetry"][k] for k in ("watchedSeconds", "idleSeconds", "retentionSeconds")
                        if k in payload["telemetry"]}
                       if isinstance(payload.get("telemetry"), dict) else None),
+        # The machine's models as its entry lists them (scout 2.28+), each with its places
+        # (2.29+): the outputs a pool's row names a model of the machine by (machine_models.py).
+        # None from an older scout — it cannot say — not [] ("no models").
+        "entryModels": MachineModels.clean(payload.get("entryModels")),
         "firstSeen": now,
         "lastSeen": now,
     }
 
-def record_host_report(payload):
+def record_host_report(payload, only_known=False):
     """Store what a scout says about its machine: the whole of its host record.
 
     The scout owns that record and replaces it with each report; only when the
@@ -771,13 +840,26 @@ def record_host_report(payload):
     carried back through it by hand — the agent list was lost that way. Old
     scouts still send agents, candidates, assignments and applyStatus; they are
     not read (host_from_report).
+
+    `only_known`: the report only refreshes a machine the board holds, and
+    makes none (None then) — the background pull's way, see
+    refresh_hosts_from_scouts.
     """
     report = host_from_report(payload)
     store = topology_store()
+    if only_known and report["id"] not in store["hosts"]:
+        return None
     previous = store["hosts"].get(report["id"]) or {}
     report["firstSeen"] = previous.get("firstSeen") or report["firstSeen"]
     store["hosts"][report["id"]] = report
     save_admin_state()
+    # The cells its scout keeps that this controller has no record of — a controller moved to
+    # another machine has none — get one (1.3.504): a stopped cell is drawn from it alone.
+    # A report is the machine's word first: a record that cannot be made is said in the log.
+    try:
+        KEPT_CELLS.adopt(report["id"], payload.get("autostartRequests") if isinstance(payload, dict) else None)
+    except Exception as exc:  # noqa: BLE001 — the host record is stored either way
+        print(f"[cells] {report['id']}: the cells its scout keeps were not read: {exc}")
     return report
 
 
@@ -952,6 +1034,13 @@ def refresh_hosts_from_scouts():
     in the background (SCOUT_POLLER, caravan/admin/scout_poll.py), never inside
     a board read. An unreachable scout is skipped; its host record stays as its
     last report left it.
+
+    The pull refreshes the machines the board holds and never brings one back.
+    A ✕ on the NAS board was undone this way (2026-10-11): a pull in flight
+    re-made the machine right after it was forgotten, and since its scout had
+    let go and answered anyone, every next pull kept it "online". So a machine
+    forgotten while the pull ran stays forgotten, and a scout that holds no
+    controller is nobody's to refresh.
     """
     store = topology_store()
     for host in list(store["hosts"].values()):
@@ -960,9 +1049,9 @@ def refresh_hosts_from_scouts():
             continue
         try:
             state = fetch_json(f"{agent_url}/api/state", timeout=2, headers=_scout_headers())
-            if not isinstance(state, dict):
+            if not isinstance(state, dict) or not str(state.get("controllerUrl") or "").strip():
                 continue
-            record_host_report(scout_payload_from_state(state, agent_url))
+            record_host_report(scout_payload_from_state(state, agent_url), only_known=True)
         except Exception:
             continue
 
@@ -994,8 +1083,13 @@ def scout_payload_from_state(state, agent_url):
         "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
         "scoutVersion": state.get("scoutVersion") or "",
         "autostart": state.get("autostart") if isinstance(state.get("autostart"), list) else None,
+        # The start request its scout keeps for each of them (scout 2.26): the records of the cells
+        # this controller lacks are made from it (record_host_report).
+        "autostartRequests": state.get("autostartRequests") if isinstance(state.get("autostartRequests"), dict) else None,
         "llamaSuspect": state.get("llamaSuspect") if isinstance(state.get("llamaSuspect"), dict) else None,
         "telemetry": state.get("telemetry") if isinstance(state.get("telemetry"), dict) else None,
+        # The machine's models as its entry lists them (scout 2.28+).
+        "entryModels": state.get("entryModels") if isinstance(state.get("entryModels"), list) else None,
         "agentUrl": agent_url,
         "time": state.get("time") or int(time.time()),
     }
@@ -1005,7 +1099,8 @@ def scout_payload_from_state(state, agent_url):
 HOST_TELEMETRY = HostTelemetry(lambda: topology_hosts(), lambda host_id: _scout(host_id))
 
 #: Adding a machine's scout from the board and letting it go (scout_pairing.py).
-SCOUT_PAIRING = ScoutPairing(topology_store, save_admin_state, _scout_headers, ADMIN_PORT, TOPOLOGY_SERVER_IP)
+SCOUT_PAIRING = ScoutPairing(topology_store, save_admin_state, _scout_headers, ADMIN_PORT, TOPOLOGY_SERVER_IP,
+                             advertised_url=TOPOLOGY_SERVER_URL)
 
 #: The one poller of the fleet: board reads kick it (topology_state), and it
 #: runs refresh_hosts_from_scouts in the background.

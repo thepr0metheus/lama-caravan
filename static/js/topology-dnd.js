@@ -6,7 +6,7 @@ import {
   topologyProxyClass,
   topologyRouteClass,
 } from "./cables.js";
-import { _cvPos, _cvQueueHistData, _cvQueueHistOpen, _cvSchedHistData, _cvSchedHistOpen, _cvView, _fetchQueueHist, _fetchSchedHist, bindCanvasInteractions, canvasInitialView, canvasOpenPositions, cvSetViewport, drawCanvasConnectors, scheduleOutputColor } from "./canvas.js";
+import { _cvPos, _cvQueueHistData, _cvQueueHistOpen, _cvSchedHistData, _cvSchedHistOpen, _cvView, _fetchQueueHist, _fetchSchedHist, scheduleOutputColor } from "./canvas.js";
 import {
   closeChartModal,
   closeRouteActivityModal,
@@ -14,16 +14,16 @@ import {
   openRouteActivityModal,
 } from "./charts.js";
 import {
-  closeCloudBlockModal,
+  cancelCloudAccountWindow,
   closeCloudProviderModal,
+  cloudDeleteWords,
   deleteCloudAccount,
-  deleteCloudBlock,
+  finishCloudAccountWindow,
+  POOL_STEPS,
   saveCloudAccount,
-  saveCloudBlock,
-  selectCloudProviderType,
+  pickCloudProvider,
   startCloudOauthLogin,
-  completeCloudOauthLogin,
-  topologyCloudBlockForm,
+  copyCloudDeviceCode,
 } from "./cloud.js";
 import { renameTopologyAgent } from "./remote-cells.js";
 import { openRequestHistory } from "./history.js";
@@ -32,8 +32,6 @@ import { closeConfirmModal } from "./llama-edit.js";
 import {
   routerById,
   saveRouters,
-  setCloudModelExposed,
-  topologyOutputsCloudExpanded,
   topologyOutputsFolded,
   topologyQuietShown,
 } from "./routers.js";
@@ -59,7 +57,6 @@ import {
 } from "./topology-modals.js";
 import { closeIncidentsModal } from "./topology-nodes.js";
 import {
-  deleteTopologyProxy,
   editTopologyProxy,
   saveTopologyProxyForm,
 } from "./topology-proxies.js";
@@ -149,8 +146,11 @@ export function bindTopologyDragAndDrop() {
   // "Add Cloud Provider" button is now rendered dynamically — handled via delegation below
   const historyBtn = $("topologyRequestHistoryBtn");
   if (historyBtn) historyBtn.addEventListener("click", () => openRequestHistory());
-  // Route Activity expand modal
+  // Route Activity expand modal. Bound once per element: the clients' strip (index.html) outlives
+  // every render, and a listener added on each one would open the window as many times.
   document.querySelectorAll("[data-open-route-activity]").forEach((el) => {
+    if (el.dataset.routeActivityBound) return;
+    el.dataset.routeActivityBound = "1";
     el.addEventListener("click", () => openRouteActivityModal(el.dataset.routeNode || null));
   });
   $("routeActivityClose")?.addEventListener("click", closeRouteActivityModal);
@@ -170,25 +170,32 @@ export function bindTopologyDragAndDrop() {
   $("incidentsModalOverlay")?.addEventListener("click", (e) => {
     if (e.target === $("incidentsModalOverlay")) closeIncidentsModal();
   });
-  // Provider-card controls (block rows, edit/add/fetch, models flyout toggle,
-  // bridge ports) live on a DELEGATED listener owned by cloud.js — the lane's
-  // children are replaced by callback-path re-renders that never come back
-  // through this binder, so per-node listeners here ended up dead.
+  // Pool-card controls (steps, ports, the switch levels) live on a DELEGATED
+  // listener owned by cloud.js, and the step window's on one owned by
+  // pool-step-dialog.js — the lane's children are replaced by callback-path
+  // re-renders that never come back through this binder, so per-node
+  // listeners here ended up dead.
+  POOL_STEPS.bind($("topologyProxies"));
   // account modal
-  document.querySelector("[data-cloud-close]")?.addEventListener("click", closeCloudProviderModal);
-  document.querySelector("[data-cloud-cancel]")?.addEventListener("click", closeCloudProviderModal);
+  // ×, Cancel and the backdrop take back an account this window made for a
+  // sign-in that never finished (cloud.js, cancelCloudAccountWindow).
+  const cancelAccountWindow = () => { cancelCloudAccountWindow().catch((err) => toast(err.message)); };
+  document.querySelector("[data-cloud-close]")?.addEventListener("click", cancelAccountWindow);
+  document.querySelector("[data-cloud-cancel]")?.addEventListener("click", cancelAccountWindow);
   document.querySelector("[data-topology-cloud-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyCloudOverlay !== undefined) closeCloudProviderModal();
+    if (event.target?.dataset?.topologyCloudOverlay !== undefined) cancelAccountWindow();
   });
+  document.querySelector("[data-cloud-done]")?.addEventListener("click", () => finishCloudAccountWindow());
   document.querySelector("[data-cloud-save]")?.addEventListener("click", () => {
     saveCloudAccount().catch((err) => toast(err.message));
   });
   document.querySelector("[data-cloud-delete-account]")?.addEventListener("click", () => {
-    const name = ui.topologyCloudForm
-      ? ((topology?.cloudAccounts || []).find((a) => a.id === ui.topologyCloudForm.accountId)?.name || "this account")
-      : "this account";
+    const acct = ui.topologyCloudForm
+      ? (topology?.cloudAccounts || []).find((a) => a.id === ui.topologyCloudForm.accountId)
+      : null;
     $("confirmTitle").textContent = t("topologyCloudDeleteAccount");
-    $("confirmText").textContent = t("deleteCloudAccountText", { name });
+    // What the delete does, said by cloud.js where it is pinned by value.
+    $("confirmText").textContent = cloudDeleteWords(acct);
     $("confirmMeta").hidden = true;
     $("confirmPath").textContent = "";
     $("confirmDelete").textContent = t("topologyCloudDeleteAccount");
@@ -203,68 +210,20 @@ export function bindTopologyDragAndDrop() {
       const field = input.dataset.cloudField;
       const value = input.value;
       if (field === "authMode") { ui.topologyCloudForm.authMode = value; renderTopology(); return; }
-      const oauthMap = { oauthClientId: "clientId", oauthAuthorizeUrl: "authorizeUrl", oauthTokenUrl: "tokenUrl", oauthScope: "scope", oauthRedirectPort: "redirectPort" };
-      if (oauthMap[field]) {
-        ui.topologyCloudForm.oauthConfig = ui.topologyCloudForm.oauthConfig || {};
-        ui.topologyCloudForm.oauthConfig[oauthMap[field]] = field === "oauthRedirectPort" ? Number(value) : value;
-        return;
-      }
       ui.topologyCloudForm[field] = value;
     });
   });
   document.querySelector("[data-cloud-oauth-login]")?.addEventListener("click", () => {
     startCloudOauthLogin().catch((err) => toast(err.message));
   });
-  document.querySelector("[data-cloud-oauth-complete]")?.addEventListener("click", () => {
-    completeCloudOauthLogin().catch((err) => toast(err.message));
-  });
-  // block modal
-  document.querySelector("[data-cloud-block-close]")?.addEventListener("click", closeCloudBlockModal);
-  document.querySelector("[data-cloud-block-cancel]")?.addEventListener("click", closeCloudBlockModal);
-  document.querySelector("[data-topology-cloud-block-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyCloudBlockOverlay !== undefined) closeCloudBlockModal();
-  });
-  document.querySelector("[data-cloud-block-save]")?.addEventListener("click", () => {
-    saveCloudBlock().catch((err) => toast(err.message));
-  });
-  document.querySelector("[data-cloud-delete-block]")?.addEventListener("click", async () => {
-    const blockId = topologyCloudBlockForm?.blockId || "";
-    const model = topologyCloudBlockForm?.model || topologyCloudBlockForm?.blockName || blockId || "this model block";
-    // Preflight: list everything that references this block (bridges, queue
-    // roles, rules, cables) so "delete" stops being a silent wire-cutter.
-    const refLines = [];
-    try {
-      const res = await api(`/api/cloud-blocks/refs?id=${encodeURIComponent(blockId)}`);
-      const refs = res.refs || {};
-      (refs.bridges || []).forEach((b) => refLines.push(t("refBridge", { port: String(b.port) }) + (b.label ? ` · ${b.label}` : "")));
-      (refs.routes || []).forEach((r) => refLines.push(t("refAgentRoute", { port: String(r.port) }) + (r.label ? ` · ${r.label}` : "")));
-      (refs.fallbacks || []).forEach((r) => refLines.push(t("refCloudFallback", { port: String(r.port) }) + (r.label ? ` · ${r.label}` : "")));
-      (refs.queueRoles || []).forEach((q) => refLines.push(t("refQueueRole", { role: q.role })));
-      (refs.rescueRoles || []).forEach((q) => refLines.push(t("refRescueRole", { role: q.role })));
-      (refs.rules || []).forEach((r) => refLines.push(t("refRule", { rule: r.rule })));
-      if ((refs.edges || []).length) refLines.push(t("refCables", { n: String(refs.edges.length) }));
-    } catch (_) { /* advisory only — deletion must not depend on the preflight */ }
-    const block = (topology?.cloudProviders || []).find((b) => b.id === blockId);
-    $("confirmTitle").textContent = t("topologyCloudDeleteBlock");
-    $("confirmText").textContent = t("removeCloudBlockText", { model });
-    const metaLines = [];
-    if (block?.unlisted) metaLines.push(`⚠ ${t("cloudModelUnlisted")}`);
-    metaLines.push(refLines.length
-      ? `${t("refsUsedBy")}\n${refLines.map((l) => `• ${l}`).join("\n")}`
-      : t("refsNone"));
-    $("confirmPath").textContent = metaLines.join("\n");
-    $("confirmMeta").hidden = false;
-    $("confirmDelete").textContent = t("topologyCloudDeleteBlock");
-    $("confirmDelete").classList.add("danger");
-    ui.pendingConfirm = () => { closeConfirmModal(); deleteCloudBlock().catch((err) => toast(err.message)); };
-    $("confirmOverlay").hidden = false;
-  });
-  document.querySelectorAll("[data-block-field]").forEach((input) => {
-    const evt = input.tagName === "SELECT" ? "change" : "input";
-    input.addEventListener(evt, () => {
-      if (!topologyCloudBlockForm) return;
-      topologyCloudBlockForm[input.dataset.blockField] = input.value;
-    });
+  // The code goes with the operator to OpenAI's page: copied on the link's
+  // click (the link still opens the page), and on a click on the code itself
+  // or Enter/Space while it has the focus (the operator, 2026-10-08).
+  document.querySelector("[data-cloud-device-open]")?.addEventListener("click", () => { copyCloudDeviceCode(); });
+  const deviceCode = document.querySelector("[data-cloud-device-code]");
+  deviceCode?.addEventListener("click", () => { copyCloudDeviceCode(); });
+  deviceCode?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copyCloudDeviceCode(); }
   });
   // picker
   document.querySelector("[data-cloud-picker-close]")?.addEventListener("click", closeCloudProviderModal);
@@ -272,7 +231,7 @@ export function bindTopologyDragAndDrop() {
     if (event.target?.dataset?.cloudPickerOverlay !== undefined) closeCloudProviderModal();
   });
   document.querySelectorAll("[data-pick-type]").forEach((tile) => {
-    tile.addEventListener("click", () => selectCloudProviderType(tile.dataset.pickType));
+    tile.addEventListener("click", () => { if (!tile.disabled) pickCloudProvider(tile.dataset.pickType); });
   });
   document.querySelector("[data-cloud-picker-change]")?.addEventListener("click", () => {
     ui.topologyCloudPickerOpen = true;
@@ -718,17 +677,7 @@ export function bindTopologyDragAndDrop() {
     });
   });
 
-  // Cloud provider header → expand/collapse its model checklist.
-  document.querySelectorAll("[data-router-prov-toggle]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const acc = btn.dataset.routerProvToggle;
-      const accBlocks = (topology?.cloudProviders || []).filter((b) => b.accountId === acc);
-      const cur = (acc in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc] : accBlocks.filter((b) => b.exposed).length === 0;
-      topologyOutputsCloudExpanded[acc] = !cur;
-      renderTopology();
-    });
-  });
-  // Host / provider group fold on the canvas servers block.
+  // A machine's group fold on the canvas servers block.
   document.querySelectorAll("[data-router-group-fold]").forEach((el) => {
     el.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -748,34 +697,6 @@ export function bindTopologyDragAndDrop() {
     };
     el.addEventListener("click", toggle);
     el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(e); } });
-  });
-  // Cloud model checkbox → expose/hide as a routable output.
-  document.querySelectorAll("[data-router-expose]").forEach((cb) => {
-    cb.addEventListener("change", () => setCloudModelExposed(cb.dataset.routerExpose, cb.checked));
-  });
-  document.querySelectorAll("[data-router-add-rule]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.routerAddRule;
-      const src = document.querySelector(`[data-router-rule-source="${CSS.escape(id)}"]`)?.value;
-      const out = document.querySelector(`[data-router-rule-output="${CSS.escape(id)}"]`)?.value;
-      if (!src || !out) return;
-      saveRouters((routers) => {
-        const s = routerById(routers, id);
-        if (!s) return;
-        s.rules = s.rules || {};
-        s.rules.bySource = (s.rules.bySource || []).filter((r) => r.proxyId !== src);
-        s.rules.bySource.push({ proxyId: src, clientId: "", output: out });
-      }).catch((e) => toast(e.message));
-    });
-  });
-  document.querySelectorAll("[data-router-del-rule]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.routerDelRule, idx = Number(btn.dataset.ruleIndex);
-      saveRouters((routers) => {
-        const s = routerById(routers, id);
-        if (s && s.rules) s.rules.bySource = (s.rules.bySource || []).filter((_, i) => i !== idx);
-      }).catch((e) => toast(e.message));
-    });
   });
   // The unassigned list shuts as a menu does: on a press outside it, or on Escape. The listener
   // takes itself off on its first press outside, so a list a render replaced leaves none behind.
@@ -805,48 +726,6 @@ export function bindTopologyDragAndDrop() {
     el.addEventListener("click", attach);
     el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); attach(); } });
   });
-  document.querySelectorAll("[data-router-detach]").forEach((el) => {
-    el.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const pid = el.dataset.routerDetach;
-      const p = (topology?.proxies || []).find((x) => x.id === pid);
-      const name = p ? (p.label || `proxy ${p.port}`) : pid;
-      const ok = await appConfirm(t("dlgUnassignRouter", { name }), { confirmLabel: t("dlgUnassign") });
-      if (!ok) return;
-      setTopologyProxyRoutePolicy(pid, { routerId: "" }).catch((err) => toast(err.message));
-    });
-  });
-  document.querySelector("[data-router-open-canvas]")?.addEventListener("click", (event) => {
-    ui.topologyCanvasRouterId = event.currentTarget.dataset.routerOpenCanvas;
-    cvSetViewport(canvasOpenPositions(ui.topologyCanvasRouterId), canvasInitialView(ui.topologyCanvasRouterId));
-    renderTopology();
-    requestAnimationFrame(() => { drawCanvasConnectors(); bindCanvasInteractions(); });
-  });
-  document.querySelector("[data-topology-canvas-close]")?.addEventListener("click", () => {
-    ui.topologyCanvasRouterId = "";
-    renderTopology();
-  });
-  document.querySelector("[data-topology-canvas-overlay]")?.addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) { ui.topologyCanvasRouterId = ""; renderTopology(); }
-  });
-  document.querySelector("[data-router-failover-toggle]")?.addEventListener("click", (event) => {
-    const id = event.currentTarget.dataset.routerFailoverToggle;
-    saveRouters((routers) => {
-      const s = routerById(routers, id);
-      if (!s) return;
-      s.rules = s.rules || {};
-      const on = (s.rules.failover || []).length > 0;
-      if (on) { s.rules.failover = []; return; }
-      // Build the chain: default output first, then the rest in display order.
-      const ids = (s.outputs || []).map((o) => o.id);
-      const def = s.rules.default;
-      s.rules.failover = def && ids.includes(def) ? [def, ...ids.filter((x) => x !== def)] : ids;
-    }).catch((e) => toast(e.message));
-  });
-  document.querySelector("[data-router-inputs-toggle]")?.addEventListener("click", () => {
-    ui.topologyRouterInputsExpanded = !ui.topologyRouterInputsExpanded;
-    renderTopology();
-  });
   // Hover-link: highlight the rule(s)/default and the output row they connect.
   const routerLinkHi = (outId, on) => {
     if (!outId) return;
@@ -863,17 +742,6 @@ export function bindTopologyDragAndDrop() {
     el.addEventListener("mouseenter", () => routerLinkHi(out, true));
     el.addEventListener("mouseleave", () => routerLinkHi(out, false));
   });
-  const routerSearch = document.querySelector("[data-router-input-search]");
-  if (routerSearch) {
-    routerSearch.addEventListener("input", () => {
-      ui.topologyRouterInputSearch = routerSearch.value;
-      const q = routerSearch.value.trim().toLowerCase();
-      document.querySelectorAll("[data-router-pill-wrap] [data-pill-name]").forEach((el) => {
-        const hit = !q || (el.dataset.pillName || "").includes(q) || (el.dataset.pillPort || "").includes(q);
-        el.style.display = hit ? "" : "none";
-      });
-    });
-  }
   // ── Weekly schedule editor ─────────────────────────────────────────────────
   document.querySelector("[data-router-open-schedule]")?.addEventListener("click", (event) => {
     const id = event.currentTarget.dataset.routerOpenSchedule;
@@ -947,16 +815,6 @@ export function bindTopologyDragAndDrop() {
   document.querySelectorAll("[data-client-rename]").forEach((btn) => {
     btn.addEventListener("click", () => {
       editTopologyClientAlias(btn.dataset.clientRename, btn.dataset.clientName);
-    });
-  });
-  document.querySelectorAll("[data-topology-proxy-edit]").forEach((button) => {
-    button.addEventListener("click", () => {
-      editTopologyProxy(button.dataset.topologyProxyEdit);
-    });
-  });
-  document.querySelectorAll("[data-topology-proxy-delete]").forEach((button) => {
-    button.addEventListener("click", () => {
-      deleteTopologyProxy(button.dataset.topologyProxyDelete).catch((err) => toast(err.message));
     });
   });
   document.querySelectorAll("[data-topology-route-handle]").forEach((handle) => {

@@ -21,15 +21,24 @@ ENV CARAVAN_CONTAINER=1 \
 # Zone data: TZ names the controller's time zone (docker-compose.yml). Without
 # the data the C library takes any zone name for UTC without a word, and the
 # start-up check refuses to run (caravan/common/container_preflight.py).
+# The upgrade first: the base image is rebuilt less often than Debian's
+# security fixes come out, and a build takes them only if it asks (visumap
+# nas-apps.md, apps-deps-vulns.md). GET /api/packages shows what came.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# No pip either: the base image brings it for apps that install their libraries,
+# and this one installs none, at build time or at run time. Left in, it was six
+# known vulnerabilities in GET /api/packages for a tool nothing calls (2026-10-08).
+RUN python -m pip uninstall --yes pip
 
 RUN useradd --create-home --uid 10001 caravan \
     && mkdir -p /data && chown caravan:caravan /data
 
 WORKDIR /app
-COPY --chown=caravan:caravan app.py agent-proxies.py ./
+COPY --chown=caravan:caravan app.py agent-proxies.py VERSION ./
 COPY --chown=caravan:caravan caravan/ caravan/
 COPY --chown=caravan:caravan static/ static/
 # The cell servers the controller hands to the scouts (/api/cell-assets).

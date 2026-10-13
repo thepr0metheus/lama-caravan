@@ -2,6 +2,8 @@
 listener watcher) and route normalization."""
 import json
 
+from caravan.common.entry_models import ConsumerSet
+from caravan.common.key_entry import KeyEntry
 from caravan.proxy.paths import CONFIG_FILE, DEFAULT_POLICY, DEFAULT_ROUTES, UPSTREAM_HOST, UPSTREAM_PORT
 from caravan.proxy.runtime import config_cache, config_lock
 from caravan.common.queue_policy import SharedQueuePolicy
@@ -60,8 +62,10 @@ def load_config():
             route["routerId"] = route.get("switchboardId")
         if route.get("routerId") == "sb:default":
             route["routerId"] = "router:default"
+    # The one entry for consumers with keys (caravan/common/key_entry.py): {} when off.
+    entry = KeyEntry.clean(payload.get("entry") if isinstance(payload, dict) else None)
     return {"routes": routes, "policy": normalized_policy,
-            "routers": routers, "stopRequests": stop_requests[-100:]}
+            "routers": routers, "stopRequests": stop_requests[-100:], "entry": entry}
 
 def current_config():
     try:
@@ -77,6 +81,7 @@ def current_config():
             "policy": dict(config_cache.get("policy") or DEFAULT_POLICY),
             "routers": [dict(router) for router in (config_cache.get("routers") or [])],
             "stopRequests": list(config_cache.get("stopRequests") or []),
+            "entry": dict(config_cache.get("entry") or {}),
         }
 
 def live_route_for_port(port):
@@ -94,13 +99,19 @@ def normalize_route(route):
     upstream_host = str(route.get("upstreamHost") or UPSTREAM_HOST).strip() or UPSTREAM_HOST
     upstream_port = int(route.get("upstreamPort") or UPSTREAM_PORT)
     label = str(route.get("label") or f"port-{port}").strip()[:80] or f"port-{port}"
+    kind = str(route.get("kind") or "").strip().lower()
+    if kind == "service":
+        # A pool's own port, open without a key: gone since 1.3.487 — the entry,
+        # with a key, is the one way in. Every reader skips a route that raises
+        # here, so no listener opens on it (caravan/admin/pool_ports.py).
+        raise ValueError("a pool's own port is no longer served")
     return {
         "label": label,
         "port": port,
-        # "service" = bridge port for an external consumer (a voice app etc.);
-        # carried through for state/log consumers — the data plane treats it
-        # like any other route.
-        "kind": str(route.get("kind") or "").strip().lower(),
+        # "consumer" = a consumer of the entry: no port of its own, and its key
+        # calls the pools of the set it is cabled to.
+        "kind": kind,
+        **(ConsumerSet.fields(route) if kind == "consumer" else {}),
         "upstreamHost": upstream_host,
         "upstreamPort": upstream_port,
         "upstreamType": str(route.get("upstreamType") or "llama").strip().lower(),
@@ -110,6 +121,9 @@ def normalize_route(route):
         # Data-plane auth: requests must present this as a Bearer/x-api-key.
         # Empty = open port (the default).
         "apiKey": str(route.get("apiKey") or "").strip(),
+        # Its own port is closed: the route is reached through the entry by its
+        # key only (caravan/common/key_entry.py), and no listener binds the port.
+        "portClosed": bool(route.get("portClosed")),
         "priority": int(route.get("priority") or 0),
         "preemptible": bool(route.get("preemptible", True)),
         # Client wait timeout (seconds) — the operator's number on the port.

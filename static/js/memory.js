@@ -5,7 +5,7 @@ import { syncFavoriteMirrors } from "./favorites.js";
 // Device-in-ENV helpers for command-path runners. Imported for use inside
 // functions only (llama-edit.js also imports this module) — the runtime cycle
 // is safe because nothing here runs at module load.
-import { _applyDeviceToEnv, _envDeviceState, usesLlamaConfig } from "./llama-edit.js";
+import { _applyDeviceToEnv, _envDeviceState, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
 import { modelChoiceOf, modelsByPath, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
@@ -321,6 +321,8 @@ export function shortGpuName(name) {
 //   vLLM         : GPU only   (it reserves VRAM by utilization)
 //   whisper      : GPU only   (whisper_server.py hardcodes device=cuda)
 //   moonshine    : CPU only   (its ONNX models have no GPU build)
+//   strata       : GPU only   (one CUDA card; its launcher refuses any other)
+//   gr00t        : GPU only   (Isaac-GR00T runs its policy on CUDA)
 //   transcribe   : CPU + GPU  (ggml: CUDA/Metal if the build has it, else CPU)
 //   custom       : CPU + GPU + auto  (generic managed process / TTS engines)
 function _runnerOf(pfx) {
@@ -333,6 +335,10 @@ export function runnerDeviceCaps(runner) {
     case "vllm":      return { cpu: false, gpu: true,  auto: false };
     case "whisper":   return { cpu: false, gpu: true,  auto: false };
     case "moonshine": return { cpu: true,  gpu: false, auto: false };
+    // Left to the default branch it took llama's CPU tile, and the tile wrote
+    // CUDA_VISIBLE_DEVICES= into a cell its launcher then refuses (1.3.512).
+    case "strata":    return { cpu: false, gpu: true,  auto: false };
+    case "gr00t":     return { cpu: false, gpu: true,  auto: false };
     // ggml runs on whatever the build carries; CUDA_VISIBLE_DEVICES= (what the
     // CPU tile writes) makes a CUDA build fall back, so the pin is real here.
     case "transcribe": return { cpu: true, gpu: true,  auto: false };
@@ -345,13 +351,13 @@ export function runnerDeviceCaps(runner) {
     default:          return { cpu: true,  gpu: true,  auto: false };  // llama-server
   }
 }
-// llama edits N_GPU_LAYERS; the command-path runners pin the device in ENV. A
-// forced runner (vllm/whisper=gpu, moonshine=cpu) reports that regardless.
+// llama edits N_GPU_LAYERS; the command-path runners pin the device in ENV,
+// read through the caps above — so a runner with one device (vLLM, whisper and
+// Strata on GPU, moonshine on CPU) reports it whatever its ENV says. The caps
+// are the one list of them: this function kept a second, and Strata was in neither.
 export function currentComputeMode(pfx) {
   const runner = _runnerOf(pfx);
   const caps = runnerDeviceCaps(runner);
-  if (runner === "moonshine") return "cpu";
-  if (runner === "vllm" || runner === "whisper") return "gpu";
   if (usesLlamaConfig(runner)) return computeIsCpu(pfx) ? "cpu" : "gpu";
   // custom (and any other command runner): read the ENV pin
   const st = _envDeviceState($(pfx + "ENV")?.value || "", $(pfx + "COMMAND")?.value || "");
@@ -673,8 +679,13 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
 //   transcribe the picked GGUF's own size — no KV growth to add, an ASR pass is
 //              one bounded utterance, so the file IS the footprint.
 //   custom    an opaque process — nothing to estimate, the bar shows use only.
+// A runner with a VRAM plan in the registry is drawn from the plan instead:
+// Strata's takes the free VRAM (FreeVramStart, below), GR00T's is a fixed figure
+// the server measured (runner.py vram_plan).
 export function computeFitRuntimeGb(pfx = "") {
   const runner = _runnerOf(pfx);
+  const fixedMiB = Number(runnerRegistry().find((r) => r.id === runner)?.vramPlan?.fixedMiB || 0);
+  if (fixedMiB > 0) return fixedMiB / 1024;
   if (usesLlamaConfig(runner)) return estimateRuntimeMemoryGb(pfx).runtimeSize;
   if (runner === "vllm") {
     const util = Number($(pfx + "GPU_MEMORY_UTILIZATION")?.value) || 0.9;
@@ -685,13 +696,77 @@ export function computeFitRuntimeGb(pfx = "") {
   if (runner === "transcribe") return Number(selectedModelRows(pfx).selected?.sizeGb || 0);
   return 0;
 }
-// llama keeps driving the estimate bar from renderModelInsight (it has the
-// richer per-file breakdown); every other runner gets it from here, so the bar
-// looks and reads the same for all of them. A llama cell with no model chosen
-// has nothing to estimate, and the bar says so — left alone, it kept the last
+// A start that takes its card's free VRAM (runner.py vram_plan: Strata sizes
+// its expert cache to what is free). Its card is the one runner.py
+// vram_reservation names, read off the cell's ENV the same way; its cost is
+// what is free there less the reserve it leaves to others, and it needs its
+// floor plus that reserve free. The scout refuses it below that, exactly
+// (starts.py: free >= reserved), so the bar's 1 GB grace for estimates is not
+// given. A class, not a function: the card, the reserve and the floor are read
+// once and answer four questions.
+export class FreeVramStart {
+  /** The card's index as text: the ENV's last CUDA_VISIBLE_DEVICES, else "0";
+   *  "" when the pin names no single card — the server reserves nothing then. */
+  static device(env) {
+    const pins = [];
+    for (const raw of String(env || "").split(/[\n,]/)) {
+      const at = raw.indexOf("=");
+      if (at > 0 && raw.slice(0, at).trim() === "CUDA_VISIBLE_DEVICES") pins.push(raw.slice(at + 1).trim());
+    }
+    const device = pins.length ? pins[pins.length - 1].replace(/^"+|"+$/g, "") : "0";
+    return /^\d+$/.test(device) ? device : "";
+  }
+
+  /** The start, or null where the server reserves nothing: no such card, or a
+   *  reserve that is not a number of MiB (its Apply is refused, by name). */
+  static of(plan, { env = "", reserve = "", gpus = [] } = {}) {
+    const device = FreeVramStart.device(env);
+    const card = device ? (gpus || []).find((g) => String(g.index) === device) : null;
+    const raw = String(reserve ?? "").trim();
+    if (!card || (raw && !/^\d+$/.test(raw))) return null;
+    return new FreeVramStart(plan, card, raw ? Number(raw) : 0);
+  }
+
+  constructor(plan, card, reserveMiB) {
+    this.card = card;
+    this.floorMiB = Math.max(0, Number(plan?.floorMiB) || 0);
+    this.reserveMiB = reserveMiB;
+    this.freeMiB = gpuFreeMiB(card);
+  }
+
+  get needMiB() { return this.floorMiB + this.reserveMiB; }
+  get fits() { return this.freeMiB >= this.needMiB; }
+  /** What the bar plans for it: what it will take, or — when it will not
+   *  start — what it needs free. */
+  get addGb() { return (this.fits ? this.freeMiB - this.reserveMiB : this.needMiB) / 1024; }
+  /** How the bar draws it: on its card alone, overflowing exactly, saying how. */
+  bar() {
+    return { hard: true, cards: [Number(this.card.index)],
+             vramNote: t("vramTakesFree", { gb: formatSizeGb(this.needMiB / 1024) }) };
+  }
+}
+
+// Who draws the estimate bar, decided here once. llama's figure is
+// renderModelInsight's (it has the per-file breakdown) and comes in as
+// llamaGb; every other runner's comes from its VRAM plan or from
+// computeFitRuntimeGb. renderModelInsight drew its llama sum for every runner
+// with a model chosen, and a Strata cell read "37.2 GB, won't fit" on the card
+// it runs on (live check, 2026-10-13). A llama cell with no model chosen has
+// nothing to estimate, and the bar says so — left alone, it kept the last
 // model's numbers.
-export function refreshAsidePanels(pfx = "") {
-  if (!usesLlamaConfig(_runnerOf(pfx))) renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
-  else if (!selectedModelRows(pfx).selected) renderAsideVramBar(pfx, 0);
+export function refreshAsidePanels(pfx = "", llamaGb = null) {
+  const runner = _runnerOf(pfx);
+  if (usesLlamaConfig(runner)) {
+    if (!selectedModelRows(pfx).selected) renderAsideVramBar(pfx, 0);
+    else if (llamaGb !== null) renderAsideVramBar(pfx, llamaGb);
+    return;
+  }
+  const plan = runnerRegistry().find((r) => r.id === runner)?.vramPlan;
+  const start = plan?.takesFree
+    ? FreeVramStart.of(plan, { env: $(pfx + "ENV")?.value, reserve: $(pfx + plan.reserveField)?.value,
+                               gpus: computeTargetGpus(pfx) })
+    : null;
+  if (start) renderAsideVramBar(pfx, start.addGb, true, start.bar());
+  else renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
 }
 

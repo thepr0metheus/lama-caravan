@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/css/fold.css">
   <link rel="stylesheet" href="/css/hf.css">
   <link rel="stylesheet" href="/css/onboarding.css">
+  <link rel="stylesheet" href="/css/river.css">
 </head>
 <body data-t-page="board" data-t-state="loading" aria-busy="true">
   <script>
@@ -269,12 +270,14 @@
       <svg id="topologyCables" class="topology-cables" aria-hidden="true"></svg>
       <div class="topology-column">
         <div class="section-title topology-title">
-          <h2 class="title-with-tip"><span id="boardClientsHead" data-i18n="topologyClientsSection">Clients and their proxies</span><span id="topologyClientsTip"></span></h2>
+          <h2 class="title-with-tip"><span id="boardClientsHead" data-i18n="topologyClientsSection">Clients</span><span id="topologyClientsTip"></span></h2>
           <div class="topology-head-actions">
             <button id="topologyClientsDensityBtn" type="button" class="icon-action prominent" data-board-density="clients" data-t="board-density" data-t-id="clients" aria-pressed="true">⊟</button>
             <button id="topologyClientAddBtn" type="button" class="icon-action prominent" data-t="client-add" data-title-i18n="topologyClientAdd" aria-label="Add a client">＋</button>
           </div>
         </div>
+        <!-- Each client's recent requests stand on its own card (the owner, 2026-10-12: the strip
+             under the clients said the same, apart from them); a click opens them all, ⤢ (charts.js). -->
         <div id="topologyClients" class="topology-stack" data-t="board-clients-lane" role="region" aria-labelledby="boardClientsHead"></div>
       </div>
 
@@ -287,37 +290,40 @@
             <div class="topology-divider-head"></div>
           </section>
           <section class="lane-servers">
-            <div class="topology-lane-head">
-              <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model servers</span><span id="topologyLlamaServersTip"></span></h2>
+            <!-- The machines (the owner, 2026-10-11): on the main board each one at a glance — its
+                 load, with ↗ to its own window; in that window (/machine?host=<id>, board-view.js)
+                 its whole card: servers, engines, models, cells. -->
+            <div class="topology-lane-head machines-head">
+              <h2 class="title-with-tip"><span id="boardMachinesHead" data-i18n="topologyMachinesSection">Machines</span><span id="topologyMachinesTip"></span></h2>
               <div class="topology-head-actions">
-                <!-- The lane's main action, wide and in the accent, in its head (2026-10-04, the
-                     operator): it stood as a dashed button at the end of a long list. -->
-                <button id="topologyCloudAddBtn" type="button" class="icon-action prominent topology-head-add" data-topo-add-cloud data-t="board-cloud-add" data-i18n="clAddProvider">+ Add Cloud Provider</button>
+                <!-- The section's main action, wide, and the scan beside it (the owner, 2026-10-11).
+                     They open the box under the head (scout-add.js). -->
+                <button id="scoutAddOpenBtn" type="button" class="icon-action prominent topology-head-add" data-scout-add-open data-t="scout-add-open"
+                        aria-expanded="false" aria-controls="scoutAdd" data-i18n="scoutAddTitle" data-title-i18n="scoutAddHint">＋ Add scout</button>
+                <button id="scoutFindOpenBtn" type="button" class="icon-action prominent scout-find-open" data-scout-add-find data-t="scout-add-find"
+                        aria-expanded="false" aria-controls="scoutAdd" data-i18n="scoutFindButton" data-title-i18n="scoutFindTitle">🔍 Find</button>
+                <button id="topologyCellsDensityBtn" type="button" class="icon-action prominent" data-board-density="cells" data-t="board-density" data-t-id="cells" aria-pressed="true">⊟</button>
+                <!-- The board's own tools stood in the head of Pools; the pools moved to the kanban
+                     (2026-10-12), and the tools to the head of the section the board still has. -->
                 <!-- The fleet's incidents: routes that failed, fell back or were slow.
                      It lived on the controller machine's node, which goes away when
                      that machine's cells move to its scout; it is the whole board's. -->
                 <button id="boardIncidentsBtn" type="button" class="icon-action prominent board-incidents-btn" data-board-incidents data-t="board-incidents-open" data-title-i18n="topologyIncidentsOpen" title="Incidents">⚠ <span data-board-incidents-count>0</span></button>
-                <button id="topologyCellsDensityBtn" type="button" class="icon-action prominent" data-board-density="cells" data-t="board-density" data-t-id="cells" aria-pressed="true">⊟</button>
-                <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
+                <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">
+                  <!-- Drawn in the toolbar's line style: the colour emoji 📊 stood out among its one-colour neighbours (2026-10-08). -->
+                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="13"/><line x1="12" y1="20" x2="12" y2="5"/><line x1="18" y1="20" x2="18" y2="10"/><line x1="3" y1="20" x2="21" y2="20"/></svg>
+                </button>
                 <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </button>
-                <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems" data-t="board-system-open">🛠</button>
+                <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System" data-t="board-system-open">🛠</button>
               </div>
             </div>
-            <!-- One list: the machines and the cloud providers, in the operator's order
-                 (server-order.js). The two lanes stay two containers — their listeners and
-                 tests address them — and lend their cards to this column; a card's place is
-                 its CSS order. -->
-            <div id="boardServerCards" class="server-cards" data-t="board-server-cards" role="region" aria-labelledby="boardNodesHead">
-              <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane"></div>
-              <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane"></div>
-            </div>
-            <!-- Static, next to the list and not in it: the lanes are repainted every few
-                 seconds, and an address typed into them would be wiped mid-word. -->
-            <div id="scoutAdd" class="scout-add" data-t="board-scout-add" data-t-state="idle" data-survives-render>
+            <!-- Static, next to the lane and not in it: the lanes are repainted every few
+                 seconds, and an address typed into them would be wiped mid-word. Closed until
+                 one of the two buttons above opens it. -->
+            <div id="scoutAdd" class="scout-add" data-t="board-scout-add" data-t-state="idle" data-survives-render hidden>
               <div class="scout-add-row">
-                <span class="scout-add-title" data-i18n="scoutAddTitle" data-title-i18n="scoutAddHint">＋ Add scout</span>
                 <input class="scout-add-address" type="text" data-scout-add-address data-t="scout-add-address"
                        autocomplete="off" spellcheck="false" data-i18n-placeholder="scoutAddAddressPh"
                        data-i18n-aria="scoutAddAddressPh" placeholder="machine address — IP or name">
@@ -327,8 +333,32 @@
                 <button type="button" class="scout-add-connect" data-scout-add-connect data-t="scout-add-connect"
                         data-i18n="scoutAddConnect">Connect</button>
               </div>
+              <div class="scout-find" data-scout-find data-t="scout-find" data-t-state="idle" hidden>
+                <div class="scout-add-row">
+                  <input class="scout-find-networks" type="text" data-scout-find-networks data-t="scout-find-networks"
+                         autocomplete="off" spellcheck="false" data-i18n-placeholder="scoutFindNetworksPh"
+                         data-i18n-aria="scoutFindNetworksPh" placeholder="networks to scan — e.g. 10.0.30.0/24">
+                  <button type="button" class="scout-find-run" data-scout-find-run data-t="scout-find-run"
+                          data-i18n="scoutFindRun">Scan</button>
+                </div>
+                <div class="scout-find-list" data-scout-find-list data-t="scout-find-list" role="list" aria-live="polite"></div>
+              </div>
               <div class="scout-add-status" data-scout-add-status data-t="scout-add-status" role="status" aria-live="polite"></div>
             </div>
+            <div id="boardMachineCards" class="machine-cards" data-t="board-machine-cards" role="region" aria-labelledby="boardMachinesHead">
+              <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane"></div>
+            </div>
+            <!-- The cloud providers stand under the machines, added here too (the owner, 2026-10-12):
+                 each provider a block of its accounts, without their models — the models are the
+                 kanban's (provider-glances.js). The kanban's card is cabled to the accounts its pools use. -->
+            <div class="topology-lane-head providers-head" data-board-providers-head>
+              <h2 class="title-with-tip"><span id="boardProvidersHead" data-i18n="boardProvidersSection">Cloud providers</span></h2>
+              <div class="topology-head-actions">
+                <button id="providerAddBtn" type="button" class="icon-action prominent topology-head-add" data-provider-add data-t="provider-add"
+                        data-i18n="topologyAddCloud">＋ Add cloud provider</button>
+              </div>
+            </div>
+            <div id="boardProviderCards" class="machine-cards provider-cards" data-t="board-provider-cards" role="region" aria-labelledby="boardProvidersHead"></div>
           </section>
           <section class="lane-stats">
             <details class="topology-card topology-server-stats-card">
@@ -396,7 +426,7 @@
        aria-labelledby="llamaRemoteEditTitle" data-t="cell-remote-modal">
     <div class="topology-llama-edit-modal">
       <div class="topo-edit-header">
-        <h2 id="llamaRemoteEditTitle">Add llama server — remote</h2>
+        <h2 id="llamaRemoteEditTitle">Cell settings</h2>
         <div class="topo-edit-header-actions">
           <button type="button" class="ob-btn-head" data-ob-tour>
             <span class="ob-q">?</span><span data-i18n="tourBtnLabel">Tour</span>
@@ -426,17 +456,33 @@
               <input id="tr-CELL_KIND" name="CELL_KIND" type="hidden" value="">
               <input id="tr-RUNNER" name="RUNNER" type="hidden" value="" data-t="cell-remote-runner">
             </div>
+            <!-- The model's name at the machine's entry (1.3.507): for every runner. -->
+            <div class="field model-name-field">
+              <div class="label-row"><label for="tr-MODEL_NAME">MODEL_NAME</label></div>
+              <input id="tr-MODEL_NAME" name="MODEL_NAME" type="text" autocomplete="off" spellcheck="false" data-t="cell-remote-model-name">
+              <p class="ct-help" data-fieldhelp-text="MODEL_NAME">The name clients and pools call this model by at the machine's entry (its scout). Empty: the alias, else the model file's name. Applies at the cell's next start.</p>
+            </div>
+            <!-- The scout's behaviour, not a flag of any engine: for every runner (1.3.512 moved it out of
+                 the llama fields — a Strata or transcribe cell keeps or drops its model by it too). -->
+            <div class="cache-toggle-row" data-t="cell-remote-cache">
+              <input type="checkbox" id="tr-cacheModels" checked>
+              <label for="tr-cacheModels" class="cache-toggle-label" style="cursor:pointer">
+                <strong data-i18n="cacheModelsTitle">Cache model on host disk</strong>
+                <span data-i18n="cacheModelsBody">— keep the downloaded model in the scout's cache and start from that copy next time: the model is written to the disk once.</span>
+                <em data-i18n="cacheModelsOff">Off: download it at every start and delete it at every stop — every start writes the whole model to the disk again.</em>
+              </label>
+            </div>
             <div class="field command-cell-fields" id="tr-commandFields" style="display:none">
               <div class="label-row"><label for="tr-CMD_PRESET">Preset</label></div>
               <div class="cmd-preset-chips" id="tr-CMD_PRESET_CHIPS"></div>
               <select id="tr-CMD_PRESET" class="cmd-preset" hidden></select>
               <div class="label-row" style="margin-top:10px"><label for="tr-COMMAND">COMMAND</label></div>
               <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%" data-t="cell-remote-command">
-              <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
+              <p class="field-note" data-i18n="cmdPortNote">$PORT is exported to the cell's reserved port; the command is exec'd. Don't prefix with exec — it's added.</p>
               <select id="tr-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
               <div class="label-row" style="margin-top:10px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace" data-t="cell-remote-env"></textarea>
-              <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
+              <p class="field-note" data-i18n="cmdEnvNote">One KEY=VALUE per line → exported before the command.</p>
               <div class="cmd-two-col">
                 <div>
                   <div class="label-row"><label for="tr-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
@@ -456,7 +502,7 @@
             <div class="field vllm-cell-fields" id="tr-vllmFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-VLLM_MODEL">VLLM_MODEL</label></div>
               <input id="tr-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%" data-t="cell-remote-vllm-model">
-              <p class="field-note">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
+              <p class="field-note" data-i18n="vllmPanelNote">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
               <div class="label-row" style="margin-top:8px"><label for="tr-MAX_MODEL_LEN">MAX_MODEL_LEN</label></div>
               <input id="tr-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%" data-t="cell-remote-max-model-len">
               <div class="label-row" style="margin-top:8px"><label for="tr-GPU_MEMORY_UTILIZATION">GPU_MEMORY_UTILIZATION</label></div>
@@ -478,6 +524,37 @@
               <div class="label-row" style="margin-top:8px"><label for="tr-TENSOR_PARALLEL">TENSOR_PARALLEL</label></div>
               <input id="tr-TENSOR_PARALLEL" name="TENSOR_PARALLEL" type="number" placeholder="1" style="width:100%">
             </div>
+            <div class="field strata-cell-fields" id="tr-strataFields" style="display:none" data-t="cell-remote-strata-fields">
+              <!-- A status, not a help line: a div, since the editor hides every <p> inside a field
+                   (monitor.css, .topo-edit-form .field p) — as a <p> it was never seen (1.3.512). -->
+              <div class="field-note strata-draft" id="tr-strataDraft" data-t="cell-remote-strata-draft"></div>
+              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_CONTEXT">STRATA_CONTEXT</label></div>
+              <input id="tr-STRATA_CONTEXT" name="STRATA_CONTEXT" type="number" min="1024" step="1024" placeholder="131072" style="width:100%" data-t="cell-remote-strata-context">
+              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_KV">STRATA_KV</label></div>
+              <select id="tr-STRATA_KV" name="STRATA_KV" style="width:100%" data-t="cell-remote-strata-kv">
+                <option value="int8" selected>int8</option>
+                <option value="q4_0">q4_0</option>
+                <option value="k8v4">k8v4</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_DRAFT_VOCAB">STRATA_DRAFT_VOCAB</label></div>
+              <select id="tr-STRATA_DRAFT_VOCAB" name="STRATA_DRAFT_VOCAB" style="width:100%" data-t="cell-remote-strata-vocab">
+                <option value="cyrillic" selected>cyrillic</option>
+                <option value="cjk">cjk</option>
+                <option value="en">en</option>
+                <option value="fr">fr</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_VRAM_RESERVE_MIB">STRATA_VRAM_RESERVE_MIB</label></div>
+              <input id="tr-STRATA_VRAM_RESERVE_MIB" name="STRATA_VRAM_RESERVE_MIB" type="number" min="0" step="256" placeholder="0" style="width:100%" data-t="cell-remote-strata-reserve">
+              <p class="field-note" data-i18n="strataPanelNote">The engine is installed on the machine once (~/Strata, Strata's own setup.sh). Every start brings the model's parts and its draft layer from the caravan's library; the pack is made from them in seconds.</p>
+            </div>
+            <div class="field gr00t-cell-fields" id="tr-gr00tFields" style="display:none" data-t="cell-remote-gr00t-fields">
+              <div class="label-row" style="margin-top:8px"><label for="tr-GR00T_BACKBONE">GR00T_BACKBONE</label></div>
+              <input id="tr-GR00T_BACKBONE" name="GR00T_BACKBONE" placeholder="Cosmos-Reason2-2B/nvidia/BF16" style="width:100%" data-t="cell-remote-gr00t-backbone">
+              <div class="label-row" style="margin-top:8px"><label for="tr-GR00T_EMBODIMENT">GR00T_EMBODIMENT</label></div>
+              <input id="tr-GR00T_EMBODIMENT" name="GR00T_EMBODIMENT" placeholder="OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT" style="width:100%" data-t="cell-remote-gr00t-embodiment">
+              <div class="label-row" style="margin-top:8px"><label for="tr-GR00T_DENOISING_STEPS">GR00T_DENOISING_STEPS</label></div>
+              <input id="tr-GR00T_DENOISING_STEPS" name="GR00T_DENOISING_STEPS" type="number" min="1" max="64" step="1" placeholder="4" style="width:100%" data-t="cell-remote-gr00t-steps">
+            </div>
             <div class="field whisper-cell-fields" id="tr-whisperFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-WHISPER_MODEL">WHISPER_MODEL</label></div>
               <select id="tr-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%" data-t="cell-remote-whisper-model">
@@ -489,12 +566,15 @@
                 <option value="large-v3-turbo">large-v3-turbo · 1.6 GB</option>
                 <option value="distil-large-v3">distil-large-v3 · 1.5 GB</option>
               </select>
-              <p class="field-note">faster-whisper downloads the model on first start; language is chosen per request.</p>
             </div>
             <div class="field whisper-cell-fields" id="tr-translateFields" style="display:none">
-              <div class="label-row" style="margin-top:8px"><label for="tr-TRANSLATE_MODEL">TRANSLATE_MODEL</label></div>
-              <input id="tr-TRANSLATE_MODEL" name="TRANSLATE_MODEL" style="width:100%" data-t="cell-remote-translate-model"
-                     placeholder="facebook/nllb-200-distilled-600M" autocomplete="off">
+              <!-- The carrier of the value the shared picker sets (llama-edit.js hides this .field, the panel stays):
+                   as a bare label and input the nearest .field was the panel, and the languages below were never seen. -->
+              <div class="field" id="tr-translateModelField">
+                <div class="label-row" style="margin-top:8px"><label for="tr-TRANSLATE_MODEL">TRANSLATE_MODEL</label></div>
+                <input id="tr-TRANSLATE_MODEL" name="TRANSLATE_MODEL" style="width:100%" data-t="cell-remote-translate-model"
+                       placeholder="facebook/nllb-200-distilled-600M" autocomplete="off">
+              </div>
               <div class="label-row" style="margin-top:8px"><label for="tr-TRANSLATE_SRC_LANG">TRANSLATE_SRC_LANG</label></div>
               <select id="tr-TRANSLATE_SRC_LANG" name="TRANSLATE_SRC_LANG" style="width:100%" data-t="cell-remote-translate-src">
                 <option value="eng_Latn" selected>eng_Latn · English</option>
@@ -535,7 +615,7 @@
                 <option value="hin_Deva">hin_Deva · Hindi</option>
                 <option value="vie_Latn">vie_Latn · Vietnamese</option>
               </select>
-              <p class="field-note">Text in, text out. The model downloads itself on first start (2.5 GB). Weights are CC-BY-NC-4.0 (non-commercial).</p>
+              <p class="field-note" data-i18n="translatePanelNote">Text in, text out. The model downloads itself on first start (2.5 GB). Weights are CC-BY-NC-4.0 (non-commercial).</p>
             </div>
             <div class="field whisper-cell-fields" id="tr-seamlessFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-SEAMLESS_TGT_LANG">SEAMLESS_TGT_LANG</label></div>
@@ -557,7 +637,7 @@
                 <option value="hin">hin · Hindi</option>
                 <option value="vie">vie · Vietnamese</option>
               </select>
-              <p class="field-note">The cell outputs text in THIS language only — no source-language transcript is produced. Weights are CC-BY-NC-4.0 (non-commercial).</p>
+              <p class="field-note" data-i18n="seamlessPanelNote">The cell outputs text in THIS language only — no source-language transcript is produced. Weights are CC-BY-NC-4.0 (non-commercial).</p>
             </div>
             <div class="field whisper-cell-fields" id="tr-moonshineFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-MOONSHINE_MODEL">MOONSHINE_MODEL</label></div>
@@ -571,7 +651,6 @@
                 <option value="uk">uk · Community license</option>
                 <option value="ar">ar · Community license</option>
               </select>
-              <p class="field-note">Moonshine v2 downloads the model on first start; CPU-only. en is MIT; other languages need the free Moonshine Community License.</p>
             </div>
             <div id="tr-llamaFields" data-t="cell-remote-fields">
 
@@ -607,14 +686,6 @@
             </div>
             <div id="tr-modelInsight" class="model-insight"></div>
             <!-- Route-agent behaviour — not llama.cpp flags -->
-            <div class="cache-toggle-row">
-              <input type="checkbox" id="tr-cacheModels" checked>
-              <label for="tr-cacheModels" class="cache-toggle-label" style="cursor:pointer">
-                <strong>Cache model on host disk</strong> — keep the downloaded <code>.gguf</code> in
-                <code>~/llama-model-cache</code> and reuse it on next start (keeps only the active model,
-                old ones are removed). <em>Off: re-download every start and delete on stop — nothing persists on the client.</em>
-              </label>
-            </div>
             <div id="tr-dynamicFields" class="field-grid"></div>
             </div><!-- /tr-llamaFields -->
           </form>
@@ -648,11 +719,12 @@
             <h2 class="topo-aside-title" data-i18n="modelCacheHead">Model cache</h2>
             <div id="tr-cacheList" style="margin-bottom:8px"></div>
             <button type="button" id="tr-purgeCache" class="muted" style="width:100%" data-i18n="purgeCacheBtn">Clear model cache on host</button>
-            <div id="tr-purgeCacheInfo" style="font-size:11px;color:var(--muted,#888);margin-top:6px">Deletes downloaded .gguf from <code>~/llama-model-cache</code> (a running model is kept).</div>
+            <div id="tr-purgeCacheNote" style="font-size:11px;color:var(--muted,#888);margin-top:6px"><span data-i18n="purgeCacheNoteBefore">Deletes downloaded .gguf files from</span> <code>~/llama-model-cache</code> <span data-i18n="purgeCacheNoteAfter">(a running model is kept).</span></div>
+            <div id="tr-purgeCacheStatus" role="status" style="font-size:11px;color:var(--muted,#888);margin-top:6px"></div>
           </article>
           <article class="panel">
             <h2 class="topo-aside-title" data-i18n="commandOnRemote">Command (on remote)</h2>
-            <div style="font-size:10px;opacity:.6;margin-bottom:4px">Binary and model paths resolved on remote host</div>
+            <div style="font-size:10px;opacity:.6;margin-bottom:4px" data-i18n="remoteCmdPathsHint">Binary and model paths resolved on remote host</div>
             <pre id="tr-currentCmdline" class="command-preview"></pre>
           </article>
           <article class="panel">
@@ -722,6 +794,7 @@
 
   <div id="toast" role="status" data-t="app-toast"></div>
   <script type="module" src="/js/main.js"></script>
+  <script type="module" src="/js/river.js"></script>
 
 <div id="routeActivityTooltip" class="route-activity-tooltip" hidden></div>
 <div id="routeActivityOverlay" class="modal-overlay" hidden>

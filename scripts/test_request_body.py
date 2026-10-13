@@ -14,6 +14,7 @@ Run: python3 scripts/test_request_body.py
 import http.client
 import json
 import os
+import secrets
 import socket
 import sys
 import tempfile
@@ -54,9 +55,28 @@ _srv = ThreadingHTTPServer(("127.0.0.1", PORT), _Quiet)
 threading.Thread(target=_srv.serve_forever, daemon=True).start()
 
 
+# A fresh controller answers nothing but its first-run page (since 1.3.453), so
+# the caller makes the first account through the real /api/auth/setup and
+# carries its session: what is pinned below is the body, not the sign-in.
+def _first_account():
+    conn = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
+    conn.request("POST", "/api/auth/setup", headers={"Content-Type": "application/json"},
+                 body=json.dumps({"username": "body-test", "password": secrets.token_urlsafe(18)}))
+    resp = conn.getresponse()
+    resp.read()
+    cookie = (resp.getheader("Set-Cookie") or "").split(";", 1)[0]
+    conn.close()
+    if resp.status != 200 or not cookie:
+        raise SystemExit(f"request body: could not make the first account ({resp.status})")
+    return cookie
+
+
+SESSION = _first_account()
+
+
 def request(method, path, raw=None):
     conn = http.client.HTTPConnection("127.0.0.1", PORT, timeout=15)
-    conn.request(method, path, body=raw, headers={"Content-Type": "application/json"})
+    conn.request(method, path, body=raw, headers={"Content-Type": "application/json", "Cookie": SESSION})
     resp = conn.getresponse()
     text = resp.read().decode("utf-8", "replace")
     conn.close()
@@ -68,7 +88,7 @@ def request(method, path, raw=None):
 
 # Any POST route would do; this one validates its input, so a well-formed
 # object still gets a 400 and the two cases stay distinguishable.
-TARGET = "/api/cloud-blocks/save"
+TARGET = "/api/pools/level"
 # Python type names in an error body are an internal detail reaching a client.
 LEAKS = ("object has no attribute", "Expecting value", "Traceback")
 
@@ -79,13 +99,13 @@ LEAKS = ("object has no attribute", "Expecting value", "Traceback")
 # a happy-path assertion that cannot separate them cannot fail: an adversarial
 # review proved this file stayed fully green against a read_body mutated to
 # reject every body, valid objects included.
-ROUTE_SPOKE = "block.id must be 1-48 chars"
+ROUTE_SPOKE = "level must be switch or stop"
 PARSER_SPOKE = "request body "
 
 
 def test_bodies():
     print("POST body shapes:")
-    status, err = request("POST", TARGET, b'{"block": {}}')
+    status, err = request("POST", TARGET, b'{"name": "x"}')
     check(status == 400, f"an object is validated, not crashed on (got {status})")
     check(err.startswith(ROUTE_SPOKE),
           f"and the ROUTE is what answered, not the body parser (got {err!r})")

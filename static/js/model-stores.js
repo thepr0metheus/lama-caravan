@@ -437,8 +437,8 @@ export class StoresPanel {
       const rm = find("[data-store-remove]");
       if (rm) return this.remove(rm.dataset.storeRemove, rm);
       const why = find("[data-why-copy]");
-      // A copy that did not land shows the command instead, the way the
-      // cloud bridge does: the operator can still take it by hand.
+      // A copy that did not land shows the command instead: the operator
+      // can still take it by hand.
       if (why) { const cmd = why.dataset.whyCopy; copyText(cmd).then((ok) => toast(ok ? t("storeWhyCopied") : cmd)); return undefined; }
       const rep = find("[data-store-repath]");
       if (rep) { this.repathing = rep.dataset.storeRepath; this.render(); this.focusOn("[data-store-repath-box]"); return undefined; }

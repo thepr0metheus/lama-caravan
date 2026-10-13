@@ -1,13 +1,15 @@
-// Cloud provider accounts/blocks modals and OAuth login flow.
-import { SubscriptionPoolCards } from "./cloud-pools.js";
+// The cloud under Pools: the pools' cards (pools.js), the window that adds a step or a
+// pool (pool-step-dialog.js), and the accounts their steps stand on — the provider picker, the
+// account window and the sign-in by a one-time code.
+import { PoolCards } from "./pools.js";
+import { PoolStepDialog } from "./pool-step-dialog.js";
 import { SERVER_ORDER, ServerOrder } from "./server-order.js";
 import { SubscriptionResetCards } from "./subscription-resets.js";
-import { GoneModelCables, NewModelAnnouncer, PortCloser, ProviderModels } from "./cloud-models.js";
-import { badge, option } from "./form.js";
+import { StepCarry } from "./step-carry.js";
 import { t } from "./i18n.js";
-import { modelPricing } from "./model-meta.js";
-import { setTopology, state, topology, ui } from "./state.js";
-import { refreshTopology, renderTopology } from "./topology-render.js";
+import { formatPricePer1M, modelPricing } from "./model-meta.js";
+import { setTopology, topology, ui } from "./state.js";
+import { renderTopology } from "./topology-render.js";
 import {
   apiCostsCache,
   apiCostsHtml,
@@ -18,64 +20,65 @@ import {
   fetchUpstreamErrors,
   openrouterLimitsCache,
   openRouterLimitsHtml,
-  previewUsageReserve,
+  previewSwitchLevel,
   proxySpendFetchedAt,
   proxySpendHtml,
   proxySpendOf,
   refreshUsageReading,
-  reserveDrag,
-  saveUsageReserve,
-  spendCost,
+  saveSwitchLevel,
   subscriptionRefreshHtml,
   subscriptionUsageCache,
   subscriptionUsageHtml,
+  switchDrag,
   upstreamErrFetchedAt,
   upstreamErrorsHtml,
 } from "./usage-stats.js";
-import { appConfirm } from "./dialogs.js";
-import { $, api, copyText, escapeHtml, pill, toast } from "./utils.js";
+import { $, api, copyText, escapeHtml, toast } from "./utils.js";
 
-export let topologyCloudBlockModalOpen = false;
-export let topologyCloudBlockForm = null;
 export let topologyCloudBusy = false;
-export const topologyCloudModelCache = new Map(); // accountId → models[], fetched once at page load
 
-// When the page may ask a provider for its model list again after a refusal.
-// A refusal is not an answer (the in-flight marker is forgotten), and it is not
-// a reason to ask again at once either: the page asks on every poll, so an
-// account that kept failing was asked every 1.5 s, forever. The operator's own
-// act — opening the model editor — asks regardless.
-export class ModelListAsks {
-  constructor({ now = () => Date.now(), pauseMs = 60000 } = {}) {
-    this.now = now;
-    this.pauseMs = pauseMs;
-    this.failedAt = new Map();   // accountId → when its last ask was refused
+// Who waits for the account window to close: the step window that sent the operator to connect
+// an account gets that account back (pool-step-dialog.js). One owner, emptied on the way out of
+// every exit, the cancelled ones included — a hook left behind would hand the next window's
+// account to a step window long closed.
+export class AccountWindowReturn {
+  constructor() { this.after = null; }
+  wait(after) { this.after = typeof after === "function" ? after : null; }
+  waiting() { return !!this.after; }
+  done(accountId = null) {
+    const after = this.after;
+    this.after = null;
+    if (after) after(accountId || null);
   }
-
-  mayAsk(accountId, force = false) {
-    const at = this.failedAt.get(accountId);
-    return force || at === undefined || this.now() - at >= this.pauseMs;
-  }
-
-  refused(accountId) { this.failedAt.set(accountId, this.now()); }
 }
-export const MODEL_LIST_ASKS = new ModelListAsks();
-// Provider-card controls via DELEGATION on the permanent container: the lane's
-// children are replaced by several independent paths (full renderTopology, the
-// usage/pricing fetch callbacks, the flyout toggle) — per-node listeners bound
-// by bindTopologyDragAndDrop died with the old nodes whenever a callback-path
-// re-render ran, leaving dead buttons. One listener on the container survives
-// every innerHTML swap.
-// The ↻ buttons on a cloud card. One table instead of three identical blocks:
-// each was `cache.delete(id); fetch(id)` under a different attribute, and the
-// tab-return refresher (usage-stats.js) would have made it a fourth copy of the
-// same two lines. The button and the refresher call the same action. It lived
-// in bindTopologyDragAndDrop, which runs on every full render and bound it to
-// this permanent container again each time: after K renders one ↻ asked the
-// provider K times.
-const POOL_CARDS = new SubscriptionPoolCards({ apply: (top) => { setTopology(top); ui._lastCloudProvidersKey = ""; renderTopology(); }, connect: (id) => selectCloudProviderType("openai-subscription", id) });
-const RESET_CARDS = new SubscriptionResetCards({ redraw: () => { ui._lastCloudProvidersKey = ""; renderTopologyCloudProviders(); }, refreshed: (id) => refreshUsageReading("subscription", id) });
+export const ACCOUNT_RETURN = new AccountWindowReturn();
 
+const drawLane = () => { ui._lastCloudProvidersKey = ""; renderTopologyCloudProviders(); };
+const drawBoard = (top) => { if (top) setTopology(top); ui._lastCloudProvidersKey = ""; renderTopology(); };
+
+// "+ Add step" and "+ New pool". Connecting a new account from it opens the provider picker; the
+// account window brings the new account back to it.
+export const POOL_STEPS = new PoolStepDialog({
+  apply: drawBoard,
+  render: () => renderTopology(),
+  connect: (after) => openCloudPicker(after),
+  icon: (account) => cloudAccountIconHtml(account),
+  price: (model) => cloudPrice(model),
+});
+
+// The pools' cards. Their controls listen on the lane's permanent container (bindCloudCardDelegates):
+// the lane's children are replaced by several independent paths (a full render, the usage and
+// pricing fetch callbacks), and per-node listeners died with the old nodes.
+export const POOL_CARDS = new PoolCards({
+  apply: drawBoard,
+  addStep: (poolId) => POOL_STEPS.open(poolId),
+  editAccount: (accountId) => openCloudAccountModal(accountId),
+});
+const RESET_CARDS = new SubscriptionResetCards({ redraw: drawLane, refreshed: (id) => refreshUsageReading("subscription", id) });
+
+// The ↻ buttons on a step. One table instead of three identical blocks: each was
+// `cache.delete(id); fetch(id)` under a different attribute, and the tab-return refresher
+// (usage-stats.js) would have made it a fourth copy of the same two lines.
 const USAGE_REFRESH_BUTTONS = [
   ["data-usage-refresh", "usageRefresh", "subscription"],
   ["data-api-costs-refresh", "apiCostsRefresh", "apiCosts"],
@@ -85,30 +88,27 @@ const USAGE_REFRESH_BUTTONS = [
 function bindCloudCardDelegates(cpEl) {
   if (cpEl.dataset.delegated) return;
   cpEl.dataset.delegated = "1";
-  // The reserve slider on a subscription's limit bar: dragging moves the
-  // hatched share at once, letting go saves it, and the lane waits for the
-  // release before it redraws (usage-stats.js, reserveDrag).
+  // The switch level on a subscription step's limit bar: dragging moves the hatched share at
+  // once, letting go saves it, and the lane waits for the release before it redraws
+  // (usage-stats.js, switchDrag).
   cpEl.addEventListener("pointerdown", (e) => {
-    if (!e.target.closest("[data-usage-reserve]")) return;
-    reserveDrag.begin(() => {
-      ui._lastCloudProvidersKey = "";
-      renderTopologyCloudProviders();
-    });
+    if (!e.target.closest("[data-pool-switch]")) return;
+    switchDrag.begin(drawLane);
   });
   cpEl.addEventListener("input", (e) => {
-    const slider = e.target.closest("[data-usage-reserve]");
-    if (slider) previewUsageReserve(slider);
+    const slider = e.target.closest("[data-pool-switch]");
+    if (slider) previewSwitchLevel(slider);
   });
-  // A pool's rung is dragged by its grip: the pool card reads the drag, the lane only passes it on.
-  for (const type of ["dragstart", "dragover", "drop", "dragend"]) cpEl.addEventListener(type, (e) => { POOL_CARDS.gesture(e); });
+  // A pool's step is carried by its grip (step-carry.js, the home start page's way); the pool card
+  // saves the order it leaves behind. One carrier per lane, on its permanent container.
+  POOL_CARDS.carry = new StepCarry(cpEl, { onSort: (poolId, ids) => POOL_CARDS.sort(poolId, ids) });
   cpEl.addEventListener("change", async (e) => {
-    if (await POOL_CARDS.handle(e)) return;
-    const slider = e.target.closest("[data-usage-reserve]");
-    if (slider) saveUsageReserve(slider);
+    const slider = e.target.closest("[data-pool-switch]");
+    if (slider) { saveSwitchLevel(slider, drawBoard); return; }
+    await POOL_CARDS.handle(e, drawLane);
   });
   cpEl.addEventListener("click", async (e) => {
-    if (await RESET_CARDS.handle(e, topology?.cloudAccounts || [])) return;
-    if (await POOL_CARDS.handle(e)) return;
+    if (await POOL_CARDS.handle(e, drawLane)) return;
     for (const [attr, dataKey, kind] of USAGE_REFRESH_BUTTONS) {
       const btn = e.target.closest(`[${attr}]`);
       if (!btn) continue;
@@ -116,294 +116,181 @@ function bindCloudCardDelegates(cpEl) {
       refreshUsageReading(kind, btn.dataset[dataKey]);
       return;
     }
-    const toggle = e.target.closest("[data-cloud-models-toggle]");
-    if (toggle) {
-      e.stopPropagation();
-      const id = toggle.dataset.cloudModelsToggle;
-      (ui.cloudModelsOpen ||= {})[id] = !ui.cloudModelsOpen[id];
-      ui._lastCloudProvidersKey = "";   // the class lives outside the render key
-      renderTopologyCloudProviders();
-      return;
-    }
-    const edit = e.target.closest("[data-cloud-edit-account]");
-    if (edit) { e.stopPropagation(); openCloudAccountModal(edit.dataset.cloudEditAccount); return; }
-    const addBlock = e.target.closest("[data-cloud-add-block]");
-    if (addBlock) { e.stopPropagation(); openCloudBlockModal(null, addBlock.dataset.cloudAddBlock); return; }
     const retryBtn = e.target.closest("[data-api-retry]");
     if (retryBtn) {
       e.stopPropagation();
       retryBtn.disabled = true;
       try {
         const res = await api("/api/cloud-api-health/retry", { method: "POST", body: JSON.stringify({ key: retryBtn.dataset.apiRetry }) });
-        if (res.topology) setTopology(res.topology);
-        renderTopology();
+        drawBoard(res.topology);
       } catch (err) { toast(err.message); retryBtn.disabled = false; }
-      return;
     }
-    const fetchBtn = e.target.closest("[data-cloud-fetch-models]");
-    if (fetchBtn) {
-      // "↻ check now": the list is checked by itself every ten minutes while
-      // the board is open; this asks at once and says what it found.
-      e.stopPropagation();
-      const id = fetchBtn.dataset.cloudFetchModels;
-      fetchBtn.disabled = true;
-      fetchBtn.classList.add("spinning");
-      try {
-        const res = await api("/api/cloud-accounts/auto-create-blocks", { method: "POST", body: JSON.stringify({ id }) });
-        await refreshTopology();
-        toast(t("cloudChecked", { total: String(res.total || 0), created: String(res.created || 0),
-          gone: String(res.gone || 0), removed: String(res.removed || 0) }));
-        ui._lastCloudProvidersKey = "";
-        renderTopology();
-      } catch (err) { toast(`${t("cloudCheckFailed")}: ${err.message}`); fetchBtn.disabled = false; fetchBtn.classList.remove("spinning"); }
-      return;
-    }
-    const mint = e.target.closest("[data-bridge-mint]");
-    if (mint) {
-      e.stopPropagation();
-      // The "+ port" on a model's row: that model on its own open port.
-      const blockId = mint.dataset.bridgeMint;
-      if (!blockId) return;
-      mint.disabled = true;
-      try {
-        const res = await api("/api/cloud-accounts/bridge-port", { method: "POST", body: JSON.stringify({ blockId }) });
-        await refreshTopology();
-        const url = `http://${location.hostname}:${res.route.port}`;
-        toast((await copyText(url)) ? t("cloudBridgeMinted", { url }) : url);
-        renderTopology();
-      } catch (err) { toast(err.message); mint.disabled = false; }
-      return;
-    }
-    const copyBtn = e.target.closest("[data-bridge-copy]");
-    if (copyBtn) {
-      e.stopPropagation();
-      toast((await copyText(copyBtn.dataset.bridgeCopy)) ? t("cloudBridgeCopied") : copyBtn.dataset.bridgeCopy);
-      return;
-    }
-    const del = e.target.closest("[data-bridge-delete]");
-    if (del) {
-      // The model's port: the last one takes it off the kanban, and the
-      // closer asks what happens to what still leads to it.
-      e.stopPropagation();
-      const port = Number(del.dataset.bridgeDelete);
-      const route = (topology?.proxies || []).find((p) => Number(p.port) === port);
-      await PORT_CLOSER.close(route?.providerId || "", port);
-      return;
-    }
-    const restore = e.target.closest("[data-cloud-restore]");
-    if (restore) {
-      e.stopPropagation();
-      const [accountId, id] = String(restore.dataset.cloudRestore).split("|");
-      restore.disabled = true;
-      try {
-        const res = await api("/api/cloud-blocks/restore", { method: "POST", body: JSON.stringify({ accountId, id }) });
-        if (res.topology) setTopology(res.topology);
-        toast(t("cloudRestored", { model: res.block?.model || id }));
-        renderTopology();
-      } catch (err) { toast(err.message); restore.disabled = false; }
-      return;
-    }
-    const move = e.target.closest("[data-cloud-move-cables]");
-    if (move) {
-      e.stopPropagation();
-      move.disabled = true;
-      await GONE_CABLES.offer(move.dataset.cloudMoveCables);
-      move.disabled = false;
-      return;
-    }
-    const row = e.target.closest("[data-cloud-block]");
-    if (row) openCloudBlockModal(row.dataset.cloudBlock, null);
   });
-  cpEl.addEventListener("keydown", (e) => {
-    // The row itself, not a button in it: Enter on "＋ port" opened the
-    // model's window, and the port was never minted from the keyboard.
-    const row = e.target.matches?.("[data-cloud-block]") ? e.target : null;
-    if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openCloudBlockModal(row.dataset.cloudBlock, null); }
-  });
+}
+
+// A model's price per 1M tokens as a step and the step window say it, or "".
+export function cloudPrice(model) {
+  if (String(model || "").endsWith(":free")) return "FREE";
+  const p = modelPricing[model || ""];
+  return p && (p.inputPer1M || p.outputPer1M) ? `${formatPricePer1M(p.inputPer1M)} · ${formatPricePer1M(p.outputPer1M)}` : "";
+}
+
+// Dollars as a step's head says them: whole from a dollar up, cents below, and a share too
+// small to show said so rather than as $0.
+export function cloudMoney(cost) {
+  const c = Number(cost) || 0;
+  if (c >= 1) return `$${Math.round(c).toLocaleString("en-US")}`;
+  if (c >= 0.01) return `$${c.toFixed(2)}`;
+  return "<$0.01";
+}
+
+// What one step's model cost through the caravan, from its account's 30 days: the cost at API
+// prices, or — no price known — how many requests, never "$0". Empty when nothing went to it.
+export function cloudStepSpend(accountId, model) {
+  const spend = proxySpendOf(accountId);
+  const key = String(model || "").toLowerCase();
+  const row = (spend?.byModel || []).find((m) => String(m.model || "").toLowerCase() === key);
+  if (!row || !(Number(row.requests) > 0 || Number(row.cost) > 0)) return { cost: "", costTitle: "" };
+  const days = String(spend.windowDays || 30), req = String(Number(row.requests) || 0);
+  return {
+    cost: Number(row.cost) > 0 ? t("cloudModelSpend", { cost: cloudMoney(row.cost), days }) : t("cloudModelSpendReq", { req, days }),
+    costTitle: t("cloudModelSpendTitle", { days, req }),
+  };
 }
 
 export function renderTopologyCloudProviders() {
   const accounts = topology?.cloudAccounts || [];
-  const blocks = topology?.cloudProviders || [];
-  // Skip re-render when cloud data + usage cache haven't changed
+  const pools = topology?.pools || [];
+  // Skip re-render when the pools, their readings and the usage caches haven't changed.
   const usageKeys = accounts.map((a) => {
     const c = subscriptionUsageCache.get(a.id) || apiCostsCache.get(a.id) || openrouterLimitsCache.get(a.id);
     return c ? `${a.id}:${c.fetchedAt || 0}:${c.loading ? 1 : 0}` : `${a.id}:0`;
   }).join("|");
-  // Include pricing fingerprint for relevant models so pricing load triggers re-render
-  const pricingKey = blocks.map((b) => {
-    const p = modelPricing[b.model || ""];
-    return p ? `${b.model}:${p.inputPer1M}:${p.outputPer1M}` : b.model || "";
+  const pricingKey = pools.flatMap((p) => p.steps || []).map((s) => {
+    const price = modelPricing[s.model || ""];
+    return price ? `${s.model}:${price.inputPer1M}:${price.outputPer1M}` : s.model || "";
   }).join("|");
-  // Bridge ports live on the provider cards — their set must trigger a re-render.
-  const bridgesKey = (topology?.proxies || [])
-    .filter((p) => p.kind === "service")
-    .map((p) => `${p.port}:${p.providerId}`).join(",");
-  // Fetched model lists drive the "not listed by provider" marks — arrival must re-render.
-  const modelsKey = accounts.map((a) => `${a.id}:${(topologyCloudModelCache.get(a.id) || []).length}`).join("|")
-    // …and so do the sync's removals ("↶"), and the cables that reach a model.
-    + JSON.stringify(topology?.cloudRemoved || [])
-    + (topology?.routers || []).map((r) => (r.graph?.edges || []).filter((e) => String(e?.to || "").startsWith("out:cb:")).map((e) => e.to).join(",")).join("|");
-  // Endpoint-health panel (breaker trips / retries / codex version) re-renders too.
-  const healthKey = JSON.stringify(topology?.cloudApiHealth || {});
-  // The mint button shows the port the next bridge will get — its change must re-render.
-  const key = JSON.stringify(topology?.cloudPoolsRuntime || {}) + JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
-    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${topology?.nextAppPort ?? ""}:ml${modelsKey}:ah${healthKey}:ue${upstreamErrFetchedAt}`;
+  const key = poolsRuntimeKey(topology?.poolsRuntime) + JSON.stringify(accounts) + JSON.stringify(pools) + usageKeys + pricingKey
+    + `:ps${proxySpendFetchedAt}:ah${JSON.stringify(topology?.cloudApiHealth || {})}:ue${upstreamErrFetchedAt}`
+    + `:so${SERVER_ORDER.current().join(",")}`;
   if (key === ui._lastCloudProvidersKey) return;
-  if (reserveDrag.active) {
-    reserveDrag.deferred = true;   // redrawn when the pointer lets go
+  if (switchDrag.active) {
+    switchDrag.deferred = true;   // redrawn when the pointer lets go
     return;
   }
-  if (typeof document !== "undefined" && document.activeElement?.matches?.('[data-pool-field="name"]')) return;
+  if (typeof document !== "undefined" && document.activeElement?.matches?.('[data-pool-field="name"], [data-pool-field="contextLength"]')) return;
   if (POOL_CARDS.inFlight()) return;   // a pool's rung is being dragged: the next tick draws what changed
   ui._lastCloudProvidersKey = key;
   const cpEl = $("topologyCloudProviders");
   if (!cpEl) return;
   bindCloudCardDelegates(cpEl);
-  if (!accounts.length) {
-    // "click + to add one": the + is in the head of Model servers (index.html), the lane's main action.
-    cpEl.innerHTML = `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyCloudNoProviders"))}</div></article>`;
-    SERVER_ORDER.apply();   // the last card of the list may be a machine now
-    return;
-  }
-  POOL_CARDS.accounts = accounts;
-  POOL_CARDS.runtime = topology?.cloudPoolsRuntime || {};
-  // What each rung of a pool shows: the limit bars always; the saved resets and the spend under its
-  // head; and, in the head, only the numbers — how many resets (null while unread), what it cost.
   const accountOf = (id) => accounts.find((a) => a.id === id) || { id };
-  POOL_CARDS.limits = (id) => { fetchSubscriptionUsage(id); return subscriptionUsageHtml(id, { refresh: false }); };
-  POOL_CARDS.refresh = (id) => subscriptionRefreshHtml(id);
-  POOL_CARDS.resets = (id) => RESET_CARDS.html(accountOf(id));
-  POOL_CARDS.chooseReset = (id) => RESET_CARDS.choose(accountOf(id));
-  // Resets belong to the credential (a TEST member shows its original's); the spend to the account itself.
-  POOL_CARDS.summary = (owner, id) => {
-    const spend = proxySpendOf(id);
-    return { resets: RESET_CARDS.count(accountOf(owner)), pending: RESET_CARDS.pending(accountOf(owner)), cost: spend?.total ? spendCost(spend) : "" };
+  POOL_CARDS.set({ pools, accounts, runtime: topology?.poolsRuntime || {} });
+  // One card of the list under Pools: its place is the operator's
+  // (server-order.js), and the controls that move it lead its head, before the icon.
+  POOL_CARDS.lead = (pool) => `${SERVER_ORDER.controls(ServerOrder.key("cloud", pool.id), pool.name || pool.id)}<span class="cloud-account-icon pool-icon" aria-hidden="true">${POOL_ICON}</span>`;
+  POOL_CARDS.attrs = (pool) => SERVER_ORDER.attrs(ServerOrder.key("cloud", pool.id));
+  POOL_CARDS.icon = (account) => cloudAccountIconHtml(account);
+  POOL_CARDS.price = (model) => cloudPrice(model);
+  // A subscription step's limit bars, with the step's own switch levels on them.
+  POOL_CARDS.limits = (pool, step, owner) => {
+    fetchSubscriptionUsage(owner);
+    return subscriptionUsageHtml(owner, { refresh: false, step: { poolId: pool.id, stepId: step.id, switchAt: step.switchAt || {},
+      stopAt: step.stopAt || {}, switchMax: pool.switchMax, switchReached: step.switchReached || null,
+      stopReached: step.stopReached || null } });
   };
-  POOL_CARDS.spend = (id) => proxySpendHtml(id, { subscription: true });
-  cpEl.innerHTML = accounts.filter((a) => SubscriptionPoolCards.cardOf(accounts, a.id) === a.id).map((acct) => {
-    const isSubscription = isSubscriptionAccount(acct);
-    const credLine = acct.hasCredential
-      ? (acct.credentialKind === "noKey"
-          ? "no auth"
-          : acct.credentialKind === "oauth"
-              ? (isSubscription ? `ChatGPT${acct.oauthEmail ? ` · ${acct.oauthEmail}` : ""}` : `OAuth${acct.oauthEmail ? ` · ${acct.oauthEmail}` : ""}`)
-              : t("topologyCloudKeySet", { last4: acct.keyLast4 || "" }))
-      : t("topologyCloudNeedsKey");
-    const iconType = isSubscription ? "openai-subscription" : (acct.type || "");
-    const meta = CLOUD_PICKER_META[iconType] || CLOUD_PICKER_META[acct.type || ""] || {};
-    const iconHtml = `<span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}">${cloudPickerTileIcon(iconType)}</span>`;
-    // One card of the list under Model servers, among the machines: its place is the
-    // operator's (server-order.js), and the controls that move it lead its head, before the icon.
-    const orderKey = ServerOrder.key("cloud", acct.id);
-    const orderHtml = SERVER_ORDER.controls(orderKey, acct.name || acct.id);
-    // Usage/spend panel (fetched async). Subscription → ChatGPT Plus limits/credits;
-    // OpenRouter → key limits via /auth/key; API accounts → official spend via Costs API.
-    const isOpenRouter = acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai");
-    // The Costs API (/organization/costs) exists only on api.openai.com — for
-    // other providers (Ollama, Anthropic, generic) the probe just 404s, so
-    // don't fire it; the local proxy spend-meter below covers them.
-    const hasCostsApi = acct.type === "openai" || String(acct.baseUrl || "").includes("api.openai.com");
-    let usagePanel = "";
-    if (acct.hasCredential && !acct.isPool) {
-      if (isSubscription) { fetchSubscriptionUsage(acct.id); usagePanel = subscriptionUsageHtml(acct.id); }
-      else if (isOpenRouter) { fetchOpenRouterLimits(acct.id); usagePanel = openRouterLimitsHtml(acct.id); }
-      else if (hasCostsApi) { fetchApiCosts(acct.id); usagePanel = apiCostsHtml(acct.id); }
-    }
-    // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
-    fetchProxySpend();
-    if (!acct.isPool) usagePanel += proxySpendHtml(acct.id, { subscription: isSubscription });
-    usagePanel += POOL_CARDS.controls(acct, `${orderHtml}${iconHtml}`);
-    if (SubscriptionPoolCards.subscription(acct)) usagePanel += RESET_CARDS.html(acct);
-    // Tripped upstream endpoints (breaker).
-    usagePanel += cloudApiIssuesHtml(acct, isSubscription);
-    // Data-plane cloud failures over 24h (routed traffic that came back 4xx/5xx).
-    fetchUpstreamErrors();
-    usagePanel += upstreamErrorsHtml(acct.id);
-    // One cable handle per PROVIDER (account). The router output attaches here;
-    // the actual model is chosen inside the router. The model list is hidden until
-    // hover (slide-out flyout with prices).
-    const modelsOpen = !!ui.cloudModelsOpen?.[acct.id];
-    return `
-      <article class="topology-card cloud-account-card ${acct.hasCredential ? "configured" : "needs-key"}${modelsOpen ? " models-open" : ""}"${SERVER_ORDER.attrs(orderKey)}>
-        <span class="topology-handle server-input cloud-account-input" data-topology-cloud-input="1" data-account-id="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleRouterOutput"))}"></span>
-        ${acct.isPool ? "" : `<div class="cloud-account-head">
-          ${orderHtml}${iconHtml}
-          <strong class="cloud-account-name">${escapeHtml(acct.name || acct.id)}</strong>
-          ${acct.hasCredential ? pill(isSubscription ? "ChatGPT" : acct.credentialKind === "noKey" ? t("clReady") : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
-          <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.testAliasOf || acct.id)}" title="${escapeHtml(t("clTitleEditAccount"))}">⚙</button>
-        </div>`}
-        ${acct.isPool ? "" : `<div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>`}
-        ${usagePanel}
-        ${new ProviderModels({ account: acct, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
-          removed: topology?.cloudRemoved || [], open: modelsOpen, nextPort: topology?.nextAppPort,
-          hostname: location.hostname, spend: proxySpendOf(acct.id) }).html()}
-      </article>
-    `;
-  }).join("") + (() => {
-    // Bridges whose model block is GONE vanish from the per-account panels (the
-    // block filter can't attribute them) — without this strip they'd keep
-    // listening on their port, invisible and undeletable from the UI.
-    const allBlockIds = new Set(blocks.map((b) => b.id));
-    const orphans = (topology?.proxies || [])
-      .filter((p) => p.kind === "service" && !allBlockIds.has(p.providerId))
-      .sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
-    if (!orphans.length) return "";
-    return `<div class="cloud-orphan-bridges">
-      <div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudOrphanBridges"))}</div>
-      ${orphans.map((p) => `<div class="cloud-bridge-row unlisted">
-        <code class="cloud-bridge-port">:${escapeHtml(String(p.port))}</code>
-        <span class="cloud-bridge-model" title="${escapeHtml(p.label || "")}">→ ${escapeHtml(p.providerId || "?")}</span>
-        <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
-      </div>`).join("")}
-    </div>`;
-  })();
+  POOL_CARDS.refresh = (owner) => subscriptionRefreshHtml(owner);
+  POOL_CARDS.chooseReset = (owner) => RESET_CARDS.choose(accountOf(owner));
+  // Resets belong to the credential (a TEST step shows its original's); the spend to the step's
+  // account and model.
+  POOL_CARDS.summary = (owner, accountId, model) => {
+    const subscription = PoolCards.subscription(accountOf(accountId));
+    if (subscription) RESET_CARDS.read(accountOf(owner));   // the counter reads its own resets, at most once a minute
+    return { ...(subscription ? { resets: RESET_CARDS.count(accountOf(owner)), pending: RESET_CARDS.pending(accountOf(owner)),
+      resetsFailed: RESET_CARDS.failed(accountOf(owner)) } : {}), ...cloudStepSpend(accountId, model) };
+  };
+  // An account with a key: what the provider says about it — OpenRouter its key's limits, the
+  // OpenAI API its spend (only api.openai.com has the Costs API; elsewhere it 404s).
+  POOL_CARDS.usage = (account) => {
+    if (!account.hasCredential) return "";
+    if (account.type === "openrouter" || String(account.baseUrl || "").includes("openrouter.ai")) { fetchOpenRouterLimits(account.id); return openRouterLimitsHtml(account.id); }
+    if (account.type === "openai" || String(account.baseUrl || "").includes("api.openai.com")) { fetchApiCosts(account.id); return apiCostsHtml(account.id); }
+    return "";
+  };
+  // The account's 30 days through the caravan, all its models: the head of a step says its own model's share.
+  POOL_CARDS.spend = (account) => proxySpendHtml(account.id, { subscription: PoolCards.subscription(account) });
+  // Tripped upstream endpoints (breaker), then the routed traffic that came back 4xx/5xx over 24h.
+  POOL_CARDS.issues = (account) => { fetchUpstreamErrors(); return cloudApiIssuesHtml(account, PoolCards.subscription(account)) + upstreamErrorsHtml(account.id); };
+  fetchProxySpend();
+  cpEl.innerHTML = POOL_CARDS.html();
   // The lane is drawn anew on its own (a usage read coming back): its cards' ↑ ↓ learn again
   // which of them stands first or last in the whole list.
   SERVER_ORDER.apply();
 }
 
-// A ChatGPT subscription account: its models answer through chatgpt.com, which
-// gates them by the codex client_version the caravan sends.
+// The step window among the board's windows: it reads the accounts and pools of this render.
+export function renderPoolStepDialog() {
+  POOL_STEPS.set({ accounts: topology?.cloudAccounts || [], pools: topology?.pools || [] });
+  return POOL_STEPS.html();
+}
+
+// The proxy's word on the pools, as much of it as the cards draw: which step serves, why each
+// other one waits, and the minute of the last choice. The second it was made at moves with every
+// request, and a lane redrawn on each would take the tooltip from under the pointer.
+export function poolsRuntimeKey(runtime) {
+  if (!runtime?.available) return "silent";
+  const pools = Object.entries(runtime.pools || {}).sort(([a], [b]) => a.localeCompare(b)).map(([id, st]) =>
+    `${id}:${st.selectedStepId || ""}:${Math.floor(Number(st.decidedAt || 0) / 60)}:${(st.steps || []).map((r) => `${r.stepId}=${r.reason}`).join("+")}`);
+  const events = runtime.events || [];
+  return `${pools.join("|")}#${events.length}:${events.length ? events[events.length - 1].at : 0}`;
+}
+
+// A pool's mark in its head: stacked layers, unlike any provider's — a pool is not one provider.
+const POOL_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/><path d="M3 17.5l9 5 9-5"/></svg>`;
+
+// A ChatGPT subscription account: its models answer through chatgpt.com, which gates them by
+// the codex client_version the caravan sends.
 export function isSubscriptionAccount(acct) {
   return acct?.accountType === "openai-subscription" || String(acct?.baseUrl || "").includes("chatgpt.com");
 }
 
-// The codex client_version the caravan sends to chatgpt.com and where it came
-// from (env override / npm latest / built-in floor). It lives under ⚙, in the
-// account's window (the operator's variant A): a fact to look up, not to watch
-// on the card. Nothing known — no line.
+// An account's provider icon, in its colour: a subscription has its own mark whatever its type.
+export function cloudAccountIconHtml(account) {
+  const type = isSubscriptionAccount(account) ? "openai-subscription" : (account?.type || "");
+  const meta = CLOUD_PICKER_META[type] || {};
+  return `<span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}" aria-hidden="true">${cloudPickerTileIcon(type)}</span>`;
+}
+
+// The codex client_version the caravan sends to chatgpt.com and where it came from (env
+// override / npm latest / built-in floor). It lives under ⚙, in the account's window (the
+// operator's variant A): a fact to look up, not to watch on the card. Nothing known — no line.
 export function codexVersionHtml() {
   const v = topology?.cloudApiHealth?.codexClientVersion;
   if (!v?.value) return "";
   return `<div class="cloud-span cloud-api-version" title="${escapeHtml(t("cloudApiVersionHint"))}">codex client_version: ${escapeHtml(v.value)}${v.source ? ` · ${escapeHtml(v.source)}` : ""}</div>`;
 }
 
-// "API issues" panel: endpoints the breaker tripped (we stopped calling them —
-// the list is the user's cue to fix or retry).
-function cloudApiIssuesHtml(acct, isSubscription) {
-  const health = topology?.cloudApiHealth || {};
-  const eps = health.endpoints || {};
+// "API issues" panel: endpoints the breaker tripped (we stopped calling them — the list is the
+// user's cue to fix or retry). The kanban's account card shows it too (pool-board.js).
+export function cloudApiIssuesHtml(acct, isSubscription) {
+  const eps = topology?.cloudApiHealth?.endpoints || {};
   const mine = Object.entries(eps)
     .filter(([key]) => key.startsWith(`${acct.id}:`) || (isSubscription && key === "global:codex-npm"));
-  let html = "";
-  if (mine.length) {
-    const rows = mine.map(([key, st]) => {
-      const what = key.split(":").pop();
-      const state = st.disabled
-        ? t("cloudApiIssueOff", { n: String(st.failCount || 0) })
-        : t("cloudApiIssueFails", { n: String(st.failCount || 0) });
-      const when = st.lastErrorAt ? new Date(st.lastErrorAt * 1000).toLocaleString() : "";
-      return `<div class="cloud-api-issue${st.disabled ? " off" : ""}">
+  if (!mine.length) return "";
+  const rows = mine.map(([key, st]) => {
+    const what = key.split(":").pop();
+    const state = st.disabled
+      ? t("cloudApiIssueOff", { n: String(st.failCount || 0) })
+      : t("cloudApiIssueFails", { n: String(st.failCount || 0) });
+    const when = st.lastErrorAt ? new Date(st.lastErrorAt * 1000).toLocaleString() : "";
+    return `<div class="cloud-api-issue${st.disabled ? " off" : ""}">
         <span class="cloud-api-issue-name">${escapeHtml(what)}</span>
         <span class="cloud-api-issue-state">${escapeHtml(state)}</span>
         <span class="cloud-api-issue-err" title="${escapeHtml(st.lastError || "")}">${escapeHtml((st.lastError || "").slice(0, 70))}${when ? ` · ${escapeHtml(when)}` : ""}</span>
         <button class="ghost-action cloud-api-retry" type="button" data-api-retry="${escapeHtml(key)}">${escapeHtml(t("cloudApiIssueRetry"))}</button>
       </div>`;
-    }).join("");
-    html += `<div class="cloud-api-issues"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudApiIssuesTitle"))}</div>${rows}</div>`;
-  }
-  return html;
+  }).join("");
+  return `<div class="cloud-api-issues"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudApiIssuesTitle"))}</div>${rows}</div>`;
 }
 
 export function topologyCloudPresetByType(type) {
@@ -420,34 +307,77 @@ export function topologyCloudUniqueId(base, taken) {
   return id;
 }
 
-export function openCloudProviderModal(blockId) {
-  if (!blockId) {
-    ui.topologyCloudPickerOpen = true;
-    ui.topologyCloudModalOpen = false;
-    ui.topologyCloudForm = null;
-    renderTopology();
-    return;
-  }
-  openCloudBlockModal(blockId, null);
+// The provider picker, the first page of connecting an account. `after` gets the new account's
+// id when the account window closes with one, or null.
+export function openCloudPicker(after = null) {
+  ACCOUNT_RETURN.wait(after);
+  ui.topologyCloudPickerOpen = true;
+  ui.topologyCloudModalOpen = false;
+  ui.topologyCloudForm = null;
+  renderTopology();
 }
 
-export function selectCloudProviderType(type, poolId = "") {
+export function selectCloudProviderType(type) {
   const preset = topologyCloudPresetByType(type) || {};
+  const subscriptions = (topology?.cloudAccounts || []).filter((a) => isSubscriptionAccount(a) && !a.testAliasOf).length;
   ui.topologyCloudPickerOpen = false;
   ui.topologyCloudForm = {
     isNew: true,
-    ...(poolId ? { poolId } : {}),
     accountId: "",
     type,
-    name: poolId ? `${t("poolSubscriptionName")} ${(topology?.cloudAccounts || []).filter((a) => isSubscriptionAccount(a) && !a.isPool && !a.testAliasOf).length + 1}` : preset.name || "",
+    // A second subscription is told from the first by its number: two windows named alike
+    // made "which one is out of limits" a guess. Named as its block and its tile name it
+    // ("ChatGPT subscription"): until 1.3.494 a new one came as "OpenAI subscription N".
+    name: type === "openai-subscription" ? `${t("cloudNameSubscription")} ${subscriptions + 1}` : cloudProviderName(type),
     baseUrl: preset.baseUrl || "",
     authMode: (preset.authModes || ["apiKey"])[0],
     oauthConfig: { ...(preset.oauth || {}) },
     apiKey: "",
-    oauthStatus: "",
   };
   ui.topologyCloudModalOpen = true;
   renderTopology();
+}
+
+// The main board's providers (caravan/admin/board_providers.py, the owner, 2026-10-12): the picker puts
+// one on the board as an empty block, and the "＋" in a block adds an account to it. The controller's
+// answer is the board drawn anew; a refusal is said in a toast and changes nothing.
+export async function addBoardProvider(kind) {
+  try {
+    const res = await api("/api/board-providers/add", { method: "POST", body: JSON.stringify({ kind }) });
+    ui.topologyCloudPickerOpen = false;
+    drawBoard(res.topology);
+    return true;
+  } catch (err) {
+    toast(err.message);
+    return false;
+  }
+}
+
+// An empty provider's ✕. One with accounts is refused by the controller (409) and stays.
+export async function removeBoardProvider(kind) {
+  try {
+    const res = await api("/api/board-providers/remove", { method: "POST", body: JSON.stringify({ kind }) });
+    drawBoard(res.topology);
+    return true;
+  } catch (err) {
+    toast(err.message);
+    return false;
+  }
+}
+
+// A tile of the picker: from the main board it puts the provider on the board; from a window waiting
+// for an account (pool-step-dialog.js) it opens the new account's window, as it did before providers.
+export function pickCloudProvider(type) {
+  if (ACCOUNT_RETURN.waiting()) return selectCloudProviderType(type);
+  return addBoardProvider(type);
+}
+
+// "＋" in a provider's block: a subscription goes straight to its sign-in code — the window opens on
+// the code, the account named "ChatGPT subscription N" until it is renamed in ⚙ — and a provider with a
+// key opens the window that asks for it. The same sign-in may be added again: nothing refuses it.
+export async function connectAccount(kind) {
+  selectCloudProviderType(kind);
+  if (cloudSignsInByCode(ui.topologyCloudForm)) await startCloudOauthLogin();
 }
 
 export function openCloudAccountModal(accountId) {
@@ -462,61 +392,48 @@ export function openCloudAccountModal(accountId) {
     authMode: acct.authMode || "apiKey",
     oauthConfig: {},
     apiKey: "",
-    oauthStatus: "",
   };
   ui.topologyCloudModalOpen = true;
   renderTopology();
 }
 
-export function openCloudBlockModal(blockId, accountId) {
-  const block = blockId ? (topology?.cloudProviders || []).find((b) => b.id === blockId) : null;
-  topologyCloudBlockForm = {
-    isNew: !block,
-    blockId: block?.id || "",
-    accountId: block?.accountId || accountId || "",
-    blockName: block?.name || "",
-    model: block?.model || "",
-    origModel: block?.model || "",   // to warn when an EDIT rewires the block to another model
-    modelMode: block?.modelMode || "rewrite",
-    contextLength: block?.contextLength ? String(block.contextLength) : "",
-    contextAuto: !!block?.contextAuto,
-  };
-  topologyCloudBlockModalOpen = true;
-  renderTopology();
-  const resolvedAccountId = topologyCloudBlockForm.accountId;
-  const acct = (topology?.cloudAccounts || []).find((a) => a.id === resolvedAccountId);
-  if (acct && acct.hasCredential) {
-    // The operator opened the editor: ask now, even inside a pause.
-    if ((acct.accountType || "") === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com")) {
-      fetchCloudSubscriptionModels(resolvedAccountId, { force: true });
-    } else {
-      fetchCloudAccountModels(resolvedAccountId, { force: true });
-    }
-  }
-}
-
-export function closeCloudBlockModal() {
-  topologyCloudBlockModalOpen = false;
-  topologyCloudBlockForm = null;
-  renderTopology();
-}
-
+// Every way out of the picker and the account window but one: nothing new comes back from them.
 export function closeCloudProviderModal() {
   ui.topologyCloudModalOpen = false;
   ui.topologyCloudPickerOpen = false;
   ui.topologyCloudForm = null;
   topologyCloudBusy = false;
   renderTopology();
+  ACCOUNT_RETURN.done(null);
 }
 
+// The one way out that brings an account back: "Done" after a sign-in, Save of a new account.
+export function finishCloudAccountWindow(accountId = ui.topologyCloudForm?.accountId) {
+  ui.topologyCloudModalOpen = false;
+  ui.topologyCloudPickerOpen = false;
+  ui.topologyCloudForm = null;
+  topologyCloudBusy = false;
+  renderTopology();
+  ACCOUNT_RETURN.done(accountId || null);
+}
+
+// What the window says about each provider: its name and one line, both from the language
+// tables, and which group it stands in — a subscription signs in, the rest take a key.
 export const CLOUD_PICKER_META = {
-  "openai-subscription": { desc: "ChatGPT Plus · OAuth · GPT-5.4+", color: "#22c55e" },
-  "openai":              { desc: "API Credits · API key",            color: "#60a5fa" },
-  "anthropic":           { desc: "Claude models · API key",          color: "#fb923c" },
-  "openrouter":          { desc: "100+ models · API key",            color: "#a78bfa" },
-  "ollama":              { desc: "ollama.com cloud · API key",           color: "#34d399" },
-  "custom":              { desc: "OpenAI-compatible endpoint",        color: "#94a3b8" },
+  "openai-subscription": { color: "#22c55e", name: "cloudNameSubscription", desc: "cloudDescSubscription", group: "subscription" },
+  "openai":              { color: "#60a5fa", name: "cloudNameOpenai",       desc: "cloudDescOpenai",       group: "key" },
+  "anthropic":           { color: "#fb923c", name: "cloudNameAnthropic",    desc: "cloudDescAnthropic",    group: "key" },
+  "openrouter":          { color: "#a78bfa", name: "cloudNameOpenrouter",   desc: "cloudDescOpenrouter",   group: "key" },
+  "ollama":              { color: "#34d399", name: "cloudNameOllama",       desc: "cloudDescOllama",       group: "key" },
+  "custom":              { color: "#94a3b8", name: "cloudNameCustom",       desc: "cloudDescCustom",       group: "key" },
 };
+
+// A provider's name as the windows say it: from the language table, else the preset's own
+// name, else its type — never nothing.
+export function cloudProviderName(type) {
+  const meta = CLOUD_PICKER_META[type];
+  return meta ? t(meta.name) : ((topologyCloudPresetByType(type) || {}).name || String(type || ""));
+}
 
 export function cloudPickerTileIcon(type) {
   switch (type) {
@@ -538,229 +455,232 @@ export function cloudPickerTileIcon(type) {
 export function renderTopologyCloudPicker() {
   if (!ui.topologyCloudPickerOpen) return "";
   const presets = topology?.cloudProviderPresets || [];
-  const tiles = presets.map((p) => {
-    const meta = CLOUD_PICKER_META[p.type] || { desc: "", color: "#94a3b8" };
+  // From the main board a provider already there is no tile to press: the "＋" in its block adds to
+  // it. A window waiting for an account (pool-step-dialog.js) picks the account's provider, on the
+  // board or not.
+  const choosing = ACCOUNT_RETURN.waiting();
+  const onBoard = choosing ? new Set() : new Set((topology?.boardProviders || []).map((p) => String(p.kind)));
+  const tile = (p) => {
+    const meta = CLOUD_PICKER_META[p.type] || { color: "#94a3b8" };
+    const there = onBoard.has(p.type);
+    const desc = there ? t("cloudPickerOnBoard") : (meta.desc ? t(meta.desc) : "");
     return `
-      <button class="cloud-picker-tile" data-pick-type="${escapeHtml(p.type)}" style="--picker-accent:${escapeHtml(meta.color)}">
+      <button class="cloud-picker-tile${there ? " on-board" : ""}" type="button" data-pick-type="${escapeHtml(p.type)}" data-t="cloud-pick" data-t-state="${escapeHtml(p.type)}"${there ? " disabled" : ""} style="--picker-accent:${escapeHtml(meta.color)}">
         <span class="cloud-picker-icon">${cloudPickerTileIcon(p.type)}</span>
-        <span class="cloud-picker-name">${escapeHtml(p.name || p.type)}</span>
-        <span class="cloud-picker-desc">${escapeHtml(meta.desc)}</span>
+        <span class="cloud-picker-text">
+          <span class="cloud-picker-name">${escapeHtml(cloudProviderName(p.type))}</span>
+          ${desc ? `<span class="cloud-picker-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>` : ""}
+        </span>
       </button>`;
-  }).join("");
+  };
+  const subscriptions = presets.filter((p) => (CLOUD_PICKER_META[p.type] || {}).group === "subscription");
+  const keys = presets.filter((p) => (CLOUD_PICKER_META[p.type] || {}).group !== "subscription");
+  const group = (label, list, wide) => list.length ? `
+        <p class="cloud-picker-group">${escapeHtml(t(label))}</p>
+        <div class="cloud-picker-grid${wide ? " wide" : ""}">${list.map(tile).join("")}</div>` : "";
+  const title = t(choosing ? "topologyCloudAccountModalTitleNew" : "cloudPickerTitle");
   return `
     <div class="topology-policy-overlay" data-cloud-picker-overlay>
-      <div class="topology-policy-modal cloud-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("topologyCloudPickerTitle"))}">
+      <div class="topology-policy-modal cloud-window cloud-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-t="cloud-picker">
         <div class="topology-card-head">
-          <strong>${escapeHtml(t("topologyCloudPickerTitle"))}</strong>
+          <strong>${escapeHtml(title)}</strong>
           <button class="icon-action compact" type="button" data-cloud-picker-close aria-label="${escapeHtml(t("topologyClose"))}" title="${escapeHtml(t("topologyClose"))}">×</button>
         </div>
-        <div class="cloud-picker-grid">${tiles}</div>
+        <div class="cloud-window-body">${group("cloudPickerSubscription", subscriptions, true)}${group("cloudPickerApiKey", keys, false)}</div>
       </div>
     </div>`;
 }
 
-export function cloudModalIsSubscription() {
-  if (!ui.topologyCloudForm) return false;
-  const f = ui.topologyCloudForm;
-  if (f.accountMode === "new") {
-    const p = topologyCloudPresetByType(f.newType);
-    return (p?.accountType || "") === "openai-subscription";
+// Sign-in by a one-time code (caravan/admin/oauth.py, DeviceLogin). The server says who has it:
+// `deviceLogin` on the preset of a new account and on every existing one — an old subscription
+// account is type "openai", so the rule is not the form's type.
+export function cloudSignsInByCode(f) {
+  if (!f) return false;
+  const acct = f.isNew ? null : (topology?.cloudAccounts || []).find((a) => a.id === f.accountId);
+  return !!(acct ? acct.deviceLogin : (topologyCloudPresetByType(f.type) || {}).deviceLogin);
+}
+
+// ── The account window ───────────────────────────────────────────────────────
+// One window, in plain states rather than fields shown and hidden (2026-10-07, the operator's
+// mockup): connecting a subscription — before its sign-in, while the code waits, when it ended
+// without a login, connected — and an account that exists: a subscription signed in or not, a
+// key set or not. The state is a pure function of the form and the account, so the snapshot
+// pins it by value.
+export function cloudAccountWindowState(f, acct) {
+  if (!f) return "";
+  if (f.connected) return "connected";
+  if (f.deviceLogin) return "waiting";
+  if (f.loginEnded) return "ended";
+  if (f.isNew) {
+    if (cloudSignsInByCode(f)) return "connect";
+    return f.authMode === "noKey" ? "newNoKey" : "newKey";
   }
-  const acct = (topology?.cloudAccounts || []).find((a) => a.id === f.accountId);
-  return (acct?.accountType || "") === "openai-subscription" || String(acct?.baseUrl || "").includes("chatgpt.com");
+  if (cloudSignsInByCode(f) || acct?.authMode === "oauth") return "subscription";
+  return acct?.authMode === "noKey" ? "noKey" : "keyAccount";
 }
 
-async function _fetchModelsInto(accountId, path, { force = false } = {}) {
-  // One body for both lists: they were two copies of the same eight lines, and
-  // the same defect sat in both.
-  if (!accountId || topologyCloudModelCache.has(accountId) || !MODEL_LIST_ASKS.mayAsk(accountId, force)) return;
-  // The empty array is the in-flight marker — it is what makes concurrent
-  // callers ask only once.
-  topologyCloudModelCache.set(accountId, []);
-  try {
-    const res = await api(`${path}?id=${encodeURIComponent(accountId)}`);
-    if (res.ok && Array.isArray(res.models)) {
-      topologyCloudModelCache.set(accountId, res.models);
-      renderTopology();
-      return;
-    }
-  } catch (_) { /* the reason belongs to whoever showed the request; here we
-                   only decide whether this counts as an answer */ }
-  // A refusal is not an answer and must not be remembered as one. The marker
-  // used to stay behind, `has()` then refused every retry until the page was
-  // reloaded, and an empty list reads on the board exactly like "this account
-  // has no models" — absence drawn as a fact. Forgetting it lets the next
-  // caller ask again — after a pause (MODEL_LIST_ASKS).
-  topologyCloudModelCache.delete(accountId);
-  MODEL_LIST_ASKS.refused(accountId);
+// Where a provider's address is the operator's to give: their own endpoint, or an Ollama they
+// run. The big providers have one address, and showing it invited edits that only break the
+// account.
+const CLOUD_ADDRESS_TYPES = new Set(["custom", "ollama"]);
+
+const SIGN_IN_STATES = new Set(["connect", "waiting", "ended", "connected"]);
+
+function cloudFieldHtml(label, field, value, { type = "text", placeholder = "", hint = "" } = {}) {
+  return `<label class="cloud-field">${escapeHtml(label)}<input type="${type}" data-cloud-field="${field}" value="${escapeHtml(value || "")}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ""}${type === "password" ? ' autocomplete="off"' : ""}>${hint ? `<span class="cloud-hint">${escapeHtml(hint)}</span>` : ""}</label>`;
 }
 
-export async function fetchCloudSubscriptionModels(accountId, opts) {
-  return _fetchModelsInto(accountId, "/api/cloud-accounts/subscription-models", opts);
+function cloudWaitingHtml(f) {
+  const dl = f.deviceLogin;
+  const until = new Date(Number(dl.expiresAt || 0) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // The page is a link the operator clicks: a window opened by the script after an await is
+  // not a click, and browsers block it. Its click copies the code too. The code copies on its
+  // own click as well (the operator, 2026-10-08): a click on it used to only select it, and the
+  // operator took the selection for a copy.
+  return `
+    <div class="cloud-code-row" data-t="cloud-device-login">
+      <code class="cloud-device-code" role="button" tabindex="0" title="${escapeHtml(t("cloudCodeCopyTip"))}" data-cloud-device-code data-t="cloud-device-code">${escapeHtml(dl.userCode || "")}</code>
+      <a class="primary-mini-action cloud-open" href="${escapeHtml(dl.verifyUrl || "")}" target="_blank" rel="noopener noreferrer" data-cloud-device-open data-t="cloud-device-open">${escapeHtml(t("cloudCopyAndOpen"))} ↗</a>
+    </div>
+    <ol class="cloud-steps">
+      <li>${escapeHtml(t("cloudStepSignIn"))}</li>
+      <li>${escapeHtml(t("cloudStepPaste"))}</li>
+      <li>${escapeHtml(t("cloudStepBack"))}</li>
+    </ol>
+    <div class="cloud-wait" role="status" data-t="cloud-sign-in-wait"><span class="cloud-spinner" aria-hidden="true"></span>${escapeHtml(t("cloudWaitingUntil", { time: until }))}
+      <button class="cloud-link" type="button" data-cloud-oauth-login data-t="cloud-new-code">${escapeHtml(t("cloudNewCode"))}</button></div>
+    <p class="cloud-hint">${escapeHtml(t("deviceLoginSetting"))}</p>`;
 }
 
-export async function fetchCloudAccountModels(accountId, opts) {
-  return _fetchModelsInto(accountId, "/api/cloud-accounts/models", opts);
+// How a sign-in ended without a login, in words, and the one way on: a new code where the old
+// one is merely gone, another try after a refusal, and nothing for an account that is no longer
+// there.
+const CLOUD_ENDINGS = {
+  replaced: { words: "cloudCodeReplaced", again: "cloudNewCode" },
+  expired: { words: "cloudCodeExpired", again: "cloudNewCode" },
+  unknown: { words: "cloudCodeForgotten", again: "cloudNewCode" },
+  removed: { words: "cloudCodeRemoved", again: "" },
+};
+
+function cloudEndedHtml(f) {
+  const ended = f.loginEnded || {};
+  const known = CLOUD_ENDINGS[ended.reason];
+  const words = known ? t(known.words) : t("cloudSignInFailed", { error: ended.error || ended.reason || "" });
+  const again = known ? known.again : "cloudTryAgain";
+  return `
+    <div class="cloud-note warn" role="status" data-t="cloud-sign-in-ended" data-t-state="${escapeHtml(ended.reason || "failed")}">${escapeHtml(words)}</div>
+    ${again ? `<div class="cloud-btn-row"><button class="primary-mini-action" type="button" data-cloud-oauth-login>${escapeHtml(t(again))}</button></div>` : ""}`;
 }
 
-// The two offers to move a provider's cables (cloud-models.js): the "new
-// model" window, asked after a refresh of the board, and "⇄ Move cables…" on
-// a gone model's row. Their answers come back with the board, drawn at once.
-const drawBoard = (top) => { setTopology(top); renderTopology(); };
-export const NEW_MODELS = new NewModelAnnouncer({ apply: drawBoard });
-export const GONE_CABLES = new GoneModelCables({ apply: drawBoard });
-// Closing a model's port — the ✕ on the card, unticking it on the kanban.
-export const PORT_CLOSER = new PortCloser({ apply: drawBoard });
+// Connected: what comes next is said by where the operator came from — the step window waits to
+// take the account's model; from anywhere else the account stands in no pool until a step names it.
+function cloudConnectedHtml(f) {
+  const who = f.connected.email ? t("cloudConnectedAs", { email: f.connected.email }) : t("cloudConnected");
+  const next = ACCOUNT_RETURN.waiting() ? t("cloudConnectedNext") : t("cloudConnectedAddStep");
+  return `<div class="cloud-note good" role="status" data-t="cloud-connected"><strong>✓ ${escapeHtml(who)}</strong><span>${escapeHtml(next)}</span></div>`;
+}
 
-export function prefetchAllSubscriptionModels() {
-  const accounts = topology?.cloudAccounts || [];
-  accounts.forEach((acct) => {
-    // Nobody signed in, nothing to list: a subscription with no sign-in used
-    // to be asked on every poll and refused every time.
-    if (!acct.hasCredential) return;
-    if ((acct.accountType || "") === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com")) {
-      fetchCloudSubscriptionModels(acct.id);
-    } else {
-      fetchCloudAccountModels(acct.id);
-    }
-  });
+function cloudStatusHtml(state, acct) {
+  if (state === "subscription") {
+    // The plan the last reading of its limits named (Plus, Pro); none read — no word, not a guess.
+    const plan = acct?.hasCredential ? String(subscriptionUsageCache.get(acct.testAliasOf || acct.id)?.data?.planType || "") : "";
+    const planWord = plan ? ` <span class="cloud-plan" data-t="cloud-account-plan">${escapeHtml(plan.charAt(0).toUpperCase() + plan.slice(1))}</span>` : "";
+    return acct?.hasCredential
+      ? `<p class="cloud-status good" data-t="cloud-account-status" data-t-state="signed-in">✓ ${escapeHtml(acct.oauthEmail ? t("cloudSignedInAs", { email: acct.oauthEmail }) : t("cloudSignedIn"))}${planWord}</p>`
+      : `<p class="cloud-status warn" data-t="cloud-account-status" data-t-state="signed-out">${escapeHtml(t("cloudNotSignedIn"))}</p>`;
+  }
+  if (state === "noKey") return `<p class="cloud-status" data-t="cloud-account-status" data-t-state="no-auth">${escapeHtml(t("cloudNoAuthNeeded"))}</p>`;
+  return acct?.hasCredential
+    ? `<p class="cloud-status good" data-t="cloud-account-status" data-t-state="key">✓ ${escapeHtml(t("cloudKeyShort", { last4: acct.keyLast4 || "" }))}</p>`
+    : `<p class="cloud-status warn" data-t="cloud-account-status" data-t-state="no-key">${escapeHtml(t("cloudNoKeyYet"))}</p>`;
+}
+
+// What a key's provider says about it, in its window: OpenRouter its key's limits, the OpenAI API its
+// costs (only api.openai.com has the Costs API; elsewhere it 404s). Until 2026-10-12 it stood under
+// the kanban's ⋯; the account's window holds what is not on its row (the owner).
+function cloudProviderWordHtml(acct) {
+  if (!acct?.hasCredential) return "";
+  if (acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai")) {
+    fetchOpenRouterLimits(acct.id);
+    return `<div class="cloud-provider-word" data-t="cloud-provider-word">${openRouterLimitsHtml(acct.id)}</div>`;
+  }
+  if (acct.type === "openai" || String(acct.baseUrl || "").includes("api.openai.com")) {
+    fetchApiCosts(acct.id);
+    return `<div class="cloud-provider-word" data-t="cloud-provider-word">${apiCostsHtml(acct.id)}</div>`;
+  }
+  return "";
+}
+
+// The pools whose rows stand on the account, as its window lists them: what its deletion takes.
+function cloudUsedInHtml(acct) {
+  const pools = [...new Set((acct?.usedIn || []).map((u) => u.poolName || u.poolId))];
+  if (!pools.length) return `<p class="cloud-hint" data-t="cloud-account-pools">${escapeHtml(t("cloudInNoPool"))}</p>`;
+  return `<p class="cloud-hint" data-t="cloud-account-pools">${escapeHtml(t("cloudInPools", { pools: pools.join(", ") }))}</p>`;
 }
 
 export function renderTopologyCloudAccountModal() {
   if (!ui.topologyCloudModalOpen || !ui.topologyCloudForm) return "";
   const f = ui.topologyCloudForm;
+  const acct = f.isNew ? null : (topology?.cloudAccounts || []).find((a) => a.id === f.accountId);
+  const state = cloudAccountWindowState(f, acct);
   const preset = topologyCloudPresetByType(f.type) || {};
+  const provider = cloudProviderName(f.type);
+  const connecting = f.isNew || f.connecting;
+  const title = SIGN_IN_STATES.has(state) && connecting ? t("cloudConnectTitle", { name: provider })
+    : (state === "newKey" || state === "newNoKey") ? t("cloudAddTitle", { name: provider })
+    : (acct?.name || provider);
+  const nameField = cloudFieldHtml(t("cloudNameOnBoard"), "name", f.name);
+  const addressField = CLOUD_ADDRESS_TYPES.has(f.type) ? cloudFieldHtml(t("topologyCloudBaseUrl"), "baseUrl", f.baseUrl, { placeholder: "https://…/v1" }) : "";
   const authModes = preset.authModes || ["apiKey"];
-  const authModeOptions = authModes.map((m) =>
-    `<option value="${escapeHtml(m)}"${m === f.authMode ? " selected" : ""}>${escapeHtml(m === "oauth" ? t("topologyCloudAuthOauth") : m === "noKey" ? t("clNoAuth") : t("topologyCloudAuthApiKey"))}</option>`
-  ).join("");
-  const oc = f.oauthConfig || {};
-  const oauthFields = `
-    <div class="cloud-span cloud-oauth-note">${escapeHtml(t("topologyCloudOauthHint"))}</div>
-    <label class="cloud-span">Client ID<input type="text" data-cloud-field="oauthClientId" value="${escapeHtml(oc.clientId || "")}"></label>
-    <label>Authorize URL<input type="text" data-cloud-field="oauthAuthorizeUrl" value="${escapeHtml(oc.authorizeUrl || "")}"></label>
-    <label>Token URL<input type="text" data-cloud-field="oauthTokenUrl" value="${escapeHtml(oc.tokenUrl || "")}"></label>
-    <label>Scope<input type="text" data-cloud-field="oauthScope" value="${escapeHtml(oc.scope || "")}"></label>
-    <label>${escapeHtml(t("clRedirectPort"))}<input type="number" data-cloud-field="oauthRedirectPort" value="${escapeHtml(String(oc.redirectPort || 1455))}"></label>
-    <div class="cloud-span cloud-oauth-actions"><button class="ghost-action" type="button" data-cloud-oauth-login>${escapeHtml(t("topologyCloudOauthLogin"))}</button>${f.oauthStatus ? `<span class="cloud-oauth-note">${escapeHtml(f.oauthStatus)}</span>` : ""}</div>
-  `;
-  const simpleOauthFields = `<div class="cloud-span cloud-oauth-note">${escapeHtml(t("poolConnectHint"))}</div>
-    <div class="cloud-span cloud-oauth-actions"><button class="ghost-action" type="button" data-cloud-oauth-login>${escapeHtml(t("topologyCloudOauthLogin"))}</button>${f.oauthStatus ? `<span class="cloud-oauth-note">${escapeHtml(f.oauthStatus)}</span>` : ""}</div>`;
-  const callbackFields = f.oauthLoginState ? `<div class="cloud-span cloud-oauth-note">${escapeHtml(t("oauthRemoteHint"))}</div>
-    <label class="cloud-span">${escapeHtml(t("oauthCallbackUrl"))}<input type="password" autocomplete="off" data-cloud-field="oauthCallbackUrl" value="${escapeHtml(f.oauthCallbackUrl || "")}" placeholder="http://localhost:1455/auth/callback?…"></label>
-    <div class="cloud-span cloud-oauth-actions"><a href="${escapeHtml(f.oauthAuthorizeUrl || "")}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("topologyCloudOauthLogin"))}</a><button class="ghost-action" type="button" data-cloud-oauth-complete>${escapeHtml(t("oauthComplete"))}</button></div>` : "";
-  const pickerMeta = CLOUD_PICKER_META[f.type] || {};
-  const showAuthModeSelector = authModes.length > 1;
-  const showBaseUrl = f.type !== "openai-subscription";
-  const showKey = f.authMode === "apiKey";
-  const title = f.isNew ? t("topologyCloudAccountModalTitleNew") : t("topologyCloudAccountModalTitleEdit");
-  // For existing account editing: show current credential status + re-login / new key option
-  const existingAcct = f.isNew ? null : (topology?.cloudAccounts || []).find((a) => a.id === f.accountId);
-  const credSection = existingAcct ? `
-    <div class="cloud-span cloud-acct-status">${escapeHtml(t("topologyCloudCredential"))}: <span class="cloud-key-line ${existingAcct.hasCredential ? "set" : "unset"}">${
-      existingAcct.hasCredential
-        ? (existingAcct.credentialKind === "noKey" ? "no auth" : existingAcct.credentialKind === "oauth" ? `OAuth${existingAcct.oauthEmail ? ` · ${escapeHtml(existingAcct.oauthEmail)}` : ""}` : t("topologyCloudKeySet", { last4: escapeHtml(existingAcct.keyLast4 || "") }))
-        : escapeHtml(t("topologyCloudNeedsKey"))
-    }</span></div>
-    ${existingAcct.authMode === "oauth"
-      ? `<div class="cloud-span cloud-oauth-actions"><button class="ghost-action" type="button" data-cloud-oauth-login>${escapeHtml(existingAcct.hasCredential ? t("topologyCloudOauthRelogin") : t("topologyCloudOauthLogin"))}</button>${f.oauthStatus ? `<span class="cloud-oauth-note">${escapeHtml(f.oauthStatus)}</span>` : ""}</div>`
-      : existingAcct.authMode === "noKey" ? ""
-      : `<label class="cloud-span">${escapeHtml(t("topologyCloudApiKey"))}<input type="password" data-cloud-field="apiKey" value="" placeholder="${escapeHtml(t("topologyCloudKeyPlaceholder"))}" autocomplete="off"></label>`}
-  ` : "";
+  const authField = authModes.length > 1 && (state === "newKey" || state === "newNoKey")
+    ? `<label class="cloud-field">${escapeHtml(t("topologyCloudAuthMode"))}<select data-cloud-field="authMode">${authModes.map((m) =>
+        `<option value="${escapeHtml(m)}"${m === f.authMode ? " selected" : ""}>${escapeHtml(m === "noKey" ? t("clNoAuth") : t("topologyCloudAuthApiKey"))}</option>`).join("")}</select></label>` : "";
+  const change = f.isNew ? `<button class="cloud-link" type="button" data-cloud-picker-change>${escapeHtml(t("topologyCloudPickerChange"))}</button>` : "";
+  let body = "";
+  let footer = "";
+  const cancel = `<button class="ghost-action" type="button" data-cloud-cancel>${escapeHtml(t("topologyCancel"))}</button>`;
+  const save = `<button class="primary-mini-action" type="button" data-cloud-save${topologyCloudBusy ? " disabled" : ""}>${escapeHtml(t("topologySave"))}</button>`;
+  const remove = `<button class="ghost-action danger" type="button" data-cloud-delete-account>${escapeHtml(t("topologyCloudDeleteAccount"))}</button>`;
+  if (state === "connect") {
+    body = `${nameField}
+      <div class="cloud-btn-row"><button class="primary-mini-action" type="button" data-cloud-oauth-login data-t="cloud-sign-in">${escapeHtml(t("cloudSignInChatgpt"))}</button></div>`;
+    footer = cancel;
+  } else if (state === "waiting") {
+    body = cloudWaitingHtml(f);
+    footer = cancel;
+  } else if (state === "ended") {
+    body = cloudEndedHtml(f);
+    footer = cancel;
+  } else if (state === "connected") {
+    body = cloudConnectedHtml(f);
+    footer = `<button class="primary-mini-action" type="button" data-cloud-done data-t="cloud-done">${escapeHtml(t("cloudDone"))}</button>`;
+  } else if (state === "subscription") {
+    const version = codexVersionHtml();
+    if (acct?.hasCredential) fetchSubscriptionUsage(acct.testAliasOf || acct.id);   // the plan's word; read once a page
+    body = `${cloudStatusHtml(state, acct)}${nameField}${cloudUsedInHtml(acct)}
+      <div class="cloud-btn-row">${acct?.hasCredential
+        ? `<button class="ghost-action" type="button" data-cloud-oauth-login data-t="cloud-sign-in">${escapeHtml(t("cloudSignInAgain"))}</button>`
+        : `<button class="primary-mini-action" type="button" data-cloud-oauth-login data-t="cloud-sign-in">${escapeHtml(t("cloudSignInChatgpt"))}</button>`}</div>
+      ${version ? `<details class="cloud-details"><summary>${escapeHtml(t("cloudDetails"))}</summary>${version}</details>` : ""}`;
+    footer = `${remove}${cancel}${save}`;
+  } else if (state === "newKey" || state === "newNoKey") {
+    body = `${nameField}${addressField}${authField}${state === "newKey"
+      ? cloudFieldHtml(t("topologyCloudApiKey"), "apiKey", "", { type: "password", placeholder: t("cloudKeyPlaceholder") }) : ""}`;
+    footer = `${cancel}${save}`;
+  } else {
+    body = `${cloudStatusHtml(state, acct)}${cloudProviderWordHtml(acct)}${nameField}${addressField}${state === "keyAccount"
+      ? cloudFieldHtml(t("cloudNewKey"), "apiKey", "", { type: "password", placeholder: t("cloudNewKeyPlaceholder") }) : ""}${cloudUsedInHtml(acct)}`;
+    footer = `${remove}${cancel}${save}`;
+  }
   return `
     <div class="topology-policy-overlay" data-topology-cloud-overlay>
-      <div class="topology-policy-modal cloud-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <div class="topology-policy-modal cloud-window cloud-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-t="cloud-account-window" data-t-state="${escapeHtml(state)}">
         <div class="topology-card-head">
-          <strong>${escapeHtml(title)}</strong>
+          <span class="cloud-window-title" style="--picker-accent:${escapeHtml((CLOUD_PICKER_META[f.type] || {}).color || "#94a3b8")}"><span class="cloud-type-badge-icon">${cloudPickerTileIcon(f.type)}</span><strong>${escapeHtml(title)}</strong>${change}</span>
           <button class="icon-action compact" type="button" data-cloud-close aria-label="${escapeHtml(t("topologyClose"))}" title="${escapeHtml(t("topologyClose"))}">×</button>
         </div>
-        <div class="topology-policy-grid cloud-grid">
-          <div class="cloud-span cloud-type-badge" style="--picker-accent:${escapeHtml(pickerMeta.color || "#94a3b8")}">
-            <span class="cloud-type-badge-icon">${cloudPickerTileIcon(f.type)}</span>
-            <span class="cloud-type-badge-name">${escapeHtml(preset.name || f.type)}</span>
-            ${f.isNew && !f.poolId ? `<button class="ghost-action compact" type="button" data-cloud-picker-change>${escapeHtml(t("topologyCloudPickerChange"))}</button>` : ""}
-          </div>
-          <label class="cloud-span">${escapeHtml(t("topologyCloudName"))}<input type="text" data-cloud-field="name" value="${escapeHtml(f.name)}"></label>
-          ${showBaseUrl ? `<label class="cloud-span">${escapeHtml(t("topologyCloudBaseUrl"))}<input type="text" data-cloud-field="baseUrl" value="${escapeHtml(f.baseUrl)}" placeholder="https://api.openai.com/v1"></label>` : ""}
-          ${showAuthModeSelector ? `<label>${escapeHtml(t("topologyCloudAuthMode"))}<select data-cloud-field="authMode">${authModeOptions}</select></label>` : ""}
-          ${f.isNew
-            ? (showKey
-                ? `<label class="cloud-span">${escapeHtml(t("topologyCloudApiKey"))}<input type="password" data-cloud-field="apiKey" value="" placeholder="${escapeHtml(t("topologyCloudKeyPlaceholder"))}" autocomplete="off"></label>`
-                : f.authMode === "noKey" ? ""
-                : f.poolId ? simpleOauthFields : oauthFields)
-            : credSection}
-          ${callbackFields}
-          ${isSubscriptionAccount(existingAcct) ? codexVersionHtml() : ""}
-        </div>
-        <div class="topology-priority-actions cloud-actions">
-          ${!f.isNew ? `<button class="ghost-action danger" type="button" data-cloud-delete-account>${escapeHtml(t("topologyCloudDeleteAccount"))}</button>` : ""}
-          <button class="ghost-action" type="button" data-cloud-cancel>${escapeHtml(t("topologyCancel"))}</button>
-          <button class="primary-mini-action" type="button" data-cloud-save${topologyCloudBusy ? " disabled" : ""}>${escapeHtml(t("topologySave"))}</button>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-export function renderTopologyCloudBlockModal() {
-  if (!topologyCloudBlockModalOpen || !topologyCloudBlockForm) return "";
-  const f = topologyCloudBlockForm;
-  const account = (topology?.cloudAccounts || []).find((a) => a.id === f.accountId);
-  const acctMeta = CLOUD_PICKER_META[account?.type || ""] || {};
-  const title = f.isNew ? t("topologyCloudBlockModalTitleNew") : t("topologyCloudBlockModalTitleEdit");
-  // The live endpoint list can lag (chatgpt.com gates models by the pinned
-  // client_version) — union it with the models the account's blocks already use,
-  // plus the block's current value, so anything known is always pickable. Models
-  // that are NOT in the fetched list get a ⚠ suffix (provider no longer serves).
-  const fetched = topologyCloudModelCache.get(f.accountId) || [];
-  const fetchedIds = new Set(fetched.map((m) => m.id));
-  const modelById = new Map();
-  fetched.forEach((m) => { if (m.id) modelById.set(m.id, m); });
-  (topology?.cloudProviders || []).filter((b) => b.accountId === f.accountId && b.model)
-    .forEach((b) => { if (!modelById.has(b.model)) modelById.set(b.model, { id: b.model, name: b.model }); });
-  if (f.model && !modelById.has(f.model)) modelById.set(f.model, { id: f.model, name: f.model });
-  const models = [...modelById.values()].map((m) => (fetchedIds.size && !fetchedIds.has(m.id)
-    ? { ...m, name: `${m.name || m.id} ⚠` }
-    : m));
-  // What the provider itself last reported for the picked model, shown as the
-  // input's placeholder: the operator sees the number that will be advertised
-  // if they type nothing, instead of guessing whether anything is known.
-  const providerWindow = modelById.get(f.model)?.contextLength || 0;
-  return `
-    <div class="topology-policy-overlay" data-topology-cloud-block-overlay>
-      <div class="topology-policy-modal cloud-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
-        <div class="topology-card-head">
-          <strong>${escapeHtml(title)}</strong>
-          <button class="icon-action compact" type="button" data-cloud-block-close aria-label="${escapeHtml(t("topologyClose"))}">×</button>
-        </div>
-        <div class="topology-policy-grid cloud-grid">
-          ${account ? `<div class="cloud-span cloud-type-badge" style="--picker-accent:${escapeHtml(acctMeta.color || "#94a3b8")}">
-            <span class="cloud-type-badge-icon">${cloudPickerTileIcon(account.type || "")}</span>
-            <span class="cloud-type-badge-name">${escapeHtml(account.name || account.id)}</span>
-          </div>` : ""}
-          <label>${escapeHtml(t("topologyCloudModel"))}${models.length
-            ? `<select data-block-field="model">${models.map((m) => `<option value="${escapeHtml(m.id)}"${m.id === f.model ? " selected" : ""}>${escapeHtml(m.name || m.id)}</option>`).join("")}</select>`
-            : `<input type="text" data-block-field="model" value="${escapeHtml(f.model)}" placeholder="gpt-4o-mini">`}</label>
-          ${models.length ? `<label>${escapeHtml(t("topologyCloudModelCustom"))}<input type="text" data-block-field-custom placeholder="gpt-5.2"></label>` : ""}
-          <label title="${escapeHtml(t("topologyCloudContextHint"))}">${escapeHtml(t("topologyCloudContextLength"))}<input type="number" min="1" step="1" data-block-field="contextLength" value="${escapeHtml(f.contextLength)}" placeholder="${escapeHtml(t("topologyCloudContextEmpty"))}"></label>
-          <div class="cloud-span cloud-ctx-reported" data-t="cloud-context-reported">
-            <span class="topology-muted">${escapeHtml(t("topologyCloudContextReported"))}</span>
-            <b>${escapeHtml(providerWindow ? String(providerWindow) : t("topologyCloudContextAuto"))}</b>
-          </div>
-          <label class="cloud-span cloud-expose-line" title="${escapeHtml(t("topologyCloudContextAutoHint"))}"><input type="checkbox" data-block-field-context-auto${f.contextAuto ? " checked" : ""}> ${escapeHtml(t("topologyCloudContextAutoUse"))}</label>
-          <label>${escapeHtml(t("topologyCloudModelMode"))}<select data-block-field="modelMode">
-            <option value="rewrite"${(f.modelMode || "rewrite") !== "passthrough" ? " selected" : ""}>${escapeHtml(t("topologyCloudModelRewrite"))}</option>
-            <option value="passthrough"${(f.modelMode || "rewrite") === "passthrough" ? " selected" : ""}>${escapeHtml(t("topologyCloudModelPassthrough"))}</option>
-          </select></label>
-          ${f.isNew
-            ? `<label class="cloud-expose-line"><input type="checkbox" data-block-field-expose checked> ${escapeHtml(t("topologyCloudExposeNew"))}</label>`
-            : `<label>${escapeHtml(t("topologyCloudBlockId"))}<input type="text" value="${escapeHtml(f.blockId)}" disabled title="${escapeHtml(t("topologyCloudBlockIdHint"))}"></label>`}
-        </div>
-        <div class="topology-priority-actions cloud-actions">
-          ${!f.isNew ? `<button class="ghost-action danger" type="button" data-cloud-delete-block>${escapeHtml(t("topologyCloudDeleteBlock"))}</button>` : ""}
-          <button class="ghost-action" type="button" data-cloud-block-cancel>${escapeHtml(t("topologyCancel"))}</button>
-          <button class="primary-mini-action" type="button" data-cloud-block-save${topologyCloudBusy ? " disabled" : ""}>${escapeHtml(t("topologySave"))}</button>
-        </div>
+        <div class="cloud-window-body">${body}</div>
+        <div class="cloud-window-foot">${footer}</div>
       </div>
     </div>
   `;
@@ -774,8 +694,8 @@ export async function saveCloudAccount() {
   try {
     let accountId = f.accountId;
     if (!f.isNew) {
-      // An edit sends what changed: the name, the address, how it signs in.
-      // It used to send nothing and still say "saved".
+      // An edit sends what changed: the name, the address, how it signs in. It used to send
+      // nothing and still say "saved".
       const stored = (topology?.cloudAccounts || []).find((a) => a.id === accountId) || {};
       const changed = ["name", "baseUrl", "authMode"].some((k) => String(f[k] ?? "") !== String(stored[k] ?? ""));
       if (changed) {
@@ -786,18 +706,21 @@ export async function saveCloudAccount() {
         });
         if (editRes.topology) setTopology(editRes.topology);
       }
-    }
-    if (f.isNew) {
+    } else {
       const preset = topologyCloudPresetByType(f.type) || {};
       const resolvedUrl = f.baseUrl || preset.baseUrl || "";
       if (!/^https?:\/\//.test(resolvedUrl)) { toast("base URL must be http(s)"); topologyCloudBusy = false; renderTopology(); return; }
       const taken = (topology?.cloudAccounts || []).map((a) => a.id);
       accountId = topologyCloudUniqueId(topologyCloudSlug(f.name || f.type), taken);
-      const acctRes = await api(f.poolId ? "/api/cloud-pools/connect-account" : "/api/cloud-accounts/save", {
+      const acctRes = await api("/api/cloud-accounts/save", {
         method: "POST",
-        body: JSON.stringify({ ...(f.poolId ? { poolId: f.poolId } : {}), account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: f.authMode, accountType: preset.accountType || "" } }),
+        body: JSON.stringify({ account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: f.authMode, accountType: preset.accountType || "" } }),
       });
       if (acctRes.topology) setTopology(acctRes.topology);
+      // Saved: the window edits this account from here on — a failed key below must not make a
+      // second account on the next Save.
+      f.isNew = false;
+      f.accountId = accountId;
     }
     if ((f.apiKey || "").trim()) {
       const keyRes = await api("/api/cloud-accounts/key", {
@@ -814,32 +737,8 @@ export async function saveCloudAccount() {
         return;
       }
     }
-    const wasNew = f.isNew;
-    const acctType = f.type || "";
-    const isSubscription = acctType === "openai-subscription";
-    // Any new account with credentials: try to auto-fetch its model list from the
-    // provider (subscription via codex/models; others via GET /models). Errors are
-    // caught below, so providers that don't support listing just stay empty.
-    const autoCreate = wasNew && !f.poolId;
-    if (autoCreate) {
-      try {
-        const acRes = await api("/api/cloud-accounts/auto-create-blocks", {
-          method: "POST",
-          body: JSON.stringify({ id: accountId }),
-        });
-        if (acRes.topology) setTopology(acRes.topology);
-        toast(acRes.created > 0
-          ? `${t("topologyCloudSaved")} · ${acRes.created} model${acRes.created !== 1 ? "s" : ""} added`
-          : t("topologyCloudSaved"));
-      } catch (e) {
-        toast(`${t("topologyCloudSaved")} · models: ${e.message || "fetch failed"}`);
-      }
-      closeCloudProviderModal();
-    } else {
-      toast(t("topologyCloudSaved"));
-      closeCloudProviderModal();
-      if (wasNew && !f.poolId) openCloudBlockModal(null, accountId);
-    }
+    toast(t("cloudAccountSaved"));
+    finishCloudAccountWindow(accountId);
   } catch (err) {
     toast(err.message);
     topologyCloudBusy = false;
@@ -847,146 +746,118 @@ export async function saveCloudAccount() {
   }
 }
 
-export async function saveCloudBlock() {
-  if (!topologyCloudBlockForm) return;
-  const f = topologyCloudBlockForm;
-  // Read the model/mode straight from the DOM: an untouched <select> shows its first
-  // option but never fires a change event, so f.model would otherwise stay empty and
-  // the block would render as "—".
-  const modelEl = document.querySelector('[data-block-field="model"]');
-  if (modelEl && modelEl.value) f.model = modelEl.value;
-  // Free-text escape hatch: a model the upstream list no longer serves (e.g.
-  // retired from the pinned client_version) is otherwise unpickable.
-  const customModel = (document.querySelector("[data-block-field-custom]")?.value || "").trim();
-  if (customModel) f.model = customModel;
-  const modeEl = document.querySelector('[data-block-field="modelMode"]');
-  if (modeEl && modeEl.value) f.modelMode = modeEl.value;
-  // Left blank = "I state nothing", which is not the same as zero: the server
-  // drops the key entirely. Nothing takes its place unless the switch below is
-  // ticked — a window nobody chose is the trap this codebase keeps returning to.
-  f.contextLength = (document.querySelector('[data-block-field="contextLength"]')?.value || "").trim();
-  f.contextAuto = !!document.querySelector("[data-block-field-context-auto]")?.checked;
-  const exposeNew = !!document.querySelector("[data-block-field-expose]")?.checked;
-  if (!f.model) { toast("Pick a model first"); return; }
-  // Editing an existing block to another model keeps its id (and every cb:<id>
-  // reference) but silently rewires them — exactly how terra once became a
-  // second sol. Make that an explicit decision.
-  if (!f.isNew && f.origModel && f.model !== f.origModel) {
-    if (!(await appConfirm(t("topologyCloudModelChangeWarn", { id: f.blockId, from: f.origModel, to: f.model })))) return;
-  }
-  // A second block for the same model is almost always a mis-click, not intent.
-  if (f.isNew && (topology?.cloudProviders || []).some((b) => b.accountId === f.accountId && b.model === f.model)) {
-    if (!(await appConfirm(t("topologyCloudDupBlockWarn", { model: f.model })))) return;
-  }
-  topologyCloudBusy = true;
-  renderTopology();
-  try {
-    const blockId = f.isNew
-      ? topologyCloudUniqueId(topologyCloudSlug(f.model || f.accountId), (topology?.cloudProviders || []).map((b) => b.id))
-      : f.blockId;
-    const blockRes = await api("/api/cloud-blocks/save", {
-      method: "POST",
-      body: JSON.stringify({ block: { id: blockId, accountId: f.accountId, name: f.model || blockId, model: f.model, modelMode: f.modelMode || "rewrite",
-        // Both always sent, blank included: clearing the field must REMOVE a
-        // stated window, and unticking the switch must turn it off, rather than
-        // leaving what was there standing.
-        contextLength: f.contextLength || "",
-        contextAuto: !!f.contextAuto,
-        ...(f.isNew ? { exposed: exposeNew } : {}) } }),
-    });
-    if (blockRes.topology) setTopology(blockRes.topology);
-    toast(t("topologyCloudSaved"));
-  } catch (err) {
-    toast(err.message);
-  }
-  topologyCloudBusy = false;
-  closeCloudBlockModal();
-}
-
-export async function deleteCloudBlock() {
-  if (!topologyCloudBlockForm?.blockId) return;
-  try {
-    const res = await api("/api/cloud-blocks/delete", {
-      method: "POST",
-      body: JSON.stringify({ id: topologyCloudBlockForm.blockId }),
-    });
-    if (res.topology) setTopology(res.topology);
-  } catch (err) {
-    toast(err.message);
-  }
-  closeCloudBlockModal();
-}
-
+// The one way to sign a subscription in: by a one-time code. A new account is saved first — the
+// code belongs to an account — and remembered as made for this sign-in, so Cancel can take it
+// back while it has no login.
 export async function startCloudOauthLogin() {
   const f = ui.topologyCloudForm;
   if (!f) return;
+  f.loginEnded = null;
+  f.connected = null;
   let accountId = f.accountId;
   if (f.isNew) {
     const preset = topologyCloudPresetByType(f.type) || {};
     const resolvedUrl = f.baseUrl || preset.baseUrl || "";
-    if (!/^https?:\/\//.test(resolvedUrl)) { toast("base URL must be http(s)"); return; }
     const taken = (topology?.cloudAccounts || []).map((a) => a.id);
     accountId = topologyCloudUniqueId(topologyCloudSlug(f.name || f.type), taken);
-    const res = await api(f.poolId ? "/api/cloud-pools/connect-account" : "/api/cloud-accounts/save", {
+    const res = await api("/api/cloud-accounts/save", {
       method: "POST",
-      body: JSON.stringify({ ...(f.poolId ? { poolId: f.poolId } : {}), account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: "oauth", accountType: preset.accountType || "", oauthConfig: f.oauthConfig || {} } }),
+      body: JSON.stringify({ account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: "oauth", accountType: preset.accountType || "", oauthConfig: f.oauthConfig || {} } }),
     });
     if (res.topology) setTopology(res.topology);
     f.isNew = false;
+    f.connecting = true;
+    f.createdForSignIn = true;
     f.accountId = accountId;
   }
   if (!accountId) { toast("pick or create an account"); return; }
-  f.oauthStatus = t("topologyCloudOauthOpening");
-  renderTopology();
-  const started = await api("/api/cloud-accounts/oauth/start", {
+  await startCloudDeviceLogin(f, accountId);
+}
+
+// The board's half of the sign-in by code: show the code, then poll its status for the code's
+// whole life (15 minutes; the server ends the login first).
+export const DEVICE_LOGIN_POLLS = 460;
+
+async function startCloudDeviceLogin(f, accountId) {
+  const started = await api("/api/cloud-accounts/oauth/device-start", {
     method: "POST",
     body: JSON.stringify({ id: accountId }),
   });
-  if (!started.authorizeUrl) { toast("oauth start failed"); return; }
-  f.oauthLoginState = started.state;
-  f.oauthAuthorizeUrl = started.authorizeUrl;
+  if (!started.userCode || !started.state) { toast("device sign-in failed"); return; }
+  f.deviceLogin = { state: started.state, userCode: started.userCode, verifyUrl: started.verifyUrl, expiresAt: started.expiresAt };
+  f.loginEnded = null;
   renderTopology();
-  window.open(started.authorizeUrl, "_blank", "noopener");
-  pollCloudOauth(started.state);
+  pollCloudOauth(started.state, 0, DEVICE_LOGIN_POLLS);
 }
 
-export async function completeCloudOauthLogin() {
-  const f = ui.topologyCloudForm;
-  if (!f?.oauthLoginState || !f.oauthCallbackUrl) return;
-  try {
-    const res = await api("/api/cloud-accounts/oauth/complete", { method: "POST", body: JSON.stringify({ state: f.oauthLoginState, callbackUrl: f.oauthCallbackUrl }) });
-    f.oauthCallbackUrl = "";
-    if (res.topology) setTopology(res.topology);
-    if (res.state === "done") { f.oauthLoginState = ""; f.oauthStatus = t("topologyCloudOauthDone"); }
-    else f.oauthStatus = `${t("topologyCloudOauthFail")}: ${res.error || ""}`;
+export async function copyCloudDeviceCode() {
+  const code = ui.topologyCloudForm?.deviceLogin?.userCode;
+  if (!code) return false;
+  const copied = await copyText(code);
+  // A failed copy says so: the operator would paste whatever the clipboard held before,
+  // believing it is the code.
+  toast(t(copied ? "deviceLoginCopied" : "cloudCodeNotCopied"));
+  return copied;
+}
+
+export function pollCloudOauth(state, attempt = 0, limit = DEVICE_LOGIN_POLLS) {
+  if (!ui.topologyCloudModalOpen || !ui.topologyCloudForm) return;
+  // A newer code took this one's place in this window: its answers are not ours.
+  if (ui.topologyCloudForm.deviceLogin?.state !== state) return;
+  if (attempt > limit) {
+    ui.topologyCloudForm.deviceLogin = null;
+    ui.topologyCloudForm.loginEnded = { reason: "expired" };
     renderTopology();
-  } catch (err) { toast(err.message); }
-}
-
-export function pollCloudOauth(state, attempt = 0) {
-  if (!ui.topologyCloudModalOpen) return;
-  if (attempt > 150) {
-    if (ui.topologyCloudForm) { ui.topologyCloudForm.oauthStatus = t("topologyCloudOauthTimeout"); renderTopology(); }
     return;
   }
   api(`/api/cloud-accounts/oauth/status?state=${encodeURIComponent(state)}`).then((res) => {
-    if (!ui.topologyCloudModalOpen || !ui.topologyCloudForm) return;
+    const f = ui.topologyCloudForm;
+    if (!ui.topologyCloudModalOpen || !f || f.deviceLogin?.state !== state) return;
     if (res.state === "done") {
       if (res.topology) setTopology(res.topology);
-      ui.topologyCloudForm.oauthLoginState = "";
-      ui.topologyCloudForm.oauthCallbackUrl = "";
-      ui.topologyCloudForm.oauthStatus = t("topologyCloudOauthDone") + (res.email ? ` · ${res.email}` : "");
-      renderTopology();
-      toast(t("topologyCloudOauthDone"));
-      return;
-    }
-    if (res.state === "error") {
-      ui.topologyCloudForm.oauthStatus = `${t("topologyCloudOauthFail")}: ${res.error || ""}`;
+      f.deviceLogin = null;
+      f.connected = { email: res.email || "" };
       renderTopology();
       return;
     }
-    setTimeout(() => pollCloudOauth(state, attempt + 1), 2000);
-  }).catch(() => setTimeout(() => pollCloudOauth(state, attempt + 1), 2000));
+    // "unknown": the controller restarted and forgot the code — asking for fifteen minutes would
+    // change nothing. A replaced or removed login says so.
+    if (res.state === "error" || res.state === "unknown") {
+      f.deviceLogin = null;
+      f.loginEnded = { reason: res.reason || (res.state === "unknown" ? "unknown" : ""), error: res.error || "" };
+      renderTopology();
+      return;
+    }
+    setTimeout(() => pollCloudOauth(state, attempt + 1, limit), 2000);
+  }).catch(() => setTimeout(() => pollCloudOauth(state, attempt + 1, limit), 2000));
+}
+
+// Cancel and × in the account window. An account this window made for its own sign-in goes
+// back while it has no login: it used to stay on the board as a subscription that "needs key",
+// with nothing to say how it got there.
+export async function cancelCloudAccountWindow() {
+  const f = ui.topologyCloudForm;
+  const acct = f ? (topology?.cloudAccounts || []).find((a) => a.id === f.accountId) : null;
+  closeCloudProviderModal();
+  if (!f?.createdForSignIn || !acct || acct.hasCredential) return;
+  try {
+    const res = await api("/api/cloud-accounts/delete", { method: "POST", body: JSON.stringify({ id: acct.id }) });
+    if (res.topology) { setTopology(res.topology); renderTopology(); }
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// What deleting an account does, in the words its confirmation says: every step that names it
+// leaves its pool, and the pools stay with their other steps. The sign-out at the provider is
+// said only where the server says the delete does it (signOutOnDelete).
+export function cloudDeleteWords(acct) {
+  const name = acct?.name || acct?.id || "";
+  const pools = [...new Set((acct?.usedIn || []).map((u) => u.poolName || u.poolId))];
+  const words = pools.length
+    ? t("accountDeleteSteps", { name, pools: pools.join(", "), count: String((acct.usedIn || []).length) })
+    : t("accountDeleteText", { name });
+  return acct?.signOutOnDelete ? `${words} ${t("cloudDeleteSignsOut")}` : words;
 }
 
 export async function deleteCloudAccount() {
@@ -998,6 +869,9 @@ export async function deleteCloudAccount() {
       body: JSON.stringify({ id: accountId }),
     });
     if (res.topology) setTopology(res.topology);
+    // The controller asked OpenAI to end the sign-in (oauth.SignOut): what OpenAI answered is
+    // said, a refusal or silence included.
+    if (res.signOut) toast(res.signOut.ok ? t("cloudSignedOut") : t("cloudSignOutFailed", { error: res.signOut.error || "" }));
   } catch (err) {
     toast(err.message);
   }

@@ -46,6 +46,28 @@ export class CardFold {
     // The cell whose window is open now — here for the same reason: the
     // window is drawn inside its lane, and a repaint redraws the lane.
     this.openKey = "";
+    // The cards the operator is setting up in this visit — a client just added, an agent just
+    // given a port: drawn open in place (as if pinned) until folded by hand or the page
+    // reloads. A new card folded into a line the moment its first port came, and the fallback
+    // "+" the operator was about to press went with it (2026-10-08). Not stored: a setup ends
+    // with the visit. A key ending in ":" holds every card it begins (a client's agents).
+    this.fresh = new Set();
+    // How many cards each lane holds, as the last board paint counted them (syncSwitches):
+    // a lane with none shows no fold switch. Null until a paint has counted.
+    this.counts = null;
+  }
+
+  /** The key of an agent's card; with no agent, the prefix of every card of the client. */
+  static agentKey(hostId, agentId = "") { return `agent:${hostId}:${agentId}`; }
+
+  /** Keep the card `key` (or the cards a "…:" prefix begins) open for this visit. */
+  hold(key) { if (key) this.fresh.add(String(key)); }
+
+  /** The hold that keeps `key` open, or "". */
+  holdOf(key) {
+    const k = String(key);
+    for (const held of this.fresh) if (held === k || (held.endsWith(":") && k.startsWith(held))) return held;
+    return "";
   }
 
   static defaultStorage() {
@@ -126,6 +148,14 @@ export class CardFold {
 
   togglePin(key) {
     const k = String(key);
+    // A card held open for its setup folds back at the first press, and is not pinned for good;
+    // a press on a pinned one drops its hold too, or the unpinned card would stay open.
+    const held = this.holdOf(k);
+    if (held) this.fresh.delete(held);
+    if (held && !this.pinned.has(k)) {
+      if (this.peekKey === k) this.peekKey = "";
+      return false;
+    }
     if (this.pinned.has(k)) this.pinned.delete(k);
     else this.pinned.add(k);
     this.write(CardFold.KEY_PINNED, [...this.pinned]);
@@ -142,14 +172,18 @@ export class CardFold {
     // A lane whose cards open in a window keeps none pinned in place: a pin this
     // browser saved before the window came is ignored, not drawn.
     if (this.opensInWindow(lane)) return "line";
-    return this.isPinned(key) ? "pinned" : "line";
+    return this.isPinned(key) || this.holdOf(key) ? "pinned" : "line";
   }
 
   /** The lane switches say which way they are set, in words on hover. Called
    *  after every paint of the board, so a language change reaches them too. */
-  syncSwitches(doc = globalThis.document) {
+  syncSwitches(doc = globalThis.document, counts = null) {
+    if (counts) this.counts = counts;
     for (const btn of doc?.querySelectorAll?.("[data-board-density]") || []) {
       const lane = btn.dataset.boardDensity;
+      // "⊟" over an empty lane folded nothing and read as a control without a purpose
+      // (2026-10-08). A lane not counted keeps its switch.
+      if (this.counts && lane in this.counts) btn.hidden = !(Number(this.counts[lane]) > 0);
       const compact = this.folds(lane);
       btn.setAttribute("aria-pressed", String(compact));
       // Each lane says how ITS lines open: telling the cells lane to rest the

@@ -7,7 +7,7 @@ serves, with `modelWindowSource` naming it; `effectiveWindow` — the figure the
 port publishes in /v1/models, by the rule the proxy applies from the same
 inputs; the operator's limit and switch already sit on the row. Pinned by
 VALUE for every kind of output (a controller cell, a remote cell, a cloud
-block, an account passthrough, no output) and, separately, for what must NOT
+pool, an account passthrough, no output) and, separately, for what must NOT
 become a window: a cell's configured CTX_SIZE.
 
 Run: python3 scripts/test_route_windows.py
@@ -51,7 +51,7 @@ def _router(rid, out):
     return {"id": rid, "outputs": [out], "rules": {"bySource": [], "defaultOutput": out["id"]}}
 
 
-# A backup node in graph form: main → the cloud block, backup → the chat cell.
+# A backup node in graph form: main → the cloud pool, backup → the chat cell.
 # Graph edges name outputs without the out: prefix, unlike the legacy rules.
 OE_ROUTER = {"id": "router:oe", "outputs": [
     {"id": "terra2", "upstreamType": "cloud", "providerId": "blk:terra", "accountId": "acc:1"},
@@ -79,10 +79,14 @@ CONFIG = {"policy": {}, "routers": [OE_ROUTER,
                               "upstreamPort": 22007, "upstreamModel": "qwen3:8b"}),
 ]}
 
-BLOCKS = [
-    {"id": "blk:terra", "accountId": "acc:1", "name": "gpt-5.6-terra", "model": "gpt-5.6",
-     "contextLength": 200000, "contextAuto": False},
-    {"id": "blk:auto", "accountId": "acc:1", "name": "", "model": "cached-model", "contextAuto": True},
+# The pools as PoolDesk.state() hands them: steps with the account whose
+# catalogue answers for them (usageAccountId — a test alias's is its original's).
+POOLS = [
+    {"id": "blk:terra", "name": "gpt-5.6-terra", "contextLength": 200000, "contextAuto": False,
+     "steps": [{"id": "acc:1", "accountId": "acc:1", "usageAccountId": "acc:1", "model": "gpt-5.6", "enabled": True}]},
+    {"id": "blk:auto", "name": "auto", "contextAuto": True,
+     "steps": [{"id": "alias", "accountId": "alias", "usageAccountId": "acc:1", "model": "cached-model", "enabled": True},
+               {"id": "off", "accountId": "acc:2", "usageAccountId": "acc:2", "model": "silent", "enabled": False}]},
 ]
 
 CATALOGUE = {"acc:1": {"models": [{"id": "cached-model", "contextLength": 131072},
@@ -107,7 +111,7 @@ def annotate(**extra):
 
     model_catalog.cached_models_entry = fake
     try:
-        annotate_route_windows([row], CONFIG, SERVER, BLOCKS)
+        annotate_route_windows([row], CONFIG, SERVER, POOLS)
     finally:
         model_catalog.cached_models_entry = real
     row["_catalogueCalls"] = catalogue_calls
@@ -156,20 +160,21 @@ def main():
     check(facts(row) == (32768, "cell", 32768), f"named by the client's IP (got {facts(row)})")
     check(row["modelWindowSource"]["host"] == "172.16.0.7", "the source carries that IP")
 
-    print("a cloud block:")
+    print("a cloud pool:")
     row = annotate(router="router:terra", contextLength=256000)
-    check(facts(row) == (200000, "block", 200000),
-          f"the block's declared 200000 below the limit 256000 (got {facts(row)})")
-    check(row["modelWindowSource"] == {"kind": "block", "name": "gpt-5.6-terra", "model": "gpt-5.6"},
-          f"the source names the block (got {row['modelWindowSource']})")
-    check(row["_catalogueCalls"] == [], "switch off on the block: the catalogue is not read at all")
+    check(facts(row) == (200000, "pool", 200000),
+          f"the pool's declared 200000 below the limit 256000 (got {facts(row)})")
+    check(row["modelWindowSource"] == {"kind": "pool", "name": "gpt-5.6-terra", "models": ["gpt-5.6"]},
+          f"the source names the pool and its steps' models (got {row['modelWindowSource']})")
+    check(row["_catalogueCalls"] == [], "switch off on the pool: the catalogue is not read at all")
     row = annotate(router="router:terra", contextLength=100000)
-    check(facts(row) == (200000, "block", 100000), f"limit 100000 below the block → 100000 (got {facts(row)})")
+    check(facts(row) == (200000, "pool", 100000), f"limit 100000 below the pool → 100000 (got {facts(row)})")
     row = annotate(router="router:auto")
-    check(facts(row) == (131072, "block", 131072),
-          f"block switch on: the catalogue's 131072 is the model's window (got {facts(row)})")
-    check(row["modelWindowSource"]["name"] == "cached-model", "a nameless block is named by its model")
-    check(row["_catalogueCalls"] == ["acc:1"], f"the catalogue is read once (got {row['_catalogueCalls']})")
+    check(facts(row) == (131072, "pool", 131072),
+          f"pool switch on: the catalogue's 131072 is the model's window (got {facts(row)})")
+    check(row["modelWindowSource"]["models"] == ["cached-model"], "a switched-off step is not named")
+    check(row["_catalogueCalls"] == ["acc:1"],
+          f"the catalogue is read once, the alias's original's, and not for the switched-off step (got {row['_catalogueCalls']})")
 
     print("outputs that pin no window:")
     row = annotate(router="router:acct", contextLength=8192)
@@ -183,7 +188,7 @@ def main():
     check(facts(row) == (None, "unrouted", None), f"a missing router is unrouted too (got {facts(row)})")
     row = annotate(router="router:gone", contextLength=4096)
     check(facts(row) == (None, "unrouted", None),
-          f"an output naming a deleted block: unrouted, not the limit (got {facts(row)})")
+          f"an output naming a deleted pool: unrouted, not the limit (got {facts(row)})")
 
     print("a backup node: the board resolves the exit the proxy would take:")
     import time as _time
@@ -191,7 +196,7 @@ def main():
     topology_mod._proxy_output_health = lambda: {}
     try:
         row = annotate(router="router:oe", contextLength=256000)
-        check(facts(row) == (200000, "block", 200000), f"no verdicts → main, the block's 200000 (got {facts(row)})")
+        check(facts(row) == (200000, "pool", 200000), f"no verdicts → main, the pool's 200000 (got {facts(row)})")
         now = _time.time()
         topology_mod._proxy_output_health = lambda: {"terra2": {"state": "error", "status": 429, "kind": "http 429", "message": "quota", "checkedAt": now, "source": "probe"}}
         row = annotate(router="router:oe", contextLength=256000)
@@ -208,7 +213,7 @@ def main():
               f"an expired dead verdict is still main's last word → the backup cell answers (got {facts(row)})")
         topology_mod._proxy_output_health = lambda: {"terra2": {"state": "ok", "checkedAt": now - 400}}
         row = annotate(router="router:oe", contextLength=256000)
-        check(facts(row) == (200000, "block", 200000),
+        check(facts(row) == (200000, "pool", 200000),
               f"negative: main's last word was an answer, however old → main (got {facts(row)})")
         # The real reader against a file that does not exist: no verdicts, no crash.
         topology_mod._proxy_output_health = real_snapshot
@@ -216,13 +221,13 @@ def main():
         topology_mod.AGENT_PROXY_STATE_FILE = pathlib.Path("/nonexistent/agent-proxy-state.json")
         try:
             row = annotate(router="router:oe", contextLength=256000)
-            check(facts(row) == (200000, "block", 200000), "a missing state file is no verdicts, not a crash")
+            check(facts(row) == (200000, "pool", 200000), "a missing state file is no verdicts, not a crash")
         finally:
             topology_mod.AGENT_PROXY_STATE_FILE = real_file
         # And a reader that throws must not sink the board either.
         topology_mod._proxy_output_health = lambda: (_ for _ in ()).throw(OSError("boom"))
         row = annotate(router="router:oe", contextLength=256000)
-        check(facts(row)[1] == "block", "a throwing reader is swallowed — the board still draws")
+        check(facts(row)[1] == "pool", "a throwing reader is swallowed — the board still draws")
     finally:
         topology_mod._proxy_output_health = real_snapshot
         from caravan.proxy.output_health import output_health as _oh
@@ -242,7 +247,7 @@ def main():
           f"nothing else: a port of 0 and a non-row are skipped (got {len(served)}, expected {controller_names + 1})")
 
     rows = [_proxy(23001, "router:chat", contextLength=2048), "junk"]
-    annotate_route_windows(rows, CONFIG, SERVER, BLOCKS)
+    annotate_route_windows(rows, CONFIG, SERVER, POOLS)
     check(rows[0]["effectiveWindow"] == 2048 and rows[1] == "junk", "a non-dict row is left alone")
 
     print("the server object's real key:")
@@ -276,6 +281,39 @@ def main():
               "not a GGUF, or nothing: None")
     finally:
         models_mod.read_gguf_metadata_cached, models_mod.extract_runtime_meta = real_read, real_extract
+
+    print("the window each pool states to its clients (the kanban's «Pool settings» says it):")
+    pools = [dict(p, steps=[dict(s) for s in p["steps"]]) for p in POOLS] + [
+        {"id": "blk:none", "name": "nothing stated", "contextAuto": False, "steps": []},
+        {"id": "blk:unnamed", "name": "a model the provider names no window for", "contextAuto": True,
+         "steps": [{"id": "x", "accountId": "acc:1", "model": "not-in-the-list", "enabled": True}]},
+        {"id": "blk:cell", "name": "a machine's cell among the rows", "contextAuto": True, "contextLength": 4096,
+         "steps": [{"id": "s", "accountId": "acc:1", "model": "cached-model", "enabled": True},
+                   {"id": "c", "kind": "output", "output": "srv:22007", "enabled": True}]},
+        "junk"]
+    calls = []
+    real = model_catalog.cached_models_entry
+    model_catalog.cached_models_entry = lambda account_id: calls.append(account_id) or CATALOGUE.get(account_id)
+    try:
+        topology_mod.annotate_pool_windows(pools)
+    finally:
+        model_catalog.cached_models_entry = real
+    got = {p["id"]: p["window"] for p in pools if isinstance(p, dict)}
+    check(got["blk:terra"] == 200000,
+          f"the operator's number with the switch off — the provider's 999999 is not read in (got {got['blk:terra']})")
+    check(got["blk:auto"] == 131072,
+          f"the switch on: the smallest window the enabled rows' providers name, an alias read as its original's, "
+          f"the switched-off row left out (got {got['blk:auto']})")
+    check(got["blk:none"] is None and got["blk:unnamed"] is None,
+          "negative: no number and no switch — none; the switch on and a row whose model the provider names no window "
+          f"for — none, not a guess (got {got})")
+    check(got["blk:cell"] == 4096,
+          "the switch on, and a machine's cell among the rows names no window: the operator's number stands "
+          f"(got {got['blk:cell']})")
+    check(set(calls) == {"acc:1"} and pools[-1] == "junk",
+          f"the catalogue is read only for pools whose switch is on; a non-pool is left alone (got {calls})")
+    check(topology_mod.annotate_pool_windows([]) == [] and topology_mod.annotate_pool_windows(None) is None,
+          "boundary: no pools — nothing to say")
 
     print("port_question_reaches — what a question to the port reaches (proxy, board and Model card read it):")
     from caravan.proxy.graph import answer_port_question, port_question_reaches

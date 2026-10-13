@@ -37,6 +37,25 @@ import en from "./i18n/en.js";
 
 export const messages = { en };
 
+/** Where the chosen language is kept in the browser. /hf keeps it under the same name
+ *  (LANG_KEY in hf-text.js), so a language chosen on one page holds on every page. */
+export const LANG_KEY = "llamacppAdminLang";
+
+/** The chosen language, or English when none was chosen or the browser refuses storage. */
+export function storedLanguage() {
+  try { return localStorage.getItem(LANG_KEY) || "en"; } catch (_) { return "en"; }
+}
+
+/** One string in language `code`: its own, else English, else the key itself. {name}
+ *  placeholders are filled from `vars` — every one of them: a placeholder may legitimately
+ *  appear twice in one string (topologyCloudModelChangeWarn uses {to} in both clauses).
+ *  The one rule for every page: t() (i18n.js) and the brook's switch (river.js) both ask here. */
+export function translate(code, key, vars = {}) {
+  let text = messages[code]?.[key] || messages.en[key] || key;
+  for (const [name, value] of Object.entries(vars)) text = text.replaceAll(`{${name}}`, value);
+  return text;
+}
+
 const KNOWN = new Set(LANGS.map((l) => l.code));
 
 // Modules that add their own strings to a language table — the onboarding tours

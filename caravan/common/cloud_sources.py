@@ -1,8 +1,13 @@
-"""Cloud identities and virtual sources, shared by the board and the proxy.
+"""Cloud identities, shared by the board and the proxy.
 
-A pool owns routing policy, never credentials. A test alias owns a label,
-never another refresh token or quota. Keeping those distinctions here prevents
-the UI and the data plane from inventing different meanings for a duplicate.
+An account owns a sign-in. A test alias owns a label, never another refresh
+token or quota. Keeping those distinctions here prevents the UI and the data
+plane from inventing different meanings for a duplicate.
+
+A pool owns its chain of steps, never credentials (caravan/common/cloud_pools.py).
+The pools of the old form — a list of subscription members — are still read
+here as sources while a file of that form is around: a model block named its
+pool as its account.
 """
 import base64
 import json
@@ -15,7 +20,10 @@ class CloudSources:
         self.data = data
         self.secrets = secrets or {}
         self.accounts = {a["id"]: a for a in data.get("accounts", []) if isinstance(a, dict) and a.get("id")}
-        self.pools = {p["id"]: p for p in data.get("pools", []) if isinstance(p, dict) and p.get("id")}
+        # Only the old form's pools (members, no steps) stand where an account
+        # does; a pool of steps is no source of its own.
+        self.pools = {p["id"]: p for p in data.get("pools", [])
+                      if isinstance(p, dict) and p.get("id") and "members" in p}
 
     @classmethod
     def is_subscription(cls, account):
@@ -70,34 +78,3 @@ class CloudSources:
                     "accountType": self.SUBSCRIPTION, "baseUrl": "https://chatgpt.com/backend-api",
                     "authMode": "oauth", "pool": pool, "isPool": True}
         return None
-
-    def all(self):
-        return [self.source(i) for i in (*self.accounts, *self.pools) if self.source(i)]
-
-    def members(self, pool):
-        return [(m, self.source(m.get("accountId"))) for m in pool.get("members", [])]
-
-    @staticmethod
-    def common_models(lists):
-        """Only models every supplied catalogue lists; a failed catalogue is
-        the caller's error, not an empty list to be discarded here.
-
-        A pool answers from whichever member it routes to, so the window it
-        names for a model is the smallest any member names — and none when a
-        member names none. Taken from the first member alone, a pool would
-        promise a window another member may not have: the larger direction,
-        the one that makes a client send more than is accepted."""
-        if not lists:
-            return []
-        shared = set.intersection(*({m["id"] for m in rows} for rows in lists))
-        windows = [{m["id"]: m.get("contextLength") for m in rows} for rows in lists]
-        common = []
-        for model in lists[0]:
-            if model["id"] not in shared:
-                continue
-            named = [by_id[model["id"]] for by_id in windows]
-            entry = {k: v for k, v in model.items() if k != "contextLength"}
-            if all(isinstance(w, int) and w > 0 for w in named):
-                entry["contextLength"] = min(named)
-            common.append(entry)
-        return common

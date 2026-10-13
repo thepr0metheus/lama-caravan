@@ -31,7 +31,10 @@ from urllib.parse import urlparse
 
 
 from caravan.admin.gpu_driver import driver_status, driver_update, set_auto_settings, driver_update_status
+from caravan.admin.proxy_entry import entry_settings
 from caravan.admin.model_card import proxy_model_card
+from caravan.common.client_address import ClientAddress
+from caravan.common.entry_models import EntryModels
 from caravan.common.errors import AppError
 from caravan.common.flags import truthy
 from caravan.common.fetch import fetch_json, fetch_text, post_json
@@ -77,6 +80,7 @@ from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
 from caravan.admin.api_spec import ApiSpec
+from caravan.admin.packages import INSTALLED_PACKAGES
 from caravan.admin.route_access import ROUTE_ACCESS, RouteAccess
 from caravan.admin.status import controller_info, project_git_info, llama_builds_list, llama_cpp_info, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
@@ -155,11 +159,10 @@ from caravan.admin.topology import (
     topology_state,
 )
 from caravan.admin.proxy_ops import stop_agent_proxy_route
-from caravan.admin.llama_metrics import runtime_phase
 from caravan.admin.pricing import fetch_model_pricing
-from caravan.admin.oauth import oauth_login_status, refresh_oauth_token, start_oauth_login
+from caravan.admin.oauth import oauth_login_status, refresh_oauth_token
 from caravan.admin.cloud_api import (
-    auto_create_blocks,
+    check_account_models,
     cloud_spend_summary,
     fetch_account_costs,
     fetch_account_models,
@@ -189,7 +192,6 @@ from caravan.admin.proxy_stats import (
 from caravan.admin.monitoring import (
     append_incidents_from_sample,
     cpu_snapshot,
-    runtime_api,
     collect_monitor_sample,
     correlate_activity,
     cpu_state,
@@ -220,8 +222,8 @@ from caravan.admin.router_dsl import (
     recompute_cloud_fallback_eligibility,
 )
 from caravan.admin.proxies_config import (
+    StaleCopy,
     load_agent_proxy_config,
-    mint_bridge_port,
     normalize_routers,
     read_agent_proxy_payload,
     save_agent_proxy_config,
@@ -237,21 +239,16 @@ from caravan.admin.cloud import (
     account_credential_summary,
     account_secret_entry,
     cloud_accounts_state,
-    cloud_blocks_state,
     cloud_provider_presets_public,
     delete_account_credential,
     delete_cloud_account,
-    delete_cloud_block,
     load_cloud_data,
     load_provider_secrets,
     normalize_cloud_account,
-    normalize_cloud_block,
     save_cloud_data,
-    save_provider_secrets,
-    mark_cloud_blocks_announced,
     upsert_cloud_account,
-    upsert_cloud_block,
 )
+from caravan.admin.hf_checkpoint import CheckpointFinder
 from caravan.admin.hf_verify import start_verify, verify_status
 from caravan.admin.model_staging import (
     drop_prev, live_path_for, prev_overview, restore_prev, start_update,
@@ -283,6 +280,7 @@ from caravan.admin.downloads import (_download_jobs, _download_jobs_lock, cancel
                                     replaces_on_disk, resume_interrupted_download,
                                     scan_interrupted_downloads, start_hf_download)
 from caravan.admin.terminal import terminal_frame_to_html, terminal_frame_to_text
+from caravan.admin.model_folder import ModelFolder
 from caravan.admin.models import (
     detect_family,
     embedding_family_defaults,
@@ -294,7 +292,6 @@ from caravan.admin.models import (
     serve_model_file,
 )
 from caravan.admin.systemd_ctl import (
-    logs,
     read_cmdline,
     repair_user_service,
     service_status,
@@ -441,7 +438,12 @@ def _get_api_topology(h, parsed):
         """Topology of the board: hosts, clients, cells, proxies, routers and cloud accounts
 
         `hosts` are the machines with a scout, `clients` the operator's hand-made records,
-        and `modelsStamp` changes when the model list does. Reading it also kicks a
+        and `modelsStamp` changes when the model list does. `portsReachable` says whether
+        other machines reach the agents' ports (false where they listen on loopback only: a
+        port then has no address of its own, `endpoint` is empty; null while the proxy has
+        said nothing fresh); `entry` is `{url, port, publicUrl}` of the entry for keys;
+        `embeddingsCalledAt` is when a client last asked for /v1/embeddings (7 days, 0 for
+        not at all). Reading it also kicks a
         background refresh of the scouts' reports (never waited for) and brings the routers'
         outputs in line with the current cells, models and cloud blocks, saving them when
         they changed.
@@ -615,10 +617,12 @@ def _get_api_hf_files(h, parsed):
         """List a Hugging Face repository's GGUF files, classified by kind and quantization
 
         `repo` — `author/name`. Answers `{ok, repo, files, lastModified}`; each GGUF file
-        has `kind` (`model`, `mmproj`, `mtp` or `vocab`), `quant`, `size`, `date` and `oid`
-        (its LFS sha256). A repo with safetensors weights also gets a `safetensors` bundle,
-        other files go to `otherFiles`, and a missing or malformed `repo` answers `{ok:
-        false, error}` with status 200.
+        has `kind` (`model`, `mmproj`, `mtp` or `vocab`), `quant`, `size`, `date` and what
+        Hugging Face says of its bytes: `oid` (its LFS sha256, empty when none is given),
+        `gitOid` (the git blob id of an ordinary file) and `hashHidden` (true when a gated
+        repository masks the hash). A repo with safetensors weights also gets a `safetensors`
+        bundle whose files say the same, other files go to `otherFiles`, and a missing or
+        malformed `repo` answers `{ok: false, error}` with status 200.
         """
         _q = urllib.parse.parse_qs(parsed.query or "")
         _repo = (_q.get("repo") or [""])[0].strip()
@@ -644,11 +648,13 @@ def _get_api_hf_model_tree(h, parsed):
 def _get_api_hf_local_check(h, parsed):
         """Which GGUF files of a Hugging Face repository are already on disk or in a library
 
-        `repo` — `author/name`. Answers `{ok, localNames, localFiles, libraryFiles}`:
-        `localFiles` maps each file name on the controller's models disk to `{size, mtime,
-        path}`, and `libraryFiles` maps a name to the libraries holding it, from their last
-        measurement (no mount is read). An empty `repo` answers `{ok: false, error}` with
-        status 200.
+        `repo` — `author/name`. Answers `{ok, localNames, localFiles, libraryFiles,
+        checkpointFolders}`: `localFiles` maps each file name on the controller's models disk
+        to `{size, mtime, path}`, and `libraryFiles` maps a name to the libraries holding it,
+        from their last measurement (no mount is read). `checkpointFolders` names the folders
+        under `<model>/<author>/` that hold safetensors weights (a downloaded checkpoint); it
+        says only that there is a copy to verify. An empty `repo` answers `{ok: false, error}`
+        with status 200.
         """
         _q = urllib.parse.parse_qs(parsed.query or "")
         _repo = (_q.get("repo") or [""])[0].strip()
@@ -670,12 +676,23 @@ def _get_api_models_freshness(h, parsed):
 
 @_route(GET_ROUTES, '/api/hf/verify')
 def _get_api_hf_verify(h, parsed):
-        """Progress and result of a sha256 check of a repository's local files
+        """Progress and result of checking a repository's local files against Hugging Face
 
         `job` — a job id from the verify start; without it, `repo` picks that repository's
         newest job. Answers `{ok, job}` with `job: null` when none is known. Progress is
-        `bytesDone` of `totalBytes`; per file, `state` is `same`, `differs`, `unknown`
-        (Hugging Face gave no hash) or `unreadable`.
+        `bytesDone` of `totalBytes`. `job.files` holds the GGUF files by name; per file,
+        `state` is `same`, `differs`, `unknown` (Hugging Face gave no hash) or `unreadable`,
+        and `hash` says what Hugging Face gave (`sha256`, `hidden` or `none`).
+        `job.checkpoints` holds one `{folder, files, summary}` for each folder under
+        `<model>/<author>/` that has files of a safetensors repository, with a row per file
+        of the download by its path in the repository: `state` is `same` or `differs`
+        (the hash was compared: `hash` is `sha256` for an LFS file, `git-sha1` for an
+        ordinary one), `wrong-size` (not read), `missing`, `size-only` (the size is right
+        and Hugging Face gave no hash — a gated repository hides them — so it is NOT
+        verified by hash) or `unreadable`. A row has `size` (ours, absent when missing) and
+        `expectedSize`; one held against a hash also has the digest found (`sha256` or
+        `gitSha1`) beside `expected`. `summary` counts the rows in each state and those
+        still `pending`: a copy that is half read does not read as a whole one.
         """
         _q = urllib.parse.parse_qs(parsed.query or "")
         h.send_json(verify_status((_q.get("job") or [""])[0].strip(),
@@ -749,6 +766,23 @@ def _get_api_models_download(h, parsed):
         each with an empty body.
         """
         serve_model_file(h, parsed.query)
+        return
+
+@_route(GET_ROUTES, '/api/models/folder')
+def _get_api_models_folder(h, parsed):
+        """The files of a model that is a folder, for a scout to rebuild it
+
+        `path` — the folder's path relative to the models directory, as a cell's config names
+        it. Answers `{path, files, links, size}`: each file with its `size`, to be fetched
+        through `GET /api/models/download` at `<path>/<file>`, and each link inside the folder
+        with its relative `target`. A missing `path` answers 400, a path that leaves the
+        directory 403, no such folder 404, a link that leaves the models directory 409, a
+        folder of more than 5000 files 413.
+        """
+        import urllib.parse as _up
+        _q = _up.parse_qs(parsed.query or "")
+        _folder = ModelFolder(models_dir_from_config(parse_config()), (_q.get("path") or [""])[0])
+        h.send_json(_folder.listing())
         return
 
 @_route(GET_ROUTES, '/api/topology/client-monitor')
@@ -887,12 +921,14 @@ def _get_api_agent_proxies_raw(h, parsed):
 
 @_route(GET_ROUTES, '/api/cloud-accounts/oauth/status')
 def _get_api_cloud_accounts_oauth_status(h, parsed):
-        """Progress of a cloud account's OAuth login
+        """Progress of a cloud account's sign-in by code
 
-        `state` — the state string the login start returned. Answers `{state}` with the
-        value `pending`, `done` (plus `email` and a fresh `topology`), `error` (plus
-        `error`) or `unknown` for a login it does not hold. A login still pending after 5
-        minutes turns into `error` with `timeout`.
+        `state` — the state string the start returned. Answers `{state}` with the value
+        `pending`, `done` (plus `email` and a fresh `topology`), `error` (plus `error`, the
+        reason without the provider's free text, and `reason`: `replaced` when a newer start
+        replaced this code, `removed` when the account was deleted, `expired` when the code's
+        15 minutes ran out) or `unknown` for a login it does not hold — never had, or forgot
+        on a restart. A login ended by a newer start or a deletion says so for 30 minutes.
         """
         query = urllib.parse.parse_qs(parsed.query or "")
         status = oauth_login_status((query.get("state") or [""])[0])
@@ -933,20 +969,17 @@ def _get_api_cloud_accounts_subscription_models(h, parsed):
 
 @_route(GET_ROUTES, '/api/cloud-accounts/subscription-usage')
 def _get_api_cloud_accounts_subscription_usage(h, parsed):
-        """Usage limits and credits of a ChatGPT subscription, with the operator's reserve
+        """Usage limits and credits of a ChatGPT subscription
 
         `id` — the account id. Answers `{ok, limits, credits, planType, limitReached, ...}`
         from chatgpt.com, each limit with `label`, `remainingPct`, `resetsAt` and
-        `windowSeconds`, merged with `reserve`, `reserveKept`, `reserveMax` and
-        `reserveReadAt`: the reserve the operator keeps and the proxy's verdict on it.
-        Errors are those of the subscription model list: 404, 400, 502 and 503.
+        `windowSeconds`. A pool's step keeps its own switch level on these windows; the
+        topology's `pools` say where each one stands. Errors are those of the subscription
+        model list: 404, 400, 502 and 503.
         """
         query = urllib.parse.parse_qs(parsed.query or "")
         account_id = (query.get("id") or [""])[0].strip()
-        usage = fetch_subscription_usage(account_id)
-        # Beside the bars: the operator's reserve and whether the proxy keeps it now.
-        from caravan.admin.usage_reserve_desk import UsageReserveDesk
-        h.send_json({**usage, **UsageReserveDesk().view(account_id)})
+        h.send_json(fetch_subscription_usage(account_id))
         return
 
 @_route(GET_ROUTES, '/api/cloud-accounts/subscription-resets')
@@ -1085,6 +1118,18 @@ def _get_api_agent_proxy_latency(h, parsed):
         h.send_json({"latency": proxy_latency.summary(port, (query.get("range") or ["all"])[0].strip())})
         return
 
+@_route(GET_ROUTES, '/api/agent-proxy-entry')
+def _get_api_agent_proxy_entry(h, parsed):
+        """The entry for keys: its port, the address consumers use, whether the proxy listens
+
+        Consumers send their route's key as `Authorization: Bearer <key>` (or `x-api-key`) to the
+        entry, and the proxy serves the request as that route's (caravan/common/key_entry.py).
+        Answers `{ok, port, publicUrl, listening, keyedRoutes, closedPorts}`: `port` is null while
+        the entry is off, `closedPorts` are the routes reached through the entry only.
+        """
+        h.send_json(entry_settings.read())
+        return
+
 @_route(GET_ROUTES, '/api/gpu-driver')
 def _get_api_gpu_driver(h, parsed):
         """NVIDIA driver state of the controller's machine: running, installed, available
@@ -1133,7 +1178,8 @@ def _get_api_agent_proxy_logs(h, parsed):
 
         `date` is YYYY-MM-DD (default: the newest day logged), `limit` caps the rows at
         1-2000 (default 200), `since` keeps only the last N minutes of that day, and
-        `event`, `port`, `route` (label substring) and `client` (exact IP) filter the rows.
+        `event` (one, or several comma-separated: `finished,blocked`), `port`, `route` (label
+        substring) and `client` (exact IP) filter the rows.
         `errors=1` keeps failed requests, `slim=1` drops the bulky queue and active
         snapshots, and `summary=1` answers per-port counters (`total`, `errors`, `byKind`,
         `topClient`) instead of rows. Answers `{date, dates, rows, limit}` (`dates` lists
@@ -1192,10 +1238,12 @@ def _get_api_model_pricing(h, parsed):
 def _get_api_state(h, parsed):
         """Composite state of the controller: launch config, models, services, hardware, llama.cpp
 
-        Heavy: every call runs several local commands (systemctl, journalctl, git,
-        llama-server), so read it once on page load, not on a timer. Carries `config` with
-        its `fields` and `help`, `models` with `modelsStamp`, `service`, `runtime`, `cpu`,
-        `gpu`, `memory`, `llamaCpp`, `logs` and `projectGit`.
+        Heavy: every call runs several local commands (systemctl, git, llama-server), so
+        read it once on page load, not on a timer. Carries `config` with its `fields` and
+        `help`, `models` with `modelsStamp`, `service` and `diagnostics` (the legacy single
+        server's unit and the System page's checks; its port is asked only while the unit
+        is active), `cpu`, `gpu`, `memory`, `llamaCpp` and `projectGit`. The legacy server's
+        journal and runtime summaries (`logs`, `runtime`) are not carried since 1.3.485.
         """
         h.send_json(state())
         return
@@ -1205,8 +1253,8 @@ def _get_api_project_git(h, parsed):
         """Git branch, head commit and dirty-file count of the controller's own checkout
 
         Much cheaper than `/api/state`, and what the board polls. Answers `{ok, branch,
-        head, dirtyCount, error}`; an install without git (the Docker image) reports branch
-        `docker` and the commit baked into it.
+        head, dirtyCount, error}`; an install without git (the Docker image) has no branch:
+        `branch` is empty, `baked` is true, and `head` is the commit baked into the image.
         """
         # The board's live beat reads only this: the git chip. It fetched the
         # whole /api/state for it — every 1.5 s per open tab, two llama-server
@@ -1389,6 +1437,15 @@ def _get_api_llamacpp_builds(h, parsed):
 @_route(GET_ROUTES, '/board')
 def _get_root(h, parsed):
         """The board page (HTML): the fleet topology"""
+        h.send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+        return
+
+@_route(GET_ROUTES, '/machine')
+def _get_machine(h, parsed):
+        """A machine's own window (HTML): one machine's whole card, `?host=<id>`
+
+        The board page itself: it tells the window apart by the path (static/js/board-view.js) and
+        shows the machine's card alone, with every dialog the card had on the main board."""
         h.send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
         return
 
@@ -1726,14 +1783,19 @@ def _post_api_model_stores_moves_cancel(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/hf/verify')
 def _post_api_hf_verify(h, parsed, body):
-        """Start hashing a repo's local files against the sha256 Hugging Face reports
+        """Start checking a repo's local files against what Hugging Face reports
 
         `repo` is the Hugging Face repo id; the file list comes from Hugging Face, and only
-        that repo's files already on the models disk are hashed, which takes minutes for
-        large ones. Answers `{ok, jobId}` (the running job's id if the repo is already being
-        verified); poll `GET /api/hf/verify` with `job` or `repo`. Failures (invalid repo,
-        Hugging Face unreachable, nothing of the repo on disk) are 200 with `ok: false` and
-        `error`.
+        that repo's files already on the models disk are read, which takes minutes for large
+        ones. GGUF files are hashed against the sha256 Hugging Face gives. A safetensors
+        repository is checked as the folder the /hf page lays out, `<model>/<author>/<label>/`
+        (any label: the folder is found by what it holds): every file of the download is held
+        against the hub's size, and against its LFS sha256 or git blob id where the hub gives
+        one. A gated repository hides the LFS hashes until the terms are accepted; those files
+        are then checked by size only, and the answer says so. Answers `{ok, jobId}` (the
+        running job's id if the repo is already being verified); poll `GET /api/hf/verify`
+        with `job` or `repo`. Failures (invalid repo, Hugging Face unreachable, nothing of the
+        repo on disk) are 200 with `ok: false` and `error`.
         """
         # Hashing a terabyte on someone else's say-so is out of the question:
         # the file list comes from HF by repository name, not from the request body.
@@ -1744,8 +1806,10 @@ def _post_api_hf_verify(h, parsed, body):
             return
         _local = hf_local_check(_repo)
         try:
+            _copies = CheckpointFinder(models_dir_from_config(parse_config())).copies(
+                _repo, _listing.get("safetensors"))
             _jid = start_verify(_repo, _listing.get("files") or [],
-                                _local.get("localFiles") or {})
+                                _local.get("localFiles") or {}, _copies)
         except AppError as exc:
             h.send_json({"ok": False, "error": str(exc)})
             return
@@ -2040,14 +2104,21 @@ def _post_api_agent_proxies_config(h, parsed, body):
         """Save the full list of proxy routes, and optionally the routers
 
         `routes` is the whole list: a route left out is removed; `routers` replaces the
-        kanban routers and is kept as it is when omitted. The proxy service is started if it
-        is down, never restarted; it re-reads the file itself. Answers `{ok, config,
-        monitor}` with the saved config; 400 for a duplicate port, an invalid route (no
-        `label`, a port outside 1024-65535) or a new port outside the proxy range the
-        firewall lets in (23001-23999 by default), 500 when the proxy service cannot be
-        started.
+        kanban routers and is kept as it is when omitted. `revision` is the topology's
+        `proxyRevisions.routes` the list was built from: a list built from an older version
+        is refused with 409 `{error, stale: true, topology}` and nothing is saved, so the page
+        builds it again from the current topology; without `revision` the save goes through as
+        before. The proxy service is started if it is down, never restarted; it re-reads the
+        file itself. Answers `{ok, config, monitor}` with the saved config; 400 for a duplicate
+        port, an invalid route (no `label`, a port outside 1024-65535) or a new port outside the
+        proxy range the firewall lets in (23001-23999 by default), 500 when the proxy service
+        cannot be started.
         """
-        result = save_agent_proxy_config(body.get("routes") or [], body.get("routers"))
+        try:
+            result = save_agent_proxy_config(body.get("routes") or [], body.get("routers"), body.get("revision"))
+        except StaleCopy as exc:
+            h.send_json({"error": str(exc), "stale": True, "topology": topology_state(refresh_hosts=False)}, 409)
+            return
         h.send_json({"ok": True, "config": result, "monitor": system_monitor_state()})
         return
 
@@ -2069,6 +2140,23 @@ def _post_api_agent_proxies_policy(h, parsed, body):
         h.send_json({"ok": True, "config": result, "monitor": system_monitor_state()})
         return
 
+@_route(POST_ROUTES, '/api/agent-proxies/route-key')
+def _post_api_agent_proxies_route_key(h, parsed, body):
+        """Give a consumer's route a key where it has none
+
+        `port` picks the route. The key (`lcv1_…`) is made by the controller and answered once
+        here, with the address the consumer calls from now on: `{ok, port, key, entryUrl,
+        topology}`. The route's own port closes in the same write, so the consumer gets answers
+        only at the entry with the key. 404 for an unknown route, 409 for a route that already
+        has a key or while the entry is off.
+        """
+        from caravan.admin.paths import TOPOLOGY_SERVER_IP
+        from caravan.admin.proxies_config import RouteKeys, load_agent_proxy_config
+        from caravan.admin.proxy_entry import ConsumerAddress
+        done = RouteKeys().issue(body.get("port"))
+        entry = ConsumerAddress(load_agent_proxy_config(), TOPOLOGY_SERVER_IP).entry()
+        h.send_json({"ok": True, **done, "entryUrl": entry["url"], "topology": topology_state(refresh_hosts=False)})
+
 @_route(POST_ROUTES, '/api/agent-proxies/route-policy')
 def _post_api_agent_proxies_route_policy(h, parsed, body):
         """Patch one proxy route's label, mode, priority, upstream, router or queue thresholds
@@ -2076,9 +2164,13 @@ def _post_api_agent_proxies_route_policy(h, parsed, body):
         `port` picks the route; only the fields sent change: `label`, `mode` (open, paused
         or drain), `priority` (0-100), `preemptible`, `upstreamType` (llama or cloud; cloud
         needs `providerId`), `cloudFallbackProviderId`, `routerId` (empty unassigns the
-        port) and the overrides `cloudFallbackPct`, `priorityPreemptPct`, `queueAbortPct`
-        (null inherits the global policy). Answers `{ok, config, monitor}`; 404 for an
-        unknown route, 400 for an invalid value or an unknown router.
+        port), the overrides `cloudFallbackPct`, `priorityPreemptPct`, `queueAbortPct`
+        (null inherits the global policy) and `portClosed` — true closes the route's own port,
+        so its agent comes in only through the entry by its key (refused without a key, or
+        while the entry is off).
+        Answers `{ok, config, monitor}`; 404 for an unknown route, 400 for an invalid value,
+        an unknown router, or a key the route would share with another; 409 for a client of the
+        entry renamed to the name another client has (the rule its creation follows).
         """
         result = set_agent_proxy_route_policy(body.get("port"), body)
         h.send_json({"ok": True, "config": result, "monitor": system_monitor_state()})
@@ -2086,7 +2178,7 @@ def _post_api_agent_proxies_route_policy(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/agent-proxies/route-delete')
 def _post_api_agent_proxies_route_delete(h, parsed, body):
-        """Delete a proxy route (agent, bridge or app port) with its router wiring
+        """Delete a proxy route of any kind with its router wiring
 
         `port` is the route's port; `force` deletes it even while an agent is still assigned
         to it. The router edges that start at the port go too; the firewall is left as it is.
@@ -2110,10 +2202,18 @@ def _post_api_agent_proxies_routers(h, parsed, body):
         Their `modelOutputId` names the owner and `modelQueueActive` is derived by
         the server. Disconnecting the last cable keeps the node settings but sets
         it inactive. Existing direct local queue nodes are adopted with their
-        settings; conflicting policies for one model return 409. Answers `{ok,
-        config, topology}`; nothing restarts, the proxy re-reads the file by itself.
+        settings; conflicting policies for one model return 409. `revision` is the
+        topology's `proxyRevisions.routers` the list was built from: a list built from an
+        older version is refused with 409 `{error, stale: true, topology}` and nothing is
+        saved, so the page makes its change again on the current topology; without
+        `revision` the save goes through as before. Answers `{ok, config, topology}`;
+        nothing restarts, the proxy re-reads the file by itself.
         """
-        result = set_routers(body.get("routers") or body.get("switchboards") or [])
+        try:
+            result = set_routers(body.get("routers") or body.get("switchboards") or [], body.get("revision"))
+        except StaleCopy as exc:
+            h.send_json({"error": str(exc), "stale": True, "topology": topology_state(refresh_hosts=False)}, 409)
+            return
         h.send_json({"ok": True, "config": result, "topology": topology_state(refresh_hosts=False)})
         return
 
@@ -2130,116 +2230,274 @@ def _post_api_agent_proxies_stop(h, parsed, body):
         h.send_json({"ok": True, "result": result, "monitor": system_monitor_state()})
         return
 
-@_route(POST_ROUTES, '/api/cloud-accounts/bridge-port')
-def _post_api_cloud_bridge_port(h, parsed, body):
-        """Open a port of its own for one cloud model, straight to that model
+@_route(POST_ROUTES, '/api/models/schedule')
+def _post_api_models_schedule(h, parsed, body):
+        """Set when a model is open: its schedule of weekdays and hours
 
-        `blockId` is the model block and `label` an optional name (default `bridge
-        <model>`). The port comes from the proxy range, which the firewall lets in, and puts
-        the model on the kanban. Answers `{ok, route}`; 400 without `blockId`, 404 for an
-        unknown block, 500 when the proxy range has no free port left.
+        `model` names the model as the kanban does: `acc:<account id>/<model>` for an account's
+        model, `out:srv:<port>` for a machine's cell, `out:eng:<id>` for an engine's model.
+        `schedule` is `{enabled, windows}`; a window is `{days, from, to}` — days 0..6 with Monday 0
+        (none: every day), times `HH:MM` in the caravan's own zone. A window whose `to` is not
+        after its `from` runs past midnight and belongs to the day it starts on. The schedule is
+        the model's in every pool: a pool passes over the row of a model closed now, and a pool
+        with no row left answers 503 and the time it opens. Switched off, the schedule keeps its
+        windows and the model is open at any time. Answers `{ok, model, schedule: {enabled,
+        windows, open, until, opensAt}, topology}`; 400 for a key that names no model, a window
+        that does not read, or a schedule switched on with no window; 404 for an unknown account.
         """
-        route = mint_bridge_port(body.get("blockId"), body.get("label"))
-        h.send_json({"ok": True, "route": route})
+        from caravan.admin.model_schedules import ModelScheduleDesk
+        key = (body or {}).get("model")
+        said = ModelScheduleDesk().set(key, (body or {}).get("schedule"))
+        h.send_json({"ok": True, "model": key, "schedule": said, "topology": topology_state(refresh_hosts=False)})
         return
 
-@_route(POST_ROUTES, '/api/app-port')
-def _post_api_app_port(h, parsed, body):
-        """Mint an entry port with its own API key for an external app
+@_route(POST_ROUTES, '/api/pools/level')
+def _post_api_pools_level(h, parsed, body):
+        """Set one level of a subscription model's limit window: switch or stop
 
-        `name` is the port's label (required, cut to 80 characters). The port comes from the
-        proxy range, which the firewall lets in, and feeds the default router's graph, like
-        agent traffic. Answers `{ok, route}` where `route.port` is the port and
-        `route.apiKey` the generated data-plane key; 400 without a `name`, 500 when the proxy
-        range has no free port left.
+        `accountId` and `model` name the model — its levels hold in every pool whose row
+        names it (since 1.3.486; a page from before may name a pool's row by `poolId` and
+        `stepId` instead). `windowSeconds` is the window's length (18000 for five hours,
+        604800 for a week), `level` which level and `pct` the share of the window, 0 to 90
+        (0 lifts it). `stop`: while the window has no more than that left, the model does
+        not serve; with no row left, the proxy answers 429 itself. `switch`: from that share
+        on, a pool sends requests to its next rows first, and the model still serves when
+        none of them can. The switch is never below the stop: a stop raised past it takes it
+        along. Answers `{ok, switchAt, stopAt, topology}` with the model's levels after the
+        change; 400 for an unknown `level`, a model of an account that is not a ChatGPT
+        subscription or an out-of-range value, 404 for an unknown account, pool or row.
         """
-        from caravan.admin.proxies_config import mint_app_port
-        route = mint_app_port(body.get("name"))
-        h.send_json({"ok": True, "route": route})
+        from caravan.admin.pools import PoolDesk
+        desk = PoolDesk()
+        account_id, model = body.get("accountId"), body.get("model")
+        if not account_id and body.get("poolId"):
+            account_id, model = desk.row_target(body.get("poolId"), body.get("stepId"))
+        levels = desk.set_level(account_id, model, body.get("windowSeconds"), body.get("pct"), body.get("level"))
+        h.send_json({"ok": True, **levels, "topology": topology_state(refresh_hosts=False)})
         return
 
-@_route(POST_ROUTES, '/api/cloud-accounts/usage-reserve')
-def _post_api_cloud_accounts_usage_reserve(h, parsed, body):
-        """Keep a share of a subscription's limit window for the operator
+@_route(POST_ROUTES, '/api/cloud-accounts/check-models')
+def _post_api_cloud_accounts_check_models(h, parsed, body):
+        """Fetch an account's model list now into the catalogue
 
-        `id` is the ChatGPT subscription account, `windowSeconds` the window's length (18000
-        for five hours, 604800 for a week) and `pct` the share to keep, 0 to 90 (0 lifts
-        it). While a window has no more than that left, the proxy answers the account's
-        requests itself with 429. Answers `{ok, reserve, reserveKept, reserveMax,
-        reserveReadAt}`, where `reserveKept` is the window closing the account now, or null;
-        400 for a non-subscription account or an out-of-range value, 404 for an unknown
-        account.
+        `id` is the account. The list is what "+ Add step" offers and what a step's model is
+        checked against; it is refreshed by itself every ten minutes while the board is open.
+        Answers `{ok, total, skipped, topology}`: `total` counts the chat models listed and
+        `skipped` the other models (speech, embeddings, images) the step dialog shows last.
+        404 for an unknown account, 502 when the provider fails, 503 while its endpoint is
+        disabled by the failure breaker.
         """
-        # The share of one limit window the operator keeps for themselves; the
-        # proxy refuses requests to the account once the window is down to it.
-        from caravan.admin.usage_reserve_desk import UsageReserveDesk
-        desk = UsageReserveDesk()
-        account_id = str(body.get("id") or "").strip()
-        desk.set(account_id, body.get("windowSeconds"), body.get("pct"))
-        h.send_json({"ok": True, **desk.view(account_id)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-accounts/bridge-port-delete')
-def _post_api_cloud_bridge_port_delete(h, parsed, body):
-        """Close one cloud-model port; a model's last port takes it off the kanban
-
-        `port` is the port to close. When it is the model's last port and cables or rules
-        still lead to the model, `resolution` must be `{moveTo: <block id of the same
-        provider>}` or `{cut: true}`. Answers `{ok, deleted, closed, leaves, moved, cut,
-        onto, topology}`; 404 for an unknown port, 400 for a route that is not a model's
-        port (an agent route), 409 without a needed `resolution`.
-        """
-        # A model's last port takes it off the kanban: when cables or rules
-        # hold it, `resolution` says where they go (cloud_ports.py), else 409.
-        from caravan.admin.cloud_ports import CloudPortDesk
-        done = CloudPortDesk().close_port(body.get("port"), body.get("resolution"))
-        h.send_json({"ok": True, "deleted": int(body.get("port")), **done, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-accounts/auto-create-blocks')
-def _post_api_cloud_accounts_auto_create_blocks(h, parsed, body):
-        """Check an account's model list now and sync its model blocks with it
-
-        `id` is the account; new chat models get blocks (not on the kanban), and a block
-        whose model is missing from repeated lists is removed once nothing points at it and
-        it was not added by hand. Answers `{ok, created, total, skipped, gone, removed,
-        topology}`: `created`, `gone` (missing but kept) and `removed` count blocks, `total`
-        counts the chat models listed and `skipped` the non-chat ones left out. 404 for an
-        unknown account, 502 when the provider fails, 503 while its endpoint is disabled by
-        the failure breaker.
-        """
-        account_id = str(body.get("id") or "").strip()
-        result = auto_create_blocks(account_id)
+        result = check_account_models(str(body.get("id") or "").strip())
         h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
         return
 
-@_route(POST_ROUTES, '/api/cloud-pools/save')
-def _post_api_cloud_pools_save(h, parsed, body):
-        """Create or update a subscription pool
+@_route(GET_ROUTES, '/api/cloud-accounts/catalogue')
+def _get_api_cloud_accounts_catalogue(h, parsed):
+        """The models an account offers a pool's step, as last fetched
 
-        `pool` contains id, name, ordered members ({accountId, enabled, automatic}),
-        mode (auto/manual), manualAccountId, optional manualUntil (Unix seconds), and
-        returnToPrimary. Optional adoptAccountId moves that member's model blocks to
-        this pool while preserving their ids, ports and cables. Returns {ok, pool,
-        adoptedModels, topology}. Invalid members/policy give 400.
+        `id` is the account (a test alias reads its original's list). Answers `{ok, models,
+        fetchedAt}` without asking the provider: `models` are `{id, name, chat}` plus
+        `contextLength` when the provider states one, chat models first; `fetchedAt` is null
+        when the list was never fetched — then `models` is empty, which says nothing about
+        the provider. 404 for an unknown account.
         """
-        from caravan.admin.cloud_pools import CloudPoolDesk
-        result = CloudPoolDesk().upsert(body.get("pool") or {}, body.get("adoptAccountId"))
-        h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
+        from caravan.admin import model_catalog
+        from caravan.common.cloud_sources import CloudSources
+        query = urllib.parse.parse_qs(parsed.query or "")
+        account_id = (query.get("id") or [""])[0].strip()
+        owner = CloudSources(load_cloud_data()).canonical(account_id)
+        if not owner:
+            raise AppError(f"unknown account: {account_id}", 404)
+        entry = model_catalog.cached_models_entry(owner["id"]) or {}
+        rows = [{**m, "chat": model_catalog.ChatModels.is_chat(m.get("id"))}
+                for m in entry.get("models") or [] if isinstance(m, dict) and m.get("id")]
+        rows.sort(key=lambda m: (not m["chat"], str(m["id"]).lower()))
+        h.send_json({"ok": True, "models": rows, "fetchedAt": entry.get("fetchedAt")})
+        return
 
-@_route(POST_ROUTES, '/api/cloud-pools/connect-account')
-def _post_api_cloud_pools_connect_account(h, parsed, body):
-        """Create an additional real subscription directly inside a pool
+@_route(POST_ROUTES, '/api/pools/create')
+def _post_api_pools_create(h, parsed, body):
+        """Create a pool, empty or with its first row
 
-        `poolId` identifies an existing pool and `account` is a new OAuth
-        subscription. Adds a disabled pendingLogin member in the same save;
-        successful OAuth enables it. No credentials are duplicated, model ids
-        and ports are preserved. Returns {ok, account, topology}; duplicate id
-        gives 409, unknown pool 404, non-subscription 400. No member-count cap.
+        Without `accountId` and `model` the pool is empty — "+ Pool" on the kanban — and
+        named "Pool" ("Pool 2"… when taken). With them it starts with that row: `accountId`
+        an existing account and `model` one of its models, the name the model's by default.
+        `target` gives the first row as `/api/pools/add-row` takes it — `{accountId, model}` or
+        `{output}` for a local model: a model carried onto the kanban's Pools makes a pool of it.
+        `nameAfter` is the board's word for that model, the pool's name then (" 2"… when taken).
+        `name` is the pool's name, and must be free. The pool's id comes from its name. Answers
+        `{ok, pool, topology}`; 400 for an account without a model or a bad target, 404 for an
+        unknown account, 409 for a name another pool carries.
         """
-        from caravan.admin.cloud_pools import CloudPoolDesk
-        account = CloudPoolDesk().connect_account(body.get("poolId"), body.get("account") or {})
-        h.send_json({"ok": True, "account": account, "topology": topology_state(refresh_hosts=False)})
+        from caravan.admin.pools import PoolDesk
+        pool = PoolDesk().create(body.get("name"), body.get("accountId"), body.get("model"),
+                                 target=body.get("target"), name_after=body.get("nameAfter"))
+        h.send_json({"ok": True, "pool": pool, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/save')
+def _post_api_pools_save(h, parsed, body):
+        """Save a pool as the kanban edits it
+
+        `pool` has the pool's `id` and what changes: `name`, `contextLength` and
+        `contextAuto`, and `steps` — the pool's own rows in their new order, each with `id`
+        and `enabled` (an account row may change its `model` too). What a row is cabled to
+        changes by `/api/pools/connect-row`. A row the pool does not have, or the same row
+        twice, is refused: a new one comes by `/api/pools/add-row`. The pool serves by that
+        order alone. Answers `{ok, pool, topology}`; 400 for a bad field, 404 for an unknown
+        pool or account.
+        """
+        from caravan.admin.pools import PoolDesk
+        pool = PoolDesk().save_pool(body.get("pool") or {})
+        h.send_json({"ok": True, "pool": pool, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/add-step')
+def _post_api_pools_add_step(h, parsed, body):
+        """Add a step at the end of a pool: one account with one of its models
+
+        `poolId` is the pool, `accountId` an existing account — the same one may stand in a
+        pool more than once — and `model` the step's model. A ChatGPT subscription's step
+        starts with a switch level of 10% on each window. Answers `{ok, pool, topology}`;
+        400 without a model, 404 for an unknown pool or account.
+        """
+        from caravan.admin.pools import PoolDesk
+        pool = PoolDesk().add_step(body.get("poolId"), body.get("accountId"), body.get("model"))
+        h.send_json({"ok": True, "pool": pool, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/add-row')
+def _post_api_pools_add_row(h, parsed, body):
+        """Add a row at the end of a pool: "+ row" on the kanban
+
+        `poolId` is the pool. `target` is optional: without it the row is open — it serves
+        nothing until its output is cabled to a model — with it the row is cabled at once:
+        `{accountId, model}` for a provider's model or `{output}` for a local model
+        (`srv:<port>` a cell, `eng:<id>` an engine's model). `nameAfter` is the board's word for
+        the model: a pool still under the board's name ("Pool", "Pool 2"…) whose first cable this
+        is takes it as its name. Answers `{ok, pool, topology}`; 400 for a bad target, 404 for an
+        unknown pool or account.
+        """
+        from caravan.admin.pools import PoolDesk
+        pool = PoolDesk().add_row(body.get("poolId"), body.get("target"), body.get("nameAfter"))
+        h.send_json({"ok": True, "pool": pool, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/order')
+def _post_api_pools_order(h, parsed, body):
+        """Set the order of the pools on the kanban: a pool card carried to another place
+
+        `ids` lists every pool's id once, in the new order. Answers `{ok, order, topology}`; 409
+        when the list does not name exactly the pools there are — another page added or deleted
+        one since the board was drawn.
+        """
+        from caravan.admin.pools import PoolDesk
+        order = PoolDesk().order(body.get("ids"))
+        h.send_json({"ok": True, "order": order, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/arrange')
+def _post_api_pools_arrange(h, parsed, body):
+        """Arrange the kanban by its cables
+
+        The pools stand in the order the sets name them — the first set's first — then the rest as
+        they stood; each account's added models in the order the pools' rows name them, then the
+        rest. Cables then run more alongside one another than across. Answers `{ok, order,
+        topology}`.
+        """
+        from caravan.admin.pools import PoolDesk
+        order = PoolDesk().arrange()
+        h.send_json({"ok": True, "order": order, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/connect-row')
+def _post_api_pools_connect_row(h, parsed, body):
+        """Cable a pool's row to a model, or take its cable away
+
+        `poolId` and `rowId` name the row. `target` is `{accountId, model}` for a provider's
+        model, `{output}` for a local model (`srv:<port>` a cell, `eng:<id>` an engine's
+        model), or null to take the cable away — the row stays, open, in its place. `nameAfter`
+        is the board's word for the model: a pool still under the board's name whose first cable
+        this is takes it as its name. Answers `{ok, pool, topology}`; 400 for a bad target, 404
+        for an unknown pool, row or account.
+        """
+        from caravan.admin.pools import PoolDesk
+        pool = PoolDesk().connect_row(body.get("poolId"), body.get("rowId"), body.get("target"), body.get("nameAfter"))
+        h.send_json({"ok": True, "pool": pool, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/add-model')
+def _post_api_pools_add_model(h, parsed, body):
+        """Put a model of an account on the kanban's column: "+ model" on the kanban
+
+        The kanban's right column shows the models the operator added there, not every model
+        an account offers. `accountId` is the account and `model` the model's id — one from the
+        account's list or a typed one: a list lags behind its provider. A model already there
+        stays where it is. Answers `{ok, models, topology}`, `models` the account's in the
+        order they were added; 400 without a model, 404 for an unknown account.
+        """
+        from caravan.admin.pools import PoolDesk
+        models = PoolDesk().add_model(body.get("accountId"), body.get("model"))
+        h.send_json({"ok": True, "models": models, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/remove-model')
+def _post_api_pools_remove_model(h, parsed, body):
+        """Take a model off the kanban's column: its ✕ on the kanban
+
+        `accountId` and `model` name it. The model's levels stay: put back, it has them again.
+        A model not on the column is nothing to do. Answers `{ok, models, topology}` with the
+        account's models left; 400 without a model, 404 for an unknown account, 409 while a
+        pool's row is cabled to the model — that cable goes first.
+        """
+        from caravan.admin.pools import PoolDesk
+        models = PoolDesk().remove_model(body.get("accountId"), body.get("model"))
+        h.send_json({"ok": True, "models": models, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/board-providers/add')
+def _post_api_board_providers_add(h, parsed, body):
+        """Put a cloud provider on the main board: "+ Add cloud provider"
+
+        `kind` is the provider — one of the presets the picker lists: `openai-subscription`,
+        `openai`, `anthropic`, `openrouter`, `ollama`, `custom`. It stands on the board as an
+        empty block until the "+" in it adds an account. One already there stays where it is.
+        Answers `{ok, providers, topology}`, `providers` each with its accounts in the board's
+        order; 400 for an unknown provider.
+        """
+        from caravan.admin.board_providers import ProviderDesk
+        providers = ProviderDesk().add(body.get("kind"))
+        h.send_json({"ok": True, "providers": providers, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/board-providers/remove')
+def _post_api_board_providers_remove(h, parsed, body):
+        """Take an empty cloud provider off the main board: its ✕
+
+        `kind` is the provider. A provider with accounts stays: each account goes first, by
+        Delete in its window. One not on the board is nothing to do. Answers `{ok, providers,
+        topology}`; 409 while an account stands under the provider.
+        """
+        from caravan.admin.board_providers import ProviderDesk
+        providers = ProviderDesk().remove(body.get("kind"))
+        h.send_json({"ok": True, "providers": providers, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/remove-step')
+def _post_api_pools_remove_step(h, parsed, body):
+        """Take a step out of a pool; its account stays connected
+
+        `poolId` and `stepId` name the step. A pool may be left with no step: a request to
+        it is then refused with "add one". Answers `{ok, pool, topology}`; 404 for an
+        unknown pool or step.
+        """
+        from caravan.admin.pools import PoolDesk
+        pool = PoolDesk().remove_step(body.get("poolId"), body.get("stepId"))
+        h.send_json({"ok": True, "pool": pool, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/pools/delete')
+def _post_api_pools_delete(h, parsed, body):
+        """Delete a pool, and say where the cables that lead to it go
+
+        `id` is the pool. When cables or rules on the kanban lead to it, `resolution` says
+        where they go: `{moveTo: <another pool's id>}` keeps their roles on that pool, `{cut:
+        true}` disconnects them; without one the answer is 409. The accounts of its steps
+        stay connected, and the clients of the entry cabled to it lose their cable (`uncabled`
+        counts them): a new pool under the same id must not open to them unasked. Answers
+        `{ok, deleted, moved, cut, onto, uncabled, topology}`; 404 for an unknown pool.
+        """
+        from caravan.admin.pools import PoolDesk
+        done = PoolDesk().delete(str(body.get("id") or ""), body.get("resolution"))
+        h.send_json({"ok": True, **done, "topology": topology_state(refresh_hosts=False)})
 
 @_route(POST_ROUTES, '/api/cloud-accounts/subscription-reset')
 def _post_api_cloud_accounts_subscription_reset(h, parsed, body):
@@ -2255,35 +2513,25 @@ def _post_api_cloud_accounts_subscription_reset(h, parsed, body):
         h.send_json(SubscriptionResetDesk().consume(body.get("id"), body.get("creditId"),
                     body.get("idempotencyKey"), body.get("confirmed")))
 
-@_route(POST_ROUTES, '/api/cloud-pools/test-alias')
-def _post_api_cloud_pools_test_alias(h, parsed, body):
+@_route(POST_ROUTES, '/api/cloud-accounts/test-alias')
+def _post_api_cloud_accounts_test_alias(h, parsed, body):
         """Create a labelled routing-test alias of an existing subscription
 
         `id` is the original account. Returns {ok, account, topology}. The alias
-        shares its owner's credentials, quota and reserve; no token is copied.
-        Repeating this call returns the existing alias. Non-subscriptions give 400.
+        shares its owner's credentials and quota; no token is copied. Repeating
+        this call returns the existing alias. Non-subscriptions give 400.
         """
-        from caravan.admin.cloud_pools import CloudPoolDesk
-        alias = CloudPoolDesk().clone_test(body.get("id"))
+        from caravan.admin.pools import PoolDesk
+        alias = PoolDesk().clone_test(body.get("id"))
         h.send_json({"ok": True, "account": alias, "topology": topology_state(refresh_hosts=False)})
-
-@_route(POST_ROUTES, '/api/cloud-pools/delete')
-def _post_api_cloud_pools_delete(h, parsed, body):
-        """Delete an empty subscription pool
-
-        `id` identifies the pool. Model blocks must be moved or removed first (409).
-        Returns {ok, topology}; accounts and their credentials remain available.
-        """
-        from caravan.admin.cloud_pools import CloudPoolDesk
-        CloudPoolDesk().delete(str(body.get("id") or ""))
-        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
 
 @_route(POST_ROUTES, '/api/cloud-accounts/save')
 def _post_api_cloud_accounts_save(h, parsed, body):
         """Create or update a cloud provider account
 
         `account` is the account object; its `id` (1-48 letters, digits, `_` or `-`) picks
-        the account, and an existing account keeps the fields an edit leaves out. Answers
+        the account, and an existing account keeps the fields an edit leaves out. An account
+        stands in no pool by itself: a pool's step names it ("+ Add step"). Answers
         `{ok, account, topology}` with the account as stored; 400 for a bad `id` or a
         `baseUrl` that is not http(s).
         """
@@ -2293,16 +2541,19 @@ def _post_api_cloud_accounts_save(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/cloud-accounts/delete')
 def _post_api_cloud_accounts_delete(h, parsed, body):
-        """Delete a cloud provider account with its model blocks and stored credential
+        """Delete a cloud provider account with its stored credential and its pools' steps
 
         `id` is one registration, even when another logs into the same OpenAI
-        identity. Detaches it from pools that have other members, preserving
-        their model blocks and ports. Removing a manual choice restores auto
-        mode. The last pool member and an owner with legacy test aliases give
-        409; an unknown `id` is ignored. Answers `{ok, topology}`.
+        identity. Every step that names it leaves its pool; the pools keep their
+        other steps, their ports and cables. An owner with legacy test aliases gives 409; an unknown
+        `id` is ignored. Answers `{ok, topology}`, and `signOut`
+        `{ok, error}` when the account had a sign-in of its own: once the account
+        is gone here, the controller asks the provider to end that sign-in (up to
+        10 s), and `ok: false` says the provider did not confirm.
         """
-        delete_cloud_account(body.get("id"))
-        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
+        signed_out = delete_cloud_account(body.get("id"))
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False),
+                     **({"signOut": signed_out} if signed_out else {})})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/key')
@@ -2323,43 +2574,30 @@ def _post_api_cloud_accounts_key(h, parsed, body):
 def _post_api_cloud_accounts_key_delete(h, parsed, body):
         """Remove an account's stored API key or OAuth login
 
-        `id` is the account. The account and its models stay; an unknown `id` or an account
-        without a credential is not an error. Answers `{ok, topology}`.
+        `id` is the account. The account and its pools' steps stay — a step without a
+        sign-in is skipped; an unknown `id` or an account without a credential is not an
+        error. Answers `{ok, topology}`.
         """
         delete_account_credential(body.get("id"))
         h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
-@_route(POST_ROUTES, '/api/cloud-accounts/oauth/start')
-def _post_api_cloud_accounts_oauth_start(h, parsed, body):
-        """Start an OAuth (PKCE) login for a cloud account and return the sign-in URL
+@_route(POST_ROUTES, '/api/cloud-accounts/oauth/device-start')
+def _post_api_cloud_accounts_oauth_device_start(h, parsed, body):
+        """Start a sign-in by a one-time code for a ChatGPT subscription account
 
-        `id` is the account; a callback listener binds `127.0.0.1` of the controller's
-        machine on its redirect port (1455 by default). A remote browser can complete login
-        by submitting its returned localhost URL to `/api/cloud-accounts/oauth/complete`.
-        A login left unfinished expires after five minutes and a new
-        start replaces the pending one of that account. Answers `{ok, authorizeUrl, state,
-        redirectUri}` (open `authorizeUrl`, then poll `GET
-        /api/cloud-accounts/oauth/status?state=`); 404 for an unknown account, 400 when it
-        does not use OAuth, 500 when the port cannot be bound.
+        `id` is the account. The controller asks OpenAI for a code and answers `{ok, state,
+        userCode, verifyUrl, expiresAt, interval}`: the operator opens `verifyUrl` on any
+        computer, signs in and enters `userCode` there. The controller then asks OpenAI every
+        `interval` seconds and takes the login itself — nothing returns to localhost, so it
+        works with a controller on another machine than the browser. Poll `GET
+        /api/cloud-accounts/oauth/status?state=`. A new start replaces the account's pending
+        login; the code expires at `expiresAt` (Unix seconds, 15 minutes).
+        404 for an unknown account, 400 when its provider has no sign-in by code, 502 when
+        OpenAI gives no code.
         """
-        result = start_oauth_login(body.get("id"))
-        h.send_json({"ok": True, **result})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-accounts/oauth/complete')
-def _post_api_cloud_accounts_oauth_complete(h, parsed, body):
-        """Complete remote-browser OAuth with the returned localhost callback URL
-
-        `state` is the pending login and `callbackUrl` its full localhost URL.
-        Validates origin, path, state, code and 5-minute expiry; exchanges the
-        code with the stored PKCE verifier once. Enables only pendingLogin pool
-        members. Returns {state, email?, error?, topology}; invalid URL gives 400,
-        simultaneous/reused unsuccessful completion 409. The URL is not logged.
-        """
-        from caravan.admin.oauth import OAuthLoginDesk
-        result = OAuthLoginDesk.paste_callback(body.get("state"), body.get("callbackUrl"))
-        h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
+        from caravan.admin.oauth import start_device_login
+        h.send_json({"ok": True, **start_device_login(body.get("id"))})
 
 @_route(GET_ROUTES, '/api/cloud-upstream-errors')
 def _get_api_cloud_upstream_errors(h, parsed):
@@ -2381,7 +2619,8 @@ def _get_openapi(h, parsed):
         """This API as OpenAPI 3.1: every route, what it does, what it reads, who may call it
 
         Built from the route tables and the handlers' docstrings and code when the controller
-        starts; `info.version` is the controller's version and `info.x-commit` its commit.
+        starts; `info.version` is the commit `/healthz` names ("unknown" when none is known) and
+        `info.x-release` the controller's version.
         """
         # Open without sign-in, like /health: the home rule (visumap,
         # apps-openapi.md) — every app serves its API description here.
@@ -2389,14 +2628,39 @@ def _get_openapi(h, parsed):
         return
 
 
+@_route(GET_ROUTES, '/healthz')
+def _get_healthz(h, parsed):
+        """Liveness in the home network's shape: the commit the running code was built from
+
+        Answers `{status: "ok", version}`, where `version` is the commit — the same one `/health`
+        calls `commit` — or null when neither git, a baked value nor an archived VERSION names
+        one. A deploy check on the NAS compares it with the commit it shipped.
+        """
+        h.send_json({"status": "ok", "version": _running_commit() or None})
+        return
+
+@_route(GET_ROUTES, '/api/packages')
+def _get_packages(h, parsed):
+        """What the running controller is made of, as osv.dev names it: runtime, system, packages
+
+        Open without sign-in, like `/healthz`: names and versions only (visumap apps-packages.md).
+        Answers `{version, runtime, os, packages}`: `version` is the commit `/healthz` names, `os`
+        is null when the system cannot be told and `os.listed` false when its packages cannot be
+        read; each package is `{ecosystem, name, version}`, a query osv.dev answers as it is.
+        Debian's are named by their source package. Read once per process.
+        """
+        h.send_json({"version": _running_commit() or None, **INSTALLED_PACKAGES.listing()})
+        return
+
 @_route(GET_ROUTES, '/health', '/api/health')
 def _get_health(h, parsed):
         """Liveness probe: answers with version, git commit and whether sign-in is required
 
         Served at `/health` and `/api/health`. Answers `{ok, service, version, commit,
-        authRequired, time}` without probing any host. `commit` is empty when the checkout
-        has no git, `authRequired` says whether the other routes need a session (false on a
-        fresh install) and `time` is the server clock in epoch seconds.
+        authRequired, setupRequired, time}` without probing any host. `commit` is empty when
+        the checkout has no git, `authRequired` says whether the other routes need a session
+        (always, since 1.3.453), `setupRequired` whether the first account is still to be made
+        at /setup, and `time` is the server clock in epoch seconds.
         """
         # Liveness, cheaply and without credentials. The contract is deliberately
         # tiny and STABLE — a test suite starts with this, and a monitor polls it
@@ -2405,9 +2669,10 @@ def _get_health(h, parsed):
         #   service  who is answering, so a wrong-port hit is obvious
         #   version  ties a test run to a build
         #   commit   the same, at git granularity ("" when the checkout has no git)
-        #   authRequired  whether a session is needed for everything else — a
-        #                 fresh install answers false, and a suite that expects
-        #                 to log in can say so before it wastes a browser on it
+        #   authRequired  whether a session is needed for everything else — true
+        #                 since 1.3.453, when a fresh install stopped being open
+        #   setupRequired the first account is still to be made at /setup: a
+        #                 suite learns it before it tries to sign in to nobody
         #   time     so a stale cached answer is visible as one
         #
         # It never touches the fleet: no host probes, no config, nothing that
@@ -2419,7 +2684,8 @@ def _get_health(h, parsed):
             pass
         h.send_json({"ok": True, "service": "lama-caravan",
                      "version": APP_VERSION, "commit": commit,
-                     "authRequired": bool(auth_mod.auth_enabled()),
+                     "authRequired": True,
+                     "setupRequired": not auth_mod.auth_enabled(),
                      "time": int(time.time())})
         return
 
@@ -2455,25 +2721,25 @@ def _post_api_port_exclusions(h, parsed, body):
         h.send_json(set_exclusions(body))
         return
 
-@_route(GET_ROUTES, '/api/cloud-blocks/refs')
-def _get_api_cloud_blocks_refs(h, parsed):
-        """List everything that references a cloud model block (the delete preflight)
+@_route(GET_ROUTES, '/api/pools/refs')
+def _get_api_pools_refs(h, parsed):
+        """List everything that references a pool (the delete preflight)
 
-        `id` is the block. `refs` groups what points at it: `bridges` (its own ports),
-        `routes`, `fallbacks`, `edges` (cables), `queueRoles`, `rescueRoles` and `rules`.
-        `held` counts the cables and rules that closing its last port would strand and
-        `ports` lists its own port numbers; an unknown `id` gives empty lists, not a 404.
+        `id` is the pool. `refs` groups what points at it: `routes` (an agent's own cloud
+        route), `fallbacks`, `edges` (cables), `queueRoles`, `rescueRoles` and `rules`.
+        `held` counts the cables and rules that deleting it would strand, and `clients`
+        names the clients of the entry whose sets hold it now — deleting it takes that model
+        from them; an unknown `id` gives empty lists, not a 404.
         """
-        from caravan.admin.cloud_ports import CloudModelPorts
         from caravan.admin.cloud_refs import CloudModelRefs
+        from caravan.admin.consumers import ConsumerDesk
         query = urllib.parse.parse_qs(parsed.query or "")
-        block_id = (query.get("id") or [""])[0].strip()
+        pool_id = (query.get("id") or [""])[0].strip()
         cfg = load_agent_proxy_config()
-        ports = CloudModelPorts(cfg)
-        # `held`: what the kanban holds on the model — what closing its last
-        # port must first move or disconnect (the rule lives in cloud_ports.py).
-        h.send_json({"ok": True, "refs": CloudModelRefs(cfg).of(block_id),
-                     "held": ports.held(block_id), "ports": ports.of(block_id)})
+        refs = CloudModelRefs(cfg)
+        desk = ConsumerDesk()
+        h.send_json({"ok": True, "refs": refs.of(pool_id), "held": refs.held(pool_id),
+                     "clients": EntryModels(desk.pools(), desk.sets()).callers(cfg.get("routes"), pool_id)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-api-health/retry')
@@ -2488,117 +2754,6 @@ def _post_api_cloud_api_health_retry(h, parsed, body):
         from caravan.admin import model_catalog
         model_catalog.retry_endpoint(str(body.get("key") or ""))
         h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-blocks/save')
-def _post_api_cloud_blocks_save(h, parsed, body):
-        """Create or update a cloud model block
-
-        `block` is the block object (`id` of 1-48 letters, digits, `_` or `-`, the
-        `accountId` of an existing account, `name`, `model`, `modelMode` of `rewrite` or
-        `passthrough`); a new `id` makes a block the model sync never removes, and fields an
-        edit leaves out keep their values. `block.exposed` set also opens the model's own
-        port, so it is on the kanban. Answers `{ok, block, port, topology}` (`port` is null
-        unless a port was opened); 400 for a bad `id` or an unknown account.
-        """
-        wanted = body.get("block") or {}
-        block = upsert_cloud_block(wanted)
-        port = None
-        if isinstance(wanted, dict) and wanted.get("exposed"):
-            # "Show it on the kanban" = a port of its own (cloud_ports.py).
-            from caravan.admin.cloud_ports import CloudPortDesk
-            port = CloudPortDesk().open(block["id"])
-        h.send_json({"ok": True, "block": block, "port": port, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-blocks/restore')
-def _post_api_cloud_blocks_restore(h, parsed, body):
-        """Bring back a model block that the model sync removed within the last day
-
-        `accountId` and `id` name the account and the removed block (the topology lists them
-        as `cloudRemoved`). The block returns as the operator's own (`manual`), so a later
-        sync does not remove it again. Answers `{ok, block, topology}`; 404 when there is
-        nothing to bring back: it was removed more than a day ago, or already restored.
-        """
-        from caravan.admin.cloud_api import CLOUD_SYNC
-        block = CLOUD_SYNC.restore(body.get("accountId"), body.get("id"))
-        if not block:
-            raise AppError("nothing to bring back — it was removed more than a day ago, or already restored", 404)
-        h.send_json({"ok": True, "block": block, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-blocks/delete')
-def _post_api_cloud_blocks_delete(h, parsed, body):
-        """Delete a cloud model block
-
-        `id` is the block; an unknown `id` is ignored. Only the block record is removed, so
-        read `GET /api/cloud-blocks/refs` first to see what still points at it. Answers
-        `{ok, topology}`.
-        """
-        delete_cloud_block(body.get("id"))
-        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-blocks/move-cables')
-def _post_api_cloud_blocks_move_cables(h, parsed, body):
-        """Move the cables and rules of one cloud model onto another of the same provider
-
-        `from` and `to` are block ids of two different models of one account. Cables keep
-        their roles, and the rules and cloud fallbacks that named `from` now name `to`; `to`
-        gets a port of its own if it had none, so it is on the kanban, and is marked
-        announced. Answers `{ok, moved, topology}` with the number of references moved; 400
-        for the same model twice, an unknown block or two providers.
-        """
-        # The "new model" window and "⇄ Move cables…": everything that pointed
-        # at one model of a provider now points at another of the same
-        # provider, roles kept; that one is on the kanban from now on — with a
-        # port of its own if it had none (cloud_ports.py).
-        from caravan.admin.cloud_ports import CloudPortDesk
-        src, dst = str(body.get("from") or "").strip(), str(body.get("to") or "").strip()
-        moved = CloudPortDesk().move_cables(src, dst)
-        mark_cloud_blocks_announced([dst])
-        h.send_json({"ok": True, "moved": moved, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-blocks/announced')
-def _post_api_cloud_blocks_announced(h, parsed, body):
-        """Mark new cloud models as announced, optionally putting them on the kanban
-
-        `ids` are the block ids that the board's 'new model' window was answered for; it
-        will not ask about them again. With `expose` set each also gets a port of its own,
-        which is what puts a model on the kanban. Answers `{ok, topology}`.
-        """
-        ids = [str(i) for i in (body.get("ids") or [])]
-        mark_cloud_blocks_announced(ids)
-        if body.get("expose"):
-            # "Just add it": on the kanban = a port of its own.
-            from caravan.admin.cloud_ports import CloudPortDesk
-            for block_id in ids:
-                CloudPortDesk().open(block_id)
-        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/cloud-blocks/expose')
-def _post_api_cloud_blocks_expose(h, parsed, body):
-        """Put a cloud model on the kanban or take it off, by opening or closing its ports
-
-        `id` is the block; `exposed` true opens a port of its own for it (answers `{ok,
-        port, topology}`), false closes all its ports (answers `{ok, closed, leaves, moved,
-        cut, onto, topology}`). When cables or rules still lead to the model, `resolution`
-        must say where they go: `{moveTo: <block id of the same provider>}` or `{cut:
-        true}`. 409 without a needed `resolution`; 404 for an unknown block (opening) or a
-        model with no port to close.
-        """
-        # The kanban's tick: on = the model gets a port of its own; off = all its
-        # ports close, and what the routers hold on it goes where `resolution`
-        # says (cloud_ports.py), or the answer is 409.
-        from caravan.admin.cloud_ports import CloudPortDesk
-        desk = CloudPortDesk()
-        if body.get("exposed"):
-            done = {"port": desk.open(str(body.get("id") or "").strip())}
-        else:
-            done = desk.close(body.get("id"), None, body.get("resolution"))
-        h.send_json({"ok": True, **done, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/engine-outputs/expose')
@@ -2770,7 +2925,7 @@ def _post_api_topology_client_alias(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/topology/server-order')
 def _post_api_topology_server_order(h, parsed, body):
-        """Set the order of the cards under Model servers
+        """Set the order of the server cards: the pools under Pools, and the machines
 
         `order` lists card keys, `node:<machine id>` for a machine and `cloud:<account id>` for a
         cloud provider or pool, in the order the board draws them; the kanban's Servers panel
@@ -2944,9 +3099,13 @@ def _post_api_topology_server_slot_add(h, parsed, body):
 def _post_api_topology_server_slot_delete(h, parsed, body):
         """Remove a cell's slot from a machine and ask its scout to stop the cell
 
-        `hostId` and `port` are required. The stop request to the scout is best effort, so
-        an unreachable scout does not fail the call. Answers `{ok, removed}`, where
-        `removed` says whether a slot was stored.
+        `hostId` and `port` are required. The start request the scout keeps for the cell's
+        autostart goes first — its reports would bring the cell back (1.3.504). The stop request
+        to the scout is best effort, so an unreachable scout does not fail the call. The cell's
+        rows in the pools lose their cable and its schedule goes with it: a new cell on this port
+        is another model. Answers `{ok, removed, autostart?}`, where `removed` says whether a slot
+        was stored and `autostart` — only for a cell with autostart — `{port, enabled, ok, error?}`:
+        whether the scout let its request go.
         """
         h.send_json(client_server_slot_delete(body))
         return
@@ -2968,6 +3127,7 @@ def _post_api_topology_server_cell_action(h, parsed, body):
 
         `action` is `start`, `stop`, `restart`, `enable` or `disable`; the last two turn the
         cell's autostart on or off, and a start uses the launch config saved on the cell. A
+        `restart` stops the cell first and starts it only when the stop succeeded. A
         `start` or `restart` of an engine cell whose model would not fit the free GPU memory
         answers `{ok: false, short}` (status 200) unless `force` is `true`. Answers `{ok,
         hostId, port, action, result}`; 400 for an unknown action, the controller's own id
@@ -3008,12 +3168,19 @@ def _post_api_topology_server_cell_reassign_port(h, parsed, body):
 
         `hostId`, `port` and `newPort` are required; `newPort` is checked against every
         cell, proxy route and port exclusion in the fleet, and the cell's saved config and
-        its router references move with it. Meant for a stopped cell, which is not checked
-        here. Answers `{ok, key, port, topology}`; 404 when the cell has no slot, 409 when
-        `newPort` is taken, 400 when it equals `port`.
+        every name of it move with it: the routers' references, the pools' rows, its schedule. A
+        row or a schedule that still named `newPort` — a deleted cell's — loses that name. Meant
+        for a stopped cell, which is not checked here. Answers `{ok, key, port, followed,
+        topology}`, `followed` being `{routers, pools: [names], schedule, notFollowed: [what could
+        not be written]}`, and `autostart`: what its scout's kept start request did — off at the old
+        port before the move, on at the new one after (1.3.504), `[]` for a cell without autostart;
+        404 when the cell has no slot, 409 when `newPort` is taken, 400 when it equals `port`.
         """
+        from caravan.admin.cell_ops import CELL_AUTOSTART
         from caravan.admin.server_cells import reassign_server_slot_port
-        result = reassign_server_slot_port(body)
+        moves = [(str(body.get("hostId") or "").strip(), int(body.get("port") or 0), int(body.get("newPort") or 0))]
+        result, autostart = CELL_AUTOSTART.moved(moves, lambda: reassign_server_slot_port(body))
+        result["autostart"] = autostart
         result["topology"] = topology_state(refresh_hosts=False)
         h.send_json(result)
         return
@@ -3023,13 +3190,21 @@ def _post_api_topology_server_cell_swap_port(h, parsed, body):
         """Swap the ports of two cells, each keeping its cables
 
         `hostId` and `port` pick one cell and `targetPort` is the other cell's port, on any
-        machine; both saved configs and router references trade places. Meant for stopped
-        cells, which is not checked here. Answers `{ok, a, b, topology}` with each cell's
-        new `{host, port}`; 404 when the first cell has no slot, 400 when `targetPort` is
-        not a cell or equals `port`.
+        machine; both saved configs and every name of them — the routers' references, the pools'
+        rows, the schedules — trade places. Meant for stopped cells, which is not checked here.
+        Answers `{ok, a, b, followed, autostart, topology}` with each cell's new `{host, port}`, what
+        followed them and what their scouts' kept start requests did (as for a port move); 404 when
+        the first cell has no slot, 400 when `targetPort` is not a cell or equals `port`.
         """
+        from caravan.admin.cell_ops import CELL_AUTOSTART
         from caravan.admin.server_cells import swap_server_slot_ports
-        result = swap_server_slot_ports(body)
+        from caravan.admin.state import topology as topo
+        host_a, port_a, port_b = str(body.get("hostId") or "").strip(), int(body.get("port") or 0), int(body.get("targetPort") or 0)
+        # The other cell is found by its port, on any machine, as the swap finds it.
+        other = next((s for s in topo.slots().values() if int(s.get("port") or 0) == port_b), None)
+        moves = [(host_a, port_a, port_b)] + ([(str(other.get("hostId") or ""), port_b, port_a)] if other else [])
+        result, autostart = CELL_AUTOSTART.moved(moves, lambda: swap_server_slot_ports(body))
+        result["autostart"] = autostart
         result["topology"] = topology_state(refresh_hosts=False)
         h.send_json(result)
         return
@@ -3103,6 +3278,185 @@ def _post_api_topology_agent_route_remove(h, parsed, body):
         route in that role.
         """
         h.send_json(remove_agent_route(body))
+
+@_route(POST_ROUTES, '/api/agent-proxy-entry')
+def _post_api_agent_proxy_entry(h, parsed, body):
+        """Open, move or close the entry for keys
+
+        `port` — a free port for the entry; null or 0 closes it, which is refused while any
+        route's port is closed (its agent would have no way in). `publicUrl` — the address
+        consumers are given, e.g. `https://caravan-api.example.org/v1`; the board shows it, the
+        proxy never reads it. The proxy opens, moves or closes the listener within seconds.
+        Answers the settings as `GET /api/agent-proxy-entry` does; 409 for a port the fleet
+        already uses or something else listens on, 400 for a malformed value.
+        """
+        h.send_json(entry_settings.write(body or {}))
+        return
+
+@_route(GET_ROUTES, '/api/consumers/ask')
+def _get_api_consumers_ask(h, parsed):
+        """What a client of the entry gets for its own GET, asked with its key
+
+        `port` is the client, `path` its question: `/v1/models` or `/v1/models/<model>`. The
+        controller asks the entry with the client's key and answers what the entry answered — its
+        status and body as they came, its refusals too; the key never leaves the controller. The
+        kanban's client cards link here. 400 for another path, 404 for no such client, 409 for a
+        client without a key or while the entry is off, 502 when the entry does not answer.
+        """
+        from caravan.admin.proxy_entry import AsConsumer
+        query = urllib.parse.parse_qs(parsed.query or "")
+        status, kind, body = AsConsumer().ask((query.get("port") or [""])[0], (query.get("path") or [""])[0])
+        h.send_passed_on(status, AsConsumer.shown_as(kind), body)
+        return
+
+@_route(POST_ROUTES, '/api/consumers/probe')
+def _post_api_consumers_probe(h, parsed, body):
+        """Send a client's test request by POST, as the client, and say what it got
+
+        `port` is the client, `path` the kind of work: `/v1/chat/completions`, `/v1/responses`,
+        `/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/images/generations` or
+        `/v1/embeddings`; `model` the name the client calls its pool by. The controller sends the
+        shortest standard request of that kind with the client's key — a few tokens, half a second
+        of silence, one small picture — and answers `{ok, request: {method, path, model, sent},
+        status, contentType, ms, bytes, text, cut}` or, for audio, `audio` in base64 in place of
+        `text`. The entry's refusal is an answer too. 400 for another path, 404 for no such client,
+        409 for a client without a key or while the entry is off, 502 when the entry does not answer.
+        """
+        from caravan.admin.proxy_entry import AsConsumer
+        body = body or {}
+        h.send_json({"ok": True, **AsConsumer().probe(body.get("port"), body.get("path"), body.get("model"))})
+
+@_route(POST_ROUTES, '/api/consumers/create')
+def _post_api_consumers_create(h, parsed, body):
+        """Make a consumer of the entry: a name and its own key
+
+        `name` is the consumer's name on the board and in the journal (required, not one another
+        consumer has). The new consumer is cabled to no set: `POST /api/consumers/set` gives it
+        one, as a cable on the kanban does. The key (`lcv1_…`) is answered this once: `{ok, port,
+        name, key, set, entryUrl, topology}`; `port` is the consumer's number on the board, it
+        never listens. 400 for an empty name, 409 for a name taken or while the entry is off.
+        """
+        from caravan.admin.consumers import ConsumerDesk
+        from caravan.admin.paths import TOPOLOGY_SERVER_IP
+        from caravan.admin.proxies_config import load_agent_proxy_config
+        from caravan.admin.proxy_entry import ConsumerAddress
+        done = ConsumerDesk().create((body or {}).get("name"))
+        entry = ConsumerAddress(load_agent_proxy_config(), TOPOLOGY_SERVER_IP).entry()
+        h.send_json({"ok": True, **done, "entryUrl": entry["url"], "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/consumers/set')
+def _post_api_consumers_set(h, parsed, body):
+        """Cable a consumer of the entry to a set of models
+
+        `port` picks the consumer; `set` is the id of the set whose pools its key calls from now on
+        — `GET /v1/models` lists them, a request's `model` picks one — or `""` to take the cable
+        away (its requests are then refused: no model). A consumer has one set; a set may serve
+        several. Answers `{ok, port, set, topology}`; 404 for a number that is no consumer's, 400
+        for an unknown set id.
+        """
+        from caravan.admin.consumers import ConsumerDesk
+        done = ConsumerDesk().set_set((body or {}).get("port"), (body or {}).get("set"))
+        h.send_json({"ok": True, **done, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/consumers/order')
+def _post_api_consumers_order(h, parsed, body):
+        """Set the order of the clients' cards: a client card carried to another place
+
+        `order` lists the clients' ports in the new order; a client it does not name stands after
+        them by name, and an empty list returns the clients to their order by name. The order is
+        kept for every browser and account. Answers `{ok, order, rev, topology}`, where `rev` grows
+        by one with every save (GET /api/topology `layout.clientOrderRev`); 400 when `order` is
+        not a list of distinct ports.
+        """
+        from caravan.admin.board_layout import CLIENT_ORDER
+        done = CLIENT_ORDER.save(body.get("order"))
+        h.send_json({**done, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/sets/order')
+def _post_api_sets_order(h, parsed, body):
+        """Set the order of the sets on the kanban: a set card carried to another place
+
+        `ids` lists every set's id once, in the new order. Answers `{ok, order, topology}`; 409
+        when the list does not name exactly the sets there are — another page made or deleted one
+        since the board was drawn.
+        """
+        from caravan.admin.model_sets import SetDesk
+        order = SetDesk().order(body.get("ids"))
+        h.send_json({"ok": True, "order": order, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/sets/create')
+def _post_api_sets_create(h, parsed, body):
+        """Make a set of models, empty
+
+        `name` is optional: without one the set is "Set", or "Set 2" when that is taken. A set is
+        what the entry's clients cabled to it see as their models (the kanban's «Набор»). Answers
+        `{ok, set: {id, name, pools}, topology}`; 409 for a name another set has.
+        """
+        from caravan.admin.model_sets import SetDesk
+        made = SetDesk().create((body or {}).get("name"))
+        h.send_json({"ok": True, "set": made, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/sets/rename')
+def _post_api_sets_rename(h, parsed, body):
+        """Rename a set of models
+
+        `id` picks the set, `name` is its new name (required, not another set's). Answers
+        `{ok, set, topology}`; 404 for no such set, 400 for no name, 409 for a name taken.
+        """
+        from caravan.admin.model_sets import SetDesk
+        done = SetDesk().rename((body or {}).get("id"), (body or {}).get("name"))
+        h.send_json({"ok": True, "set": done, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/sets/add-pool')
+def _post_api_sets_add_pool(h, parsed, body):
+        """Make a pool a model of a set — a cable from the set onto the pool
+
+        `id` picks the set, `pool` the pool; it goes last, and a pool the set holds already stays
+        where it is. The set's clients see it in `GET /v1/models` at once. Answers `{ok, set,
+        topology}`; 404 for no such set, 400 for no such pool.
+        """
+        from caravan.admin.model_sets import SetDesk
+        done = SetDesk().add_pool((body or {}).get("id"), (body or {}).get("pool"))
+        h.send_json({"ok": True, "set": done, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/sets/remove-pool')
+def _post_api_sets_remove_pool(h, parsed, body):
+        """Take a pool out of a set — its cable cut
+
+        `id` picks the set, `pool` the pool; the set's clients no longer see that model. One the
+        set has not: nothing to do. Answers `{ok, set, topology}`; 404 for no such set.
+        """
+        from caravan.admin.model_sets import SetDesk
+        done = SetDesk().remove_pool((body or {}).get("id"), (body or {}).get("pool"))
+        h.send_json({"ok": True, "set": done, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/sets/delete')
+def _post_api_sets_delete(h, parsed, body):
+        """Delete a set of models
+
+        `id` picks the set. Its clients lose their cable — their requests are refused until they
+        have a set again. Answers `{ok, deleted, uncabled: [the clients' names], topology}`; 404
+        for no such set.
+        """
+        from caravan.admin.model_sets import SetDesk
+        done = SetDesk().delete((body or {}).get("id"))
+        h.send_json({"ok": True, **done, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/consumers/key')
+def _post_api_consumers_key(h, parsed, body):
+        """Replace a consumer's key
+
+        `port` picks the consumer. The new key is answered this once, and the old one stops
+        working at once: `{ok, port, name, key, entryUrl, topology}`. 404 for a number that is
+        no consumer's.
+        """
+        from caravan.admin.consumers import ConsumerDesk
+        from caravan.admin.paths import TOPOLOGY_SERVER_IP
+        from caravan.admin.proxies_config import load_agent_proxy_config
+        from caravan.admin.proxy_entry import ConsumerAddress
+        done = ConsumerDesk().new_key((body or {}).get("port"))
+        entry = ConsumerAddress(load_agent_proxy_config(), TOPOLOGY_SERVER_IP).entry()
+        h.send_json({"ok": True, **done, "entryUrl": entry["url"], "topology": topology_state(refresh_hosts=False)})
 
 @_route(POST_ROUTES, '/api/gpu-driver/update')
 def _post_api_gpu_driver_update(h, parsed, body):
@@ -3178,6 +3532,25 @@ def _post_api_topology_scout_connect(h, parsed, body):
         h.send_json(SCOUT_PAIRING.connect(body.get("address"), body.get("port")))
         return
 
+@_route(POST_ROUTES, '/api/topology/scout/scan')
+def _post_api_topology_scout_scan(h, parsed, body):
+        """Look for scouts on the local network
+
+        `networks` — networks or addresses to scan, by commas or spaces (`10.0.30.0/24`);
+        empty scans the controller's own /24s. `port` defaults to 8092. Every address is
+        knocked on at the port, and those that answer are asked the scout's open
+        `/api/pairing`. Nothing is changed. Answers `{networks, port, scanned, found}`, each
+        found `{address, port, hostId, name, version, state}` with `state` `free`, `here` (its
+        machine is on this board) or `taken` (another controller holds it); 400 for something
+        that is not a private network or more than 1024 addresses.
+        """
+        from caravan.admin.paths import TOPOLOGY_SERVER_IP
+        from caravan.admin.scout_scan import ScoutScan
+        scan = ScoutScan(known=lambda: set((topology_store().get("hosts") or {}).keys()),
+                         own=lambda: ScoutScan.own_addresses(TOPOLOGY_SERVER_IP))
+        h.send_json(scan.scan((body or {}).get("networks"), (body or {}).get("port")))
+        return
+
 @_route(POST_ROUTES, '/api/topology/host/move-cells')
 def _post_api_topology_host_move_cells(h, parsed, body):
         """Move every cell configured on one machine to another machine
@@ -3251,9 +3624,14 @@ def _auth_guard(h, path, method):
     `501 Unsupported method ('{"username":"a",…}GET')` and the real next request
     is never seen. Under HTTP/1.0 the close hid this; it is a rejection, so
     closing costs nothing and there is no reason to keep it.
+
+    No account yet is no open door. Until 2026-10-07 a fresh controller let
+    everyone in until somebody made an account — on a NAS, anyone on the home
+    network could take its subscriptions and give out its keys first, and the
+    first user was never asked to make one. Now only the public routes answer
+    before the first account: pages lead to /setup, everything else is 401.
     """
-    if not auth_mod.auth_enabled():
-        return True
+    first_run = not auth_mod.auth_enabled()
     kind = ROUTE_ACCESS.kind(method, path)
     if kind == RouteAccess.PUBLIC:
         return True
@@ -3278,15 +3656,17 @@ def _auth_guard(h, path, method):
             return False
         return True
     if method == "GET" and (path == "/" or not path.startswith("/api/")):
-        # Pages redirect to the login form; API calls get a plain 401.
+        # Pages go to the form that fits: the first account's, or sign-in.
+        # API calls get a plain 401.
         h.close_connection = True
         h.send_response(302)
-        h.send_header("Location", "/login")
+        h.send_header("Location", "/setup" if first_run else "/login")
         h.send_header("Content-Length", "0")
         h.end_headers()
         return False
     h.close_connection = True
-    h.send_json({"error": "authentication required"}, 401)
+    h.send_json({"error": "no account yet: create the first one at /setup" if first_run
+                 else "authentication required"}, 401)
     return False
 
 
@@ -3368,8 +3748,8 @@ def _post_auth_login(h, parsed, body):
         """
         user = auth_mod.verify_login(str(body.get("username") or ""),
                                      str(body.get("password") or ""),
-                                     ip=h.client_address[0])
-        token = auth_mod.create_session(user["id"], ip=h.client_address[0],
+                                     ip=ClientAddress.of(h.client_address[0], h.headers))
+        token = auth_mod.create_session(user["id"], ip=ClientAddress.of(h.client_address[0], h.headers),
                                         ua=h.headers.get("User-Agent") or "")
         data = json_bytes({"ok": True, "user": user["username"]})
         h.send_response(200)
@@ -3386,19 +3766,20 @@ def _post_auth_setup(h, parsed, body):
 
         Body: `username` (at most 64 characters) and `password` (at least 8); the account is
         an admin one and the fleet token is created with it. Sets the session cookie and
-        answers `{ok, user, fleetToken}`; 409 once sign-in is already on.
+        answers `{ok, user}` — the token is not in the answer: adding a scout from the board
+        hands it over, and System → Security shows it. 409 once sign-in is already on.
         """
         # First-account bootstrap: only while auth is still off.
         if auth_mod.auth_enabled():
             raise AppError("auth is already enabled", 409)
         user = auth_mod.create_user(str(body.get("username") or ""),
                                     str(body.get("password") or ""))
-        fleet = auth_mod.fleet_token_ensure()
+        auth_mod.fleet_token_ensure()
         row = auth_mod.verify_login(user["username"], str(body.get("password") or ""),
-                                    ip=h.client_address[0])
-        token = auth_mod.create_session(row["id"], ip=h.client_address[0],
+                                    ip=ClientAddress.of(h.client_address[0], h.headers))
+        token = auth_mod.create_session(row["id"], ip=ClientAddress.of(h.client_address[0], h.headers),
                                         ua=h.headers.get("User-Agent") or "")
-        data = json_bytes({"ok": True, "user": user["username"], "fleetToken": fleet})
+        data = json_bytes({"ok": True, "user": user["username"]})
         h.send_response(200)
         h.send_header("Content-Type", "application/json; charset=utf-8")
         h.send_header("Set-Cookie", auth_mod.session_cookie_header(token))
@@ -3612,6 +3993,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_passed_on(self, status, content_type, body):
+        """Another server's answer handed on as it came — its status and body — under the type the
+        caller chose for it (caravan/admin/proxy_entry.py AsConsumer.shown_as); never sniffed."""
+        self.send_response(int(status))
+        self.send_header("Content-Type", content_type)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def send_file(self, path, content_type):
         # Validate against an mtime+size ETag and force revalidation (no-cache), so a
         # redeploy is picked up immediately instead of serving a stale browser cache —
@@ -3740,8 +4132,10 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(exc)
 
 
-def _spec_commit():
-    # The same commit /health names; "" when the checkout has no git.
+def _running_commit():
+    # The commit the running code was built from — one reading for /healthz,
+    # /openapi.json and /api/packages, which the home network's deploy check
+    # compares; "" when neither git, a baked value nor VERSION names one.
     try:
         return str((project_git_info() or {}).get("head") or "")
     except Exception:
@@ -3751,4 +4145,4 @@ def _spec_commit():
 # The API as OpenAPI 3.1, for GET /openapi.json: built from the tables above,
 # so it is defined after every route is registered.
 API_SPEC = ApiSpec(GET_ROUTES, POST_ROUTES, DELETE_ROUTES, GET_PREFIX_ROUTES, ROUTE_ACCESS, APP_VERSION,
-                   commit=_spec_commit)
+                   commit=_running_commit)

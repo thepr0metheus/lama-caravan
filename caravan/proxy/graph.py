@@ -7,10 +7,9 @@ import threading
 import re
 import time
 
-from caravan.proxy.capacity import active_count
+from caravan.proxy.capacity import output_has_capacity
+from caravan.proxy.outputs import overlay_output
 from caravan.proxy.output_health import output_health, output_id_of_ref
-from caravan.proxy.paths import UPSTREAM_HOST, UPSTREAM_PORT
-from caravan.proxy.runtime import slot_total_cache, slot_total_lock
 from caravan.common.queue_policy import SharedQueuePolicy
 
 
@@ -39,20 +38,9 @@ def _schedule_rule_active(rule, lt):
     return cur >= start or cur <= end   # wraps midnight
 
 def _output_has_capacity(out, policy):
-    """True if this output can take a request right now without queueing. Cloud
-    bypasses the slot queue (always True); a llama output is free when its upstream
-    group has fewer active requests than its slot total."""
-    if str(out.get("upstreamType") or "llama") == "cloud":
-        return True
-    group = f"{out.get('upstreamHost') or UPSTREAM_HOST}:{int(out.get('upstreamPort') or UPSTREAM_PORT)}"
-    total = None
-    with slot_total_lock:
-        cached = slot_total_cache.get(group)
-        if cached:
-            total = cached[0]
-    if not total or total <= 0:
-        total = max(1, int((policy or {}).get("maxSlots") or 1))
-    return active_count(group) < total
+    """The shared rule (caravan/proxy/capacity.py), under the name the graph's
+    nodes call it by."""
+    return output_has_capacity(out, policy)
 
 def pick_router_output(router, route, now=None, policy=None):
     """Choose which output a router routes a request to.
@@ -558,31 +546,8 @@ def apply_router(route, config, ctx=None):
     return resolved
 
 def _overlay_output(route, out, queue_spec=None):
-    """Overlay a resolved output onto a route copy. When queue_spec is set (the path
-    crossed a queue node), stash it under `queuePlan` for the handler's wait/spill loop."""
-    resolved = dict(route)
-    resolved["upstreamHost"] = str(out.get("upstreamHost") or route.get("upstreamHost"))
-    resolved["upstreamPort"] = int(out.get("upstreamPort") or route.get("upstreamPort"))
-    out_type = str(out.get("upstreamType") or "llama")
-    resolved["upstreamType"] = out_type
-    resolved["routedOutputId"] = str(out.get("id") or "")
-    resolved["routedOutputName"] = str(out.get("name") or "")
-    if out_type == "cloud":
-        # providerId = a model-block; empty = passthrough → resolve the account directly.
-        resolved["providerId"] = str(out.get("providerId") or "")
-        resolved["cloudAccountId"] = str(out.get("accountId") or "")
-    # An engine's model: the handler names it in the request. Dropped first,
-    # so a route re-resolved onto a cell (a spill, a rescue) carries no name
-    # left over from the engine it was resolved onto before.
-    resolved.pop("upstreamModel", None)
-    if out_type == "engine":
-        resolved["upstreamModel"] = str(out.get("upstreamModel") or "")
-    resolved.pop("queuePlan", None)
-    resolved.pop("rescueRefs", None)
-    resolved.pop("deadSkipped", None)
-    if queue_spec:
-        resolved["queuePlan"] = {"spec": queue_spec}
-    return resolved
+    """The shared overlay (caravan/proxy/outputs.py), under the graph's name for it."""
+    return overlay_output(route, out, queue_spec)
 
 def apply_router_spill(route, config, spill_ref, ctx=None):
     """Re-resolve a route from a queue node's spill target (an out:/rule: ref) when

@@ -30,40 +30,41 @@ globalThis.__stubReturns={
  }
 };
 const {SubscriptionResetCards}=await import("../static/js/subscription-resets.js");
-const cards=new SubscriptionResetCards({refreshed:id=>refreshed.push(id)});
+let picked=null;const asked=[];
+const choice=async(message,opts)=>{asked.push([message,opts]);return picked;};
+const cards=new SubscriptionResetCards({refreshed:id=>refreshed.push(id),choice});
 assert.equal(cards.count(account),null); // nothing read yet: unknown, not "0 resets"
 assert.equal(cards.pending(account),false);
-await cards.fetch("a");
+assert.equal(cards.failed(account),false); // unread is not failed
+// the counter reads its own resets (1.3.464: no list under the fold asks for them any more)
+cards.read({id:"unconnected",hasCredential:false});
+assert.equal(calls.length,0); // no sign-in, nothing asked
+cards.read(account);await new Promise((r)=>setImmediate(r));
 assert.equal(cards.count(account),3);
 assert.equal(cards.count({...account,id:"alias",testAliasOf:"a"}),3); // a TEST member shows its original's balance
-const html=cards.html(account);
-assert.ok(html.includes("resetAvailable")&&html.includes("2030"));
-assert.equal(calls.filter(c=>c[1]).length,0); // opening the card cannot spend
-const event=(credit="c")=>{
- const element={dataset:{resetUse:"a",resetCredit:credit},hasAttribute:()=>false};
- return {target:{closest:()=>element},stopPropagation(){}};
-};
-await cards.handle(event(),[account]);
+cards.read(account);await new Promise((r)=>setImmediate(r));
+assert.equal(calls.length,1); // within a minute the counter does not ask again
+assert.equal(calls.filter(c=>c[1]).length,0); // reading cannot spend
+await cards.choose(account);
 assert.equal(calls.filter(c=>c[1]).length,0); // Cancel cannot POST
-assert.ok(confirmations.at(-1)[0].includes("Owner <A>"));
-assert.ok(confirmations.at(-1)[1].detail.includes("2030"));
-agreed=true;failure=true;
-await cards.handle(event(),[account]);
+assert.ok(asked.at(-1)[0].includes("Owner <A>"));
+picked="c";failure=true;
+await cards.choose(account);
 const first=calls.find(c=>c[1]);
 assert.equal(first[1].creditId,"c");
 assert.match(first[1].idempotencyKey,/^[0-9a-f-]{36}$/);
-assert.ok(cards.html(account).includes("resetPending"));
-assert.equal(cards.pending(account),true); // the head of a collapsed card can say it
+assert.equal(cards.pending(account),true); // the head of a rung can say it
 assert.equal(cards.pending({...account,id:"alias",testAliasOf:"a"}),true);
 assert.equal(cards.pending({id:"other-account"}),false);
-const reloaded=new SubscriptionResetCards({refreshed:id=>refreshed.push(id)});
+const reloaded=new SubscriptionResetCards({refreshed:id=>refreshed.push(id),choice});
 await reloaded.fetch("a");
 assert.equal(reloaded.attempts.get("a").idempotencyKey,first[1].idempotencyKey);
 const count=calls.filter(c=>c[1]).length;
-await reloaded.handle(event("other"),[account]);
+picked="other";
+await reloaded.choose(account);
 assert.equal(calls.filter(c=>c[1]).length,count); // an unresolved spend blocks another
-failure=false;
-await reloaded.handle(event(),[account]);
+failure=false;picked="c";
+await reloaded.choose(account);
 const posts=calls.filter(c=>c[1]);
 assert.equal(posts.length,2);
 assert.equal(posts[1][1].idempotencyKey,first[1].idempotencyKey);
@@ -71,22 +72,36 @@ assert.deepEqual(refreshed,["a"]);
 assert.equal(reloaded.attempts.size,0);
 assert.equal(reloaded.pending(account),false);
 assert.equal(reloaded.count(account),2);
-assert.ok(reloaded.html(account).includes('data-reset-use="a"'));
-assert.ok(!reloaded.html({id:"unconnected",hasCredential:false}));
 rejected=true;
-const refused=new SubscriptionResetCards();
+const refused=new SubscriptionResetCards({choice:async()=>"other"});
 await refused.fetch("a");
-await refused.handle(event("other"),[account]);
+await refused.choose(account);
 assert.equal(refused.attempts.size,0); // a refused spend must not lock all other credits
-assert.ok(!refused.html(account).includes("resetPending"));
+assert.equal(refused.pending(account),false);
 const failed=new SubscriptionResetCards();
 globalThis.__stubReturns["utils.api"]=async()=>{throw Error("offline");};
 await failed.fetch("a");
 assert.equal(failed.count(account),null); // a failed read is not zero
+assert.equal(failed.failed(account),true); // ... and the counter says "?" instead of vanishing
 globalThis.__stubReturns["utils.api"]=async()=>({availableCount:"3",credits:[],pending:[]});
 const odd=new SubscriptionResetCards();
 await odd.fetch("a");
 assert.equal(odd.count(account),null); // only a number is a count
+assert.equal(odd.failed(account),false); // a read that answered is not a failed read
+assert.equal(typeof SubscriptionResetCards.prototype.html,"undefined"); // the rows under a fold are gone
+// ── the small door on a subscription's row of the main board (the owner, 2026-10-12) ──
+const chip=(c,a)=>c.chipHtml(a);
+assert.equal(chip(new SubscriptionResetCards(),account),""); // a count not read yet draws nothing — not "↺ 0"
+assert.ok(chip(failed,account).includes(">↺ ?</span>") && chip(failed,account).includes('data-t-state="unknown"')); // a failed read says "?"
+assert.ok(!chip(failed,account).includes("data-pool-resets")); // ... and is no button
+const two=chip(reloaded,account);
+assert.ok(two.startsWith('<button class="pool-resets" type="button" data-pool-resets="a" data-t="provider-resets" data-t-state="some"') && two.endsWith(">↺ 2</button>") && !two.includes("⚠"));
+assert.ok(chip(reloaded,{...account,id:"alias",testAliasOf:"a"}).includes('data-pool-resets="a"')); // a TEST copy opens its original's
+const none=new SubscriptionResetCards();none.cache.set("a",{data:{availableCount:0},at:0});
+assert.ok(chip(none,account).includes(">↺ 0</span>") && !chip(none,account).includes("<button")); // none to spend: the count alone
+const pend=chip(cards,account);
+assert.ok(pend.startsWith('<span class="pool-warn"') && pend.indexOf("⚠")<pend.indexOf("↺")); // an unresolved spend: ⚠ ahead of the door
+assert.equal(typeof SubscriptionResetCards.prototype.handle,"undefined");
 // ── the counter's door: a window of choice; its own button is the confirmation ──
 const creds=[
  {id:"late",resetType:"codex_rate_limits",usable:true,expiresAt:"2031-03-01T00:00:00Z"},
@@ -107,13 +122,14 @@ assert.equal(O([{id:"o",resetType:"other_type",usable:true,title:"Other"}],null)
 assert.equal(O([{id:"o",resetType:"other_type",usable:true}],null)[0].label,'poolUnavailable{}',"a reset nobody named is 'unavailable', not guessed");
 assert.deepEqual(O(creds,{creditId:"late"}).map(x=>x.value),["late"],"an unresolved attempt: that reset only");
 assert.deepEqual(O(creds,{creditId:"gone"}),[{value:"gone",label:"resetRetry{}"}],"the unresolved one is offered even when the list no longer shows it");
-const world={credits:creds,pending:[],count:5,outcome:"reset",fail:false}, posted=[]; let gets=0, clock=1000, picked=null, asked=[];
+const world={credits:creds,pending:[],count:5,outcome:"reset",fail:false}, posted=[]; let gets=0, clock=1000;
+picked=null;asked.length=0;
 globalThis.__stubReturns["utils.api"]=async(path,options)=>{
  const body=options?.body?JSON.parse(options.body):null;
  if(body){posted.push(body);assert.equal(body.confirmed,true);if(world.fail)throw Error("boom");return {ok:true,outcome:world.outcome};}
  gets++;return structuredClone({availableCount:world.count,credits:world.credits,pending:world.pending});
 };
-notices.length=0;refreshed.length=0;confirmations.length=0;
+notices.length=0;refreshed.length=0;asked.length=0;
 const door=new SubscriptionResetCards({now:()=>clock,refreshed:id=>refreshed.push(id),choice:async(message,opts)=>{asked.push([message,opts]);return picked;}});
 await door.choose(account);
 assert.equal(asked.length,1);
@@ -166,10 +182,6 @@ world.pending=[{creditId:"late",idempotencyKey:"11111111-1111-4111-8111-11111111
 await door.choose(account);
 assert.equal(posted.length,0,"another reset: refused before it is sent");
 assert.equal(door.busy.size,0);
-// the fold's row meets the same rule: no window, no word to ask for, nothing sent
-confirmations.length=0;
-await door.handle(event("soon"),[account]);
-assert.deepEqual([confirmations.length,posted.length],[0,0],"a row for another reset asks nothing and sends nothing");
 world.pending=[];clock+=61000;
 // busy: a second press while the window is open opens no second window
 let release;const slow=new SubscriptionResetCards({now:()=>clock,choice:()=>new Promise((r)=>{release=r;})});
@@ -192,7 +204,7 @@ await broken.choose(account);
 assert.equal(notices.at(-1),"boom");
 assert.equal(broken.busy.size,0);
 world.fail=false;
-console.log("reset UI OK: GET-only rendering, cancel, exact account/expiry confirmation, stable retries after reload, quota refresh, rejection recovery, the counter's window of choice");
+console.log("reset UI OK: the counter reads its own resets, unknown and failed apart from zero, cancel, stable retries after reload, quota refresh, rejection recovery, the small door on a row, the counter's window of choice — the one door");
 '''
 probe=ROOT/'scripts/.probe_resets.tmp.mjs'
 probe.write_text(PROBE)

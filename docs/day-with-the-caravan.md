@@ -5,8 +5,9 @@ kanban that implements it. Names are made up; every mechanism is real.
 
 ## The cast
 
-- **Controller** — an Ubuntu box running the LAMA CARAVAN admin (`:7990`),
-  the proxy ports and a llama server cell on its RTX card.
+- **Controller** — an Ubuntu box running the LAMA CARAVAN admin (`:7990`) and
+  the proxy with its entry; a scout on the same box runs a llama server cell on
+  its RTX card.
 - **workbench** — a desktop with a 24 GB GPU, runs
   [caravan-scout](https://github.com/thepr0metheus/caravan-scout); hosts
   coding agents.
@@ -16,8 +17,11 @@ kanban that implements it. Names are made up; every mechanism is real.
   (long contexts), `secretary` (reads private mail — must stay local).
 - Cloud: one metered API provider as the escape valve.
 
-Each agent points at its own proxy port on the controller — `:8101`,
-`:8102`, … — and none of them will ever need reconfiguring again.
+Each agent is a client of the entry: one address (`https://caravan-api.example.org/v1`)
+and a key of its own, made with ＋ on the board — and none of them will ever
+need reconfiguring again. All four are on one kanban: it decides where their
+requests go, whatever model name they send. (An agent of the older kind would
+point at a proxy port of its own instead, and the kanban would take the port.)
 
 ## Night (00:00–08:00)
 
@@ -57,11 +61,11 @@ Nobody edited an agent config. The kanban did it.
 
 ## The kanban that does all this
 
-One agent port, drawn on `/kanban`:
+One client, drawn on `/kanban` — the same graph serves a port of the older kind:
 
 ```text
                         ┌─────────────┐
- agent :8101 ──────────►│   QUEUE     │      night 00–08
+ coder-1 (key) ────────►│   QUEUE     │      night 00–08
                         │ prio, 2 par │   ┌─────────────────► [workbench :8002]
                         └──────┬──────┘   │
                                ▼          │

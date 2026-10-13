@@ -24,6 +24,13 @@
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 0 0 1px color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 .fold-slot.peek > .topology-agent { display: grid; }
+/* In an agent's lane card the float covers the whole card — its padding (8px 10px) and border
+   too: laid over the slot only, it left the card's frame showing around it (2026-10-08). */
+.topology-card.agent-card .fold-slot[data-fold-mode="line"] > .topology-agent {
+  top: -9px;
+  left: -11px;
+  right: -11px;
+}
 
 /* ── a cell opens in a window ────────────────────────────────────────────
    Since 2026-09-25 a folded cell no longer floats over its lane: a click on
@@ -134,6 +141,8 @@
 .fold-pin:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .fold-slot.peek > .fold-pin,
 .fold-slot[data-fold-mode="pinned"] > .fold-pin { display: inline-flex; align-items: center; }
+/* The 📌 stays on the corner of the float, which now covers the lane card. */
+.topology-card.agent-card .fold-slot[data-fold-mode="line"] > .fold-pin { top: -19px; right: -21px; }
 
 /* ── a cell's line ───────────────────────────────────────────────────────── */
 .cell-row {

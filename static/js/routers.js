@@ -1,155 +1,115 @@
 // Router cards, outputs panel, router detail popover.
 import { _cvPos, _cvView, canvasNodes, canvasPanels, renderRouterNodeConfig } from "./canvas.js";
-import { PORT_CLOSER } from "./cloud.js";
-import { ProviderModels } from "./cloud-models.js";
-import { SubscriptionPoolCards } from "./cloud-pools.js";
 import { badge, option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
-import {
-  aaBadgeHtml,
-  formatPricePer1M,
-  modelPricing,
-  requestAaScores,
-} from "./model-meta.js";
 import { OutputCells } from "./output-cells.js";
 import { SERVER_ORDER, ServerOrder } from "./server-order.js";
 import { setTopology, state, topology, ui } from "./state.js";
-import { topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
+import { topologyItemsActivity, topologyRouterActivity, topologyStateHealthClasses } from "./topology-activity.js";
 import { bindTopologyDragAndDrop } from "./topology-dnd.js";
 import { machineAt } from "./topology-nodes.js";
 import { feedsRouters, topologyProxyOwner } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
-import { $, api, escapeHtml, pill, toast } from "./utils.js";
+import { $, api, escapeHtml, isStaleCopy, pill, toast } from "./utils.js";
 
-export let topologyOutputsCloudExpanded = {};     // accountId -> bool: cloud provider's model checklist open?
-export let topologyOutputsFolded = {};            // "host:<host>" / "prov:<accountId>" -> bool: rows folded on the canvas servers block
-export let topologyQuietShown = {};               // machine key -> true: its stopped cells nothing leads to are listed (folded by default)
+export let topologyOutputsFolded = {};            // "host:<host>" -> bool: rows folded on the canvas servers block
+export let topologyQuietShown = {};               // machine key -> true: its fold of rows nothing leads to is listed
 // Per-OUTPUT activity: is a request actually being served by THIS output right now?
 // Matches active proxy items by their resolved upstream (host:port). Used so only the
 // cable to the output actually carrying traffic animates (not every output).
-export function topologyOutputActivity(out) {
+// With `router`, only the requests that came in by its ports count: a pool also serves the
+// entry's free clients directly (2026-10-11), their requests carry the pool's id as well, and the
+// kanban's cable to that pool lit for traffic that never passed the kanban.
+export function topologyOutputActivity(out, router = null) {
   const isCloud = String(out.upstreamType || "llama") === "cloud";
-  const want = `${out.upstreamHost || ""}:${out.upstreamPort || ""}`;
+  const want = OutputCells.upstream(out);
   // Cloud upstreams collide on host:port, so match by providerId (the chosen block).
   // The models of one engine share its host:port too: matched by the output
   // the request was routed to, or every model of the engine would light up.
+  // A machine's models are told apart by their queue's name, which holds the
+  // model (OutputCells.upstream, 1.3.506).
   const matches = (it) => isCloud
     ? (String(it.upstreamType || "") === "cloud" && String(it.providerId || "") === String(out.providerId || ""))
     : String(out.upstreamType || "") === "engine"
       ? String(it.routedOutputId || "") === String(out.id || "")
       : (String(it.upstreamType || "llama") !== "cloud" && String(it.upstream || "") === want);
-  const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
-  let active = false, recent = false;
-  for (const row of Object.values(agents)) {
-    for (const it of (row.active || [])) {
-      if (matches(it) && it.phase !== "queued") active = true;
-    }
-    for (const it of (row.recent || [])) {
-      if (matches(it) && Number(it.finishedAt || 0) * 1000 > Date.now() - 8000) recent = true;
-    }
-  }
-  if (active) return { state: "active", title: "" };
-  if (recent) return { state: "recent", title: "" };
-  return { state: "idle", title: "" };
-}
-
-// Aggregate activity of a router = the liveliest of the proxies feeding it.
-export function topologyRouterActivity(router) {
-  const ids = new Set((router?.inputs || []).map(String));
-  const acts = (topology?.proxies || []).filter((p) => ids.has(String(p.id))).map(topologyProxyActivity);
-  return acts.find((a) => a.state === "active")
-    || acts.find((a) => a.state === "error")
-    || acts.find((a) => a.state === "recent")
-    || { state: "idle", title: "" };
+  const inputs = router ? new Set((router.inputs || []).map(String)) : null;
+  const ports = inputs ? new Set((topology?.proxies || []).filter((p) => inputs.has(String(p.id))).map((p) => Number(p.port))) : null;
+  return topologyItemsActivity((it, port) => (!ports || ports.has(port)) && matches(it));
 }
 
 export function topologyRouterOutputLabel(out) {
   if (String(out.upstreamType || "llama") === "cloud") {
-    // Per-account cloud output; the model (block) is shown via its own dropdown.
-    const acc = (topology?.cloudAccounts || []).find((a) => a.id === out.accountId);
-    return out.label || `☁ ${acc?.name || out.accountId || "cloud"}`;
+    // A pool's output: the pool's name, as the controller labelled it.
+    const pool = _poolForOut(out);
+    return out.label || `☁ ${pool?.name || out.providerId || "cloud"}`;
   }
   // An engine's model: its name in the engine and the engine, as the
   // controller labelled it — no cell stands on the engine's port.
   if (String(out.upstreamType || "") === "engine") {
     return out.label || `${out.upstreamModel || ""} · ${out.engine || ""}`;
   }
+  // A model of a machine's entry: its name — the port is the machine's entry, every model's.
+  if (String(out.upstreamType || "") === "machine") return String(out.upstreamModel || out.label || "");
   // A cell: what it runs, as the cell itself is named (output-cells.js), then its port —
   // not the label the server baked from the model file, which read "en" for a moonshine cell.
   const name = new OutputCells(topology).name(out);
   return name ? `${name} :${out.upstreamPort}` : `${out.upstreamHost}:${out.upstreamPort}`;
 }
 
-// Price tag for a cloud output row: resolve the model via its provider block
-// and look it up in the pricing map (LiteLLM + manual overrides). ":free"
-// OpenRouter models get a FREE chip instead of $0/$0.
-function _outPriceTag(out) {
-  const block = _blockForOut(out);
-  const model = block?.model || "";
-  if (!model) return "";
-  if (model.endsWith(":free")) return `<span class="router-out-price free">FREE</span>`;
-  const mp = modelPricing[model];
-  if (!mp || (!mp.inputPer1M && !mp.outputPer1M)) return "";
-  return `<span class="router-out-price">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>`;
+// The pool a cloud output leads to (its output is `cb:<pool id>`), or null.
+function _poolForOut(out) {
+  return (topology?.pools || []).find((p) => p.id === String(out?.providerId || "")) || null;
 }
 
-function _blockForOut(out) {
-  return (topology?.cloudProviders || []).find((b) => b.id === String(out?.providerId || "")) || null;
+// What a pool's row on the kanban says about the pool beside its name: how many steps — their
+// names in the hint — and a mark when a request to it cannot be served as drawn: no step
+// enabled (it is refused with "add one"), or a step whose model its provider no longer lists.
+function _poolMarks(pool) {
+  const steps = pool?.steps || [];
+  const accounts = topology?.cloudAccounts || [];
+  const named = steps.map((s, i) => `${i + 1}. ${accounts.find((a) => a.id === s.accountId)?.name || s.accountId} · ${s.model}${s.enabled === false ? ` (${t("poolDisabled")})` : ""}`);
+  const live = steps.filter((s) => s.enabled !== false);
+  const chip = `<span class="router-out-steps" title="${escapeHtml(named.join("\n"))}">${escapeHtml(t("rtPoolSteps", { n: String(steps.length) }))}</span>`;
+  if (!live.length) return `${chip}<span class="router-out-unlisted-warn" title="${escapeHtml(t("rtPoolNoStep"))}">⚠</span>`;
+  if (live.some((s) => s.unlisted)) return `${chip}<span class="router-out-unlisted-warn" title="${escapeHtml(t("cloudModelUnlisted"))}">⚠</span>`;
+  return chip;
 }
 
-// ⚠ mark for a block whose model the provider no longer lists (server-annotated).
-function _unlistedTag(block) {
-  return block?.unlisted
-    ? `<span class="router-out-unlisted-warn" title="${escapeHtml(t("cloudModelUnlisted"))}">⚠</span>`
-    : "";
-}
-
-// Cloud model lists sort expensive→cheap (price = the interesting attribute);
-// unknown-price models sink to the bottom, name breaks ties.
-function _priceRank(model) {
-  const mp = modelPricing[model || ""];
-  return mp ? [Number(mp.inputPer1M) || 0, Number(mp.outputPer1M) || 0] : [-1, -1];
-}
-
-function _byPriceDesc(modelOf) {
-  return (a, b) => {
-    const ra = _priceRank(modelOf(a));
-    const rb = _priceRank(modelOf(b));
-    return (rb[0] - ra[0]) || (rb[1] - ra[1])
-      || String(modelOf(a) || "").localeCompare(String(modelOf(b) || ""));
-  };
-}
-
+// The kanban on the main board (2026-10-12): the pools stand on the kanban, and the main board keeps
+// the clients, this card, the machines and the cloud providers. The clients' cables come into the
+// card on its left; from its right, cables go to the machines and the providers its pools lead to
+// (the owner, 2026-10-12; cables.js, PoolReach). It is small (the owner, 2026-10-13: "small and tidy,
+// without listing everything inside"): its name and two numbers — how many clients are cabled to a set,
+// how many pools there are. The pools' names stand on the kanban, a click opens it (topology-dnd.js).
+// It lights while a client's request runs — a client's or a port of the old kind that feeds it.
 export function renderTopologyRouterCard(router) {
+  const clients = (topology?.proxies || []).filter((p) => String(p.kind || "") === "consumer");
   const activity = topologyRouterActivity(router);
-  const outputs = router.outputs || [];
-  const inCount = (router.inputs || []).length;
-  const ruleCount = (router.rules?.schedule?.length || 0) + (router.rules?.bySource?.length || 0);
-  // Compact board card: the full per-output list lives in the kanban workspace;
-  // here just the default route + a local/cloud tally, one shared cable anchor.
-  const defaultOut = outputs.find((o) => o.id === (router.rules?.default || ""));
-  const localCount = outputs.filter((o) => String(o.upstreamType || "llama") !== "cloud").length;
-  const cloudCount = outputs.length - localCount;
+  const pools = topology?.pools || [];
   return `
-    <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleConfigure"))}">
-      <span class="topology-handle input router-input" data-topology-router-input="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleProxiesIn"))}"></span>
+    <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" data-t="board-kanban-card" role="button" tabindex="0" title="${escapeHtml(t("rtTitleOpenKanban"))}">
+      <span class="topology-handle input router-input" data-topology-router-input="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleClientsIn"))}"></span>
+      <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" aria-hidden="true"></span>
       <div class="topology-card-head">
-        <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>${helpTip("topologyProxyPortsHelp")}
-        <span class="router-meta">in ${inCount} · out ${outputs.length}${ruleCount ? ` · ${escapeHtml(t("rtRules", { n: ruleCount }))}` : ""}</span>
+        <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>${helpTip("topologyKanbanHelp")}
+        <span class="router-meta" data-t="board-kanban-counts">${escapeHtml(t("topologyClientsSection"))} ${clients.filter((c) => c.set).length}/${clients.length} · ${escapeHtml(t("topologyLlamaServersSection"))} ${pools.length}</span>
       </div>
-      <div class="router-outputs">
-        ${outputs.length ? `
-          ${defaultOut ? `
-          <div class="router-output-row is-default">
-            <span class="router-output-label">${escapeHtml(topologyRouterOutputLabel(defaultOut))}</span>
-            <span class="router-default-chip" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default</span>
-          </div>` : ""}
-          <div class="router-output-row">
-            <span class="router-output-label muted">${escapeHtml(t("rtOutputsSummary", { l: localCount, c: cloudCount }))}</span>
-          </div>` : `<div class="router-output-row empty"><span class="router-output-label muted">${t("rtNoOutputs")}</span></div>`}
-      </div>
-      <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleOutputServer"))}"></span>
     </article>`;
+}
+
+// The caravan's two model pages, under the kanban's card (the owner, 2026-10-12: "the way into them is lost";
+// 2026-10-14: "move these two buttons somewhere more fitting"): the models in its folder, and Hugging Face to
+// download more. They stood on each machine's caravan strip, then in the head of Machines among the board's tools.
+// A model belongs to the caravan, not to a machine — the kanban's card is the caravan's own place on the board, and
+// these are its other two pages. A machine's own window has them on its caravan strip (topology-nodes.js).
+export function renderBoardPageLinks() {
+  const link = (id, href, hook, title, sign, word) => `<a id="${id}" class="board-page-link" href="${href}" target="_blank" rel="noopener" data-t="${hook}" title="${escapeHtml(title)}">`
+    + `<span aria-hidden="true">${sign}</span> <span>${escapeHtml(word)}</span> <span class="board-page-arrow" aria-hidden="true">↗</span></a>`;
+  return `<div class="board-pages" data-t="board-pages">`
+    + link("boardModelsLink", "/models", "board-models-open", t("modelsPageSub"), "📦", t("topologyModelsLabel"))
+    + link("boardHfLink", "/hf", "board-hf-open", t("hfBrowserTitle"), "🤗", "Hugging Face")
+    + `</div>`;
 }
 
 // Llama servers available as router output targets.
@@ -165,16 +125,32 @@ export function _setRoutersSaving(on) {
   const hint = document.querySelector(".rw-palette-save");
   if (hint) hint.textContent = busy ? `⟳ ${t("rtSaving")}` : `⤓ ${t("rtAutoSave")}`;
 }
-export async function saveRouters(mutator) {
+// The routers as they go out: a copy of the page's own, changed by `mutator`, with the version
+// of the routers it was copied from. The controller refuses a save made from an older version
+// than its own (409, `stale`) and answers the current topology: the change is made again on
+// that, once. A tab left open since the morning wrote its copy over the afternoon's with its
+// first click — on the NAS it put back a deleted port's cable (2026-10-08). Refused twice, the
+// error goes to the caller like any other.
+function routersSave(mutator) {
   const routers = JSON.parse(JSON.stringify(topology.routers || []));
   mutator(routers);
+  return JSON.stringify({ routers, revision: topology.proxyRevisions?.routers || "" });
+}
+export async function saveRouters(mutator) {
+  let body = routersSave(mutator);
   _setRoutersSaving(true);
   const t0 = performance.now();
   try {
-    const data = await api("/api/agent-proxies/routers", {
-      method: "POST",
-      body: JSON.stringify({ routers: routers }),
-    });
+    let data;
+    try {
+      data = await api("/api/agent-proxies/routers", { method: "POST", body });
+    } catch (err) {
+      if (!isStaleCopy(err)) throw err;
+      setTopology(err.data.topology);
+      body = routersSave(mutator);
+      data = await api("/api/agent-proxies/routers", { method: "POST", body });
+      toast(t("staleCopyRetried"));
+    }
     if (data.topology) setTopology(data.topology);
     renderTopology();                 // reflect the change immediately
     if (_routersSaving > 0) document.querySelector(".router-workspace")?.classList.add("saving");
@@ -189,11 +165,9 @@ export async function saveRouters(mutator) {
 export function routerById(routers, id) { return routers.find((s) => s.id === id); }
 
 // ── Outputs (servers) panel — the right rail of the router workspace ──
-// Two sections: LOCAL llama servers + CLOUD providers. Every routable target carries
-// ONE shared radio (rules.default — exactly one default across the whole panel). A
-// cloud provider is a collapsible header: click it to reveal a checklist of ALL its
-// models; ticked models (block.exposed) become routable cloud outputs (cb:<blockId>)
-// and show as radio rows beneath the provider.
+// The machines' outputs and the pools'. Every routable target carries ONE shared radio
+// (rules.default — exactly one default across the whole panel). A pool is one output,
+// cb:<pool id>, on the kanban for as long as the pool is.
 // A router's local outputs by the machine that serves them: [{ key, name, address, outs }].
 // One grouping for the router's panel and the kanban's servers block, which
 // each held a copy. The machine is machineAt(the output's address) — two
@@ -228,9 +202,6 @@ export function machineLabelHtml(group) {
 export function renderServersBlockHtml(router, modelQueues = {}) {
   const outputs = router.outputs || [];
   const defaultId = router.rules?.default || "";
-  const accounts = topology?.cloudAccounts || [];
-  const blocks = topology?.cloudProviders || [];
-  const _aaWant = [];  // model ids whose AA Intelligence Index to lazily fetch (exposed first)
 
   const liveTitle = { active: t("rtLiveActive"), recent: t("rtLiveRecent"), idle: t("cvQIdle") };
   const cells = new OutputCells(topology, router);
@@ -238,7 +209,7 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
   // its dot is a ring, and its state is said in words at the row's end.
   const liveDot = (out, st) => {
     if (st !== "running") return `<span class="router-out-live live-off" aria-hidden="true"></span>`;
-    const act = topologyOutputActivity(out).state;
+    const act = topologyOutputActivity(out, router).state;
     return `<span class="router-out-live live-${act}" title="${liveTitle[act] || ""}"></span>`;
   };
   const stateWord = (st) => OutputCells.WORDS[st]
@@ -253,28 +224,23 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
   const outputRow = (out, extraCls, note) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
-    const blk = isCloud ? _blockForOut(out) : null;
-    const priceHtml = isCloud ? _outPriceTag(out) : "";
+    const pool = isCloud ? _poolForOut(out) : null;
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
-    // A cloud model is here because it has a port of its own — say which.
-    const own = isCloud ? ProviderModels.portsOf(topology?.proxies, out.providerId)[0] : null;
     const st = cells.state(out);
     const marks = isCloud ? "" : cells.marks(out);
     // A cell's port stands apart from its name: a long name gives way to the state word, the
     // port never does — "Qwen3-Coder-30B-A3B-Instruct :220…" named no cell at all.
     const cellRow = String(out.upstreamType || "llama") === "llama";
     const shown = cellRow ? (cells.name(out) || String(out.upstreamHost || "")) : topologyRouterOutputLabel(out);
-    return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""}${st && st !== "running" ? ` cell-${st}` : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}"${st ? ` data-cell-state="${st}"` : ""}>
+    return `<label class="router-out-row ${isDef ? "is-default" : ""}${st && st !== "running" ? ` cell-${st}` : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}"${st ? ` data-cell-state="${st}"` : ""}>
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out, st)}
       <span class="router-out-name">${marks ? `<span class="router-out-marks">${marks}</span> ` : ""}${escapeHtml(shown)}</span>
       ${cellRow ? `<span class="router-out-port cell-port">:${escapeHtml(String(out.upstreamPort))}</span>` : ""}
-      ${own ? `<span class="router-out-port">:${escapeHtml(String(own.port))}</span>` : ""}
       ${twinNote(note)}
-      ${_unlistedTag(blk)}
+      ${pool ? _poolMarks(pool) : ""}
       ${badge}
       ${stateWord(st)}
-      ${priceHtml}
     </label>`;
   };
 
@@ -304,110 +270,27 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
       html: `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(g.outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : rows(shown) + quietHtml}</div>` };
   });
 
-  // Cloud providers — collapsible with model checklist.
-  const cloudOutsByAcc = new Map();
-  outputs.filter((o) => String(o.upstreamType || "") === "cloud").forEach((o) => {
-    if (!cloudOutsByAcc.has(o.accountId)) cloudOutsByAcc.set(o.accountId, []);
-    cloudOutsByAcc.get(o.accountId).push(o);
-  });
-  const cloudEntries = SubscriptionPoolCards.kanbanGroups(accounts, blocks).map((acc) => {
-    // What each model is to the fleet — new, gone, shown — is the provider
-    // card's reading (cloud-models.js), so the kanban and the card agree.
-    const models = new ProviderModels({ account: acc, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
-      now: Date.now() });
-    const sum = models.summary();
-    const fresh = new Set(models.rows().filter((r) => r.fresh).map((r) => r.block.id));
-    const accBlocks = models.blocks;
-    const exposedOuts = cloudOutsByAcc.get(acc.id) || [];
-    const exposedCount = sum.shown;
-    const expanded = (acc.id in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc.id] : exposedCount === 0;
-    const foldKey = `prov:${acc.id}`;
-    const folded = !!topologyOutputsFolded[foldKey];
-    const header = `<div class="router-prov-headrow">
-      <button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}">
-        <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
-        <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
-        <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
-        <span class="router-prov-count" title="${escapeHtml(`${t("cloudModelsOnKanban", { n: String(sum.shown) })} · ${t("cloudModelsTitle")} ${sum.total}`)}">${sum.shown}/${sum.total}</span>
-        ${sum.fresh ? `<span class="cloud-chip fresh">${escapeHtml(t("cloudModelsNewCount", { n: String(sum.fresh) }))}</span>` : ""}
-        ${sum.gone ? `<span class="cloud-chip gone">${escapeHtml(t("cloudModelsGoneCount", { n: String(sum.gone) }))}</span>` : ""}
-      </button>
-      <button class="router-group-fold" type="button" data-router-group-fold="${escapeHtml(foldKey)}" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">${folded ? "▸" : "▾"}</button>
-    </div>`;
-    // Shown first, then the new ones (a long list hides them otherwise), then by price.
-    const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0)
-      || (fresh.has(b.id) ? 1 : 0) - (fresh.has(a.id) ? 1 : 0) || _byPriceDesc((x) => x.model)(a, b));
-    if (expanded) sortedBlocks.forEach((b) => { if (b.model) _aaWant.push(b.model); });
-    const checklist = expanded
-      ? (accBlocks.length
-          ? `<div class="router-prov-models">` + sortedBlocks.map((b) => {
-              const mp = modelPricing[b.model || ""] || null;
-              const isFree = String(b.model || b.id || "").endsWith(":free");
-              const priceHtml = isFree
-                ? `<span class="router-prov-model-free">FREE</span>`
-                : (mp ? `<span class="router-prov-model-price">${formatPricePer1M(mp.inputPer1M)} in / ${formatPricePer1M(mp.outputPer1M)} out /1M</span>` : "");
-              return `<label class="router-prov-model${isFree ? " is-free" : ""}${b.unlisted ? " unlisted" : ""}"${b.unlisted ? ` title="${escapeHtml(t("cloudModelUnlisted"))}"` : ""}>
-                <input type="checkbox" data-router-expose="${escapeHtml(b.id)}" ${b.exposed ? "checked" : ""}>
-                <div class="router-prov-model-info">
-                  <span class="router-prov-model-name">${escapeHtml(b.model || b.name || b.id)}</span>
-                  ${b.exposed && models.ports(b.id)[0] ? `<span class="router-out-port">:${escapeHtml(String(models.ports(b.id)[0].port))}</span>` : ""}
-                  ${priceHtml}
-                </div>
-                ${fresh.has(b.id) ? `<span class="cloud-chip fresh">${escapeHtml(t("cloudChipNew"))}</span>` : ""}
-                ${_unlistedTag(b)}
-                ${aaBadgeHtml(b.model)}
-              </label>`;
-            }).join("") + `</div>`
-          : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
-      : "";
-    const rows = folded ? "" : exposedOuts.slice().sort(_byPriceDesc((o) => _blockForOut(o)?.model)).map((o) => outputRow(o, "cloud")).join("");
-    // A pool's member stands beside its pool: on the board it is drawn inside the pool's card.
-    return { key: ServerOrder.key("cloud", SubscriptionPoolCards.cardOf(accounts, acc.id)),
-      html: `<div class="router-prov ${expanded ? "open" : ""}${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(exposedOuts.map((o) => o.id).join(","))}">${header}${folded ? "" : checklist}${rows}</div>` };
-  });
-  requestAaScores(_aaWant);
+  // Pools: one output each (cb:<pool id>) — every pool is on the kanban for as long as it is
+  // (caravan/admin/proxies_config.py, pool_output). A pool's row stands where its card stands
+  // under Pools; an output whose pool the page does not know keeps its row too, so no
+  // cable loses its end.
+  const known = new Set((topology?.pools || []).map((p) => p.id));
+  const cloudOuts = outputs.filter((o) => String(o.upstreamType || "") === "cloud");
+  const byPool = new Map(cloudOuts.map((o) => [String(o.providerId || ""), o]));
+  const cloudEntries = [...(topology?.pools || []).filter((p) => byPool.has(p.id)).map((p) => byPool.get(p.id)),
+    ...cloudOuts.filter((o) => !known.has(String(o.providerId || "")))].map((out) => ({
+    key: ServerOrder.key("cloud", String(out.providerId || "")),
+    html: `<div class="router-prov router-pool" data-cv-group-outs="${escapeHtml(out.id)}">${outputRow(out, "cloud")}</div>`,
+  }));
 
-  // Machines and cloud providers in one list, in the board's order (server-order.js): a group
-  // stands where its card stands under Model servers. A kind with no group says so after them.
+  // Machines and pools in one list, in the board's order (server-order.js): a group stands
+  // where its card stands in that order. A kind with no group says so after them.
   const listed = SERVER_ORDER.sorted([...localEntries, ...cloudEntries], (entry) => entry.key).map((entry) => entry.html).join("");
   const none = (entries, key) => entries.length ? "" : `<div class="router-cfg-muted router-prov-empty">${t(key)}</div>`;
   return `
     <div class="router-out-sec">
-      ${listed}${none(localEntries, "rtNoLocalServers")}${none(cloudEntries, "rtNoCloudProviders")}
+      ${listed}${none(localEntries, "rtNoLocalServers")}${none(cloudEntries, "rtNoPools")}
     </div>`;
-}
-
-// Tick/untick a cloud model in the Outputs panel. A model is on the kanban
-// while it has a port of its own (caravan/admin/cloud_ports.py): ticking
-// opens one, unticking closes its ports — through the closer, which asks
-// what happens to the cables and rules that still lead to it (a cancelled
-// answer redraws, so the tick comes back).
-// Ticks can come several in one go: the native checkbox reflects each click
-// instantly, saves are chained so they apply in click order (the last response is
-// always the authoritative full topology — no out-of-order clobbering), and the
-// panel re-render is debounced so the checklist rebuilds once after you pause
-// instead of fighting your clicks. The provider is pinned open so the auto-collapse
-// heuristic (which closes a provider once it has ≥1 exposed model) can't snap it shut.
-export let _cloudExposeChain = Promise.resolve();
-export let _cloudExposeRenderTimer = null;
-export function setCloudModelExposed(blockId, exposed) {
-  const block = (topology?.cloudProviders || []).find((b) => b.id === blockId);
-  if (block?.accountId) topologyOutputsCloudExpanded[block.accountId] = true;
-  if (!exposed) {
-    _cloudExposeChain = _cloudExposeChain.then(async () => {
-      if (!(await PORT_CLOSER.close(blockId))) renderTopology();
-    });
-    return;
-  }
-  _cloudExposeChain = _cloudExposeChain.then(async () => {
-    try {
-      const res = await api("/api/cloud-blocks/expose", { method: "POST", body: JSON.stringify({ id: blockId, exposed: true }) });
-      if (res.topology) setTopology(res.topology);
-      if (res.port) toast(t("portOpened", { model: block?.model || blockId, port: String(res.port) }));
-      clearTimeout(_cloudExposeRenderTimer);
-      _cloudExposeRenderTimer = setTimeout(renderTopology, 250);
-    } catch (e) { toast(e.message); renderTopology(); }
-  });
 }
 
 // A model of an engine next to the cells becomes a router output, or stops
@@ -442,56 +325,30 @@ export function renderTopologyRouterDetail() {
   const outputs = router.outputs || [];
   const defaultId = router.rules?.default || "";
   const inputs = router.inputs || [];
-  const inputProxies = (topology?.proxies || []).filter((p) => inputs.includes(p.id));
 
   const bySource = router.rules?.bySource || [];
   const ruleCount = bySource.length + (router.rules?.schedule?.length || 0);
-  const rulesHtml = bySource.length ? bySource.map((r, i) => {
-    const srcProxy = (topology?.proxies || []).find((p) => p.id === r.proxyId);
-    const srcLabel = srcProxy ? srcProxy.label : (r.proxyId || r.clientId || "?");
-    const outLabel = (() => { const o = outputs.find((x) => x.id === r.output); return o ? topologyRouterOutputLabel(o) : r.output; })();
-    return `
-      <div class="router-cfg-rule-row" data-router-link-out="${escapeHtml(r.output)}">
-        <span class="router-cfg-rule-text" title="${escapeHtml(srcLabel + " → " + outLabel)}">${escapeHtml(srcLabel)} → ${escapeHtml(outLabel)}</span>
-        <button class="icon-action compact danger" type="button" data-router-del-rule="${escapeHtml(router.id)}" data-rule-index="${i}" aria-label="${escapeHtml(t("rtTitleRemoveRule"))}" title="${escapeHtml(t("rtTitleRemoveRule"))}">×</button>
-      </div>`;
-  }).join("") : `<div class="router-cfg-muted">${t("rtNoSourceRules")}</div>`;
 
-  const addRuleHtml = (inputProxies.length && outputs.length) ? `
-    <div class="router-cfg-add-row">
-      <select class="router-cfg-select" data-router-rule-source="${escapeHtml(router.id)}">
-        ${inputProxies.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`).join("")}
-      </select>
-      <span class="router-cfg-arrow">→</span>
-      <select class="router-cfg-select" data-router-rule-output="${escapeHtml(router.id)}">
-        ${outputs.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(topologyRouterOutputLabel(o))}</option>`).join("")}
-      </select>
-      <button class="primary-mini-action" type="button" data-router-add-rule="${escapeHtml(router.id)}">${escapeHtml(t("rtAddRule"))}</button>
-    </div>` : "";
-
-  // ── LEFT column: input ports, grouped by their relation to THIS router ──
-  // Only ports that can feed a router count here: a cloud model's own port is an output of
-  // the Servers panel, and four of them read as "4 unassigned" clients — a false alarm.
+  // The ports that could feed this kanban and do not, for the head's list. Only those that can
+  // feed a router count: a cloud model's own port is an output of the Servers panel, and four of
+  // them read as "4 unassigned" clients — a false alarm.
   const allProxies = (topology?.proxies || []).filter(feedsRouters).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
   const routerIds = new Set((topology?.routers || []).map((s) => s.id));
   const routerNameOf = (id) => (topology?.routers || []).find((s) => s.id === id)?.name || id;
-  const onThis = allProxies.filter((p) => p.routerId === router.id);
   const onOther = allProxies.filter((p) => p.routerId && p.routerId !== router.id && routerIds.has(p.routerId));
   const free = allProxies.filter((p) => !p.routerId || !routerIds.has(p.routerId));
   const portRole = (p) => (p.role || (String(p.label || "").match(/(primary|fallback)$/i)?.[1]?.toLowerCase()) || "");
   const portName = (p) => p.label || ("proxy " + p.port);
   const pill = (p, kind) => {
     const ri = (portRole(p)[0] || "").toUpperCase();
-    const title = escapeHtml(`${portName(p)} :${p.port}`);
     const head = `<span class="router-pill-r">${escapeHtml(ri)}</span><span class="router-pill-port">${escapeHtml(p.port)}</span>`;
-    if (kind === "this") {
-      return `<span class="router-pill this" data-pill-name="${escapeHtml(portName(p).toLowerCase())}" data-pill-port="${escapeHtml(p.port)}" title="${title}">${head}<button class="router-pill-x" type="button" data-router-detach="${escapeHtml(p.id)}" title="${escapeHtml(t("rtTitleDetachConfirm"))}">×</button></span>`;
-    }
     // In the unassigned list a port says whose it is: the number alone named nobody.
     const name = `<span class="router-pill-name">${escapeHtml(topologyProxyOwner(p.id)?.title || portName(p))}</span>`;
     if (kind === "other") {
       return `<span class="router-pill other" data-router-attach="${escapeHtml(p.id)}" data-confirm="1" role="button" tabindex="0" title="${escapeHtml(t("rtTitleMoveFrom", { name: routerNameOf(p.routerId) }))}">${head}${name}<span class="router-pill-where">${escapeHtml(routerNameOf(p.routerId))}</span></span>`;
     }
+    // A free port answers 503 until a kanban takes it. A client of the entry is never listed:
+    // it feeds no router (feedsRouters), its cable leads to a set of models.
     return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) + " :" + p.port }))}">${head}${name}<span class="router-pill-503">503</span></span>`;
   };
   // The ports that could feed this kanban and do not: free ones (no kanban — 503 until bound)
@@ -501,28 +358,6 @@ export function renderTopologyRouterDetail() {
       <summary class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</summary>
       <div class="rw-unassigned-list">${free.map((p) => pill(p, "free")).join("")}${onOther.map((p) => pill(p, "other")).join("")}</div>
     </details>` : "";
-  const thisPills = onThis.map((p) => pill(p, "this")).join("") || `<div class="router-cfg-muted">${t("rtNoneYet")}</div>`;
-  // Left-pane proxy CRUD rows (Stage A.2): the registry table, inlined as a rail list.
-  // edit/delete/router-select handlers live in bindTopologyDragAndDrop (bound globally).
-  const onlineClientIds = new Set((topology?.clients || []).map((c) => c.id));
-  const proxyRow = (p) => {
-    const owner = topologyProxyOwner(p.id);
-    const orphan = !owner && !(p.clientId && onlineClientIds.has(p.clientId));
-    const role = portRole(p);
-    return `
-      <div class="rw-proxy-row ${orphan ? "orphan" : ""}" data-pill-name="${escapeHtml(portName(p).toLowerCase())}" data-pill-port="${escapeHtml(p.port)}">
-        <span class="rw-proxy-drag" data-wire-ref="in:${escapeHtml(p.id)}" data-wire-label="${escapeHtml(portName(p))}" title="${escapeHtml(t("rtTitleDragPort"))}">⠿</span>
-        <span class="rw-proxy-port">:${escapeHtml(p.port)}</span>
-        <span class="rw-proxy-name" title="${escapeHtml(portName(p))}">${escapeHtml(owner?.title || portName(p))}${orphan ? ` <span class="rw-proxy-orphan" title="${escapeHtml(t("rtTitleOrphan"))}">${escapeHtml(t("rtOrphan"))}</span>` : ""}</span>
-        ${role ? `<span class="rw-proxy-role ${escapeHtml(role)}" title="${escapeHtml(role)}">${escapeHtml((role[0] || "").toUpperCase())}</span>` : `<span class="rw-proxy-role">·</span>`}
-        <span class="rw-proxy-actions">
-          <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleRenamePort"))}" title="${escapeHtml(t("rtTitleRenamePort"))}">✎</button>
-          <button class="icon-action compact" type="button" data-router-detach="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleDetach"))}" title="${escapeHtml(t("rtTitleDetach"))}">⊘</button>
-          <button class="icon-action compact danger" type="button" data-topology-proxy-delete="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleDeletePort"))}" title="${escapeHtml(t("rtTitleDeletePort"))}">🗑</button>
-        </span>
-      </div>`;
-  };
-  const thisRows = onThis.map(proxyRow).join("") || `<div class="router-cfg-muted">${t("rtNoneYet")}</div>`;
 
   // Center pane = the interactive canvas (was the separate ⤢ modal). Reuses the same
   // node descriptors + cv-* markup; the bind/render cycle (search ui.topologyCanvasRouterId)
@@ -587,6 +422,7 @@ export function renderTopologyRouterDetail() {
               <div class="cv-world" data-cv-world style="transform:${cvTf}">
                 <svg class="cv-svg" data-t="kanban-cables" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
                 ${cvNodeHtml}
+                <svg class="cv-svg cv-svg-over" data-cv-over aria-hidden="true" width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
               </div>
               <div class="rw-canvas-hint muted">${escapeHtml(t("rtCanvasHint"))}</div>
               <button class="cv-fit-btn" type="button" data-cv-fit data-t="kanban-fit" title="${escapeHtml(t("cvFitAllTip"))}">⤢ ${escapeHtml(t("cvFitAll"))}</button>

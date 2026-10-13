@@ -3,8 +3,8 @@
 
 Pins the VALUE at the three places a cloud model's context could survive or be
 lost — the provider fetch that narrows each catalogue entry, the per-account
-catalogue cache, and the model block the operator edits — plus what the proxy
-publishes for a cloud upstream.
+catalogue cache, and the pool the operator edits (a model block, before pools
+of steps) — plus what the proxy publishes for a cloud upstream.
 
 Written before the cloud path learned to carry the number, so the change shows
 exactly which of them starts keeping it and which must not shift.
@@ -26,6 +26,9 @@ os.environ["CARAVAN_DATA_DIR"] = str(TMP)
 sys.path.insert(0, str(ROOT))
 
 from caravan.admin import cloud, model_catalog  # noqa: E402
+from caravan.admin.pools import PoolDesk  # noqa: E402
+from caravan.common.cloud_pools import CloudPools  # noqa: E402
+from caravan.common.errors import AppError  # noqa: E402
 
 _fail = []
 
@@ -51,27 +54,37 @@ PROVIDER_ENTRIES = {
 }
 
 
-def test_block_shape():
-    print("normalize_cloud_block:")
-    cloud.save_cloud_data({"accounts": [{"id": "acc", "type": "openrouter",
-                                         "baseUrl": "https://example.invalid"}], "blocks": []})
-    got = cloud.normalize_cloud_block({"id": "blk", "accountId": "acc", "name": "B",
-                                       "model": "vendor/model-a", "exposed": True}, {"acc"})
-    check(sorted(got.keys()) == ["accountId", "contextAuto", "id", "model", "modelMode", "name"],
-          f"a block that states no window keeps six keys; the old `exposed` flag is not one of them — "
-          f"on the kanban is a port of the model's own now (got {sorted(got.keys())})")
-    got2 = cloud.normalize_cloud_block({"id": "blk", "accountId": "acc", "model": "m",
-                                        "contextLength": 131072}, {"acc"})
-    check(got2.get("contextLength") == 131072, "a stated contextLength is kept")
+ACCOUNT = {"id": "acc", "type": "openrouter", "baseUrl": "https://example.invalid"}
+
+
+def one_pool(**extra):
+    """A file of the new form with one pool of one step, `extra` on the pool."""
+    cloud.save_cloud_data({"accounts": [dict(ACCOUNT)], "migrations": [],
+                           "pools": [{"id": "p", "name": "P", "steps": [{"id": "acc", "accountId": "acc", "model": "m"}],
+                                      **extra}]})
+
+
+def test_pool_shape():
+    print("CloudPools.pool — the window on a pool:")
+    got = CloudPools.pool({"id": "p", "steps": []})
+    check(sorted(got.keys()) == ["contextAuto", "id", "name", "steps"],
+          f"a pool that states no window keeps four keys (got {sorted(got.keys())})")
+    check(CloudPools.pool({"id": "p", "contextLength": 131072})["contextLength"] == 131072, "a stated contextLength is kept")
     # Every shape that is not a usable size must leave the key absent rather
     # than store a number a client would read as a real limit.
     for bad in (0, -1, "", None, "abc", False):
-        out = cloud.normalize_cloud_block({"id": "b", "accountId": "acc", "model": "m",
-                                           "contextLength": bad}, {"acc"})
-        check("contextLength" not in out, f"contextLength={bad!r} leaves the key ABSENT")
-    out = cloud.normalize_cloud_block({"id": "b", "accountId": "acc", "model": "m",
-                                       "contextLength": "65536"}, {"acc"})
-    check(out.get("contextLength") == 65536, "a numeric string from a form field is accepted")
+        check("contextLength" not in CloudPools.pool({"id": "p", "contextLength": bad}),
+              f"contextLength={bad!r} leaves the key ABSENT")
+    check(CloudPools.pool({"id": "p", "contextLength": "65536"})["contextLength"] == 65536,
+          "a numeric string from a form field is accepted")
+    one_pool()
+    for bad in (-1, "abc"):
+        try:
+            PoolDesk().save_pool({"id": "p", "contextLength": bad})
+            refused = False
+        except AppError as exc:
+            refused = exc.status == 400
+        check(refused, f"negative: the board's save of contextLength={bad!r} is refused, not stored as nothing")
 
 
 def test_catalog_cache():
@@ -150,28 +163,22 @@ def test_narrowing():
     srv.shutdown()
 
 
-def test_upsert_preserves():
-    print("upsert_cloud_block:")
-    cloud.save_cloud_data({"accounts": [{"id": "acc", "type": "openrouter",
-                                         "baseUrl": "https://example.invalid"}], "blocks": []})
-    cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m",
-                              "contextLength": 65536, "exposed": True})
-    # A re-fetch upserts without either field; neither may be lost.
-    again = cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m"})
-    check(again.get("contextLength") == 65536, f"a stated window survives a re-fetch (got {again.get('contextLength')})")
-    check("exposed" not in again, "negative: a flag a caller still sends is not stored (cloud_ports.py)")
+def test_save_preserves():
+    print("PoolDesk.save_pool — an edit keeps what it does not send:")
+    one_pool(contextLength=65536)
+    again = PoolDesk().save_pool({"id": "p", "name": "Renamed"})
+    check(again.get("contextLength") == 65536, f"a stated window survives an edit that does not send it (got {again.get('contextLength')})")
     # The editor always sends the field, so a blank one REMOVES it.
-    cleared = cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m",
-                                        "contextLength": "", "exposed": True})
+    cleared = PoolDesk().save_pool({"id": "p", "contextLength": ""})
     check("contextLength" not in cleared, "clearing the field in the editor removes it")
 
 
 
 # ── what the proxy publishes as the window, and where it takes it from ───────
-# Two sources can know it: the operator, on the block, and the account's own
-# catalogue, which caches whatever the provider last reported. Today the
-# catalogue is a silent FALLBACK — a block that states nothing still gets the
-# reported number without anybody choosing that.
+# Two sources can know it: the operator, on the pool, and the account's own
+# catalogue, which caches whatever the provider last reported. The catalogue
+# counts only when the operator ticked the switch. The file here is of the old
+# form, a model block — the proxy reads it as a pool until it is rewritten.
 def _provider_window(block_extra, cached):
     import importlib
     from caravan.proxy import cloud_auth
@@ -204,28 +211,22 @@ def test_provider_window_source():
           "switch on and nobody knows -> still absent")
 
 
-def test_block_switch_shape():
-    print("normalize_cloud_block — the switch itself:")
-    cloud.save_cloud_data({"accounts": [{"id": "acc", "type": "openrouter",
-                                         "baseUrl": "https://example.invalid"}], "blocks": []})
-    out = cloud.normalize_cloud_block({"id": "b", "accountId": "acc", "model": "m"}, {"acc"})
-    check(out.get("contextAuto") is False, "absent in the payload -> False, stored explicitly")
+def test_pool_switch_shape():
+    print("the pool's switch itself:")
+    check(CloudPools.pool({"id": "p"})["contextAuto"] is False, "absent -> False, stored explicitly")
     for truthy in (True, "1", 1, "on"):
-        got = cloud.normalize_cloud_block({"id": "b", "accountId": "acc", "model": "m",
-                                           "contextAuto": truthy}, {"acc"})
-        check(got.get("contextAuto") is True, f"contextAuto={truthy!r} -> True")
+        check(CloudPools.pool({"id": "p", "contextAuto": truthy})["contextAuto"] is True, f"contextAuto={truthy!r} -> True")
     for falsy in (False, "", 0, None):
-        got = cloud.normalize_cloud_block({"id": "b", "accountId": "acc", "model": "m",
-                                           "contextAuto": falsy}, {"acc"})
-        check(got.get("contextAuto") is False, f"contextAuto={falsy!r} -> False")
-    # A re-fetch that omits the switch must not silently turn it off.
-    cloud.save_cloud_data({"accounts": [{"id": "acc", "type": "openrouter",
-                                         "baseUrl": "https://example.invalid"}], "blocks": []})
-    cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m", "contextAuto": True})
-    again = cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m"})
-    check(again.get("contextAuto") is True, "the switch survives a re-fetch that omits it")
-    off = cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m", "contextAuto": False})
+        check(CloudPools.pool({"id": "p", "contextAuto": falsy})["contextAuto"] is False, f"contextAuto={falsy!r} -> False")
+    # An edit that omits the switch must not silently turn it off.
+    one_pool(contextAuto=True)
+    again = PoolDesk().save_pool({"id": "p", "name": "x"})
+    check(again.get("contextAuto") is True, "the switch survives an edit that omits it")
+    off = PoolDesk().save_pool({"id": "p", "contextAuto": False})
     check(off.get("contextAuto") is False, "and the editor, which always sends it, can turn it off")
+    made = PoolDesk().create("", "acc", "new-model")
+    check(made["contextAuto"] is True and made["name"] == "new-model",
+          "a pool made on the board takes the providers' window, and its model's name")
 
 
 def test_context_auto_migration():
@@ -273,12 +274,12 @@ def test_context_auto_migration():
           "and what it did stamp the first time is still stamped")
 
 def test_board_state_carries_window():
-    print("cloud_blocks_state — what the board (and its editor) receives:")
-    cloud.save_cloud_data({"accounts": [{"id": "acc", "type": "openrouter", "baseUrl": "https://example.invalid"}],
-                           "blocks": [{"id": "stated", "accountId": "acc", "model": "m1", "contextLength": 65536,
-                                       "contextAuto": True},
-                                      {"id": "unstated", "accountId": "acc", "model": "m2"}]})
-    rows = {r["id"]: r for r in cloud.cloud_blocks_state()}
+    print("PoolDesk.state — what the board (and its editor) receives:")
+    cloud.save_cloud_data({"accounts": [dict(ACCOUNT)], "migrations": [], "pools": [
+        {"id": "stated", "name": "S", "contextLength": 65536, "contextAuto": True,
+         "steps": [{"id": "acc", "accountId": "acc", "model": "m1"}]},
+        {"id": "unstated", "name": "U", "steps": [{"id": "acc", "accountId": "acc", "model": "m2"}]}]})
+    rows = {r["id"]: r for r in PoolDesk().state()}
     check(rows["stated"].get("contextLength") == 65536 and rows["stated"].get("contextAuto") is True,
           "defect-history: a stated window and the switch reach the board — they never did, so the editor opened "
           f"blank and its Save wiped both (got {rows['stated'].get('contextLength')}, {rows['stated'].get('contextAuto')})")
@@ -286,9 +287,8 @@ def test_board_state_carries_window():
           "negative: nothing stated -> the key is ABSENT (never 0), the switch is off")
     # The editor's round trip: it opens on the row and saves both fields back.
     row = rows["stated"]
-    saved = cloud.upsert_cloud_block({"id": row["id"], "accountId": row["accountId"], "model": row["model"],
-                                      "modelMode": row["modelMode"], "contextLength": row.get("contextLength") or "",
-                                      "contextAuto": bool(row.get("contextAuto"))})
+    saved = PoolDesk().save_pool({"id": row["id"], "contextLength": row.get("contextLength") or "",
+                                  "contextAuto": bool(row.get("contextAuto"))})
     check(saved.get("contextLength") == 65536 and saved.get("contextAuto") is True,
           f"an edit that changes nothing keeps the window and the switch (got {saved.get('contextLength')}, "
           f"{saved.get('contextAuto')})")
@@ -353,30 +353,21 @@ def test_subscription_catalogue():
 
 
 def test_pool_window():
-    """A pool answers from whichever member it routes to: its window for a model
-    is the smallest any member names, and none when a member names none."""
-    print("a pool's catalogue (CloudSources.common_models):")
-    from caravan.common.cloud_sources import CloudSources
-
-    first = [{"id": "m", "name": "M", "contextLength": 272000}, {"id": "only-first", "name": "F"}]
-    second = [{"id": "m", "name": "M", "contextLength": 200000}]
-    got = CloudSources.common_models([first, second])
-    check(got == [{"id": "m", "name": "M", "contextLength": 200000}],
-          f"only shared models, with the smaller window (got {got})")
-    got = CloudSources.common_models([second, first])
-    check(got == [{"id": "m", "name": "M", "contextLength": 200000}],
-          f"the order of the members does not change the window (got {got})")
-    silent = [{"id": "m", "name": "M"}]
-    got = CloudSources.common_models([first, silent])
-    check(got == [{"id": "m", "name": "M"}],
-          f"negative: a member that names no window leaves the pool without one (got {got})")
-    got = CloudSources.common_models([first])
-    check(got == first, f"a pool of one keeps its member's catalogue as it is (got {got})")
-    check(first[0]["contextLength"] == 272000, "the members' own catalogues are not changed")
-    check(CloudSources.common_models([]) == [], "no catalogue, no models")
+    """A pool answers from whichever step serves: its window is the smallest
+    any step names, and none when a step names none (CloudPools.window)."""
+    print("a pool's window over its steps:")
+    named = {("a", "m"): 272000, ("b", "m"): 200000}
+    catalogue = lambda account, model: named.get((account, model))
+    pool = {"contextAuto": True, "steps": [{"accountId": "a", "model": "m"}, {"accountId": "b", "model": "m"}]}
+    check(CloudPools.window(pool, catalogue) == 200000, "the smaller window of the two steps")
+    pool["steps"].reverse()
+    check(CloudPools.window(pool, catalogue) == 200000, "the order of the steps does not change the window")
+    pool["steps"].append({"accountId": "c", "model": "m"})
+    check(CloudPools.window(pool, catalogue) is None, "negative: a step that names no window leaves the pool without one")
+    check(CloudPools.window({"contextAuto": True, "steps": []}, catalogue) is None, "no step, no window")
 
 
-for fn in (test_block_shape, test_context_auto_migration, test_block_switch_shape, test_provider_window_source, test_upsert_preserves, test_catalog_cache, test_narrowing, test_board_state_carries_window, test_subscription_catalogue, test_pool_window):
+for fn in (test_pool_shape, test_context_auto_migration, test_pool_switch_shape, test_provider_window_source, test_save_preserves, test_catalog_cache, test_narrowing, test_board_state_carries_window, test_subscription_catalogue, test_pool_window):
     fn()
 
 print()

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from caravan.admin.model_locator import Located, home_path
 from caravan.admin.paths import DEFAULT_MODELS_DIR, LLAMA_HOME, START_SCRIPT
+from caravan.common.draft_file import DraftFile
 from caravan.common.errors import AppError
 from caravan.common.flags import truthy
 from caravan.admin.runners import runner_id
@@ -176,10 +177,26 @@ CONFIG_FIELDS = [
     "TRANSLATE_MODEL",         # HF repo id (downloads itself) or a local dir
     "TRANSLATE_SRC_LANG",      # FLORES-200 source, e.g. eng_Latn
     "TRANSLATE_TGT_LANG",      # FLORES-200 target, e.g. rus_Cyrl
+    # Strata runner (RUNNER="strata"): run_strata.sh "$PORT" <first part> --mtp <draft> …
+    # — its model is MODEL_FILE and its draft layer SPEC_DRAFT_MODEL_FILE.
+    "STRATA_CONTEXT",          # context window in tokens (131072)
+    "STRATA_KV",               # KV cache type: int8 | q4_0 | k8v4
+    "STRATA_DRAFT_VOCAB",      # draft layer's token subset: cyrillic | cjk | en | fr
+    "STRATA_VRAM_RESERVE_MIB", # VRAM Strata leaves to other cells, MiB
+    # GR00T runner (RUNNER="gr00t"): run_gr00t.sh "$PORT" <checkpoint folder> --backbone <folder> …
+    # — its checkpoint is MODEL_FILE, a folder like its backbone.
+    "GR00T_BACKBONE",          # the backbone's folder (Cosmos-Reason2-2B/nvidia/BF16)
+    "GR00T_EMBODIMENT",        # the robot the policy acts for (OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT)
+    "GR00T_DENOISING_STEPS",   # the action head's denoising steps (empty: the checkpoint's)
     # engine runners (RUNNER="ollama" | "lmstudio"): a cell whose model runs
     # inside an engine next to it — engine_cell_server.py "$PORT" <engine> <port> <model>
     "ENGINE_MODEL",            # the model as the engine names it (qwen2.5:0.5b, google/gemma-4-e4b)
     "ENGINE_PORT",             # the engine's loopback port (11434, 1234)
+    # Every runner: the model's name at the machine's entry — its scout's
+    # OpenAI API and the kanban (scout 2.27 ModelName; 1.3.507). No flag of
+    # any server: the scout reads it from the start request. Empty — the
+    # cell's ALIAS, else a name made of its model.
+    "MODEL_NAME",
 ]
 
 FIELD_HELP = {
@@ -201,12 +218,19 @@ FIELD_HELP = {
     "TRANSLATE_SRC_LANG": "Language of the text coming IN, as FLORES-200 (eng_Latn, rus_Cyrl — language AND script). NLLB is told the source rather than detecting it. Short codes like en or eng are resolved when unambiguous; a language written in several scripts must be spelled out. Per-request override: send `src_lang`.",
     "TRANSLATE_TGT_LANG": "Language the text comes OUT in, as FLORES-200 (rus_Cyrl, eng_Latn). Per-request override: send `tgt_lang`.",
     "SEAMLESS_TGT_LANG": "Language SeamlessM4T translates INTO, as ISO 639-3 (rus, eng, deu, fra, spa, zho…). The cell outputs text in this language only — English audio with rus here gives Russian, and no English transcript is produced along the way. Per-request override: send `language` with the audio.",
+    "STRATA_CONTEXT": "Strata's context window in tokens (--max-context). 131072 on a 32 GB card; past 262144, the model's trained window, Strata stretches it with YaRN. The longer the window, the less VRAM is left for cached experts.",
+    "STRATA_KV": "Strata's KV cache: int8 (default), q4_0 (half the memory, a little less exact) or k8v4 (8-bit keys, 4-bit values).",
+    "STRATA_DRAFT_VOCAB": "Tokens the MTP draft layer guesses: cyrillic (English, code and the Cyrillic script — for Russian answers), cjk (Chinese, Japanese, Korean), en (English and code, the least VRAM) or fr (French).",
+    "STRATA_VRAM_RESERVE_MIB": "VRAM Strata leaves free for other cells, in MiB (--vram-reserve-mib). Empty: none — Strata fills the card with cached experts at its start, and a cell started after it finds no room.",
+    "GR00T_BACKBONE": "The folder of the backbone the GR00T checkpoint names in its config.json (nvidia/Cosmos-Reason2-2B for N1.7). The scout brings it like the checkpoint; the cell never asks the hub for it. Empty: Cosmos-Reason2-2B/nvidia/BF16.",
+    "GR00T_EMBODIMENT": "The robot the policy acts for, as an Isaac-GR00T embodiment tag. Empty: OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT, the base checkpoint's DROID arm. The cell answers only that robot's schema; another robot needs fine-tuning first.",
+    "GR00T_DENOISING_STEPS": "Denoising steps of the action head, 1 to 64. Empty: the checkpoint's own (4). More steps take longer per request.",
     "MOONSHINE_MODEL": "Moonshine v2 language (en es zh ja ko vi uk ar) — CPU-only STT, the model downloads itself on first start. en is MIT-licensed; the rest need the free Moonshine Community License (registration + attribution). No Russian — use whisper for RU.",
     "PORT": "llama.cpp HTTP port. OpenAI-compatible API is /v1 on this port.",
     "LLAMA_MODELS_DIR": "Directory where local GGUF models and mmproj files are stored.",
     "MODEL_FILE": "GGUF model path relative to the models directory.",
     "MMPROJ_FILE": "Multimodal projector path. Empty means text-only mode.",
-    "SPEC_TYPE": "Speculative decoding type (--spec-type). Draft-model types (need a draft file): draft-dflash, draft-dspark, draft-eagle3, draft-mtp, draft-simple. Prompt-drafting types (no file, no extra VRAM): ngram-simple, ngram-map-k, ngram-map-k4v, ngram-mod, ngram-cache. Left empty with a draft file set, the type is read from the file name. Empty/none disables it.",
+    "SPEC_TYPE": "Speculative decoding type (--spec-type). Draft-model types (need a draft file): draft-dflash, draft-dspark, draft-eagle3, draft-mtp, draft-simple. Prompt-drafting types (no file, no extra VRAM): ngram-simple, ngram-map-k, ngram-map-k4v, ngram-mod, ngram-cache. Left empty with a draft file set, the type is read from the file: from the first word of its name (mtp, dflash, dspark, eagle3), draft-mtp for a file in an mtp folder, else draft-simple. Empty/none disables it.",
     "SPEC_DRAFT_MODEL_FILE": "Draft / MTP-head GGUF path (--model-draft), relative to the models directory. Required to enable speculative decoding.",
     "SPEC_DRAFT_N_GPU_LAYERS": "GPU layers for the draft model (--gpu-layers-draft). 999/all keeps the small drafter on GPU.",
     "SPEC_DRAFT_N_MAX": "Maximum draft tokens per speculative step (--spec-draft-n-max, default 3). A DFlash sidecar denoises a whole block in one pass, so setting this to its block size (16 for Muse Glimmer) is worth roughly 3x throughput; values above the block size are ignored.",
@@ -217,7 +241,7 @@ FIELD_HELP = {
     "MTMD_BATCH_MAX_TOKENS": "Maximum image tokens per batch while encoding (--mtmd-batch-max-tokens, default 1024). Governs the transient VRAM spike of a vision cell.",
     "CTX_CHECKPOINTS": "Context checkpoints kept per slot (--ctx-checkpoints, default 32). PARALLEL multiplies this, and the board memory estimate does not count it.",
     "LOG_VERBOSITY": "Log verbosity threshold (--log-verbosity). Raise it to debug a crashing cell without hand-editing EXTRA_ARGS.",
-    "CORS_ORIGINS": "Comma-separated allowed CORS origins (--cors-origins, default *). The proxy does not terminate CORS, so a cell's policy is what a browser actually meets through a bridge port.",
+    "CORS_ORIGINS": "Comma-separated allowed CORS origins (--cors-origins, default *). The proxy does not terminate CORS, so a cell's policy is what a browser actually meets through the proxy.",
     "CORS_CREDENTIALS": "Allow credentialed cross-origin requests (--cors-credentials). Enabled together with the default origin * echoes any Origin back and always allows credentials — set CORS_ORIGINS before turning this on.",
     "TOOLS_RUNTIME": "Run the built-in tools in a separate runtime (--tools-runtime): docker:IMAGE, podman:IMAGE, docker-container:ID, podman-container:ID or ssh:TARGET. Without it the tools, exec_shell_command included, run as the server process with no path restriction.",
     "API_KEY_FILE": "Path to a file of API keys, one per line (--api-key-file). Keeps keys out of the process command line, where API_KEY is visible to any local user via ps.",
@@ -257,6 +281,8 @@ FIELD_HELP = {
     "FIT_TARGET": "MiB margin per GPU for --fit.",
     "FIT_CTX": "Minimum context size allowed by --fit.",
     "ALIAS": "Model alias exposed by API.",
+    "MODEL_NAME": "The name clients and pools call this model by at the machine's entry (its scout). Empty: the alias, "
+                  "else the model file's name. Applies at the cell's next start.",
     "API_PREFIX": "URL prefix for the server, without trailing slash.",
     "TIMEOUT": "HTTP read/write timeout in seconds.",
     "THREADS_HTTP": "HTTP worker threads. -1 means auto.",
@@ -322,7 +348,7 @@ FIELD_HELP = {
     "SPEC_DRAFT_P_SPLIT": "Probability at which a speculative draft branch is split (--spec-draft-p-split, default 0.10).",
     "CPU_MOE_DRAFT": "Keep all Mixture-of-Experts weights of the DRAFT model in CPU RAM (--spec-draft-cpu-moe). Frees VRAM for the main model when the drafter is itself a MoE.",
     "CORS_METHODS": "Comma-separated HTTP methods allowed cross-origin (--cors-methods, default GET, POST, DELETE, OPTIONS).",
-    "CORS_HEADERS": "Comma-separated request headers allowed cross-origin (--cors-headers, default *). Narrow it and a browser app sending Authorization through a bridge port has to be listed here.",
+    "CORS_HEADERS": "Comma-separated request headers allowed cross-origin (--cors-headers, default *). Narrow it and a browser app sending Authorization through the proxy has to be listed here.",
     "EXTRA_ARGS": "Raw extra llama-server flags appended verbatim to the command, space-separated (e.g. --some-new-flag value). Escape hatch for options without a dedicated field.",
 }
 
@@ -474,36 +500,6 @@ LLAMA_PATH_PLACEHOLDER_SPEC = "{{SPEC_PATH}}"
 # request body — one shared dict, see caravan/common/flags.py. There used to
 # be two, and the narrower one stayed silent about what it was rejecting.
 _flag_truthy = truthy
-
-
-# Sidecar prefix → speculative type. This is upstream's own convention: llama.cpp
-# infers the type from the sidecar a draft REPO ships (PR #25989), but only for
-# -hfd downloads — a local --model-draft gets no inference at all and would run
-# with type NONE. We read the same prefixes off the filename so a dflash- sidecar
-# can never be launched as an MTP head.
-_SPEC_SIDECAR_TYPES = (
-    ("dflash", "draft-dflash"),
-    ("dspark", "draft-dspark"),
-    ("eagle3", "draft-eagle3"),
-    ("mtp", "draft-mtp"),
-)
-
-
-def _infer_spec_type(spec_path):
-    """Name the speculative type from a draft file, defaulting to draft-simple.
-
-    Matches on the FIRST token of the filename only ("dflash-kquant.gguf"), so a
-    model that merely contains one of these words somewhere in its name is not
-    mistaken for a sidecar. draft-simple — a plain second model drafted
-    autoregressively — is the right fallback; draft-mtp is not, because it aborts
-    outright on a model with no MTP head.
-    """
-    stem = Path(str(spec_path or "")).name.lower()
-    head = re.split(r"[-_.]", stem, 1)[0]
-    for prefix, spec_type in _SPEC_SIDECAR_TYPES:
-        if head == prefix:
-            return spec_type
-    return "draft-simple"
 
 
 # The value-flags the builder emits, hoisted out of build_llama_args so the UI
@@ -705,8 +701,10 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         # An empty type used to default to draft-mtp, which silently launched a
         # DFlash or eagle3 sidecar as an MTP head — the cell started, drafted
         # nothing useful, and looked healthy. Name the type from the sidecar
-        # instead, using upstream's own prefix convention.
-        spec_type = spec_type_raw or _infer_spec_type(spec_path)
+        # instead (DraftFile). From the file the CONFIG names, not the path
+        # emitted here: for a scout's cell that is the {{SPEC_PATH}} placeholder,
+        # and every such cell ran its draft as draft-simple, mtp- heads included.
+        spec_type = spec_type_raw or DraftFile(str(c.get("SPEC_DRAFT_MODEL_FILE")).strip()).launch_type
         if spec_type and spec_type != "none":
             args += ["--spec-type", spec_type, "--model-draft", spec_path]
             draft_gpu = str(c.get("SPEC_DRAFT_N_GPU_LAYERS") or "999").strip()
@@ -745,8 +743,8 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
 
     # Built-in WebUI tools / MCP proxy (recent llama-server features).
     # New in b10357. Note --tools/--agent/--mcp-servers-* silently narrow
-    # --cors-origins to localhost, so a cell serving a LAN browser app through a
-    # bridge port needs CORS_ORIGINS set explicitly once tools are on.
+    # --cors-origins to localhost, so a cell serving a LAN browser app through
+    # the proxy needs CORS_ORIGINS set explicitly once tools are on.
     add_bool("CORS_CREDENTIALS", "--cors-credentials", "--no-cors-credentials")
     if truthy(c.get("SWA_FULL")):
         args.append("--swa-full")
@@ -1101,8 +1099,9 @@ MODEL_FILE_FIELDS = ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE")
 
 def model_paths(config, locations=None):
     """Where this host reads the cell's model files, as `Located` answers
-    keyed by their config field: the three files, and the folder a runner
-    names in a field of its own (vLLM's VLLM_MODEL).
+    keyed by their config field: the three files, the other model files a
+    runner reads (GR00T's backbone), and the folder a runner names in a field
+    of its own (vLLM's VLLM_MODEL).
 
     Without `locations` every file is taken to be on the models disk — the
     answer the controller gave before libraries existed, and the right one for a
@@ -1119,6 +1118,14 @@ def model_paths(config, locations=None):
     for key in MODEL_FILE_FIELDS:
         rel = merged.get(key)
         if not rel:
+            continue
+        found = locations.locate(rel, root) if locations is not None else None
+        out[key] = found or Located(rel, "local", _join_models_path(root, rel))
+    # A runner that reads more than these three names the rest in model_files (GR00T's backbone
+    # folder). Each is a model of the models root like MODEL_FILE, and its hint tells the scout
+    # it is a folder: without one the scout asks /api/models/download for a folder, a 404.
+    for key, rel in for_config(merged).model_file_values(merged).items():
+        if key in out:
             continue
         found = locations.locate(rel, root) if locations is not None else None
         out[key] = found or Located(rel, "local", _join_models_path(root, rel))
@@ -1159,6 +1166,13 @@ def build_local_llama_command(config, *, llama_home=None, locations=None):
     paths resolved to real absolute locations — in a library, when that is where
     the file lives now."""
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
+    # Only llama.cpp's runners have a llama-server line. The editor asks for a
+    # saved cell's current command whatever its runner, and every vLLM, Strata,
+    # whisper or custom cell it opened came back as a 500 (no server_binary);
+    # the preview route answers ok: false for a config it cannot build.
+    if not for_config(merged).llama_config:
+        raise AppError(f"the {runner_id(merged) or 'unknown'} runner builds its own command, "
+                       f"not a llama-server line", 400)
     home = str(llama_home or LLAMA_HOME)
     found = model_paths(merged, locations)
 

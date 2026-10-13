@@ -7,6 +7,7 @@ from datetime import datetime
 
 from caravan.admin.paths import AGENT_PROXY_LOG_DIR, AGENT_PROXY_STATE_FILE
 from caravan.common.errors import AppError
+from caravan.common.key_entry import KeyEntry
 
 
 def proxy_usage_tokens(item):
@@ -19,7 +20,7 @@ def proxy_usage_tokens(item):
         usage = stream.get("usage") if isinstance(stream.get("usage"), dict) else {}
     return int(usage.get("total_tokens") or usage.get("totalTokens") or 0)
 
-def proxy_item_exit(upstream_type, provider_id, upstream_host, upstream_port):
+def proxy_item_exit(upstream_type, provider_id, upstream_host, upstream_port, upstream=""):
     """The exit a request reached, as the incident panel names it, or "".
 
     The row used to name only the port the request came IN on (:23001), and
@@ -34,6 +35,10 @@ def proxy_item_exit(upstream_type, provider_id, upstream_host, upstream_port):
         return f"☁ {block}" if block else ""
     if upstream_type in ("llama", "engine") and upstream_host and upstream_port:
         return f"{upstream_host}:{upstream_port}"
+    # A model of a machine's entry: its queue's name, "host:port/model" (1.3.506) — the address
+    # alone names every model of the machine.
+    if upstream_type == "machine" and "/" in str(upstream or ""):
+        return str(upstream)
     return ""
 
 
@@ -43,7 +48,9 @@ def summarize_proxy_item(label, row, item, state):
     upstream_host = item.get("upstreamHost")
     upstream_port = item.get("upstreamPort")
     if upstream and (not upstream_host or not upstream_port):
-        host_port = str(upstream).removeprefix("http://").removeprefix("https://")
+        # A model of a machine's entry is queued as "host:port/model" (1.3.506): its address is
+        # the part before the model.
+        host_port = str(upstream).removeprefix("http://").removeprefix("https://").split("/", 1)[0]
         if ":" in host_port:
             upstream_host, upstream_port_text = host_port.rsplit(":", 1)
             try:
@@ -66,7 +73,7 @@ def summarize_proxy_item(label, row, item, state):
         "providerId": str(item.get("providerId") or row.get("providerId") or ""),
         # From the item's OWN type and address, before the defaults above
         # fill them in: an item that does not say is left unnamed.
-        "exit": proxy_item_exit(item.get("upstreamType"), item.get("providerId"), upstream_host, upstream_port),
+        "exit": proxy_item_exit(item.get("upstreamType"), item.get("providerId"), upstream_host, upstream_port, upstream),
         "client": item.get("client") or "",
         "method": item.get("method") or "POST",
         "path": item.get("path") or "",
@@ -87,11 +94,18 @@ def summarize_proxy_item(label, row, item, state):
     }
 
 def agent_proxy_sample():
+    """The proxy's state as the admin hands it on: to the board every second (the system
+    monitor), to /metrics and to the stop of a request. The state file keeps the routes whole;
+    none of their keys leaves with it — `keyTail` stands in its place (KeyEntry.public_route).
+    Every key, the entry's clients' too, went to the browser once a second, though a client's
+    key is answered once (2026-10-11)."""
     try:
         if not AGENT_PROXY_STATE_FILE.exists():
             return {"ok": False, "error": "agent proxy state missing", "agents": {}}
         payload = json.loads(AGENT_PROXY_STATE_FILE.read_text(encoding="utf-8"))
         payload["ok"] = True
+        if isinstance(payload.get("routes"), list):
+            payload["routes"] = [KeyEntry.public_route(route) for route in payload["routes"] if isinstance(route, dict)]
         return payload
     except Exception as exc:
         return {"ok": False, "error": str(exc), "agents": {}}
@@ -110,6 +124,74 @@ _PORTS_SEEN_CACHE: dict = {}
 _PORT_RE = re.compile(r'"port":(\d+)')
 _TIME_RE = re.compile(r'"time":(\d+)')
 _STATUS_RE = re.compile(r'"status":(\d{3})')
+_EMBED_RE = re.compile(r'"path":"[^"]*/embeddings/?"')
+
+
+def _day_seen(date_text):
+    """One day of the journal, read once — today's file only for the bytes added since:
+    `{"size", "ports": {port: its last successful request}, "embeddings": the last call for
+    /v1/embeddings, whatever came of it, 0 for none}`, or None for a day that cannot be read.
+    """
+    path = AGENT_PROXY_LOG_DIR / f"{date_text}.jsonl"
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    cached = _PORTS_SEEN_CACHE.get(date_text)
+    if cached and cached["size"] == size:
+        return cached
+    ports = dict(cached["ports"]) if cached else {}
+    embeddings = int(cached.get("embeddings") or 0) if cached else 0
+    start = cached["size"] if (cached and cached["size"] <= size) else 0
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            fh.seek(start)
+            for line in fh:
+                if '"event":"finished"' not in line:
+                    continue
+                t = _TIME_RE.search(line)
+                if not t:
+                    continue
+                when = int(t.group(1))
+                # A call for embeddings counts whatever its outcome: one that failed is
+                # exactly what the kanban's embeddings slot warns about (canvas.js).
+                if _EMBED_RE.search(line) and when > embeddings:
+                    embeddings = when
+                # ONLY a finished 2xx counts for a port. The log also carries blocked
+                # probes and mid-flight events (received/queued/admitted/
+                # upstream_*), and counting those confirmed routes on
+                # requests the proxy had REJECTED — evidence that is not
+                # evidence, the very defect this was meant to cure.
+                st = _STATUS_RE.search(line)
+                if not st or not st.group(1).startswith("2"):
+                    continue
+                m = _PORT_RE.search(line)
+                if not m:
+                    continue
+                port = int(m.group(1))
+                if when > ports.get(port, 0):
+                    ports[port] = when
+    except OSError:
+        return None
+    entry = {"size": size, "ports": ports, "embeddings": embeddings}
+    _PORTS_SEEN_CACHE[date_text] = entry
+    return entry
+
+
+def embeddings_last_called(days=7):
+    """When a client last asked for /v1/embeddings over recent days — 0 for not at all.
+
+    The kanban's embeddings slot warns in red only then: an unset slot nobody asks for is
+    no failure, and its standing red read as one on a cloud-only board (2026-10-08).
+    """
+    cutoff = time.time() - max(1, int(days)) * 86400
+    last = 0
+    for date_text in list_agent_proxy_log_dates()[:max(1, int(days))]:
+        day = _day_seen(date_text)
+        if day and day["embeddings"] > last:
+            last = day["embeddings"]
+    return last if last >= cutoff else 0
+
 
 def proxy_ports_last_seen(days=7):
     """{proxy port: epoch of its most recent SUCCESSFUL request} over recent days.
@@ -127,42 +209,10 @@ def proxy_ports_last_seen(days=7):
     out: dict = {}
     cutoff = time.time() - max(1, int(days)) * 86400
     for date_text in list_agent_proxy_log_dates()[:max(1, int(days))]:
-        path = AGENT_PROXY_LOG_DIR / f"{date_text}.jsonl"
-        try:
-            size = path.stat().st_size
-        except OSError:
+        day = _day_seen(date_text)
+        if not day:
             continue
-        cached = _PORTS_SEEN_CACHE.get(date_text)
-        if cached and cached["size"] == size:
-            ports = cached["ports"]
-        else:
-            ports = dict(cached["ports"]) if cached else {}
-            start = cached["size"] if (cached and cached["size"] <= size) else 0
-            try:
-                with path.open("r", encoding="utf-8", errors="replace") as fh:
-                    fh.seek(start)
-                    for line in fh:
-                        # ONLY a finished 2xx counts. The log also carries blocked
-                        # probes and mid-flight events (received/queued/admitted/
-                        # upstream_*), and counting those confirmed routes on
-                        # requests the proxy had REJECTED — evidence that is not
-                        # evidence, the very defect this was meant to cure.
-                        if '"event":"finished"' not in line:
-                            continue
-                        st = _STATUS_RE.search(line)
-                        if not st or not st.group(1).startswith("2"):
-                            continue
-                        m = _PORT_RE.search(line)
-                        t = _TIME_RE.search(line)
-                        if not (m and t):
-                            continue
-                        port, when = int(m.group(1)), int(t.group(1))
-                        if when > ports.get(port, 0):
-                            ports[port] = when
-            except OSError:
-                continue
-            _PORTS_SEEN_CACHE[date_text] = {"size": size, "ports": ports}
-        for port, when in ports.items():
+        for port, when in day["ports"].items():
             if when > out.get(port, 0):
                 out[port] = when
     return {port: when for port, when in out.items() if when >= cutoff}
@@ -171,6 +221,10 @@ def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
                           port="", route="", client="", errors=False, slim=False,
                           summary=False, since=""):
     """Filtered view over one day of proxy events.
+
+    `event` names one event or several, comma-separated: the history's Requests tab reads
+    "finished,blocked" — a request the caravan refused (no key, a wrong one, a paused route)
+    ends as "blocked" and was missing from it (2026-10-11).
 
     Beyond the original date/limit/event filters this understands:
       port    — proxy route port (the stable per-agent identifier),
@@ -196,7 +250,7 @@ def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
         limit = max(1, min(2000, int(limit or 200)))
     except Exception:
         limit = 200
-    event_filter = str(event_filter or "").strip()
+    events = {part.strip() for part in str(event_filter or "").split(",") if part.strip()}
     port_num = None
     if str(port or "").strip():
         try:
@@ -224,8 +278,8 @@ def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
     if since_min:
         cutoff = time.time() - since_min * 60
         rows = [r for r in rows if (r.get("time") or 0) >= cutoff]
-    if event_filter:
-        rows = [r for r in rows if r.get("event") == event_filter]
+    if events:
+        rows = [r for r in rows if r.get("event") in events]
     if port_num is not None:
         rows = [r for r in rows if (r.get("item") or {}).get("port") == port_num]
     if route_sub:

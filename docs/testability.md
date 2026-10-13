@@ -43,12 +43,23 @@ application. `data-t` does not move when the words do.
 Left to right, on all five:
 
 ```
-[← back] [brand] [version] · [page title h1] · [page actions] [account] [tour] [language]
+[← back] [brand] [version] · [page title h1] · [page actions] [account] [brook] [tour] [language]
 ```
 
 `/board` has no back-link (it is where back goes). `/models` and `/system` have
 no Tour button because those two pages have no tour — the others do. Everything
 else is present everywhere, in that order.
+
+The brook switch (1.3.527, `static/js/river.js`) is put into the header by
+script, the same on all five pages, in a group of its own (`.river-switch`):
+`data-t="header-river-toggle"`, with `data-t-state` `off` or `on` and
+`aria-pressed` to match. It is off until a viewer turns it on, and the choice is
+kept in the browser's localStorage (`riverOn`, `riverLevel`, `riverPaused`).
+While it is on, a ▾ joins it in the group, `data-t="header-river-settings"`
+(`data-t-state` `closed` or `open`, `aria-expanded` to match), and opens the
+dock under it: `data-t="river-dock"`, its buttons `river-level` (with
+`data-t-id` `bright`, `soft` or `dim` and `aria-pressed` on the chosen one),
+`river-pause` and `river-sound`. A press outside the dock or Escape closes it.
 
 It was not so until 1.3.180: `/hf` and `/kanban` had bespoke headers with no
 brand, **no account menu and no language picker at all** — the only way to
@@ -174,16 +185,18 @@ checked at all.
 
 ```
 GET /health        (also /api/health)
-200 {"ok": true, "service": "lama-caravan", "version": "1.3.137",
-     "commit": "5ff3bbe", "authRequired": true, "time": 1785342505}
+200 {"ok": true, "service": "lama-caravan", "version": "1.3.453",
+     "commit": "5ff3bbe", "authRequired": true, "setupRequired": false,
+     "time": 1785342505}
 ```
 
 The shape is **stable**: a monitor polls it forever, so fields can be added and
 never taken away. It touches no fleet state — no host probes, no config — so the
 liveness check can never itself become the slow or flaky thing.
 
-`authRequired` earns its place: a fresh install answers `false`, and a suite that
-expects to log in can learn that before spending a browser on it.
+`authRequired` is `true` on every install since 1.3.453, when a fresh one
+stopped being open; `setupRequired` says the first account is still to be made
+at `/setup`, so a suite learns it before it tries to sign in to nobody.
 
 ## `/openapi.json`
 
@@ -194,8 +207,10 @@ list, for people, is [http-api.md](http-api.md).
 
 ```
 GET /openapi.json
-200 {"openapi": "3.1.0", "info": {"version": "1.3.405", "x-commit": "…"}, "paths": {…}}
+200 {"openapi": "3.1.0", "info": {"version": "78adf78b", "x-release": "1.3.459"}, "paths": {…}}
 ```
+
+`info.version` is the commit `/healthz` names; the release number is `info.x-release`.
 
 Level 1: every path and method with `summary` (and `description`), the query
 parameters and top-level body fields the handler's code reads, the content
@@ -205,6 +220,22 @@ described yet, and the document says so rather than drawing empty ones. Where
 a handler passes its query or body on whole, `x-caravan-query-complete` /
 `x-caravan-fields-complete` is `false`: it may read more than is listed.
 `x-caravan-handler` names the function behind each operation.
+
+## `/api/packages`
+
+What the running controller is made of, named as osv.dev names it — open, like
+`/healthz`, for the vulnerability check of the home network. `version` is the
+commit `/healthz` names. In the image the system's packages go by their Debian
+SOURCE package; a system the controller cannot read says `"listed": false`, one
+it cannot tell is `"os": null`.
+
+```
+GET /api/packages
+200 {"version": "78adf78b", "runtime": {"name": "python", "version": "3.12.12"},
+     "os": {"name": "debian", "version": "13", "listed": true},
+     "packages": [{"ecosystem": "PyPI", "name": "pip", "version": "25.2"},
+                  {"ecosystem": "Debian:13", "name": "openssl", "version": "3.5.1-1"}, …]}
+```
 
 ## Read-only account
 
@@ -230,41 +261,48 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 373 values. Regenerate with
+Generated from the source, not from memory — 567 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
-source disagree. Forty-six of them are composed at runtime (`…-picker`,
+source disagree. Fifty-two of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
 **agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-cloud-add`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-server-cards`, `board-system-open`
-**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-row-stop`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`
+**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-consumer-card`, `board-density`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-incidents-open`, `board-kanban-card`, `board-kanban-counts`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-machine-cards`, `board-models-open`, `board-nodes-lane`, `board-pages`, `board-processes-list`, `board-provider-cards`, `board-router-lane`, `board-scout-add`, `board-system-open`
+**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-robot-policy`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-name`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-row-stop`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`, `cell-remote-cache`, `cell-remote-strata-context`, `cell-remote-strata-draft`, `cell-remote-strata-fields`, `cell-remote-strata-kv`, `cell-remote-strata-reserve`, `cell-remote-strata-vocab`, `cell-remote-gr00t-backbone`, `cell-remote-gr00t-embodiment`, `cell-remote-gr00t-fields`, `cell-remote-gr00t-steps`
 
 **client** — `client-add`
 
+**consumer** — `consumer-activity`, `consumer-delete`, `consumer-key`, `consumer-new-key`, `consumer-rename`, `consumer-set`
+
 **fold** — `fold-pin`, `fold-unpin`
 
-**cloud** — `cloud-context-reported`
+**cloud** — `cloud-account-plan`, `cloud-account-pools`, `cloud-account-status`, `cloud-account-window`, `cloud-connected`, `cloud-device-code`, `cloud-device-login`, `cloud-device-open`, `cloud-done`, `cloud-new-code`, `cloud-pick`, `cloud-picker`, `cloud-provider-word`, `cloud-sign-in`, `cloud-sign-in-ended`, `cloud-sign-in-wait`
+
+**pool** — `pool-add-step`, `pool-card`, `pool-delete`, `pool-empty`, `pool-levels-legend`, `pool-loose`, `pool-loose-account`, `pool-name`, `pool-new-first`, `pool-none`, `pool-settings`, `pool-step`, `pool-step-account`, `pool-step-cancel`, `pool-step-check`, `pool-step-connect`, `pool-step-custom`, `pool-step-list-state`, `pool-step-model`, `pool-step-name`, `pool-step-query`, `pool-step-remove`, `pool-step-submit`, `pool-step-window`, `pool-stop`, `pool-switch`
 
 **route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-latency`, `route-latency-row`, `route-model`, `route-model-card-link`, `route-model-lock`, `route-state`, `route-wait`
 
-**sub-usage** — `sub-usage-banner`
-**usage** — `usage-reserve`
-**confirm** — `confirm-accept`, `confirm-cancel`, `confirm-choice`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
+**sub-usage** — `sub-usage-banner`, `sub-usage-loading`
+**confirm** — `confirm-accept`, `confirm-cancel`, `confirm-check`, `confirm-check-all`, `confirm-choice`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
-**hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
-**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-fit`, `kanban-input-wait`, `kanban-model-queue`, `kanban-model-queue-toggle`, `kanban-node`, `kanban-onerror-same`, `kanban-out-state`, `kanban-palette-add`, `kanban-queue-setting`, `kanban-queue-settings`, `kanban-queue-settings-toggle`, `kanban-quiet-cells`, `kanban-save-status`, `kanban-unassigned`, `kanban-unclaimed`
+**hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-checkpoint-verified`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
+**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-consumer-close`, `kanban-consumer-give-key`, `kanban-consumer-key`, `kanban-consumer-reopen`, `kanban-entry`, `kanban-entry-copy`, `kanban-entry-off`, `kanban-entry-port`, `kanban-entry-setup`, `kanban-entry-why`, `kanban-fit`, `kanban-input-wait`, `kanban-model-queue`, `kanban-model-queue-toggle`, `kanban-node`, `kanban-onerror-same`, `kanban-out-state`, `kanban-palette-add`, `kanban-queue-setting`, `kanban-queue-settings`, `kanban-queue-settings-toggle`, `kanban-quiet-cells`, `kanban-save-status`, `kanban-unassigned`, `kanban-unclaimed`
+**pb** (the kanban's pools board, pool-board.js) — `pb-account`, `pb-account-issues`, `pb-add-model`, `pb-add-pool`, `pb-add-row`, `pb-add-set`, `pb-arrange`, `pb-cables`, `pb-choice`, `pb-choose-close`, `pb-choose-note`, `pb-choose-query`, `pb-chooser`, `pb-client`, `pb-client-ask`, `pb-client-copy`, `pb-client-links`, `pb-client-miss`, `pb-client-misses`, `pb-client-misses-badge`, `pb-client-probe`, `pb-client-probe-model`, `pb-client-tests`, `pb-clients`, `pb-dock`, `pb-dock-body`, `pb-dock-cell`, `pb-dock-client`, `pb-dock-foot`, `pb-dock-id`, `pb-dock-levels`, `pb-dock-model`, `pb-dock-pool`, `pb-dock-set`, `pb-dock-step`, `pb-entry`, `pb-history`, `pb-history-toggle`, `pb-kind`, `pb-limits`, `pb-machine`, `pb-machine-cells`, `pb-model`, `pb-model-grab`, `pb-model-level`, `pb-model-remove`, `pb-model-unused`, `pb-models`, `pb-models-none`, `pb-no-clients`, `pb-no-models`, `pb-no-pools`, `pb-no-sets`, `pb-pick-close`, `pb-pick-model`, `pb-pick-note`, `pb-pick-query`, `pb-pick-typed`, `pb-picker`, `pb-pool`, `pb-pool-delete`, `pb-pool-name`, `pb-pool-turns`, `pb-pool-window`, `pb-pool-window-auto`, `pb-pool-window-stated`, `pb-pools`, `pb-probe`, `pb-probe-close`, `pb-probe-status`, `pb-route`, `pb-row`, `pb-row-remove`, `pb-set`, `pb-set-add`, `pb-set-delete`, `pb-set-model`, `pb-set-name`, `pb-sets`, `pb-settings`, `pb-settings-panel`, `pb-turn`, `pool-board`
+**pb-schedule** (when a model is open: its ⏱ on the kanban and the window that sets it, model-schedule.js) — `pb-model-schedule`, `pb-schedule`, `pb-schedule-add`, `pb-schedule-cell-note`, `pb-schedule-close`, `pb-schedule-enabled`, `pb-schedule-grid`, `pb-schedule-needs-window`, `pb-schedule-no-windows`, `pb-schedule-now`, `pb-schedule-save`, `pb-schedule-window`, `pb-schedule-zone`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
-**model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
+**model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-robot-policy`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
 **engine** — `engine-model`, `engine-model-reserve`, `engine-shelf`
 **node** — `node-caravan`, `node-caravan-add`, `node-caravan-hf`, `node-caravan-models`, `node-cell-filter`, `node-disconnect`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
-**scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
+**machine** — `machine-glance`, `machine-missing`, `machine-missing-back`, `machine-open`
+**provider** (the cloud providers on the main board, provider-glances.js) — `provider-add`, `provider-edit`, `provider-glance`, `provider-group`, `provider-group-add`, `provider-group-empty`, `provider-group-remove`, `provider-none`, `provider-resets`, `provider-state`
+**scout** — `scout-add-address`, `scout-add-connect`, `scout-add-find`, `scout-add-open`, `scout-add-port`, `scout-add-status`, `scout-find`, `scout-find-connect`, `scout-find-list`, `scout-find-networks`, `scout-find-row`, `scout-find-run`
 **server** — `server-step-down`, `server-step-up`
-**setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
+**setup** — `setup-form`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`, `system-vllm-machine`
 
 Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
@@ -290,9 +328,28 @@ row itself carries `data-cell-state`. A machine's stopped cells that nothing lea
 under one row, `kanban-quiet-cells` (`data-t-id` = the machine's key), folded until clicked —
 their rows are not in the DOM while it is folded. `kanban-unassigned` is the head's badge of
 ports that could feed this kanban and do not (a `<details>`: its list opens on a click, and a
-port joins on a click on its row); a cloud model's own port never counts. `kanban-fit` is the
+port joins on a click on its row). `kanban-fit` is the
 canvas's ⤢ Show all, and `kanban-onerror-same` is the line a 🛟 node shows when main and
 backup end on one output.
+
+On the main board each cloud provider is a block, `provider-group` (`data-t-id` = the provider's kind:
+`openai-subscription`, `openrouter`, `openai`, `anthropic`, `ollama`, `custom`), its accounts rows of it,
+each a `provider-glance` (`data-t-id` = the account) with `provider-state`, a subscription's
+`provider-resets` (`data-t-state` `some`, `none` or `unknown`; a button only while one can be spent) and
+`provider-edit` (⚙). `provider-group-add` adds an account to the block — a subscription opens its
+sign-in code at once — and `provider-group-remove` stands only on an empty block, `provider-group-empty`
+saying it is empty. `provider-add` opens the picker (`cloud-picker`), where a provider already on the
+board is a `cloud-pick` tile that is `disabled`; pressing another puts it on the board as an empty block.
+
+On the kanban's MODELS column an account's card (`pb-account`, `data-t-id` = the account) holds
+only the models added to it, each a `pb-model` (`data-t-id` = `acc:<account>/<model>`); none
+added — `pb-models-none`. `pb-add-model` opens `pb-picker` in its place: type into
+`pb-pick-query`, then press a `pb-pick-model` (`data-t-id` = the model) or `pb-pick-typed` (the
+typed id, offered when the search finds nothing); `pb-pick-note` says what the list holds when
+it shows nothing (being read, unread, no chat model, all added, no match) and `pb-pick-close`
+closes it. `pb-model-remove` stands only on a model no pool's row names; it shows on hover, so
+a test presses it by its hook, not by a pointer over it. Enter in `pb-pick-query` adds the first
+model found and Escape closes.
 
 On `/models` the places carry the store's id — `models-store`,
 `models-place-card` and `models-place-open` use `local` or the library's
@@ -374,14 +431,14 @@ as `getByRole('region', { name })` and a keyboard user can jump between them:
 
 | page | region name | source of the name |
 |---|---|---|
-| `/` | Model servers (the machines and the cloud providers, one list), Clients and their proxies | the section's own `<h2>` |
+| `/` | Pools, Machines, Clients | the section's own `<h2>` |
 | `/system` | Controller, llama.cpp, Archived builds, vLLM runner, Security, Diagnostics | the panel's own `<h2>`/`<h3>` |
 | `/models` | Model files; the side column's `navigation` landmarks Model stores and List filters | their own string (no heading exists) |
 | `/kanban` | Routing graph | its own string |
 
 Eight of the eleven are named by `aria-labelledby` pointing at the heading a
 sighted user already reads, so the name follows the interface language — under
-`?lang=ru` the region is `Серверы моделей`, not `Model servers`. Locate by
+`?lang=ru` the region is `Пулы`, not `Pools`. Locate by
 role+name only when the language is pinned; otherwise the `data-t` hook is
 still the stable address.
 
@@ -450,8 +507,9 @@ now harmless rather than load-bearing.
 
 A test that wants the wizard still needs a controller with no accounts — the
 URL does not conjure the state; `/setup` on an enabled controller just
-redirects. The wizard's post-submit token box (`setup-token-box`, `setup-token`,
-`setup-go-board`) lives on `/setup` too.
+redirects. After the account the page goes straight to `/board` (since 1.3.454);
+the post-submit token box (`setup-token-box`, `setup-token`, `setup-go-board`) is gone —
+the fleet token is in System → Security.
 
 **`cell-remote-fields` is not a collapsed section.** It holds the llama.cpp flags and
 is hidden whenever the runner is not `llama-server`:
@@ -507,12 +565,16 @@ Repeated elements carry the identity the page already works in:
 | `hf-selection-remove` | the file path in the repository |
 | `hf-download-job`, `hf-download-cancel` | the job id from the server, falling back to the local uid before one is assigned |
 | `hf-download-interrupted`, `hf-download-resume` | the name of the partial file |
+| `hf-checkpoint-verified` | the folder of the copy, e.g. `Cosmos-Reason2-2B/nvidia/BF16` |
 
 What we have of a repository is marked twice on its list row, and the two are
 told apart: ✓ N counts files on this controller's disk (no hook of its own),
 `hf-in-library` (📚 N) files a library holds. On a file row the ON DISK cell
 carries this disk's mark and `hf-file-in-library` for a library's copy. Only
-this disk's files have `hf-file-delete` and count for `hf-verify`.
+this disk's files have `hf-file-delete` and count for `hf-verify`: a GGUF file,
+or a checkpoint folder (a repository with only safetensors weights has the
+button too). The answer for a checkpoint is one `hf-checkpoint-verified` line
+per copy under its `hf-checkpoint` row — counts, not a row per file.
 
 The size buckets are the values the page filters on, not their labels — `0-9`
 rather than `≤9B`, so a translated label cannot move them.
@@ -602,8 +664,10 @@ agent has no caption: that agent's card carries the client's ＋. No hook delete
 
 ## A scout is added and let go on the board
 
-`board-scout-add` sits under the Model servers lane — static markup next to
-it, not in it, so a repaint does not wipe a typed address. Its
+`board-scout-add` sits under the Machines head — static markup next to the
+lane, not in it, so a repaint does not wipe a typed address. It is closed
+(`hidden`) until `scout-add-open` (＋ Add scout) or `scout-add-find` (🔍 Find,
+which opens the scan too) in that head opens it; both say `aria-expanded`. Its
 `data-t-state` reads `idle`, `working`, `ok` or `error`; `scout-add-status`
 holds the words. Type into `scout-add-address` (the port in
 `scout-add-port` is 8092 unless changed) and press `scout-add-connect`
@@ -611,7 +675,9 @@ holds the words. Type into `scout-add-address` (the port in
 the next board refresh. Connecting a scout that is already here is the
 connection test.
 
-`node-disconnect` is a host node's one ✕ (never on the controller's node):
+`node-disconnect` is a host node's one ✕ (never on the controller's node), in the machine's own
+window — the main board's `machine-glance` has none since 2026-10-12. There the whole glance
+opens the window, and `machine-open` is its name, a link to `/machine?host=<id>`:
 `POST /api/topology/scout/disconnect` asks the scout to forget the controller
 (`/api/unpair`) and forgets the machine; a silent scout's machine is only
 forgotten, and returns with its scout's next heartbeat if it still holds the

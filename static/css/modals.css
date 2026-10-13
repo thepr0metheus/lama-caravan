@@ -244,6 +244,12 @@
   margin-left: 4px;
 }
 
+/* A refused request never reached a model: the caravan turned it away at the door. */
+.history-tag-refused {
+  background: color-mix(in srgb, var(--bad, #f87171) 15%, transparent);
+  color: var(--bad, #f87171);
+}
+
 .history-status-ok { color: #4ade80; }
 .history-status-err { color: #f87171; }
 /* ── end Request History ─────────────────────────────────────────────────── */
@@ -812,92 +818,6 @@ button.topology-detail-action.danger:focus {
   opacity: 0.9;
 }
 
-.cloud-picker-modal {
-  width: 500px;
-  max-width: 96vw;
-}
-
-.cloud-picker-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  padding: 16px;
-}
-
-.cloud-picker-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 14px 14px 12px;
-  border-radius: 10px;
-  border: 1.5px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-  transition: background 0.12s, border-color 0.12s;
-}
-
-.cloud-picker-tile:hover,
-.cloud-picker-tile:focus-visible {
-  background: color-mix(in srgb, var(--picker-accent, #94a3b8) 10%, transparent);
-  border-color: color-mix(in srgb, var(--picker-accent, #94a3b8) 45%, transparent);
-  outline: none;
-}
-
-.cloud-picker-icon {
-  width: 28px;
-  height: 28px;
-  color: var(--picker-accent, #94a3b8);
-  margin-bottom: 2px;
-}
-
-.cloud-picker-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.cloud-picker-name {
-  font-weight: 600;
-  font-size: 0.88rem;
-  color: var(--picker-accent, #94a3b8);
-}
-
-.cloud-picker-desc {
-  font-size: 0.76rem;
-  color: var(--muted);
-  line-height: 1.35;
-}
-
-.cloud-type-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--picker-accent, #94a3b8) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--picker-accent, #94a3b8) 25%, transparent);
-}
-
-.cloud-type-badge-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--picker-accent, #94a3b8);
-  flex-shrink: 0;
-}
-
-.cloud-type-badge-icon svg {
-  width: 100%;
-  height: 100%;
-}
-
-.cloud-type-badge-name {
-  font-weight: 600;
-  font-size: 0.86rem;
-  color: var(--picker-accent, #94a3b8);
-  flex: 1;
-}
-
 .cloud-account-card {
   --pool-border: color-mix(in srgb, var(--accent, #46bba6) 30%, transparent);
   padding: 0;
@@ -916,9 +836,11 @@ button.topology-detail-action.danger:focus {
    is set here, for the card's own buttons only. */
 .subscription-pool { --pool-hair: color-mix(in srgb, var(--line) 70%, transparent); padding: 14px 16px 16px; font-size: 12px; }
 /* The icon takes the rank circles' column and the title the rungs' left edge: one axis down the card. */
-.pool-top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
+.pool-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
 .pool-top > .cloud-account-icon { box-sizing: border-box; width: 28px; height: 28px; padding: 5px; }
-.pool-ident { flex: 1 1 240px; min-width: 0; }
+/* The name and the last request on one line (the operator, 2026-10-11: two lines were too much);
+   a narrow card wraps the request under the name. */
+.pool-ident { flex: 1 1 240px; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
 .pool-name { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
 .pool-name-input {
   width: auto; max-width: 100%; height: 28px; min-height: 0; margin: 0 0 0 -7px; padding: 0 6px;
@@ -930,22 +852,9 @@ button.topology-detail-action.danger:focus {
 .pool-name-input:focus { outline: none; border-color: var(--accent); background: var(--field); }
 .pool-name-pen { color: var(--muted); font-size: 12px; opacity: 0; transition: opacity .15s; }
 .pool-name:hover .pool-name-pen, .pool-name:focus-within .pool-name-pen { opacity: .9; }
-.pool-last { margin-top: 1px; color: var(--muted); }
+/* Beside the pool's name: whom the last request went to, and when (HH:MM). */
+.pool-last { flex: 1 1 220px; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pool-last strong { color: var(--text); font-weight: 600; }
-.pool-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; margin-left: auto; }
-.pool-until { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
-/* The card's two lists: the global `select` is 42px with a white border, the loudest thing around. */
-.pool-until select, .subscription-pool .pool-add > select {
-  width: auto; max-width: 100%; height: 28px; min-height: 0; padding: 0 26px 0 10px; border: 1px solid var(--line); border-radius: 7px;
-  background-color: color-mix(in srgb, var(--field) 84%, transparent); color: var(--text); font-size: 12px; cursor: pointer;
-}
-.pool-until select:hover, .subscription-pool .pool-add > select:hover { border-color: color-mix(in srgb, var(--accent) 68%, var(--line)); }
-.pool-until select:focus-visible, .subscription-pool .pool-add > select:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 1px; }
-.subscription-pool .pool-add > select { height: 34px; border-radius: 10px; }
-.pool-modes { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--pool-hair); border-radius: 9px; background: color-mix(in srgb, var(--field) 70%, transparent); }
-.pool-mode { min-height: 0; height: 24px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
-.pool-mode:hover:not(.on) { color: var(--text); }
-.pool-mode.on { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--accent-strong); }
 /* Every yes/no on the card is a small switch, not the browser's 22px blue box. */
 .pool-check { display: inline-flex; flex-direction: row; gap: 8px; align-items: center; font-size: 12px; color: var(--text); cursor: pointer; }
 .subscription-pool input[type="checkbox"] {
@@ -957,30 +866,40 @@ button.topology-detail-action.danger:focus {
 .subscription-pool input[type="checkbox"]:checked::after { transform: translateX(11px); }
 .subscription-pool input[type="checkbox"]:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
 .subscription-pool input[type="checkbox"]:disabled { opacity: .5; cursor: default; }
-/* The rungs. The spine runs between the numbers: from the first rung's number to the last one's. */
-.pool-ladder { list-style: none; margin: 16px 0 0; padding: 0; }
-.pool-rung { position: relative; padding-left: 42px; }
-.pool-rung::before { content: ""; position: absolute; left: 13px; top: 0; bottom: 0; width: 2px; background: color-mix(in srgb, var(--muted) 34%, transparent); }
-.pool-rung:first-child::before { top: 26px; }
-.pool-rung:last-child::before { bottom: auto; height: 26px; }
-.pool-rung:only-child::before { display: none; }
+/* The steps: one card each, its number inside it — the spine of numbered circles beside the cards
+   took a column of its own (the operator, 2026-10-11). */
+.pool-ladder { list-style: none; margin: 14px 0 0; padding: 0; }
 .pool-step { position: relative; padding: 12px 14px 14px; border: 1px solid var(--pool-hair); border-radius: 10px; background: color-mix(in srgb, var(--field) 42%, transparent); }
 .pool-step.serving { border-color: color-mix(in srgb, var(--accent) 78%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--field)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent); }
 .pool-step.off .pool-step-name { color: var(--muted); }
 .pool-step.missing { padding: 10px 14px; border-style: dashed; color: var(--muted); }
-.pool-step.dragging { opacity: .45; }
-.pool-step.drop-before { box-shadow: 0 -2px 0 var(--accent); }
-.pool-step.drop-after { box-shadow: 0 2px 0 var(--accent); }
+/* Carrying a step to another place in its order (step-carry.js), the home start page's way: the card
+   rises and follows the pointer with an accent frame and a deep shadow; its seat stays as a dashed empty
+   place of its own size; the other steps slide aside. */
+body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+.pool-rung.carried { position: relative; }
+.pool-rung.carried::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--hole-h, 100%); box-sizing: border-box;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 75%, transparent); border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.pool-rung.carried > .pool-step {
+  z-index: 60; pointer-events: none; will-change: transform; border-color: var(--accent);
+  background: color-mix(in srgb, var(--field) 42%, var(--panel));   /* opaque: the steps it passes do not show through */
+  box-shadow: 0 0 0 1px var(--accent), 0 30px 60px -22px rgba(0, 0, 0, .7);
+}
+.pool-ladder.sorting .pool-link { visibility: hidden; }
 .pool-rank {
-  position: absolute; left: -42px; top: 12px; width: 28px; height: 28px; box-sizing: border-box;
-  display: grid; place-items: center; border-radius: 50%; font-size: 12px; font-weight: 600;
-  background: var(--panel); border: 1.5px solid color-mix(in srgb, var(--muted) 55%, transparent); color: var(--muted);
+  flex: none; display: grid; place-items: center; width: 20px; height: 20px; margin-top: 1px; box-sizing: border-box;
+  border-radius: 50%; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 55%, transparent); color: var(--muted);
 }
 .pool-step.serving .pool-rank { background: var(--accent); border-color: var(--accent); color: #fff; }
-.pool-step.missing .pool-rank { top: 6px; border-style: dashed; }
+.pool-step.missing .pool-rank { margin-top: 0; border-style: dashed; }
 /* A rung's head: the grip, who it is (name, state, mailbox), and what it says and does at the right. */
 .pool-step-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-.pool-grip { flex: none; margin-top: 3px; cursor: grab; color: var(--muted); opacity: .55; line-height: 1; user-select: none; }
+.pool-grip { flex: none; margin-top: 3px; cursor: grab; color: var(--muted); opacity: .55; line-height: 1; user-select: none; touch-action: none; border-radius: 4px; }
+.pool-grip:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; opacity: 1; }
 .pool-grip:hover { color: var(--accent); opacity: 1; }
 .pool-step-id { flex: 1 1 0; min-width: 0; }
 .pool-step-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 22px; }
@@ -1002,6 +921,7 @@ button.topology-detail-action.danger:focus {
 .pool-status.serving { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent-strong); }
 .pool-status.ready { --dot: var(--good); }
 .pool-status.reserve, .pool-status.login { background: color-mix(in srgb, #d9a441 20%, transparent); color: #d9a441; }
+.pool-status.stop { background: color-mix(in srgb, #ef5f5f 18%, transparent); color: #f28b8b; }
 .pool-status.off::before, .pool-status.unknown::before { background: none; box-shadow: inset 0 0 0 1.5px currentColor; }
 .pool-test { color: #f6b45e; border: 1px dashed currentColor; border-radius: 4px; padding: 1px 5px; font-size: 10px; }
 .pool-step-tools .icon-action svg { width: 12px; height: 12px; }
@@ -1009,16 +929,34 @@ button.topology-detail-action.danger:focus {
 .pool-fold { color: color-mix(in srgb, var(--text) 80%, var(--muted)); }
 .pool-fold::before { content: ""; width: 6px; height: 6px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .15s; }
 .pool-step.open .pool-fold::before { transform: translateY(2px) rotate(-135deg); }
-/* The limit bars, one under the other. A bar's line reads: the window, what the operator keeps of it,
-   then — at the right — when it resets and what is left; the bar itself under it, across the row. */
-.pool-step > .sub-usage-panel { gap: 14px; margin-top: 12px; padding: 12px 0 0; border-top: 1px solid var(--pool-hair); }
-.pool-step .sub-usage-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: baseline; gap: 7px 8px; }
+/* The limit bars, one under the other, each one line (the owner, 2026-10-11: compacter): the window's
+   name left of the bar, when it resets and what is left right of it; each level's name rides beside its
+   handle, over the bar or under it (modals.css, .sub-usage-track .sub-usage-level). */
+/* One grid for the step's bars (the owner, 2026-10-11: neater): each bar's row takes the panel's
+   columns (subgrid), so the names stand in one column and every bar starts and ends at the same
+   place, whatever the window's name or the reset time; the reset times end at one edge. What is
+   not a bar — the banner, the head, the legend — spans the width. */
+.pool-step > .sub-usage-panel {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content max-content;
+  column-gap: 12px;
+  row-gap: 8px;
+  margin-top: 12px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--pool-hair);
+}
+.pool-step > .sub-usage-panel > * { grid-column: 1 / -1; }
+/* A step shows its limit bars while the pointer is on it, a control in it has focus (a handle being
+   dragged keeps them), or it is opened — the step that serves too (the operator, 2026-10-11: first
+   only the others folded, then every step). Its status pill still says how it stands. */
+.pool-step:not(.open):not(:hover):not(:focus-within) > .sub-usage-panel { display: none; }
+.pool-step .sub-usage-row { display: grid; grid-template-columns: subgrid; align-items: center; }
 .pool-step .sub-usage-meta { display: contents; }
-.pool-step .sub-usage-label { grid-area: 1 / 1; }
-.pool-step .sub-usage-reserve-mark { grid-area: 1 / 2; margin: 0; }
-.pool-step .sub-usage-resets { grid-area: 1 / 3; justify-self: end; font-size: 11px; }
-.pool-step .sub-usage-pct { grid-area: 1 / 4; min-width: 3ch; text-align: right; font-size: 12px; }
-.pool-step .sub-usage-track { grid-area: 2 / 1 / 3 / -1; }
+.pool-step .sub-usage-label { grid-area: 1 / 1; white-space: nowrap; }
+.pool-step .sub-usage-track { grid-area: 1 / 2; }
+.pool-step .sub-usage-resets { grid-area: 1 / 3; justify-self: end; white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; }
+.pool-step .sub-usage-pct { grid-area: 1 / 4; min-width: 4ch; text-align: right; font-size: 12px; }
+.pool-step .sub-usage-legend { margin-top: 4px; }
 .pool-step .sub-usage-bar { height: 6px; border-radius: 3px; }
 .pool-step .sub-usage-bar i { border-radius: 3px; }
 /* What is touched rarely, under the head. */
@@ -1028,58 +966,109 @@ button.topology-detail-action.danger:focus {
 .pool-actions [data-pool-move="-1"] { margin-left: auto; }
 .pool-step-more .muted { font-size: 11px; }
 .pool-step-more .spend-panel { padding: 6px 0 0; border-top: 0; }
-/* "Next when this one reaches its reserve or limit", on the spine between two rungs. */
-.pool-link { position: relative; display: flex; align-items: center; min-height: 28px; padding: 4px 0; font-size: 11px; color: var(--muted); }
-.pool-link > span { position: absolute; left: -35px; width: 14px; padding: 1px 0; text-align: center; line-height: 1; background: var(--panel); }
-/* Under the ladder: the pool's one policy, and the way to add a rung. */
-.pool-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 14px 0 0 42px; }
-.pool-loop { color: var(--muted); }
-.pool-loop > span { color: var(--accent); font-size: 14px; line-height: 1; }
-.pool-add { display: flex; flex-wrap: wrap; align-self: stretch; gap: 8px; }
-.pool-add > .ghost-action[data-pool-connect] { flex: 1 1 200px; min-width: 0; height: 34px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
-.subscription-pool .ghost-action, .subscription-resets .ghost-action, .pool-actions .ghost-action {
+/* "Next, when this step reaches its switch level or a limit": a slim line between two steps, its
+   arrow under the steps' numbers. */
+.pool-link { display: flex; align-items: center; gap: 7px; padding: 4px 0 4px 21px; font-size: 11px; color: var(--muted); }
+/* The pool whose last subscription was deleted: what it is, and the two ways on. */
+.pool-empty { display: grid; gap: 12px; margin: 16px 0 0; padding: 16px; border: 1px dashed var(--pool-hair); border-radius: 12px; }
+.pool-empty-note { margin: 0; color: var(--muted); }
+.pool-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.subscription-pool .pool-empty-actions .primary-mini-action,
+.subscription-pool .pool-empty-actions .ghost-action { min-height: 0; height: 32px; padding: 0 14px; border-radius: 8px; }
+.subscription-pool .ghost-action, .pool-actions .ghost-action {
   min-height: 0; height: 26px; padding: 0 12px; border-radius: 7px; white-space: nowrap;
   border: 1px solid var(--line); background: color-mix(in srgb, var(--field) 84%, transparent);
   color: var(--text); font-size: 12px; font-weight: 500; line-height: 1;
 }
-.subscription-pool .ghost-action:hover:not(:disabled), .subscription-resets .ghost-action:hover:not(:disabled),
+.subscription-pool .ghost-action:hover:not(:disabled),
 .pool-actions .ghost-action:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 68%, var(--line)); color: var(--accent);
   background: color-mix(in srgb, var(--accent) 13%, var(--field));
 }
-.subscription-pool .ghost-action.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--field)); }
-.subscription-pool .ghost-action:disabled, .subscription-resets .ghost-action:disabled { opacity: .45; cursor: default; }
-/* "＋ Connect another subscription" asks for something new: dashed and quiet, an empty place on the ladder. */
-.subscription-pool .pool-add > .ghost-action[data-pool-connect] { background: none; color: var(--muted); border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent); }
-.subscription-pool .pool-add > .ghost-action[data-pool-connect]:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.subscription-resets { padding: 8px 0 4px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.subscription-pool .ghost-action:disabled { opacity: .45; cursor: default; }
 /* Beside the usage panels of a card that is no pool member the card's own edge is 0: they take its 12px. */
 .cloud-account-card > .pool-actions { padding: 8px 12px 10px; }
-.cloud-account-card > .subscription-resets { padding: 8px 12px 6px; }
-.pool-step-more .subscription-resets { border-top: 0; }
-.reset-head, .reset-credit { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.reset-head strong, .reset-credit strong { font-size: 12px; font-weight: 600; }
-.reset-credit { padding: 6px 0; }
-.reset-credit small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
-.reset-credit .ghost-action { flex-shrink: 0; }
-.pool-history { align-self: stretch; font-size: 12px; }
-.pool-history > summary { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; list-style: none; }
-.pool-history > summary::-webkit-details-marker { display: none; }
-.pool-history > summary::before { content: ""; border: solid transparent; border-width: 4px 0 4px 6px; border-left-color: currentColor; transition: transform .15s; }
-.pool-history[open] > summary::before { transform: rotate(90deg); }
-.pool-history > summary:hover { color: var(--text); }
 .pool-event { padding: 7px 0; border-bottom: 1px solid var(--pool-hair); }
 .pool-event:last-child { border-bottom: 0; }
 .pool-event time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .pool-event small { display: block; color: var(--muted, #9cabb2); }
 @media (prefers-reduced-motion: reduce) { .subscription-pool *, .subscription-pool *::after, .subscription-pool *::before { transition: none; } }
 
-.cloud-account-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 12px 6px;
+/* ── A pool of steps (pools.js, 2026-10-10) ──
+   The ladder above carries over: a rung is a step now — an account with ONE model — and the
+   model stands on its own line under the account's name. What is set rarely (the window, the
+   deletion) and the switch history open under the foot. */
+.pool-top > .pool-icon { color: var(--accent); }
+.pool-last strong.pool-last-refused { color: #d9a441; }
+.pool-step-title > .cloud-account-icon { width: 14px; height: 14px; }
+.pool-step-model { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin-top: 2px; min-width: 0; font-size: 11px; color: var(--muted); }
+.pool-step-model code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 11.5px; }
+.pool-step-model .pool-step-mail { display: inline; margin: 0; }
+.pool-step-price { font-variant-numeric: tabular-nums; }
+.pool-step-unlisted { color: #d9a441; cursor: help; }
+.pool-step-gone { flex: 1; min-width: 0; }
+.pool-step.missing { display: flex; align-items: center; gap: 8px; }
+.pool-status.login::before { background: #d9a441; }
+/* Under the steps (pools.js, foot): "+ Add step" across the card — an empty place at the end of the
+   order — then one bar: the pool's own ports at the left, the switches of its two parts at the
+   right, and the part opened under it (the operator, 2026-10-11). */
+.pool-foot { display: grid; gap: 10px; margin-top: 10px; }
+.subscription-pool .pool-add-step {
+  width: 100%; min-height: 0; height: 34px; justify-content: center; border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent);
+  border-radius: 10px; background: none; color: var(--muted);
 }
+.subscription-pool .pool-add-step:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.pool-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-top: 10px; border-top: 1px solid var(--pool-hair); }
+.pool-parts { display: inline-flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+/* A part's switch is a small pill with a chevron; the part opened is a quiet panel under the bar. */
+.subscription-pool .pool-part-head {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 0; height: 26px; padding: 0 11px; border: 1px solid var(--pool-hair);
+  border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.pool-part-head::after { content: ""; width: 5px; height: 5px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .15s; }
+.pool-part-head.open::after { transform: translateY(1px) rotate(-135deg); }
+.subscription-pool .pool-part-head:hover, .subscription-pool .pool-part-head.open { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.subscription-pool .pool-part-head.open { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.pool-panel { padding: 12px 14px; border: 1px solid var(--pool-hair); border-radius: 10px; background: color-mix(in srgb, var(--field) 35%, transparent); font-size: 12px; }
+.pool-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.pool-settings [data-pool-delete] { margin-left: auto; }
+.pool-window { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); }
+.subscription-pool .pool-window input { width: 110px; min-height: 0; height: 26px; padding: 0 8px; font-size: 12px; }
+.pool-loose { display: grid; gap: 6px; padding: 12px 16px; font-size: 12px; }
+.pool-loose-title { font-weight: 600; }
+.pool-loose-hint { margin: 0; color: var(--muted); }
+.pool-loose-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pool-loose-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pool-none { display: grid; justify-items: start; gap: 10px; padding: 14px 16px; }
+.pool-none p { margin: 0; }
+
+/* The step window: the accounts as a list to choose from, then the account's models. Long
+   lists scroll inside the window, the window does not grow past the screen. */
+.pool-step-window { width: min(600px, calc(100vw - 32px)); }
+.pool-step-window .cloud-window-body { max-height: min(70vh, 640px); overflow-y: auto; }
+.pool-step-label { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pool-step-accounts { display: grid; gap: 6px; }
+.cloud-window .pool-step-account { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--field) 50%, transparent); color: var(--text); text-align: left; cursor: pointer; }
+.cloud-window .pool-step-account:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.cloud-window .pool-step-account.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--field)); }
+.cloud-window .pool-step-account.new { justify-content: center; border-style: dashed; background: none; color: var(--muted); }
+.cloud-window .pool-step-account.new:hover { color: var(--accent); }
+.pool-step-account-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pool-step-account-sign { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.pool-step-account.unsigned .pool-step-account-sign { color: var(--warn); }
+.pool-step-models-head { display: flex; gap: 8px; align-items: center; }
+.pool-step-models-head input { flex: 1; min-width: 0; min-height: 0; height: 32px; }
+.pool-step-note { margin: 0; font-size: 11px; color: var(--muted); }
+.pool-step-models { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; padding-right: 2px; }
+.cloud-window .pool-step-model-row { display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 28px; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.cloud-window .pool-step-model-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.cloud-window .pool-step-model-row.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.pool-step-model-row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pool-step-model-row .pool-step-ctx { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pool-step-model-row .pool-step-price { font-size: 11px; color: var(--muted); }
+.pool-step-other { margin: 8px 0 2px; font-size: 11px; color: var(--muted); }
+.pool-step-window .cloud-window-foot button:disabled { opacity: .45; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .pool-part-head::after { transition: none; } }
 
 .cloud-account-icon {
   width: 16px;
@@ -1090,20 +1079,6 @@ button.topology-detail-action.danger:focus {
 .cloud-account-icon svg {
   width: 100%;
   height: 100%;
-}
-
-.cloud-account-name {
-  flex: 1;
-  font-size: 0.88rem;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cloud-account-card > .cloud-key-line {
-  padding: 0 12px 8px;
-  font-size: 0.75rem;
 }
 
 /* Subscription usage panel */
@@ -1130,6 +1105,10 @@ button.topology-detail-action.danger:focus {
    provider's red: nothing is broken, the operator asked for it. */
 .sub-usage-banner.reserve { background: color-mix(in srgb, #38bdf8 12%, var(--field));
   border: 1px solid color-mix(in srgb, #38bdf8 45%, transparent); color: #7dd3fc; }
+/* The step at its stop: the share the operator keeps is reached — the stop handle's red, softer
+   than OpenAI's own refusal. */
+.sub-usage-banner.stop { background: color-mix(in srgb, #ef5f5f 12%, var(--field));
+  border: 1px solid color-mix(in srgb, #ef5f5f 45%, transparent); color: #f5a3a3; }
 .sub-usage-banner-keeps { font-weight: 500; margin-top: 3px; color: var(--text); }
 .sub-usage-banner-own { font-weight: 400; margin-top: 3px; color: var(--muted); font-size: 11px; }
 
@@ -1195,29 +1174,65 @@ button.topology-detail-action.danger:focus {
   overflow: hidden;
 }
 
-/* The operator's reserve on a limit bar: the kept share is hatched from the
-   left, and a range input lies over the bar as its handle. The bar clips at
-   4px, so the handle sits in a wrapper beside it, tall enough to grab. The
-   input's width is the ceiling's share of the bar, set inline with the
-   ceiling itself (usage-stats.js). */
-.sub-usage-track { position: relative; }
-.sub-usage-reserve-zone {
+/* A reading under way (usage-stats.js): the bars stay as last read and a light runs along them
+   until the answer lands; the first read, with nothing to show yet, draws a spinner and a line
+   (the operator, 2026-10-11: show that the state is being updated). */
+.sub-usage-panel.refreshing .sub-usage-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 38%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: sub-usage-sweep 1.2s ease-in-out infinite;
+}
+@keyframes sub-usage-sweep { to { transform: translateX(100%); } }
+.sub-usage-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 7px;
+  box-sizing: border-box;
+  vertical-align: -1px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin-once 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sub-usage-panel.refreshing .sub-usage-bar::after { animation: none; transform: none; background: color-mix(in srgb, #fff 18%, transparent); }
+  .sub-usage-spinner { animation: none; }
+}
+
+/* A pool step's two levels on a limit bar (usage-stats.js; the operator, 2026-10-11): ▼ the switch
+   over the bar, yellow, ▲ the stop under it, red. Each is a range input lying over the whole track
+   with only its thumb taking the pointer, so the two can stand on one mark and both be grabbed. The
+   share under the stop is hatched red, the one between the stop and the switch amber. An input's
+   width is the ceiling's share of the bar, set inline with the ceiling itself. */
+/* --level-thumb: a handle's width, and the one place it is said: the names beside the handles are
+   placed by it too (usage-stats.js, LEVEL_MARKS.left). */
+.sub-usage-track { position: relative; --level-thumb: 16px; }
+/* The two levels' colours, said once: the handles' triangles (their pictures repeat the two values,
+   pinned), the hatching, the names beside the handles and the signs of the legend. */
+:root { --level-stop: #ef4444; --level-switch: #eab308; }
+.sub-usage-track.leveled { display: flex; align-items: center; height: 32px; }
+.sub-usage-track.leveled .sub-usage-bar { flex: 1; }
+.sub-usage-zone { position: absolute; top: 0; bottom: 0; pointer-events: none; }
+/* The hatching says "kept" without shouting over the bar: thin, sparse, half strength. */
+.sub-usage-zone.stop {
+  left: 0;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--level-stop) 55%, transparent) 0 1.5px, transparent 1.5px 6px);
+}
+.sub-usage-zone.switch {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--level-switch) 55%, transparent) 0 1.5px, transparent 1.5px 6px);
+}
+/* The global `input` rule gives every field 42px, a border and a background:
+   none of it belongs on a handle over a bar. */
+.sub-usage-track .sub-usage-switch {
   position: absolute;
   left: 0;
   top: 0;
-  bottom: 0;
-  background: repeating-linear-gradient(135deg,
-    color-mix(in srgb, var(--text) 55%, transparent) 0 2px, transparent 2px 5px);
-  pointer-events: none;
-}
-/* The global `input` rule gives every field 42px, a border and a background:
-   none of it belongs on a handle over a 4px bar. */
-.sub-usage-track .sub-usage-reserve {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 16px;
+  height: 32px;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -1226,28 +1241,46 @@ button.topology-detail-action.danger:focus {
   background: transparent;
   -webkit-appearance: none;
   appearance: none;
-  cursor: ew-resize;
+  pointer-events: none;
 }
-.sub-usage-reserve::-webkit-slider-runnable-track { height: 16px; background: transparent; }
-.sub-usage-reserve::-moz-range-track { height: 16px; background: transparent; }
-.sub-usage-reserve::-webkit-slider-thumb {
+.sub-usage-switch::-webkit-slider-runnable-track { height: 32px; background: transparent; }
+.sub-usage-switch::-moz-range-track { height: 32px; background: transparent; }
+/* A handle is a triangle pointing at the bar from its side (the owner, 2026-10-12, in place of the
+   emoji of 2026-10-11): ▼ the switch from above, yellow — on to the next steps — and ▲ the stop from
+   below, red. The triangle is the thumb's own picture, an SVG, so there is nothing to keep in step
+   with the slider; its fill is the level's colour (--level-switch, --level-stop — the picture cannot
+   read a variable, so the two are pinned equal by test_js_usage_stats.py). The same two signs, in
+   the same colours, stand in the legend (usage-stats.js, LEVEL_HANDLES). */
+.sub-usage-switch::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 4px;
-  height: 14px;
-  margin-top: 1px;
-  border-radius: 2px;
-  background: var(--text);
+  width: var(--level-thumb);
+  height: var(--level-thumb);
+  border: 0;
+  background: transparent center / var(--level-thumb) var(--level-thumb) no-repeat;
+  pointer-events: auto;
+  cursor: ew-resize;
 }
-.sub-usage-reserve::-moz-range-thumb { width: 4px; height: 14px; border: 0; border-radius: 2px; background: var(--text); }
-.sub-usage-reserve.is-off::-webkit-slider-thumb { opacity: 0.35; }
-.sub-usage-reserve.is-off::-moz-range-thumb { opacity: 0.35; }
-.sub-usage-reserve:focus-visible { outline: 1px dashed var(--muted); outline-offset: 2px; }
-.sub-usage-reserve-mark {
-  margin: 0 auto 0 8px;
-  font-size: 10px;
-  color: var(--muted);
-}
+.sub-usage-switch::-moz-range-thumb { width: var(--level-thumb); height: var(--level-thumb); border: 0; border-radius: 0; background: transparent center / var(--level-thumb) var(--level-thumb) no-repeat; pointer-events: auto; cursor: ew-resize; }
+.sub-usage-switch.switch::-webkit-slider-thumb { margin-top: -2px; background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20viewBox='0%200%2016%2016'%3E%3Cpolygon%20points='3%2C6.5%2013%2C6.5%208%2C14.5'%20fill='%23eab308'%20stroke='%23a16207'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.sub-usage-switch.stop::-webkit-slider-thumb { margin-top: 17px; background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20viewBox='0%200%2016%2016'%3E%3Cpolygon%20points='8%2C2.5%2013%2C10.5%203%2C10.5'%20fill='%23ef4444'%20stroke='%23b91c1c'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.sub-usage-switch.switch::-moz-range-thumb { transform: translateY(-9px); background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20viewBox='0%200%2016%2016'%3E%3Cpolygon%20points='3%2C6.5%2013%2C6.5%208%2C14.5'%20fill='%23eab308'%20stroke='%23a16207'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.sub-usage-switch.stop::-moz-range-thumb { transform: translateY(9px); background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20viewBox='0%200%2016%2016'%3E%3Cpolygon%20points='8%2C2.5%2013%2C10.5%203%2C10.5'%20fill='%23ef4444'%20stroke='%23b91c1c'%20stroke-width='1'%20stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.sub-usage-switch.is-off::-webkit-slider-thumb { opacity: 0.3; }
+.sub-usage-switch.is-off::-moz-range-thumb { opacity: 0.3; }
+.sub-usage-switch:focus-visible { outline: 1px dashed var(--muted); outline-offset: 1px; }
+/* The levels named beside their handles, in the handles' colours: the switch over the bar, the stop
+   under it; the pointer passes through to the handle. What the two mean, once under the bars. */
+.sub-usage-level { font-size: 10.5px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sub-usage-track .sub-usage-level { position: absolute; line-height: 12px; pointer-events: none; }
+.sub-usage-track .sub-usage-level.switch { top: 0; }
+.sub-usage-track .sub-usage-level.stop { bottom: 0; }
+/* The names in their handles' hues, softened toward the text: the handles carry the colour. */
+.sub-usage-level.switch { color: color-mix(in srgb, var(--level-switch) 70%, var(--muted)); }
+.sub-usage-level.stop { color: color-mix(in srgb, var(--level-stop) 70%, var(--muted)); }
+.sub-usage-legend { font-size: 10.5px; line-height: 1.45; color: var(--muted); }
+.sub-usage-sign.switch { color: var(--level-switch); }
+.sub-usage-sign.stop { color: var(--level-stop); }
 
 .sub-usage-bar i {
   display: block;
@@ -1283,86 +1316,15 @@ button.topology-detail-action.danger:focus {
   color: var(--text);
 }
 
-.cloud-account-blocks {
-  border-top: 1px solid var(--line);
-}
-
-/* A model's own port for an app (a bridge, route kind "service") sits on the
-   model's row; the orphan strip keeps the rows of bridges whose model left. */
-.cloud-bridge-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.cloud-bridge-port { color: var(--accent, #4da392); }
-.cloud-bridge-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
-.cloud-model-port { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; font-size: 11px; }
-/* min-height: 0 — the global `button { min-height: 34px }` made a row with
-   "＋ port" (or "⇄ Move cables…") half again as tall as its neighbours. */
-.cloud-port-add {
-  flex-shrink: 0; font: inherit; font-size: 10.5px; padding: 1px 7px; border-radius: 7px; cursor: pointer;
-  min-height: 0; line-height: 1.5;
-  border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); background: none; color: var(--muted);
-}
-.cloud-port-add:hover { color: var(--accent, #4da392); border-color: var(--accent, #4da392); }
-/* "⇄ Move cables…" on a gone model something still leads to. */
-.cloud-move-cables {
-  flex-shrink: 0; font: inherit; font-size: 10.5px; padding: 1px 7px; border-radius: 7px; cursor: pointer;
-  min-height: 0; line-height: 1.5;
-  border: 1px solid color-mix(in srgb, var(--bad) 55%, transparent); background: none; color: var(--bad);
-}
-.cloud-move-cables:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
-
-/* "30 days via the caravan": one line, the total; each model's share is on
-   its row in the models list (.cloud-block-spend). */
+/* "30 days via the caravan": one line, the account's total; each step's model
+   has its share in the step's head. */
 .spend-panel { padding: 0; }
 .spend-line { display: flex; align-items: baseline; gap: 8px; width: 100%; cursor: help;
   padding: 6px 10px; font-size: 11.5px; color: var(--fg, #dde); }
 .spend-line-count { color: var(--muted); white-space: nowrap; }
 .spend-line-cost { margin-left: auto; white-space: nowrap; font-weight: 600; }
-.cloud-block-spend { flex-shrink: 0; white-space: nowrap; font-size: 11px; color: var(--fg, #dde);
-  font-variant-numeric: tabular-nums; cursor: help; }
-.cloud-spend-elsewhere { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 10px;
-  font-size: 11px; color: var(--muted); }
-.cloud-spend-item code { font-size: 10.5px; }
 
-/* The models section: one head line (count, what is shown, new, gone, when the
-   list was last checked, ↻ to check now), then the rows. */
-.cloud-models-head { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); padding: 4px 8px 4px 0; }
-.cloud-models-toggle {
-  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px; background: none; border: none;
-  padding: 5px 10px; font: inherit; font-size: 11px; color: var(--muted); text-align: left; cursor: pointer;
-}
-.cloud-models-toggle:hover { color: var(--fg, #dde); }
-.cloud-models-title { text-transform: uppercase; letter-spacing: .06em; font-size: 10px; font-weight: 600; }
-.cloud-models-n { font-variant-numeric: tabular-nums; }
-.cloud-models-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cloud-models-fresh { color: #7cc4ff; font-weight: 600; }
-.cloud-models-gone { color: var(--bad); font-weight: 600; }
-.cloud-models-caret { margin-left: auto; }
-.cloud-models-checked { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
-.cloud-models-head .spinning { animation: btnBusySpin 1s linear infinite; }
-.cloud-chip {
-  flex-shrink: 0; font-size: 9.5px; font-weight: 600; padding: 0 6px; border-radius: 7px; line-height: 16px;
-  border: 1px solid transparent; white-space: nowrap;
-}
-.cloud-chip.fresh { color: #7cc4ff; background: color-mix(in srgb, #7cc4ff 16%, transparent); }
-.cloud-chip.gone { color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, transparent); }
-.cloud-chip.shown { color: var(--accent, #4da392); border-color: color-mix(in srgb, var(--accent, #4da392) 45%, transparent); }
-.cloud-chip.hidden { color: var(--muted); border-color: color-mix(in srgb, var(--muted) 35%, transparent); }
-.cloud-chip.default { color: var(--accent, #4da392); border-color: color-mix(in srgb, var(--accent, #4da392) 45%, transparent); font-weight: 500; }
-.cloud-block-cables { flex-shrink: 0; font-size: 10.5px; color: var(--accent, #4da392); white-space: nowrap; }
-.cloud-block-row.stale .cloud-block-cables { color: var(--bad); }
-.cloud-block-row.fresh { background: color-mix(in srgb, #7cc4ff 5%, transparent); }
-.cloud-block-row.stale { background: color-mix(in srgb, var(--bad) 6%, transparent); }
-.cloud-models-empty { font-size: 11px; padding: 6px 12px; }
-/* Removed by the sync — said once, with ↶ to bring each back. */
-.cloud-removed { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 10px; font-size: 11px;
-  border-top: 1px solid var(--line); color: var(--muted); }
-.cloud-removed-title { flex-basis: 100%; }
-.cloud-removed-item { display: inline-flex; align-items: center; gap: 2px; }
-.cloud-removed-item code { color: var(--fg, #dde); }
-.proxy-reg-bridge { font-size: 9px; padding: 1px 5px; border-radius: 6px; margin-right: 6px;
-  background: color-mix(in srgb, var(--accent, #4da392) 18%, transparent); color: var(--accent, #4da392); }
-.proxy-reg-bridge-target { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-/* One cable handle per provider (account); model list hidden until hover. */
+/* One cable handle per pool, on its card. */
 .cloud-account-card { position: relative; }
 /* Attach the cloud cable to the card HEADER, not its vertical middle. Needs all three
    classes to out-specify .topology-handle.server-input { top:50%; transform:… }. */
@@ -1372,180 +1334,240 @@ button.topology-detail-action.danger:focus {
   transform: none;
   border-radius: 8px 0 0 8px;
 }
-.cloud-models-flyout {
-  max-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  transition: max-height 0.18s ease, opacity 0.18s ease;
-}
-/* Opened by CLICK on the model-count chip (was hover/focus-within: the list
-   sprang open whenever the pointer crossed the card or any field in it got
-   focus, and snapped shut again on every poll re-render). */
-.cloud-account-card.models-open .cloud-models-flyout {
-  max-height: 60vh;
-  opacity: 1;
-  overflow-y: auto;   /* scroll the full model list (can be 100+) */
-}
-/* Sticky "Add model / fetch" footer so it's reachable without scrolling to the end. */
-.cloud-models-flyout .cloud-add-model-btn { position: sticky; bottom: 0; background: var(--panel); }
-
-.cloud-account-empty {
-  padding: 8px 12px;
-  font-size: 0.78rem;
-}
-
-.cloud-add-model-btn {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
-  background: none;
-  border: none;
-  border-top: 1px solid var(--line);
-  border-radius: 0 0 6px 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  text-align: center;
-  transition: color 0.12s, background 0.12s;
-}
-.cloud-add-model-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.cloud-block-row {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 12px 7px 16px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.cloud-block-row:last-child {
-  border-bottom: none;
-}
-
-.cloud-block-row:hover,
-.cloud-block-row:focus-visible {
-  background: rgba(255,255,255,0.04);
-  outline: none;
-}
-
-.cloud-block-row > .topology-handle {
-  position: absolute !important;
-}
-
-.cloud-block-model {
-  font-size: 0.78rem;
-  font-family: ui-monospace, Menlo, monospace;
-  color: var(--muted);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cloud-block-name {
-  font-size: 0.82rem;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cloud-block-pricing {
-  margin-left: auto;
-  font-size: 10px;
-  font-family: ui-monospace, Menlo, monospace;
-  color: var(--muted);
-  opacity: 0.7;
-  white-space: nowrap;
-  flex-shrink: 0;
-  padding-left: 6px;
-}
-
-.cloud-block-row.stale .cloud-block-model {
-  color: var(--bad);
-}
-
-.cloud-block-pricing.free { color: #4ade80; opacity: 1; font-weight: 600; }
-
-.cloud-card {
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.cloud-card:hover,
-.cloud-card:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  outline: none;
-}
-
-.cloud-card.needs-key {
-  opacity: 0.78;
-}
-
-.cloud-key-line {
-  margin-top: 6px;
-  font-size: 11px;
-  font-family: var(--mono, monospace);
-}
-
-.cloud-key-line.set {
-  color: color-mix(in srgb, var(--accent) 70%, var(--text));
-}
-
-.cloud-key-line.unset {
-  color: var(--warn);
-}
-
 .cloud-modal {
   min-width: 420px;
   max-width: 560px;
 }
 
-.cloud-grid {
-  grid-template-columns: 1fr 1fr;
+/* The cloud account windows (2026-10-07): one width, one button size, the
+   states stacked as rows. Sizes are set here, on the component — the global
+   button height (34px) would make each small button the largest thing in its
+   row, as the old "Other way" button next to the sign-in showed. */
+.cloud-window {
+  width: min(520px, calc(100vw - 32px));
+  max-width: none;
+  min-width: 0;
 }
 
-.cloud-grid .cloud-span {
-  grid-column: 1 / -1;
+.cloud-window-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.cloud-grid select,
-.cloud-grid input {
-  width: 100%;
+.cloud-window-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.cloud-actions {
-  flex-wrap: wrap;
+.cloud-window-body {
+  display: grid;
+  gap: 12px;
+  padding: 4px 16px 4px;
 }
 
-.cloud-section-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
-  padding-bottom: 3px;
-  margin-top: 4px;
+.cloud-window-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 16px;
 }
 
-.cloud-oauth-note,
-.cloud-acct-status {
+.cloud-window button,
+.cloud-window .primary-mini-action {
+  min-height: 32px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.cloud-window a.primary-mini-action {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.cloud-field {
+  display: grid;
+  gap: 4px;
   font-size: 11px;
   color: var(--muted);
 }
 
-.cloud-acct-status .cloud-key-line {
-  display: inline;
+.cloud-field input,
+.cloud-field select {
+  width: 100%;
 }
+
+.cloud-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.cloud-status {
+  margin: 0;
+  font-size: 12px;
+}
+
+.cloud-status.good { color: var(--good); }
+.cloud-status.warn { color: var(--warn); }
+
+.cloud-btn-row,
+.cloud-code-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cloud-device-code {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  /* A click copies the code (topology-dnd.js) and selects it whole: when the copy
+     fails, the selected code is one Ctrl+C away. */
+  user-select: all;
+  cursor: pointer;
+}
+
+.cloud-device-code:hover { border-color: var(--accent); }
+.cloud-device-code:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+
+.cloud-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.cloud-wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cloud-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: cloud-spin 0.9s linear infinite;
+}
+
+@keyframes cloud-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud-spinner { animation: none; }
+}
+
+.cloud-note {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.cloud-note.good {
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--good) 35%, transparent);
+}
+
+.cloud-note.warn {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+}
+
+.cloud-window .cloud-link {
+  min-height: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  text-decoration: underline;
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.cloud-details {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cloud-details summary {
+  cursor: pointer;
+}
+
+/* The provider picker (cloud.js renderTopologyCloudPicker; the owner, 2026-10-12: "the windows are not
+   pretty"): tiles of one height in two columns, the provider's colour on its sign alone, its name in
+   the text's colour and its line on one line — the group label above says "API key" once for all.
+   A provider already on the main board is a tile not to press: its block's "＋" adds to it. The
+   selectors carry .cloud-window: its rule for buttons (32px, 6px 12px) would size every tile. */
+.cloud-picker-modal { width: min(560px, calc(100vw - 32px)); }
+.cloud-picker-group {
+  margin: 6px 0 0; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.cloud-picker-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cloud-picker-grid.wide { grid-template-columns: 1fr; }
+/* Five providers take a key: the last one spans the row rather than stand alone in half of it. */
+.cloud-picker-grid > .cloud-picker-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.cloud-window .cloud-picker-tile {
+  display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 62px; height: 100%; margin: 0;
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: color-mix(in srgb, var(--field) 40%, transparent); color: var(--text);
+  font: inherit; text-align: left; cursor: pointer; transition: background .12s, border-color .12s;
+}
+.cloud-window .cloud-picker-tile:hover,
+.cloud-window .cloud-picker-tile:focus-visible {
+  background: color-mix(in srgb, var(--picker-accent, #94a3b8) 9%, var(--panel));
+  border-color: color-mix(in srgb, var(--picker-accent, #94a3b8) 55%, var(--line)); outline: none;
+}
+.cloud-picker-icon {
+  display: grid; place-items: center; flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+  color: var(--picker-accent, #94a3b8); background: color-mix(in srgb, var(--picker-accent, #94a3b8) 14%, transparent);
+}
+.cloud-picker-icon svg { width: 18px; height: 18px; }
+.cloud-picker-text { display: grid; gap: 2px; min-width: 0; }
+.cloud-picker-name { font-size: 13.5px; font-weight: 650; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cloud-picker-desc { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cloud-window .cloud-picker-tile.on-board { opacity: .5; cursor: default; }
+.cloud-window .cloud-picker-tile.on-board:hover { background: color-mix(in srgb, var(--field) 40%, transparent); border-color: var(--line); }
+
+/* The windows' sign and close: the provider's sign in a soft square, as on the picker's tiles, and a
+   quiet ×. The window's rule for buttons made the × a framed 32px box. */
+.cloud-type-badge-icon {
+  display: grid; place-items: center; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px;
+  color: var(--picker-accent, #94a3b8); background: color-mix(in srgb, var(--picker-accent, #94a3b8) 14%, transparent);
+}
+.cloud-type-badge-icon svg { width: 16px; height: 16px; }
+.cloud-window .topology-card-head .icon-action {
+  width: 28px; height: 28px; min-height: 0; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); font-size: 16px; font-weight: 400; line-height: 1;
+}
+.cloud-window .topology-card-head .icon-action:hover,
+.cloud-window .topology-card-head .icon-action:focus-visible { background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--text); }
+/* The plan its limits named (Plus, Pro) beside the sign-in, and a key's provider's word. */
+.cloud-plan {
+  display: inline-block; margin-left: 6px; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line));
+  border-radius: 999px; font-size: 10.5px; font-weight: 650; color: var(--good); vertical-align: 1px;
+}
+.cloud-provider-word { font-size: 12px; }
 
 .ghost-action.danger {
   background: transparent;
@@ -1979,20 +2001,10 @@ button.topology-detail-action.danger:focus {
 .script-preview { max-height: 300px; overflow: auto; white-space: pre; }
 .script-meta { font-size: 10px; color: var(--muted); word-break: break-all; margin-bottom: 4px; }
 
-/* Delete-block preflight: multi-line "used by" list in the confirm dialog. */
+/* A pool's delete preflight: multi-line "used by" list in the confirm dialog. */
 #confirmPath { white-space: pre-line; }
 
-.cloud-bridge-row.unlisted .cloud-bridge-model { color: var(--bad); }
-
-/* Add-modal inline expose checkbox: sits in the grid like a field, not a label-stack. */
-.cloud-expose-line {
-  flex-direction: row !important;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-}
-
-/* "API issues" panel on provider cards: breaker-tripped endpoints + retry. */
+/* "API issues" panel under a pool's step: breaker-tripped endpoints + retry. */
 .cloud-api-issues {
   margin-top: 6px;
   padding: 6px 8px;
@@ -2052,21 +2064,7 @@ button.topology-detail-action.danger:focus {
   opacity: .75;
 }
 
-.cloud-orphan-bridges {
-  margin: 4px 0 10px;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bad) 7%, transparent);
-}
-
 .mbadge-dev    { background: color-mix(in srgb, #94a3b8 12%, transparent); color: #cbd5e1; border-color: color-mix(in srgb, #94a3b8 30%, transparent); }
-
-/* What the provider itself reports for the picked model — shown beside the
-   operator's own figure so "nothing stated" and "nobody knows" are different
-   things on screen, not one blank field. */
-.cloud-ctx-reported { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
-.cloud-ctx-reported b { font-variant-numeric: tabular-nums; }
 
 /* ── Route window: two tabs ───────────────────────────────────────────────
    The first is what the port has already done, the second is what it's

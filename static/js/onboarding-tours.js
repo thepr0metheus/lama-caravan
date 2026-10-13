@@ -44,13 +44,12 @@ function indexSteps() {
     { anchor: ".topology-board", title: t("tourIxBoardT"), body: t("tourIxBoardB") },
     { anchor: "#topologyClients", title: t("tourIxClientsT"), body: t("tourIxClientsB") },
     { anchor: "#topologyProxies", title: t("tourIxProxiesT"), body: t("tourIxProxiesB") },
-    // The lanes under Model servers have no box of their own (one list, server-order.js):
-    // a step stands on a card of its lane — the cloud's, on "+ Add Cloud Provider" in the head while it has none.
+    // A step stands on a card of its section: the machines' on a machine's card (its glance on the main
+    // board, its whole card in its own window). The pools stand on the kanban (2026-10-12): its card's step tells.
     { anchor: "#topologyLlamaServers .node-card", title: t("tourIxServersT"), body: t("tourIxServersB") },
     { anchor: "#topologyLlamaServers .node-server", title: t("tourIxCellLifeT"), body: t("tourIxCellLifeB") },
     { anchor: "[data-t=\"node-caravan-add\"]", title: t("tourIxCellNewT"), body: t("tourIxCellNewB") },
     { anchor: ".caravan-links", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
-    { anchor: "#topologyCloudProviders .cloud-account-card, [data-topo-add-cloud]", title: t("tourIxCloudT"), body: t("tourIxCloudB") },
     { anchor: "#usageStatsBtn", title: t("tourIxStatsT"), body: t("tourIxStatsB") },
     { anchor: "#topologyRequestHistoryBtn", title: t("tourIxHistoryT"), body: t("tourIxHistoryB") },
     { anchor: ".monitor-drawer", title: t("tourIxMonitorT"), body: t("tourIxMonitorB") },
@@ -77,12 +76,14 @@ function configSteps(pfx) {
   ];
 }
 
+// The kanban is three columns (pool-board.js; the owner, 2026-10-12): one step for each.
 function kanbanSteps() {
   return [
     { center: true, title: t("tourKbWelcomeT"), body: t("tourKbWelcomeB"), onRender: langPicker },
-    { anchor: "[data-cv-viewport]", title: t("tourKbCanvasT"), body: t("tourKbCanvasB") },
-    { anchor: ".cv-palette-btn", title: t("tourKbNodesT"), body: t("tourKbNodesB") },
-    { anchor: ".rw-head-standalone", title: t("tourKbHeadT"), body: t("tourKbHeadB") },
+    { anchor: "[data-t='pb-clients']", title: t("tourKbClientsT"), body: t("tourKbClientsB") },
+    { anchor: "[data-t='pb-sets']", title: t("tourKbSetsT"), body: t("tourKbSetsB") },
+    { anchor: "[data-t='pb-pools']", title: t("tourKbPoolsT"), body: t("tourKbPoolsB") },
+    { anchor: "[data-t='pb-models']", title: t("tourKbModelsT"), body: t("tourKbModelsB") },
   ];
 }
 
@@ -101,7 +102,7 @@ export function initOnboarding() {
   initTourButtons({ title: () => t("tourBtnTitle"), onClick: startTour });
   const pageKey = window.ROUTER_STANDALONE ? "kanban" : "index";
   const contentReady = window.ROUTER_STANDALONE
-    ? () => !document.getElementById("appLoader") && !!document.querySelector("[data-cv-viewport]")
+    ? () => !document.getElementById("appLoader") && !!document.querySelector("[data-pb-root]")
     : () => !document.getElementById("appLoader") && !!document.querySelector(".topology-board");
   autoStartOnce(pageKey, contentReady, () => {
     // Don't interrupt if the user already opened something.

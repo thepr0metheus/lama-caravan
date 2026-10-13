@@ -54,7 +54,7 @@ DRY=0
 # docs/business-requirements-caravan-scout.md is a draft for the owner to agree,
 # meant for the home wiki, not for the public project (2026-10-05). It ships
 # only when the owner says so.
-EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|docs/business-requirements-caravan-scout\.md|scripts/refactor/|tests/golden/)'
+EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|docs/business-requirements-caravan-scout\.md|scripts/refactor/|tests/golden/|deploy/nas/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private
@@ -194,12 +194,15 @@ if git -C "$PUB" diff --cached --quiet; then
     exit 0
 fi
 MSG="$(mktemp)"; trap 'rm -f "$LIST" "$SCAN" "$MSG"' EXIT
-{
-    git -C "$PRIV" log --format='%s' "$(git -C "$PUB" rev-parse origin/main)..HEAD" 2>/dev/null \
-        | head -1 || echo "Sync from private"
-    echo
-    echo "Сводка правок — при необходимости переписать перед пушем."
-} > "$MSG"
+# The message is the release and nothing else, in English. A draft line in
+# Russian ("rewrite before pushing") was left unrewritten in 27 commits and 19
+# tags on GitHub (2026-09-21…25); private subjects — merge requests are titled
+# in Russian — never go out either.
+VERSION_NOW="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$PRIV/caravan/__init__.py")"
+[[ -n "$VERSION_NOW" ]] || die "версия не прочитана из caravan/__init__.py"
+echo "Sync from private: $VERSION_NOW" > "$MSG"
+python3 -c 'import re, sys; sys.exit(1 if re.search("[\u0400-\u04ff]", open(sys.argv[1], encoding="utf-8").read()) else 0)' "$MSG" \
+    || die "в сообщении коммита кириллица — в паблик уходит только английский текст"
 git -C "$PUB" -c user.name="$IDENT_NAME" -c user.email="$IDENT_MAIL" \
     -c commit.gpgsign=false commit -q -F "$MSG"
 say "$(git -C "$PUB" log -1 --format='%h %s')"

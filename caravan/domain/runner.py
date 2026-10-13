@@ -51,9 +51,11 @@ class Runner:
     #: picking Qwen left transcribe.cpp enabled, and both of those only fail
     #: once the engine is already starting. The kinds are
     #:
-    #:     llm-gguf | asr-gguf | whisper-size | moonshine-lang | safetensors | "*"
+    #:     llm-gguf | asr-gguf | strata-gguf | whisper-size | moonshine-lang | safetensors | "*"
     #:
-    #: where a gguf is sorted into llm/asr by its own stt.* metadata. "*" means
+    #: where a gguf is sorted into llm/asr by its own stt.* metadata, and into a
+    #: runner's own kind when its architecture is one that runner claims
+    #: (gguf_archs). "*" means
     #: the runner's artifact does not live in MODEL_FILE at all (vLLM reads
     #: VLLM_MODEL, custom runs a command line), so nothing in that field can
     #: disqualify it.
@@ -75,6 +77,26 @@ class Runner:
     #: How the shared model picker treats this runner: source (the picker's rows
     #: are its artifacts), carrier (it names a model of its own), aim, ignored.
     shared_picker = "ignored"
+    #: GGUF architectures only this runner's engine reads (general.architecture
+    #: in the file's header): such a file is this runner's kind — artifacts[0] —
+    #: and not an LLM that llama.cpp would load. Empty: it claims none.
+    gguf_archs = ()
+    #: The same for safetensors folders: config.json model_type values only this runner reads.
+    #: Such a folder is this runner's kind — artifacts[0] — not a chat checkpoint for vLLM. The
+    #: browser kept this as a literal for seamless alone (llama-edit.js, form.js), twice.
+    st_archs = ()
+    #: The config fields that name model files a command cell of this runner
+    #: reads — what its scout fetches before the start (modelFiles), in this
+    #: order. The scout fetched MODEL_FILE for every command cell, a leftover
+    #: one too, and nothing else: Strata reads its weights and its draft layer.
+    model_files = ()
+    #: The oldest caravan-scout that can start this runner's cells, as
+    #: (major, minor, patch); None: any.
+    min_scout = None
+    #: The field that holds the cell's context window, for the card's 🪟 when
+    #: its machine does not report one. vLLM keeps its own (MAX_MODEL_LEN): read
+    #: as CTX_SIZE, its card showed the window every config inherits.
+    context_field = "CTX_SIZE"
 
     #: True when this cell's work is measured in tokens, so CTX_SIZE means
     #: something to it. Every cell config inherits CTX_SIZE from the controller
@@ -129,6 +151,18 @@ class Runner:
         card. Empty means "the caller already shows the model file"."""
         return ""
 
+    def model_file_values(self, config) -> dict:
+        """{field: path} of the model files this runner's cell reads (model_files), in that
+        order, the empty fields left out. The one reading behind both the files a scout is sent
+        (model_file_paths) and the controller's hints of where each one is (model_paths)."""
+        cfg = config or {}
+        return {f: str(cfg.get(f) or "").strip() for f in self.model_files if str(cfg.get(f) or "").strip()}
+
+    def model_file_paths(self, config) -> list[str]:
+        """The model files this runner's cell reads, as its config names them
+        (model_files), in that order; the empty fields left out."""
+        return list(self.model_file_values(config).values())
+
     # ── how a cell of this kind is launched ──────────────────────────────────
     def command(self, config) -> str:
         """The shell command this cell runs, without `exec`.
@@ -180,6 +214,29 @@ class Runner:
         instead, so the base reserves nothing. `gpus` are the machine's cards
         as its report or nvidia-smi names them (index, memoryTotalMiB)."""
         return None
+
+    def vram_plan(self):
+        """How a start takes VRAM when its cost is not its model's files, for
+        the cell form's estimate bar; None when the form has its own figure for
+        this runner (llama.cpp sums its files, KV and batch; vLLM reserves its
+        utilization of the card). The form sent every runner with a model
+        through llama.cpp's sum, and a Strata cell — which sizes itself to the
+        card — read "37.2 GB, won't fit" on the 32 GB card it runs on (live
+        check, 2026-10-13)."""
+        return None
+
+    def pinned_card(self, config, gpus):
+        """The card a one-card start lands on: the last CUDA_VISIBLE_DEVICES in the cell's ENV,
+        else card 0; None when the pin names no single card or the machine has no such card.
+        The browser reads ENV the same way (memory.js FreeVramStart.device), and one table of
+        cases holds the two copies together (scripts/test_js_memory.py)."""
+        pinned = [v for k, v in self.env_pairs((config or {}).get("ENV")) if k == "CUDA_VISIBLE_DEVICES"]
+        device = pinned[-1].strip().strip('"') if pinned else "0"
+        if not device.isdigit():
+            return None
+        if not any(str(g.get("index")) == device for g in gpus or []):
+            return None
+        return int(device)
 
     def launch_env(self, config) -> dict:
         """The environment the engine itself must start with, NAME -> value:
@@ -234,6 +291,13 @@ class Runner:
             "llamaConfig": self.llama_config,
             "editorTab": self.editor_tab,
             "engineCell": self.engine_cell,
+            # Sent so the picker sorts a GGUF by the same rule the server does:
+            # a file of an architecture only this runner reads is its kind.
+            "ggufArchs": list(self.gguf_archs),
+            "stArchs": list(self.st_archs),
+            "contextField": self.context_field,
+            # Sent so the estimate bar draws a start as the scout will judge it.
+            "vramPlan": self.vram_plan(),
         }
         if self.format_requirements:
             row["formatRequirements"] = dict(self.format_requirements)
@@ -316,6 +380,7 @@ class VllmRunner(Runner):
     model_field = "VLLM_MODEL"
     shared_picker = "aim"
     token_context = True
+    context_field = "MAX_MODEL_LEN"
     default_health_path = "/v1/models"
     format_requirements = {"nvfp4": 10.0, "fp8": 8.9}
 
@@ -436,6 +501,268 @@ class VllmRunner(Runner):
             raise AppError("vLLM cell has no model — configure it first", 400)
 
 
+
+class StrataRunner(Runner):
+    """Strata: Qwen3.8-Flash-Next (177B, 24 576 experts, 10 per token) on one
+    32 GB card — its experts compressed by GSQ-RCO to about 2 bits (IQ2_XS: 68
+    GB in two GGUF parts), the ones a token needs streamed to the card.
+
+    llama.cpp does not know the model's architecture (qwen4exp; b10357), so a
+    file of it is this runner's kind, and picking it lands here. The model is
+    two things from the caravan's library: the GGUF's first part (MODEL_FILE —
+    the scout brings the second beside it) and the MTP draft layer
+    (SPEC_DRAFT_MODEL_FILE, mtp-q2_0.gguf, Strata's own pack of the original
+    checkpoint's MTP tensors: about 2x the output speed). What Strata makes from
+    them — its pack, the draft layer's runtime, its config — the launcher
+    writes into the cell's scratch folder at every start
+    (cells/strata_launch.py). The engine is installed on the machine once
+    (~/Strata, Strata's own setup.sh), as transcribe.cpp's is."""
+    id = "strata"
+    icon = "\U0001faa8"
+    label_key = "runnerStrata"
+    benefits_key = "runnerStrataBenefits"
+    artifacts = ("strata-gguf",)
+    formats = ("gguf",)
+    gguf_archs = ("qwen4exp",)
+    health = "/health"
+    api = "openai"
+    model_field = "MODEL_FILE"
+    model_files = ("MODEL_FILE", "SPEC_DRAFT_MODEL_FILE")
+    shared_picker = "source"
+    token_context = True
+    context_field = "STRATA_CONTEXT"
+    default_health_path = "/health"
+    #: Its model is a GGUF PATH under the shared model root, as transcribe's.
+    needs_models_dir = True
+    #: The scout that brings both parts and the draft layer (modelFiles, split
+    #: GGUFs) and gives the cell a scratch folder for the pack.
+    min_scout = (2, 31, 0)
+
+    #: Strata's own answers (setup.py, v0.1.42): the context it recommends for
+    #: a 32 GB card, its KV cache types and its draft-vocabulary subsets
+    #: (cyrillic: English, code and the Cyrillic script).
+    default_context = 131072
+    kv_types = ("int8", "q4_0", "k8v4")
+    draft_vocabs = ("cyrillic", "cjk", "en", "fr")
+    #: The free VRAM below which Strata does not start: its smallest card is
+    #: 6 GB (v0.1.38, "a 6 GB card starts"). Asked before the start, since the
+    #: start downloads the model first — 68 GB, then a refusal.
+    min_free_mib = 6144
+    #: The field naming the MiB of VRAM a cell leaves to other cells.
+    reserve_field = "STRATA_VRAM_RESERVE_MIB"
+    ROOT = '"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/'
+
+    def artifact_label(self, config):
+        name = os.path.basename(str((config or {}).get("MODEL_FILE") or "").strip())
+        return re.sub(r"-\d{5}-of-\d{5}\.gguf$|\.gguf$", "", name, flags=re.I) or "Strata"
+
+    def context(self, config) -> int:
+        """The window asked for; empty is Strata's own default. Anything else
+        is refused, not replaced: a cell started with another window than the
+        one its config shows is the wrong cell."""
+        raw = str((config or {}).get(self.context_field) or "").strip()
+        if not raw:
+            return self.default_context
+        if not raw.isdigit() or int(raw) <= 0:
+            raise AppError(f"{self.context_field} must be a number of tokens, not {raw!r}", 400)
+        return int(raw)
+
+    def choice(self, config, field, allowed) -> str:
+        """A field with a closed set of values: empty is the first, anything
+        outside the set refused."""
+        raw = str((config or {}).get(field) or "").strip().lower()
+        if not raw:
+            return allowed[0]
+        if raw not in allowed:
+            raise AppError(f"{field} must be one of {', '.join(allowed)}, not {raw!r}", 400)
+        return raw
+
+    def reserve(self, config) -> int:
+        """MiB of VRAM left to other cells; 0 when the field is empty."""
+        raw = str((config or {}).get(self.reserve_field) or "").strip()
+        if not raw:
+            return 0
+        if not raw.isdigit():
+            raise AppError(f"{self.reserve_field} must be a number of MiB, not {raw!r}", 400)
+        return int(raw)
+
+    def _path(self, rel) -> str:
+        rel = str(rel or "").strip()
+        if rel.startswith("/") or rel.startswith("$"):
+            return shlex.quote(rel)
+        return self.ROOT + shlex.quote(rel)
+
+    def command(self, config) -> str:
+        """The run_strata.sh line: the model's first part and its draft layer
+        under the models root, then Strata's own settings. The launcher checks
+        each value again — this line is also typed by hand."""
+        cfg = config or {}
+        model = str(cfg.get("MODEL_FILE") or "").strip()
+        if not model:
+            raise AppError("MODEL_FILE is required for a Strata cell", 400)
+        parts = [f'bash $HOME/run_strata.sh "$PORT" {self._path(model)}']
+        draft = str(cfg.get("SPEC_DRAFT_MODEL_FILE") or "").strip()
+        if draft:
+            parts += ["--mtp", self._path(draft)]
+        parts += ["--context", str(self.context(cfg)),
+                  "--kv", self.choice(cfg, "STRATA_KV", self.kv_types),
+                  "--draft-vocab", self.choice(cfg, "STRATA_DRAFT_VOCAB", self.draft_vocabs)]
+        reserve = self.reserve(cfg)
+        if reserve:
+            parts += ["--vram-reserve-mib", str(reserve)]
+        name = str(cfg.get("MODEL_NAME") or cfg.get("ALIAS") or "").strip()
+        if name:
+            parts += ["--name", shlex.quote(name)]
+        return " ".join(parts)
+
+    def prepare(self, merged) -> str:
+        if not merged.get("LLAMA_MODELS_DIR"):
+            from caravan.admin.paths import DEFAULT_MODELS_DIR
+            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
+        return self.command(merged)
+
+    def preflight_start(self, config, model="") -> None:
+        if not (model or self.model_ref(config)):
+            raise AppError("Strata cell has no model — configure it first", 400)
+
+    def vram_reservation(self, config, gpus):
+        """What a start needs free on its card: min_free_mib, plus the VRAM the
+        cell is told to leave to others. The card is the one CUDA_VISIBLE_DEVICES
+        in the cell's ENV pins, else the first; None when it is unknown."""
+        cfg = config or {}
+        device = self.pinned_card(cfg, gpus)
+        if device is None:
+            return None
+        try:
+            extra = self.reserve(cfg)
+        except AppError:
+            return None     # the start itself refuses it, with the field's name
+        return {"device": device, "reserveMiB": self.min_free_mib + extra, "who": "Strata",
+                "why": "its smallest card is 6 GB" + (f", plus {extra} MiB left to others" if extra else ""),
+                "lower": self.reserve_field}
+
+    def vram_plan(self):
+        """Strata sizes its expert cache to the card's free VRAM: a start takes
+        what is free on its card, less the reserve, and needs min_free_mib plus
+        the reserve free — the reservation above, which the scout checks."""
+        return {"takesFree": True, "floorMiB": self.min_free_mib, "reserveField": self.reserve_field}
+
+class Gr00tRunner(Runner):
+    """NVIDIA GR00T N1.7: a robot policy. Camera frames, the robot's state and an instruction
+    in, a chunk of actions out (the SpiderMonkey task, visumap spider-monkey-model-servers,
+    2026-10-13).
+
+    Its model is two FOLDERS of the caravan's library: the checkpoint (MODEL_FILE, a safetensors
+    folder whose config.json says model_type Gr00tN1d7, hence its own artifact kind) and the
+    backbone that checkpoint names (GR00T_BACKBONE, nvidia/Cosmos-Reason2-2B, a gated repository
+    the cell never asks the hub for). The scout brings both, as it brings any cell's model. The
+    runtime is NVIDIA's Isaac-GR00T, installed once on the machine (scripts/install-gr00t.sh);
+    the cell is cells/gr00t_server.py, which answers POST /v1/robot/predict — the path of the
+    robot-policy job at the caravan's entry (caravan/common/model_kinds.py)."""
+    id = "gr00t"
+    icon = "\U0001f9be"
+    label_key = "runnerGr00t"
+    benefits_key = "runnerGr00tBenefits"
+    artifacts = ("gr00t-st",)
+    formats = ("*",)
+    st_archs = ("Gr00tN1d7",)
+    health = "/health"
+    model_field = "MODEL_FILE"
+    model_files = ("MODEL_FILE", "GR00T_BACKBONE")
+    shared_picker = "source"
+    default_health_path = "/health"
+    #: Its folders are paths under the shared model root, as seamless's.
+    needs_models_dir = True
+    #: The scout that brings folders (2.30) and a command cell's model files (2.31).
+    min_scout = (2, 31, 0)
+
+    #: The backbone the base checkpoint names, where the caravan's library keeps it.
+    default_backbone = "Cosmos-Reason2-2B/nvidia/BF16"
+    #: The robot the policy acts for: the base checkpoint's DROID tag, the one its own sample
+    #: runs on. The runtime holds the list of tags; the cell refuses an unknown one at its start.
+    default_embodiment = "OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
+    #: VRAM a start takes: 7030 MiB measured for the policy on an RTX 5090 (2026-10-13), rounded up.
+    min_free_mib = 7680
+    ROOT = '"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/'
+
+    def artifact_label(self, config):
+        parts = [p for p in str((config or {}).get("MODEL_FILE") or "").strip().rstrip("/").split("/") if p]
+        return parts[0] if parts else "GR00T"
+
+    def _path(self, rel) -> str:
+        rel = str(rel or "").strip().rstrip("/")
+        if rel.startswith("/") or rel.startswith("$"):
+            return shlex.quote(rel)
+        return self.ROOT + shlex.quote(rel)
+
+    def embodiment(self, config) -> str:
+        """The robot's tag: empty is the default, anything else a tag in the runtime's spelling."""
+        raw = str((config or {}).get("GR00T_EMBODIMENT") or "").strip()
+        if not raw:
+            return self.default_embodiment
+        if not re.fullmatch(r"[A-Za-z0-9_]+", raw):
+            raise AppError(f"GR00T_EMBODIMENT must be an embodiment tag such as {self.default_embodiment}, "
+                           f"not {raw!r}", 400)
+        return raw
+
+    def denoising_steps(self, config) -> int:
+        """The action head's denoising steps; 0 when empty — the checkpoint's own."""
+        raw = str((config or {}).get("GR00T_DENOISING_STEPS") or "").strip()
+        if not raw:
+            return 0
+        if not raw.isdigit() or not 1 <= int(raw) <= 64:
+            raise AppError(f"GR00T_DENOISING_STEPS must be a number from 1 to 64, not {raw!r}", 400)
+        return int(raw)
+
+    def command(self, config) -> str:
+        """The run_gr00t.sh line: both folders under the models root, then the robot and the
+        cell's name. The cell checks each value again — this line is also typed by hand."""
+        cfg = config or {}
+        model = str(cfg.get("MODEL_FILE") or "").strip()
+        if not model:
+            raise AppError("MODEL_FILE is required for a GR00T cell: the checkpoint's folder", 400)
+        backbone = str(cfg.get("GR00T_BACKBONE") or "").strip() or self.default_backbone
+        parts = [f'bash $HOME/run_gr00t.sh "$PORT" {self._path(model)}',
+                 "--backbone", self._path(backbone), "--embodiment", self.embodiment(cfg)]
+        steps = self.denoising_steps(cfg)
+        if steps:
+            parts += ["--denoising-steps", str(steps)]
+        name = str(cfg.get("MODEL_NAME") or cfg.get("ALIAS") or "").strip()
+        if name:
+            parts += ["--name", shlex.quote(name)]
+        return " ".join(parts)
+
+    def model_file_values(self, config) -> dict:
+        """The checkpoint and the backbone, the latter by default when its field is empty: the
+        scout brings the folder the command names, not the field's emptiness."""
+        cfg = dict(config or {})
+        if not str(cfg.get("GR00T_BACKBONE") or "").strip():
+            cfg["GR00T_BACKBONE"] = self.default_backbone
+        return super().model_file_values(cfg)
+
+    def prepare(self, merged) -> str:
+        if not merged.get("LLAMA_MODELS_DIR"):
+            from caravan.admin.paths import DEFAULT_MODELS_DIR
+            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
+        return self.command(merged)
+
+    def preflight_start(self, config, model="") -> None:
+        if not (model or self.model_ref(config)):
+            raise AppError("GR00T cell has no checkpoint — configure it first", 400)
+
+    def vram_reservation(self, config, gpus):
+        """What a start needs free on its card: the policy's measured footprint."""
+        device = self.pinned_card(config, gpus)
+        if device is None:
+            return None
+        return {"device": device, "reserveMiB": self.min_free_mib, "who": "GR00T",
+                "why": "the policy took 7.0 GB on an RTX 5090", "lower": ""}
+
+    def vram_plan(self):
+        """A fixed figure: the policy and its backbone take what they took when measured."""
+        return {"fixedMiB": self.min_free_mib}
+
+
 class WhisperRunner(Runner):
     """faster-whisper speech-to-text (the whisper_server.py that run_whisper.sh
     launches on every GPU host). The model is a SIZE name (tiny…large-v3) —
@@ -535,6 +862,7 @@ class TranscribeRunner(Runner):
     formats = ("gguf",)
     health = "/health"
     model_field = "MODEL_FILE"
+    model_files = ("MODEL_FILE",)
     shared_picker = "source"
     default_health_path = "/health"
     #: Its model is a GGUF PATH, so like whisper it needs the shared model root
@@ -591,8 +919,10 @@ class SeamlessRunner(Runner):
     benefits_key = "runnerSeamlessBenefits"
     artifacts = ("seamless-st",)
     formats = ("*",)
+    st_archs = ("seamless_m4t", "seamless_m4t_v2")
     health = "/health"
     model_field = "MODEL_FILE"
+    model_files = ("MODEL_FILE",)
     shared_picker = "source"
     default_health_path = "/health"
     #: Its model is a DIRECTORY under the shared model root, so the block must
@@ -813,6 +1143,8 @@ REGISTRY = (
     LlamaServerRunner(),
     PrismRunner(),
     VllmRunner(),
+    StrataRunner(),
+    Gr00tRunner(),
     WhisperRunner(),
     MoonshineRunner(),
     TranscribeRunner(),

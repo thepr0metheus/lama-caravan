@@ -35,6 +35,7 @@ from caravan.admin.paths import (
     SETTINGS_BACKUP_DIR,
     START_SCRIPT,
 )
+from caravan.common.credential_vault import CredentialVault
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text, create_private_text
 
@@ -451,11 +452,16 @@ def apply_bundle(bundle, passphrase=""):
             os.chmod(tmp, 0o600)
             os.replace(tmp, path)
         else:
-            atomic_write_text(path, json.dumps(entry["content"], indent=2), mkdir=True)
+            # The cloud keys, the one JSON credential document: through the
+            # vault, under the lock a token renewal takes. A whole-file write
+            # between a renewal's read and its write would be undone by it, or
+            # undo it — and the vault writes the file 0600 from its first byte.
             try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
+                CredentialVault(path).replace(entry["content"])
+            except ValueError:
+                # Not an object: written, it would read back as "no keys at all".
+                skipped.append(name)
+                continue
         written.append(name)
 
     if any(n in written for n in _credential_files()):

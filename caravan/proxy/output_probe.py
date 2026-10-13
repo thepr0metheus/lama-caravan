@@ -2,7 +2,7 @@
 
 Traffic keeps a verdict fresh on its own (caravan/proxy/output_health.py). An
 exit nobody has used for VERDICT_TTL_SECONDS gets one small request instead —
-GET /health on a cell, a one-token completion on a cloud block — so that the
+GET /health on a cell, a one-token completion on a cloud pool — so that the
 backup node knows where the next request should go BEFORE it arrives, and the
 board can draw it. A cloud probe costs a request against the account; that is
 the price of knowing, and it is paid only while the exit is idle.
@@ -11,7 +11,7 @@ import http.client
 import json
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from caravan.proxy.cloud_auth import (
     CLOUD_PROVIDER_AUTH, load_cloud_account, load_cloud_provider, load_provider_secret,
@@ -19,10 +19,11 @@ from caravan.proxy.cloud_auth import (
 from caravan.proxy.config import current_config
 from caravan.proxy.graph import PLAIN_REQUEST_CTX, chain_exit, resolve_graph
 from caravan.proxy.output_health import output_health, output_id_of_ref
-from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
-from caravan.proxy.subscription_pool import subscription_pools
+from caravan.common.cloud_sources import CloudSources
+from caravan.proxy.pool_steps import pool_steps
+from caravan.proxy.subscription_usage import subscription_usage
 from caravan.proxy.translate import (
-    _chat_to_anthropic_body, _chat_to_responses_body, _extract_chatgpt_account_id, rewrite_model_in_body,
+    _chat_to_anthropic_body, _chat_to_responses_body, _extract_chatgpt_account_id, model_named,
 )
 
 PROBE_INTERVAL_SECONDS = 30
@@ -156,33 +157,64 @@ def _probe_engine(output, timeout):
     return (True, 200, "", "")
 
 
+def _probe_machine(output, timeout):
+    """A model of a machine's entry (its scout, 1.3.506): alive when the entry has it running.
+    A GET of the one model — its state, not a completion, which would cost a generation on every
+    pass. A model the entry has but runs no copy of is down, said by its state."""
+    host = str(output.get("upstreamHost") or "")
+    port = int(output.get("upstreamPort") or 0)
+    model = str(output.get("upstreamModel") or "")
+    if not host or not port or not model:
+        return (False, None, "config", "no machine address or model")
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        try:
+            conn.request("GET", "/v1/models/" + quote(model, safe=""),
+                         headers={"Host": f"{host}:{port}", "Connection": "close"})
+            resp = conn.getresponse()
+            body = resp.read(256 * 1024)
+            status = resp.status
+        finally:
+            conn.close()
+    except Exception as exc:
+        return (False, None, "connect", f"connect failed: {exc}"[:200])
+    if status == 404:
+        return (False, 404, "model", f"the machine's entry does not have {model}")
+    if status != 200:
+        return (False, status, f"http {status}", _failure_text(status, body))
+    try:
+        state = str((json.loads(body.decode("utf-8")).get("caravan") or {}).get("state") or "")
+    except Exception:
+        return (False, status, "http 200", "the machine's entry answered no model")
+    if state != "running":
+        return (False, 503, "model_not_running", f"{model} is {state or 'not running'} on its machine")
+    return (True, 200, "", "")
+
+
 def _probe_cloud(output, timeout):
-    """One-token completion through the same headers and translations real traffic uses."""
+    """One-token completion through the same headers and translations real traffic uses.
+
+    A pool is asked through the step that would serve a request now: when no
+    step fits — every one at its switch level, say — the exit refuses, and the
+    probe says so without spending a request of the very share it protects."""
     provider_id = str(output.get("providerId") or "")
     provider = load_cloud_provider(provider_id) if provider_id else load_cloud_account(output.get("accountId"))
     if not provider:
         return (False, None, "config", "cloud provider not configured")
+    provider, refusal = pool_steps.resolve(provider)
+    if refusal:
+        return (False, refusal.status, refusal.KIND, refusal.message[:200])
     model = str(provider.get("model") or "")
     if not model:
         # An account passthrough pins no model: there is nothing one request could prove.
         return (None, None, "", "")
-    provider, refusal = subscription_pools.resolve(provider)
-    if refusal:
-        return (False, refusal.status, refusal.KIND, refusal.message[:200])
     auth_pair = load_provider_secret(provider)
     if not auth_pair:
         return (False, None, "config", "cloud account missing credential")
     base = urlsplit(provider.get("baseUrl") or "")
     if not base.hostname:
         return (False, None, "config", "cloud account baseUrl invalid")
-    is_subscription = (str(provider.get("accountType") or "") == "openai-subscription"
-                       or "chatgpt.com" in str(provider.get("baseUrl") or ""))
-    if is_subscription:
-        # The operator's reserve reached: the exit refuses, and the probe says
-        # so without spending a request of the very reserve it protects.
-        hit = reserve_gate.verdict(provider)
-        if hit:
-            return (False, ReserveRefusal.status, ReserveRefusal.KIND, ReserveRefusal(hit).message[:200])
+    is_subscription = CloudSources.is_subscription(provider)
     use_tls = base.scheme != "http"
     port = base.port or (443 if use_tls else 80)
     chat = json.dumps({"model": model, **_PROBE_CHAT}).encode("utf-8")
@@ -209,7 +241,7 @@ def _probe_cloud(output, timeout):
         headers.update(auth.get("extraHeaders") or {})
         headers[auth_pair[0]] = auth_pair[1]
         headers["Accept"] = "application/json"
-        body = rewrite_model_in_body(chat, model)
+        body = model_named(chat, model)
         path = base.path.rstrip("/") + "/chat/completions"
     headers["Content-Length"] = str(len(body))
     try:
@@ -234,8 +266,8 @@ def probe_output(output, timeout=PROBE_TIMEOUT_SECONDS):
     """(ok, status, kind, message) for one output; ok=None when nothing can be proved."""
     if not isinstance(output, dict):
         return (False, None, "config", "unknown output")
-    probe = {"cloud": _probe_cloud, "engine": _probe_engine}.get(str(output.get("upstreamType") or "llama"),
-                                                                 _probe_cell)
+    probe = {"cloud": _probe_cloud, "engine": _probe_engine, "machine": _probe_machine}.get(
+        str(output.get("upstreamType") or "llama"), _probe_cell)
     return probe(output, timeout)
 
 

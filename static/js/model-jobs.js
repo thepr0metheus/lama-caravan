@@ -14,6 +14,7 @@
 //     tts               text → speech
 //     translate         text → text in another language
 //     speech-translate  speech → text in another language
+//     robot-policy      camera frames + robot state + instruction → robot actions
 //
 // `speech-translate` is separate from `asr` on purpose: SeamlessM4T returns the
 // TARGET language only and never produces a transcript of the source, so a
@@ -21,7 +22,7 @@
 // transcription.
 
 //: The whole vocabulary. Order is the order chips are drawn in.
-export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translate"];
+export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translate", "robot-policy"];
 
 //: How a job is drawn: the mark and the i18n key of its label. Here, beside the
 //: vocabulary itself, because BOTH surfaces draw it — the picker row and the
@@ -33,10 +34,12 @@ export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translat
 export const JOB_MARKS = {
   llm: "\u{1F4AC}", embed: "\u{1F9EC}", asr: "\u{1F3A7}", tts: "\u{1F50A}",
   translate: "\u{1F310}", "speech-translate": "\u{1F3A7}\u{1F310}",
+  "robot-policy": "\u{1F9BE}",
 };
 export const JOB_LABELS = {
   llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
   translate: "jobTranslate", "speech-translate": "jobSpeechTranslate",
+  "robot-policy": "jobRobotPolicy",
 };
 
 //: Words a cell may report in `kinds` that mean one of ours. Cell servers grew
@@ -55,6 +58,9 @@ const KIND_ALIASES = {
   // "embedding".
   vlm: "llm",
   embedding: "embed",
+  "robot-policy": "robot-policy",
+  // A vision-language-action model, as the field calls it.
+  vla: "robot-policy",
 };
 
 //: What each runner can be, when the cell itself has not said. A runner absent
@@ -64,11 +70,13 @@ const RUNNER_JOBS = {
   "llama-server": ["llm"],
   prism: ["llm"],
   vllm: ["llm"],
+  strata: ["llm"],
   whisper: ["asr"],
   moonshine: ["asr", "tts"],
   transcribe: ["asr"],
   seamless: ["speech-translate"],
   translate: ["translate"],
+  gr00t: ["robot-policy"],
 };
 
 // The vocabulary's order, not the caller's — so two cells reporting the same
@@ -89,7 +97,11 @@ export function jobsForArtifact(kind, sttVariant = "", arch = "", family = "") {
     // returns vectors, and llama.cpp cannot serve chat from the same instance.
     return String(family || "") === "embedding" ? ["embed"] : ["llm"];
   }
-  if (k === "st") return String(arch || "").startsWith("seamless_m4t") ? ["speech-translate"] : ["llm"];
+  if (k === "st") {
+    const a = String(arch || "");
+    if (a.startsWith("seamless_m4t")) return ["speech-translate"];
+    return a.toLowerCase().startsWith("gr00t") ? ["robot-policy"] : ["llm"];
+  }
   if (k === "whisper") return ["asr"];
   if (k === "moonshine") return ["asr", "tts"];
   if (k === "translate") return ["translate"];
@@ -118,4 +130,39 @@ export function jobsForCell(runnerId, kinds = []) {
   const live = jobsFromKinds(kinds);
   if (live.length) return live;
   return ordered(new Set(RUNNER_JOBS[String(runnerId || "").trim().toLowerCase()] || []));
+}
+
+// The runner that launches a cell: its RUNNER, a command cell's "custom", or
+// llama-server. One rule for the cell card, its detail window and the kanban's
+// rows — the card and the window each held a copy, written differently. Here,
+// beside the vocabulary, since the controller tells the proxy what each cell does
+// by the same rule (caravan/common/model_jobs.py cell_runner_id, one table of
+// cases for both in scripts/test_model_jobs.py, 1.3.502).
+export function cellRunnerId(cfg) {
+  const c = cfg || {};
+  return String(c.RUNNER || "").trim().toLowerCase()
+    || (String(c.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server");
+}
+
+// What a cell DOES, from its record — the card's job chips, the kanban's row
+// marks and, through the controller's twin (cell_jobs), the kind a pool tells
+// its clients in /v1/models.
+//
+// The live `kinds` outrank the runner table, which is the only way a TTS cell
+// can be named as one: voice cloning runs as a typed command, so its runner is
+// "custom" and the table knows nothing about it. A cell whose job cannot be
+// named has none rather than a guessed one.
+export function cellJobs(runnerId, cellMeta, cfg) {
+  // An embedding server answers /v1/embeddings and returns vectors; llama.cpp
+  // cannot serve chat from the same instance. The runner is still llama-server,
+  // so the runner table alone called it a chat model — and a live
+  // Qwen3-Embedding cell wore "💬 LLM" on the board until this branch existed.
+  const embeds = String((cfg || {}).ENABLE_EMBEDDINGS || "").trim().toLowerCase();
+  if (embeds && !["", "0", "no", "false", "off"].includes(embeds)) return ["embed"];
+  // A cell this controller holds no settings for (made by the controller that ran on the machine
+  // before) has no runner on record: the runner id defaults to llama-server, and every such cell —
+  // a speech recogniser, an embedding server — wore the chat mark (2026-10-12). What the cell says
+  // about itself (its kinds, read by the controller) is all there is; nothing said, no job.
+  if (!cfg || !Object.keys(cfg).length) return jobsForCell("", (cellMeta || {}).kinds || []);
+  return jobsForCell(runnerId, (cellMeta || {}).kinds || []);
 }

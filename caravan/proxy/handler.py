@@ -1,7 +1,6 @@
 """ProxyHandler: the per-port HTTP request handler — route resolution, queue
 admission, upstream forwarding (llama or cloud with protocol translation),
 response relay and event logging."""
-import hmac
 import http.client
 import json
 import select
@@ -12,7 +11,10 @@ import uuid as _uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import unquote, urlsplit
 
+from caravan.common.chat_levers import ChatLevers
 from caravan.common.request_kind import is_inference_request
+from caravan.common.client_address import ClientAddress
+from caravan.common.key_entry import KeyEntry
 from caravan.common.context_window import (
     PROPS_PATHS, PROPS_SERVED_KEYS, PROPS_SERVED_NESTED, effective_window, props_served_window,
     route_window_inputs, served_window,
@@ -25,12 +27,17 @@ from caravan.proxy.cloud_auth import (
     load_provider_secret,
 )
 from caravan.proxy.config import current_config, live_route_for_port
-from caravan.proxy.graph import answer_port_question, apply_router, apply_router_spill, port_question_reaches
+from caravan.proxy.dialect import PORT_DIALECT
+from caravan.proxy.graph import answer_port_question, apply_router_spill, port_question_reaches
 from caravan.proxy.events import write_proxy_event
 from caravan.proxy.output_health import output_health
-from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
-from caravan.proxy.subscription_pool import subscription_pools
+from caravan.proxy.outputs import pool_leg
+from caravan.proxy.subscription_usage import subscription_usage
+from caravan.proxy.pool_steps import OwnAnswer, pool_steps
 from caravan.proxy.paths import BODY_CAPTURE_LIMIT, DEFAULT_POLICY, HOP_HEADERS, STREAM_DONE_MARKER
+from caravan.common.upstream_types import UpstreamType
+from caravan.proxy.capacity import route_group_key
+from caravan.proxy.request_body import RequestBody
 from caravan.proxy.request_clock import RequestClock, TimedResponse
 from caravan.proxy.queue_admission import (
     ProxyClientDisconnected,
@@ -56,6 +63,7 @@ from caravan.proxy.summarize import (
 )
 from caravan.proxy.upstream_pool import upstream_pool
 from caravan.proxy.translate import (
+    ChunkFold,
     _anthropic_to_completions_json,
     _chat_to_anthropic_body,
     _chat_to_responses_body,
@@ -67,7 +75,6 @@ from caravan.proxy.translate import (
     _iter_anthropic_as_completions_sse,
     _iter_responses_as_completions_sse,
     classify_proxy_error,
-    rewrite_model_in_body,
 )
 
 
@@ -126,6 +133,18 @@ def _upstream_failure_summary(status, body):
     if not kind:
         kind = f"http_{int(status)}"
     return reason, kind[:60]
+
+
+def _upstream_error_code(body):
+    """The `error.code` a JSON refusal names, as it stands — None when it names none. A word is
+    the client's to branch on (OpenAIError.clean_code says which), a number or a sentence is not;
+    what to tell is decided there, and for which rows by the caller."""
+    try:
+        data = json.loads(str(body or "").strip())
+    except ValueError:
+        return None
+    err = data.get("error") if isinstance(data, dict) else None
+    return err.get("code") if isinstance(err, dict) else None
 
 
 def _publish_context_window(body, route):
@@ -327,14 +346,17 @@ def _cloud_model_entry(route):
     about what this port answers with.
     """
     provider = load_cloud_provider(route.get("providerId") or "")
+    # A port leads to a pool, and a pool's steps may each name another model:
+    # the client is told the pool's name — the model's own name for a pool
+    # made from one (1.3.462) — and the step that serves gets its own model.
     entry = {
-        "id": (provider.get("model") if provider else None) or route.get("label") or "default",
+        "id": (provider.get("name") if provider else None) or route.get("label") or "default",
         "object": "model",
         "created": int(time.time()),
-        "owned_by": (provider.get("type") if provider else None) or "cloud",
+        "owned_by": "caravan" if provider else "cloud",
     }
-    # The window the block stands for — stated by the operator on the model
-    # block, or the provider's reported figure when they chose that (both
+    # The window the pool stands for — stated by the operator on the pool, or
+    # the smallest its steps' providers report when they chose that (both
     # resolved by load_cloud_provider) — against THIS port's own limit, by the
     # same rule the llama path applies. Omitted when neither knows: several
     # providers publish no window at all, and a guessed one is worse than none
@@ -360,22 +382,37 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     @property
     def route(self):
+        """The route this request is for: its port's (the entry names it by key —
+        caravan/proxy/entry.py). Every read of the route goes through here."""
         return self.server.route
 
     @property
     def agent_name(self):
         return self.route["label"]
 
+    def _client(self):
+        """The sender of this request (caravan/common/client_address.py): behind the DSM's proxy the
+        address it names, not its own 127.0.0.1."""
+        return ClientAddress.of(self.client_address[0] if self.client_address else "", self.headers)
+
     def _api_key_ok(self, route):
         """Data-plane auth: when the route carries an apiKey, the request must
         present it (Authorization: Bearer …, or x-api-key). Empty key = open
-        (the default — LAN routes keep working until the operator opts in)."""
+        (the default — LAN routes keep working until the operator opts in).
+        The key is read the way the entry reads it (caravan/common/key_entry.py)."""
         want = str(route.get("apiKey") or "")
         if not want:
             return True
-        auth = self.headers.get("Authorization") or ""
-        got = auth[7:].strip() if auth.startswith("Bearer ") else (self.headers.get("x-api-key") or "").strip()
-        return bool(got) and hmac.compare_digest(got, want)
+        got = KeyEntry.presented_key(self.headers)
+        return bool(got) and KeyEntry.same(got, want)
+
+    #: An event stream to a consumer of the entry passes the DSM's nginx, which
+    #: keeps a proxied answer in its buffer by default: the tokens would arrive
+    #: in batches. This header tells nginx not to.
+    STREAM_NO_BUFFER = ("X-Accel-Buffering", "no")
+
+    def _send_stream_headers(self):
+        self.send_header(*self.STREAM_NO_BUFFER)
 
     def _reject_unauthorized(self, route, request_id):
         payload = json.dumps({"error": {"message": f"proxy {route.get('label') or ''} requires an API key "
@@ -386,18 +423,43 @@ class ProxyHandler(BaseHTTPRequestHandler):
             pass
         write_proxy_event("blocked", route_label=route.get("label") or "", request_id=request_id,
                           item={"id": request_id, "route": route.get("label") or "",
-                                "port": route.get("port"), "reason": "unauthorized:bad-api-key",
-                                "client": self.client_address[0] if self.client_address else ""})
+                                "port": route.get("port"), "reason": "unauthorized:bad-api-key", "status": 401,
+                                "path": urlsplit(self.path).path, "client": self._client()})
 
-    def proxy(self):
+    #: How this request is routed and told its failures (caravan/proxy/dialect.py):
+    #: a port's way unless the entry names another for a consumer.
+    dialect = PORT_DIALECT
+
+    def _refuse_body(self, reason, request_id):
+        """A body that cannot be read as the request says it is sent (RequestBody.Malformed): 400 in
+        the dialect's words, written in the journal like any refusal before an upstream, and the
+        connection closed with it (_send_bytes) — what is left of the body is never read as a request."""
+        route = self.route
+        status, payload, headers = self.dialect.failure(400, f"the request body cannot be read: {reason}", "bad_request")
+        try:
+            self._send_bytes(status, payload, headers=headers + self.dialect.extra_headers(request_id))
+        except Exception:  # noqa: BLE001 — a client gone before its refusal changes nothing here
+            pass
+        write_proxy_event("blocked", route_label=route.get("label") or "", request_id=request_id,
+                          item={"id": request_id, "route": route.get("label") or "", "port": route.get("port"),
+                                "reason": "unreadable-body", "status": status, "path": urlsplit(self.path).path,
+                                "client": self._client()})
+
+    def proxy(self, body=None):
+        """Serve one request. `body` is given when the caller read it already —
+        the entry does, to find the model a consumer names."""
         request_id = f"{time.time_ns()}-{threading.get_ident()}"
         started = time.time()
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        body = self.rfile.read(length) if length else None
+        if body is None:
+            try:
+                body = RequestBody.read(self.headers, self.rfile)
+            except RequestBody.Malformed as exc:
+                self._refuse_body(str(exc), request_id)
+                return
         # Where this request's time goes, the caravan's own apart from the
         # model's (caravan/proxy/request_clock.py); it starts once the body is in.
         clock = RequestClock()
-        client = self.client_address[0] if self.client_address else ""
+        client = self._client()
         parsed = urlsplit(self.path)
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
         req_summary = request_summary(body, self.headers)
@@ -416,7 +478,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                        "audio": ("/audio/" in parsed.path),
                        "embeddings": parsed.path.rstrip("/").endswith("/embeddings"),
                        "discovery": not inference_request}
-        route = apply_router(route, current_config(), ctx=dict(request_ctx))
+        route = self.dialect.resolve(route, request_ctx)
         route["label"] = route.get("label") or self.agent_name
         # Unassigned / unroutable proxy → 503 immediately (no queue, no upstream).
         if route.get("unrouted") and str(route.get("upstreamType") or "llama") != "cloud":
@@ -427,7 +489,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             write_proxy_event("blocked", route_label=route["label"], request_id=request_id,
-                              item={"id": request_id, "route": route["label"], "port": route.get("port"), "reason": f"unrouted:{reason}"})
+                              item={"id": request_id, "route": route["label"], "port": route.get("port"), "reason": f"unrouted:{reason}",
+                                    "status": 503, "path": parsed.path, "client": client})
             return
         active = {
             "id": request_id,
@@ -437,7 +500,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             "startedAt": int(started),
             "route": route["label"],
             "port": route.get("port"),
-            "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+            "upstream": route_group_key(route),
             # upstreamType/providerId let the admin colour the right output cable
             # (cloud upstreams collide on host:port, so providerId disambiguates).
             "upstreamType": str(route.get("upstreamType") or "llama"),
@@ -471,7 +534,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.send_response(200, "OK")
                 self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                 self.send_header("Cache-Control", "no-cache")
-                self.send_header("X-Accel-Buffering", "no")
+                self._send_stream_headers()
                 self.send_header("Connection", "close")
                 self.end_headers()
                 headers_sent = True
@@ -531,7 +594,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         route["deadlineEpoch"] = exc.deadline_epoch
                     route_is_cloud = str(route.get("upstreamType") or "llama") == "cloud"
                     update_active(str(route["port"]), request_id, {
-                        "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+                        "upstream": route_group_key(route),
                         "upstreamType": str(route.get("upstreamType") or "llama"),
                         "providerId": str(route.get("providerId") or ""),
                         "spilledTo": route["label"],
@@ -551,7 +614,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             result = {
                 "id": request_id, "method": self.command, "path": parsed.path,
                 "client": client, "route": route["label"], "port": route.get("port"),
-                "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+                "upstream": route_group_key(route),
                 "upstreamHost": route.get("upstreamHost"), "upstreamPort": route.get("upstreamPort"),
                 "upstreamType": str(route.get("upstreamType") or "llama"),
                 "status": 0, "startedAt": int(started), "finishedAt": int(time.time()),
@@ -567,12 +630,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             return
         except ProxyRequestBlocked as exc:
             status = exc.status
-            payload = json.dumps({"error": str(exc), "kind": exc.kind}).encode("utf-8")
+            told, payload, told_headers = self.dialect.failure(status, str(exc), exc.kind)
             try:
                 if headers_sent:
-                    self._send_sse_error({"error": str(exc), "kind": exc.kind})
+                    self._send_sse_error(self.dialect.stream_failure(str(exc), exc.kind))
                 else:
-                    self._send_bytes(status, payload)
+                    self._send_bytes(told, payload, headers=told_headers + self.dialect.extra_headers(request_id))
             except Exception:
                 pass
             result = {
@@ -582,7 +645,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "client": client,
                 "route": route["label"],
                 "port": route.get("port"),
-                "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+                "upstream": route_group_key(route),
                 "upstreamHost": route.get("upstreamHost"),
                 "upstreamPort": route.get("upstreamPort"),
                 "upstreamType": str(route.get("upstreamType") or "llama"),
@@ -746,10 +809,24 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _inference_request = inference_request
             if not _inference_request:
                 _rescue_refs = []
+            # A pool's route: each leg starts from it. A leg to a local row's cell
+            # turns the route into that cell's for its own attempt; the next leg
+            # asks the pool again (the owner, 2026-10-12: a pool goes down its
+            # rows on a limit, an unavailable cell, an error before the first byte).
+            _pool_route = dict(route) if route_is_cloud and route.get("providerId") else None
+            # Legs a pool may take for one request: each failed row is excluded,
+            # so a pool of N rows takes at most N — the bound only stops a loop
+            # that a fault elsewhere would make endless.
+            _pool_legs = 0
             while True:
                 _conn_exc = None
                 upstream = None
-                reserve_refusal = None
+                pool_refusal = None
+                local_leg = None
+                pool_row_id = None
+                pool_source = None
+                if _pool_route is not None and route_is_cloud:
+                    route = dict(_pool_route)
                 # A provider's connection comes from the pool and may be a kept
                 # one; a cell's is opened per request (caravan/proxy/upstream_pool.py).
                 pooled = False
@@ -765,116 +842,182 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 anthropic_model = None
                 if is_cloud:
                     effective_provider_id = cloud_fallback_provider_id or route.get("providerId")
-                    # A block id resolves to a specific model; otherwise route to the cloud
-                    # account directly (passthrough — forward the client's requested model).
+                    # A pool id resolves to the step that serves (pool_steps); a
+                    # route that names only an account goes to it directly
+                    # (passthrough — forward the client's requested model).
                     provider = (load_cloud_provider(effective_provider_id) if effective_provider_id
-                                else load_cloud_account(route.get("cloudPoolId") or route.get("cloudAccountId")))
+                                else load_cloud_account(route.get("cloudAccountId")))
                     if not provider:
                         raise ProxyCloudError("cloud provider not configured")
-                    provider, reserve_refusal = subscription_pools.resolve(provider, body, _pool_attempted)
+                    pool_source = provider
+                    provider, pool_refusal = pool_steps.resolve(provider, body, _pool_attempted, parsed.path)
+                    if pool_refusal is None and provider.get("poolId"):
+                        pool_row_id = provider.get("poolStepId")
+                    local_leg = provider.get("localOutput") if pool_refusal is None else None
+                    if local_leg:
+                        # A pool's row of a local model: this leg goes to the cell
+                        # as a local route goes — its queue, its connection.
+                        is_cloud = False
+                        route = pool_leg(route, local_leg)
+                        route["cloudPoolId"], route["poolStepId"] = provider["poolId"], pool_row_id
+                        update_active(str(route["port"]), request_id, {
+                            "upstream": route_group_key(route),
+                            "upstreamType": str(route.get("upstreamType") or "llama"), "providerId": "",
+                            "routedOutputId": route["routedOutputId"], "cloudPoolId": provider["poolId"],
+                            "poolStepId": pool_row_id})
+                if is_cloud:
                     if provider.get("poolId"):
                         route["cloudPoolId"] = provider["poolId"]
                         route["cloudAccountId"] = provider["accountId"]
-                        route["poolMemberId"] = provider["poolMemberId"]
+                        route["poolStepId"] = provider["poolStepId"]
+                        # The model the step sends: the client's own is rewritten,
+                        # and the spend is priced by this one (cloud_api.CloudLeg).
+                        route["cloudModel"] = provider.get("model") or ""
                         route["credentialAccountId"] = provider.get("credentialAccountId")
                         update_active(str(route["port"]), request_id, {
                             "cloudPoolId": provider["poolId"], "cloudAccountId": provider["accountId"],
-                            "poolMemberId": provider["poolMemberId"]})
-                    auth_pair = load_provider_secret(provider) if reserve_refusal is None else ("Authorization", "")
+                            "poolStepId": provider["poolStepId"]})
+                    auth_pair = load_provider_secret(provider) if pool_refusal is None else ("Authorization", "")
                     if not auth_pair:
                         raise ProxyCloudError("cloud account missing credential (API key or OAuth)")
-                    base = urlsplit(provider.get("baseUrl") or "")
-                    if not base.hostname:
-                        raise ProxyCloudError("cloud account baseUrl invalid")
-                    is_subscription = (
-                        str(provider.get("accountType") or "") == "openai-subscription"
-                        or "chatgpt.com" in str(provider.get("baseUrl") or "")
-                    )
-                    if is_subscription:
-                        # The operator's reserve on the account's limits: once a
-                        # window is down to it, this leg is answered here and
-                        # nothing is sent (caravan/common/usage_reserve.py).
-                        _reserve_hit = reserve_gate.verdict(provider) if reserve_refusal is None else None
-                        if _reserve_hit:
-                            reserve_refusal = ReserveRefusal(_reserve_hit)
-                    use_tls = base.scheme != "http"
-                    cloud_port = base.port or (443 if use_tls else 80)
-                    conn, conn_reused = upstream_pool.take(use_tls, base.hostname, cloud_port, timeout=600)
-                    pooled = True
-                    register_active_control(request_id, route["label"], conn)
-                    headers = {
-                        key2: value for key2, value in self.headers.items()
-                        if key2.lower() not in HOP_HEADERS and key2.lower() not in (
-                            "host", "authorization", "x-api-key", "chatgpt-account-id",
-                            "originator", "openai-beta", "accept",
-                            # Exclude these — we set them explicitly to correct values below
-                            "content-length", "content-type", "accept-encoding", "accept-language",
-                        )
-                    }
-                    headers["Host"] = base.netloc
-                    # No "Connection: close": the provider keeps the connection
-                    # open after its answer, and the pool hands it to the next request.
-                    headers["X-Agent-Proxy"] = route["label"]
-                    headers["X-Agent-Proxy-Request-Id"] = request_id
-                    if is_subscription:
-                        model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
-                        if is_responses_request(parsed.path, body):
-                            # The client speaks Responses already (Codex CLI): the
-                            # body goes through as written, and the stream comes
-                            # back untranslated.
-                            responses_passthrough = True
-                            send_body, subscription_model, responses_client_stream = _responses_passthrough_body(body, model_override)
-                        else:
-                            # Translate a chat/completions request to the Responses API format
-                            send_body, subscription_model = _chat_to_responses_body(body, model_override)
-                        completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
-                        token = auth_pair[1][7:]  # strip "Bearer "
-                        account_id = _extract_chatgpt_account_id(token) or ""
-                        headers["Authorization"] = auth_pair[1]
-                        headers["chatgpt-account-id"] = account_id
-                        headers["originator"] = "pi"
-                        headers["OpenAI-Beta"] = "responses=experimental"
-                        headers["Accept"] = "text/event-stream"
-                        headers["Content-Type"] = "application/json"
-                        headers["Content-Length"] = str(len(send_body))
-                        send_path = "/backend-api/codex/responses"
-                    elif str(provider.get("type")) == "anthropic" and parsed.path.endswith("/chat/completions"):
-                        is_anthropic = True
-                        auth = CLOUD_PROVIDER_AUTH.get("anthropic", CLOUD_PROVIDER_AUTH["custom"])
-                        headers.update(auth.get("extraHeaders") or {})
-                        headers[auth_pair[0]] = auth_pair[1]
-                        base_path = base.path.rstrip("/")
-                        send_path = base_path + "/messages" + (f"?{parsed.query}" if parsed.query else "")
-                        completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
-                        model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
-                        anthropic_model = model_override or (json.loads(body).get("model") if body else None) or "claude-opus-4-8"
-                        send_body = _chat_to_anthropic_body(body, model_override)
-                        headers["Content-Type"] = "application/json"
-                        headers["Content-Length"] = str(len(send_body))
-                        headers["Accept"] = "application/json"
+                    if pool_refusal is not None:
+                        # The pool answers this leg itself — no step fits now —
+                        # and it is read below as a provider's answer would be:
+                        # nothing is sent, and no connection is taken for it.
+                        conn, headers, send_path = None, {}, parsed.path
                     else:
-                        auth = CLOUD_PROVIDER_AUTH.get(str(provider.get("type")), CLOUD_PROVIDER_AUTH["custom"])
-                        headers.update(auth.get("extraHeaders") or {})
-                        headers[auth_pair[0]] = auth_pair[1]
-                        base_path = base.path.rstrip("/")
-                        incoming = parsed.path
-                        if base_path.endswith("/v1") and incoming.startswith("/v1"):
-                            incoming = incoming[3:]
-                        send_path = base_path + incoming + (f"?{parsed.query}" if parsed.query else "")
-                        if str(provider.get("modelMode") or "rewrite") == "rewrite":
-                            send_body = rewrite_model_in_body(body, provider.get("model"))
-                        # The header filter above strips content-type/length and accept
-                        # "to set them explicitly below" — the subscription/anthropic
-                        # branches do, but this generic one never did: the cloud API got
-                        # a JSON body with no Content-Type and answered "you must
-                        # provide a model parameter". Restore them for ANY body,
-                        # rewritten or passed through.
-                        headers["Content-Type"] = self.headers.get("Content-Type") or "application/json"
-                        if self.headers.get("Accept"):
-                            headers["Accept"] = self.headers.get("Accept")
-                        if send_body is not None:
+                        base = urlsplit(provider.get("baseUrl") or "")
+                        if not base.hostname:
+                            raise ProxyCloudError("cloud account baseUrl invalid")
+                        is_subscription = (
+                            str(provider.get("accountType") or "") == "openai-subscription"
+                            or "chatgpt.com" in str(provider.get("baseUrl") or "")
+                        )
+                        use_tls = base.scheme != "http"
+                        cloud_port = base.port or (443 if use_tls else 80)
+                        conn, conn_reused = upstream_pool.take(use_tls, base.hostname, cloud_port, timeout=600)
+                        pooled = True
+                        register_active_control(request_id, route["label"], conn)
+                        headers = {
+                            key2: value for key2, value in self.headers.items()
+                            if key2.lower() not in HOP_HEADERS and key2.lower() not in (
+                                "host", "authorization", "x-api-key", "chatgpt-account-id",
+                                "originator", "openai-beta", "accept",
+                                # Exclude these — we set them explicitly to correct values below
+                                "content-length", "content-type", "accept-encoding", "accept-language",
+                            )
+                        }
+                        headers["Host"] = base.netloc
+                        # No "Connection: close": the provider keeps the connection
+                        # open after its answer, and the pool hands it to the next request.
+                        headers["X-Agent-Proxy"] = route["label"]
+                        headers["X-Agent-Proxy-Request-Id"] = request_id
+                        if is_subscription:
+                            model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
+                            if is_responses_request(parsed.path, body):
+                                # The client speaks Responses already (Codex CLI): the
+                                # body goes through as written, and the stream comes
+                                # back untranslated.
+                                responses_passthrough = True
+                                send_body, subscription_model, responses_client_stream = _responses_passthrough_body(body, model_override)
+                            else:
+                                # Translate a chat/completions request to the Responses API format
+                                send_body, subscription_model = _chat_to_responses_body(body, model_override)
+                            completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
+                            token = auth_pair[1][7:]  # strip "Bearer "
+                            account_id = _extract_chatgpt_account_id(token) or ""
+                            headers["Authorization"] = auth_pair[1]
+                            headers["chatgpt-account-id"] = account_id
+                            headers["originator"] = "pi"
+                            headers["OpenAI-Beta"] = "responses=experimental"
+                            headers["Accept"] = "text/event-stream"
+                            headers["Content-Type"] = "application/json"
                             headers["Content-Length"] = str(len(send_body))
+                            send_path = "/backend-api/codex/responses"
+                        elif str(provider.get("type")) == "anthropic" and parsed.path.endswith("/chat/completions"):
+                            is_anthropic = True
+                            auth = CLOUD_PROVIDER_AUTH.get("anthropic", CLOUD_PROVIDER_AUTH["custom"])
+                            headers.update(auth.get("extraHeaders") or {})
+                            headers[auth_pair[0]] = auth_pair[1]
+                            base_path = base.path.rstrip("/")
+                            send_path = base_path + "/messages" + (f"?{parsed.query}" if parsed.query else "")
+                            completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
+                            model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
+                            anthropic_model = model_override or (json.loads(body).get("model") if body else None) or "claude-opus-4-8"
+                            send_body = _chat_to_anthropic_body(body, model_override)
+                            headers["Content-Type"] = "application/json"
+                            headers["Content-Length"] = str(len(send_body))
+                            headers["Accept"] = "application/json"
+                        else:
+                            auth = CLOUD_PROVIDER_AUTH.get(str(provider.get("type")), CLOUD_PROVIDER_AUTH["custom"])
+                            headers.update(auth.get("extraHeaders") or {})
+                            headers[auth_pair[0]] = auth_pair[1]
+                            base_path = base.path.rstrip("/")
+                            incoming = parsed.path
+                            if base_path.endswith("/v1") and incoming.startswith("/v1"):
+                                incoming = incoming[3:]
+                            send_path = base_path + incoming + (f"?{parsed.query}" if parsed.query else "")
+                            if str(provider.get("modelMode") or "rewrite") == "rewrite":
+                                send_body = model_named(body, provider.get("model"))
+                            # The header filter above strips content-type/length and accept
+                            # "to set them explicitly below" — the subscription/anthropic
+                            # branches do, but this generic one never did: the cloud API got
+                            # a JSON body with no Content-Type and answered "you must
+                            # provide a model parameter". Restore them for ANY body,
+                            # rewritten or passed through.
+                            headers["Content-Type"] = self.headers.get("Content-Type") or "application/json"
+                            if self.headers.get("Accept"):
+                                headers["Accept"] = self.headers.get("Accept")
+                            if send_body is not None:
+                                headers["Content-Length"] = str(len(send_body))
                 else:
+                    if local_leg:
+                        # The cell's queue, as a local route waits in it: at once
+                        # when a slot is free; with every slot taken this row was
+                        # chosen because no later row was ready, and the request
+                        # waits for the cell. A stream gets its keepalive first,
+                        # as a local route's does.
+                        if is_request_streaming and not headers_sent:
+                            try:
+                                self.send_response(200, "OK")
+                                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                                self.send_header("Cache-Control", "no-cache")
+                                self._send_stream_headers()
+                                self.send_header("Connection", "close")
+                                _on_client(self.end_headers)
+                                headers_sent = True
+                                _sse_open[0] = True
+                                _leg_model = str(body_obj.get("model") or "") if isinstance(body_obj, dict) else ""
+
+                                def keepalive_writer(_m=_leg_model):
+                                    _client_write(keepalive_sse_bytes(_m))
+                            except (BrokenPipeError, ConnectionResetError, OSError):
+                                raise
+                            except Exception:
+                                keepalive_writer = None
+                        try:
+                            _leg_queue = wait_for_proxy_slot(route, request_id, keepalive_writer=keepalive_writer,
+                                                             client_gone=_probe_client_gone)
+                        except ProxyClientDisconnected:
+                            _abort_for_client_gone()
+                            raise ConnectionResetError("client disconnected while queued")
+                        except (ProxyQueueSpill, ProxyCloudFallback, ProxyRequestBlocked) as _leg_exc:
+                            # The cell's queue gave up on it: the pool's next row is asked,
+                            # or — with none left — the request is refused as a queue's is.
+                            _pool_attempted.add(f"row:{pool_row_id}")
+                            if not pool_steps.can_go_on(pool_source, _pool_attempted, body, parsed.path):
+                                status = 503
+                                raise (_leg_exc if isinstance(_leg_exc, ProxyRequestBlocked)
+                                       else ProxyRequestBlocked(503, "the cell's queue gave up on the request", "queue_timeout"))
+                            write_proxy_event("pool_retry", route_label=route["label"], request_id=request_id,
+                                              poolId=route.get("cloudPoolId"), stepId=pool_row_id,
+                                              output=route.get("routedOutputId"), reason="queue",
+                                              error=str(_leg_exc)[:200])
+                            continue
+                        with queue_condition:
+                            admitted_requests.discard(str(request_id))
+                            queue_condition.notify_all()
+                        queue = {**queue, "queuedMs": int(queue.get("queuedMs") or 0) + int(_leg_queue.get("queuedMs") or 0)}
                     conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
                     register_active_control(request_id, route["label"], conn)
                     engine_model = str(route.get("upstreamModel") or "")
@@ -882,7 +1025,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     # server there: it stays with the caravan, for a cell as
                     # for an engine next to the cells (it used to reach a cell
                     # as it was).
-                    kept_out = ("host", "authorization", "x-api-key")
+                    # The length is the body's that goes — http.client says it for a
+                    # request that names none — never the client's: a body read in
+                    # chunks came with none or a false one (RequestBody), and one the
+                    # caravan rewrote has another.
+                    kept_out = ("host", "authorization", "x-api-key", "content-length")
                     headers = {
                         key2: value for key2, value in self.headers.items()
                         if key2.lower() not in HOP_HEADERS and key2.lower() not in kept_out
@@ -897,9 +1044,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         # One engine, many models: the output names the one
                         # this request goes to (docs/foreign-engines.md).
                         send_body = model_named(body, engine_model)
-                        if send_body is not body:
-                            headers = {k: v for k, v in headers.items() if k.lower() != "content-length"}
-                            headers["Content-Length"] = str(len(send_body))
+                    else:
+                        # A cell: a client's "no thinking" (reasoning_effort none or
+                        # minimal) said the way its chat template takes it.
+                        send_body = ChatLevers.for_cell(body, path)
                 update_active(str(route["port"]), request_id, {"phase": "upstream"})
                 # Build cloud request metadata for logging
                 cloud_meta = {}
@@ -934,9 +1082,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     if _client_gone[0]:
                         raise ConnectionResetError("client disconnected during upstream wait")
                     try:
-                        if reserve_refusal is not None:
+                        if pool_refusal is not None:
                             # Read below exactly as the provider's own 429 would be.
-                            upstream = reserve_refusal
+                            upstream = pool_refusal
                         else:
                             clock.leg_started()
                             if conn.sock is None:
@@ -972,11 +1120,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             output_health.note_error(route.get("routedOutputId"), kind="connect",
                                                      message=str(exc)[:200])
                         # A dead upstream is as rescueable as an erroring one — but only
-                        # while a rescue exit exists; otherwise keep the old behaviour.
-                        # (_client_gone aborts tear this socket down on purpose — those
-                        # must keep raising, not turn into a rescue.)
-                        if not (_rescue_refs and _rescue_hops < 3 and bytes_out == 0
-                                and not _client_gone[0]):
+                        # while a rescue exit exists, or a pool's next row (the owner,
+                        # 2026-10-12: no connection, no answer — the next row);
+                        # otherwise keep the old behaviour. (_client_gone aborts tear
+                        # this socket down on purpose — those must keep raising, not
+                        # turn into a rescue.)
+                        if not (((_rescue_refs and _rescue_hops < 3) or pool_row_id is not None)
+                                and bytes_out == 0 and not _client_gone[0]):
                             raise
                         _conn_exc = exc
                         status = 502
@@ -988,7 +1138,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         break
                     status = upstream.status
                     upstream_headers = dict(upstream.getheaders())
-                    if is_subscription and reserve_refusal is None:
+                    if is_subscription and pool_refusal is None:
                         # Every answer states the account's windows, a refusal too.
                         subscription_usage.note(provider.get("usageAccountId") or provider.get("accountId"), upstream_headers)
                     content_type = upstream_headers.get("Content-Type", "")
@@ -1039,18 +1189,46 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 elif _inference_request:
                     output_health.note_status(route.get("routedOutputId"), status,
                                               message=(upstream_error_body or "")[:200])
-                # An upstream quota/auth refusal may select another pool member
-                # only before output. Shared quota owners (test aliases) are
-                # excluded together, so a duplicate cannot evade a real limit.
-                if (is_subscription and reserve_refusal is None and bytes_out == 0 and chunks == 0
-                        and not _client_gone[0] and subscription_pools.failed(provider, status, upstream_headers)):
+                # A step's provider refusing it for a limit (429, 402, 401) sends
+                # the request on to the pool's next step — only before output.
+                # Shared quota owners (test aliases) are excluded together, so a
+                # duplicate cannot evade a real limit. Other errors are the 🛟
+                # backup node's (below), not the pool's.
+                if (is_cloud and pool_refusal is None and provider.get("poolId") and bytes_out == 0 and chunks == 0
+                        and not _client_gone[0] and pool_steps.failed(provider, status, upstream_headers)):
                     _pool_attempted.add(provider.get("usageAccountId") or provider["accountId"])
-                    write_proxy_event("subscription_pool_retry", route_label=route["label"], request_id=request_id,
-                                      poolId=provider["poolId"], accountId=provider["accountId"], status=status)
+                    write_proxy_event("pool_retry", route_label=route["label"], request_id=request_id,
+                                      poolId=provider["poolId"], stepId=provider["poolStepId"],
+                                      accountId=provider["accountId"], status=status)
                     conn.close()
                     continue
+                # Any row of a pool that fails before its first byte — no
+                # connection, a timeout, a server error (a cell still loading
+                # past its wait) — sends the request to the pool's next row (the
+                # owner, 2026-10-12). A request-specific 4xx is the client's.
+                # With no row left the client is told the failure it met — the
+                # last row's own error — not that no row fits.
+                if (pool_row_id is not None and pool_refusal is None and bytes_out == 0 and chunks == 0
+                        and not _client_gone[0] and (_conn_exc is not None or status >= 500) and _pool_legs < 16
+                        and pool_steps.can_go_on(pool_source, _pool_attempted | {f"row:{pool_row_id}"}, body, parsed.path)):
+                    _pool_legs += 1
+                    _pool_attempted.add(f"row:{pool_row_id}")
+                    write_proxy_event("pool_retry", route_label=route["label"], request_id=request_id,
+                                      poolId=route.get("cloudPoolId") or provider.get("poolId"), stepId=pool_row_id,
+                                      output=route.get("routedOutputId") if local_leg else None,
+                                      status=0 if _conn_exc is not None else status,
+                                      reason="connect" if _conn_exc is not None else "status",
+                                      upstreamErrorBody=(upstream_error_body[:300] or None))
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    status = 502
+                    upstream_error_body = ""
+                    upstream_error_raw = b""
+                    continue
                 # ── onError rescue: replay the request down the backup exit ──
-                if (status >= 400 and not (reserve_refusal is not None and reserve_refusal.status == 400)
+                if (status >= 400 and not (pool_refusal is not None and pool_refusal.status == 400)
                         and _rescue_refs and _rescue_hops < 3
                         and bytes_out == 0 and chunks == 0 and not _client_gone[0]):
                     _resc_ref = _rescue_refs.pop(0)
@@ -1079,12 +1257,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         route = _newr
                         route["label"] = route.get("label") or self.agent_name
                         route_is_cloud = str(route.get("upstreamType") or "llama") == "cloud"
+                        _pool_route = dict(route) if route_is_cloud and route.get("providerId") else None
                         cloud_fallback_provider_id = None
                         # A rescued route may cross its own onError node(s) — its
                         # fresh exits take precedence over any remaining ones.
                         _rescue_refs = list(route.get("rescueRefs") or []) + _rescue_refs
                         update_active(str(route["port"]), request_id, {
-                            "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+                            "upstream": route_group_key(route),
                             "upstreamType": str(route.get("upstreamType") or "llama"),
                             "providerId": str(route.get("providerId") or ""),
                             "rescuedTo": str(route.get("routedOutputId") or ""),
@@ -1096,7 +1275,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if _conn_exc is not None:
                     raise _conn_exc
                 break
-            if isinstance(upstream, ReserveRefusal):
+            if isinstance(upstream, OwnAnswer):
                 # The answer is the caravan's own: the journal and the board say
                 # so, instead of blaming the provider for a 429 it never gave.
                 error, error_kind = upstream.message, upstream.KIND
@@ -1106,6 +1285,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if (not is_cloud and status == 200 and not is_event_stream
                     and self.command == "GET" and parsed.path in PROPS_PATHS):
                 props_body = _publish_props_window(upstream.read(), route)
+            # An error in the dialect's own words, or None to relay it as it came.
+            # A local row — a cell, or a machine's model — keeps the code its cell gave its refusal;
+            # a provider's code stays at the provider (openai_errors.OpenAIError.upstream).
+            told = (self.dialect.answer_error(status, _upstream_failure_summary(status, upstream_error_body)[0], upstream,
+                                              code=None if is_cloud else _upstream_error_code(upstream_error_body))
+                    if status >= 400 else None)
             if is_subscription and status == 200 and responses_passthrough:
                 # A Responses client gets the codex stream as it came — event
                 # by event — or, when it asked for a buffered answer, the final
@@ -1115,6 +1300,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self.send_response(200, "OK")
                         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                         self.send_header("Cache-Control", "no-cache")
+                        self._send_stream_headers()
                         self.send_header("Connection", "close")
                         _on_client(self.end_headers)
                         _sse_open[0] = True
@@ -1150,11 +1336,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.wfile.write(final)
                     self.wfile.flush()
             elif is_subscription and status == 200:
+                # The Codex backend always streams. A client of the entry that did not
+                # ask for a stream gets the one chat completion OpenAI's API answers
+                # with (`stream` defaults to false there), folded from the stream.
+                whole = ChunkFold() if (self.dialect.answers_whole and not is_request_streaming) else None
                 # Send chat/completions-compatible SSE headers (skip if already sent via keep-alive)
-                if not headers_sent:
+                if not headers_sent and whole is None:
                     self.send_response(200, "OK")
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache")
+                    self._send_stream_headers()
                     self.send_header("Connection", "close")
                     _on_client(self.end_headers)
                     _sse_open[0] = True
@@ -1175,7 +1366,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             stream["finishReasons"] = translated_summary["finishReasons"]
                         if translated_summary.get("done"):
                             stream["done"] = True
-                    _client_write(chunk)
+                    if whole is None:
+                        _client_write(chunk)
+                    else:
+                        whole.add(chunk)
                     if stop_requested(request_id):
                         raise ProxyRequestStopped("request stopped by traffic policy")
                     now = time.time()
@@ -1186,6 +1380,22 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             "firstByteMs": first_byte_ms, "stream": stream,
                             "elapsedMs": round((now - started) * 1000),
                         })
+                if whole is not None:
+                    if not whole.finished():
+                        # A stream that ended without its last word is no answer: the
+                        # client is told it failed, not handed half an answer as whole.
+                        raise ProxyCloudError("the model's stream ended before the answer was complete")
+                    answer = json.dumps(whole.completion()).encode("utf-8")
+                    bytes_out = len(answer)
+                    if not headers_sent:
+                        self.send_response(200, "OK")
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(answer)))
+                        self.send_header("Connection", "close")
+                        for key, value in self.dialect.extra_headers(request_id):
+                            self.send_header(key, value)
+                        _on_client(self.end_headers)
+                    _client_write(answer)
             elif is_anthropic and status == 200:
                 # Translate Anthropic Messages API response to OpenAI chat.completion format
                 _amodel = anthropic_model or "claude-opus-4-8"
@@ -1194,6 +1404,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self.send_response(200, "OK")
                         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                         self.send_header("Cache-Control", "no-cache")
+                        self._send_stream_headers()
                         self.send_header("Connection", "close")
                         _on_client(self.end_headers)
                         _sse_open[0] = True
@@ -1242,24 +1453,46 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         _on_client(self.end_headers)
                     self.wfile.write(translated)
                     self.wfile.flush()
+            elif told is not None:
+                # A consumer of the entry is told the failure in OpenAI's shape and
+                # the caravan's words (caravan/proxy/dialect.py): the provider's body
+                # and headers stay here, and the journal below keeps its reason.
+                _told_status, _told_body, _told_headers = told
+                if headers_sent:
+                    _on_client(lambda: self._send_sse_error(json.loads(_told_body)))
+                else:
+                    _on_client(lambda: self._send_bytes(
+                        _told_status, _told_body, headers=_told_headers + self.dialect.extra_headers(request_id)))
+                bytes_out += len(_told_body)
             else:
                 if not headers_sent:
                     self.send_response(upstream.status, upstream.reason)
+                    # The provider's length is the length the client gets: an error's
+                    # first 4096 bytes are read for the journal, and the rest of its
+                    # body follows them. Only a rewritten /props has a length of its own.
+                    stated_length = any(key.lower() == "content-length" for key in upstream_headers)
                     for key, value in upstream_headers.items():
-                        if key.lower() in HOP_HEADERS:
+                        if key.lower() in HOP_HEADERS or not self.dialect.header_ok(key):
                             continue
                         if props_body is not None and key.lower() == "content-length":
                             continue   # the rewritten body has its own length, below
                         self.send_header(key, value)
+                    for key, value in self.dialect.extra_headers(request_id):
+                        self.send_header(key, value)
+                    if is_event_stream:
+                        self._send_stream_headers()
                     self.send_header("Connection", "close")
                     # The body is the answering exit's own; the exits before
                     # it — skipped or replayed on — travel in a header, so a
                     # relayed error never hides the chain that led to it.
                     _chain = _rescue_chain_text(_rescue_trail, route.get("deadSkipped"))
-                    if _chain:
+                    if _chain and self.dialect.header_ok("X-Agent-Proxy-Chain"):
                         self.send_header("X-Agent-Proxy-Chain", _chain[:900])
-                    if upstream_error_raw:
-                        # Already read the error body for logging — send it with correct length
+                    if upstream_error_raw and not stated_length:
+                        # An error the provider sent without a length: the part read
+                        # for the journal is what the client gets. With the provider's
+                        # length copied above as well, every relayed error went out
+                        # with two lengths — and a long one with two different ones.
                         self.send_header("Content-Length", str(len(upstream_error_raw)))
                     if props_body is not None:
                         self.send_header("Content-Length", str(len(props_body)))
@@ -1274,7 +1507,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     else:
                         self.wfile.write(upstream_error_raw)
                         bytes_out += len(upstream_error_raw)
-            if not is_subscription and not is_anthropic and is_event_stream:
+            if told is None and not is_subscription and not is_anthropic and is_event_stream:
                 while True:
                     chunk = upstream.readline(65536)
                     if not chunk:
@@ -1327,7 +1560,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             _client_write(missing)
                             bytes_out += len(missing)
                         break
-            elif not is_subscription and not is_anthropic:
+            elif told is None and not is_subscription and not is_anthropic:
                 if is_event_stream:
                     pass  # already handled above
                 else:
@@ -1409,10 +1642,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     # blocked request: it was computed two lines up and reached
                     # only the journal, so a client could see that something
                     # failed but never what.
-                    self._send_sse_error({"error": error, "kind": error_kind})
+                    self._send_sse_error(self.dialect.stream_failure(error, error_kind))
                 else:
-                    self._send_bytes(status, json.dumps(
-                        {"error": error, "kind": error_kind}).encode("utf-8"))
+                    told, payload, told_headers = self.dialect.failure(status, error, error_kind)
+                    self._send_bytes(told, payload, headers=told_headers + self.dialect.extra_headers(request_id))
             except Exception:
                 pass
         finally:
@@ -1441,7 +1674,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "client": client,
                 "route": route["label"],
                 "port": route.get("port"),
-                "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+                "upstream": route_group_key(route),
                 "upstreamHost": route.get("upstreamHost"),
                 "upstreamPort": route.get("upstreamPort"),
                 "upstreamType": str(route.get("upstreamType") or "llama"),
@@ -1496,7 +1729,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             result["cloudAccountId"] = str(route.get("cloudAccountId") or "")
             if route.get("cloudPoolId"):
                 result["cloudPoolId"] = route["cloudPoolId"]
-                result["poolMemberId"] = route.get("poolMemberId")
+                result["poolStepId"] = route.get("poolStepId")
+                result["cloudModel"] = route.get("cloudModel") or ""
                 result["credentialAccountId"] = route.get("credentialAccountId")
             result["model"] = str((req_summary or {}).get("model") or "")
             # Sticky reservation: a graph queue node sets its own period (per-block);
@@ -1529,8 +1763,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if _keep:
                 upstream_pool.release(conn, upstream.raw if isinstance(upstream, TimedResponse) else None)
 
-    def _send_bytes(self, status, body, ctype="application/json"):
-        """One complete reply: status, type, length, and Connection: close.
+    def _send_bytes(self, status, body, ctype="application/json", headers=()):
+        """One complete reply: status, type, length, and Connection: close —
+        with `headers` beside them (a wait, a request id).
 
         The last header is why this exists rather than being written out at each
         site. This handler speaks HTTP/1.1, so a client that says keep-alive —
@@ -1546,6 +1781,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1614,8 +1851,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "message": f"upstream {host}:{port} did not answer /v1/models: {exc}",
                 "type": "upstream_unavailable"}}).encode("utf-8"))
             return
-        if status == 200 and upstream_type == "engine":
-            # The engine lists every model it has; this port serves one.
+        if status == 200 and upstream_type in UpstreamType.NAMED:
+            # The engine — or the machine's entry (1.3.506) — lists every model it has; this port
+            # serves one.
             status, body = _engine_model_entry(body, route.get("upstreamModel"))
             ctype = "application/json"
         if status == 200:
@@ -1631,7 +1869,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         production. Reading the stored field alone was the blind spot that let
         /health fall through to the cloud leg on exactly those ports.
         """
-        route = live_route_for_port(self.server.route.get("port")) or self.server.route
+        route = live_route_for_port(self.route.get("port")) or self.route
         route = answer_port_question(route, current_config())
         return str(route.get("upstreamType") or "llama"), route
 
@@ -1643,7 +1881,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/v1/models":
-            route = live_route_for_port(self.server.route.get("port")) or self.server.route
+            route = live_route_for_port(self.route.get("port")) or self.route
             if not self._api_key_ok(route):
                 self._reject_unauthorized(route, f"{time.time_ns()}-{threading.get_ident()}")
                 return
@@ -1680,7 +1918,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 # so forwarding answered 405 and painted the activity strip red
                 # every time an external consumer probed its endpoint. But "the
                 # port answers" must not mean "requests will work": a dangling
-                # providerId (model block deleted) or a missing credential fails
+                # providerId (its pool deleted) or no step with a sign-in fails
                 # every real call with "cloud provider not configured" — report
                 # that as degraded/503 instead of lying with ok.
                 provider = load_cloud_provider(route.get("providerId") or "")

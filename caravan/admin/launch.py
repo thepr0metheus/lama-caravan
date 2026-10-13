@@ -56,9 +56,12 @@ def render_command_cell_script(config):
                   "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL",
                   "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
                   "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
-                  # transcribe is the one command-path runner with a real model
-                  # file; the others leave this empty and the block says so.
-                  "MODEL_FILE",
+                  "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
+                  "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS",
+                  # transcribe, seamless and Strata read a real model file, and
+                  # Strata its draft layer too; the others leave these empty and
+                  # the block says so.
+                  "MODEL_FILE", "SPEC_DRAFT_MODEL_FILE",
                   "LLAMA_MODELS_DIR", "ALIAS")
     block_lines = [CONFIG_BEGIN]
     # Path-valued keys go through shell_path_value so a configured `~/models`

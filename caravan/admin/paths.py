@@ -113,8 +113,14 @@ MODEL_PRICING_TTL = 24 * 3600  # cache for 24 hours
 # The controller's address as seen by clients — used to build the proxy
 # endpoints handed to agents (http://<this>:<port>/v1).
 TOPOLOGY_SERVER_IP = os.environ.get("LLAMA_TOPOLOGY_SERVER_IP", "127.0.0.1")
+# The controller as the fleet reaches it by NAME, where a reverse proxy stands in
+# front and the controller itself listens on loopback only — the NAS:
+# https://caravan.example.org. A scout is handed this instead of
+# http://<TOPOLOGY_SERVER_IP>:<admin port>, which there answers nobody but the
+# NAS itself (caravan/admin/scout_pairing.py). Empty: the address and the port.
+TOPOLOGY_SERVER_URL = os.environ.get("LLAMA_TOPOLOGY_SERVER_URL", "").strip()
 # ── Fleet port ranges ────────────────────────────────────────────────────────
-# Cells (and bridges) allocate upward from the base; the span sets the ceiling
+# Cells allocate upward from the base; the span sets the ceiling
 # the picker draws and the exclusion scanner probes. Proxies get their own
 # block so the two families can never collide by construction.
 #

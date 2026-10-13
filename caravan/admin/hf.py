@@ -1,4 +1,4 @@
-"""HuggingFace REST browser: search, file listings, local GGUF copies."""
+"""HuggingFace REST browser: search, file listings, local GGUF copies and checkpoint folders."""
 import json
 import re
 import threading
@@ -9,24 +9,35 @@ import urllib.request
 from pathlib import Path
 
 from caravan.admin.config_builder import models_dir_from_config, parse_config
+from caravan.admin.hub_hash import HubHash
 from caravan.admin.state import admin_state
+from caravan.common.model_artifacts import hidden
 from caravan.common.ttl_cache import MISS, TtlCache
 
 
 _HF_CACHE_TTL = 300
 _hf_cache = TtlCache(_HF_CACHE_TTL)
 
+def _hf_headers():
+    """What every request to the hub carries: who asks and, when the operator gave one, the token.
+
+    A gated repository answers only to a token whose owner has accepted its terms, and ANY file of it
+    (the tree, config.json, the weights) is refused without one. Every call that reads the hub takes
+    its headers here, so none of them is the one that forgot."""
+    headers = {"User-Agent": "lama-caravan/1.0"}
+    token = admin_state.get("hfToken") or ""
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def _hf_request(path, timeout=12):
     url = "https://huggingface.co/api/" + path
-    token = admin_state.get("hfToken") or ""
-    cache_key = url + ("?auth=1" if token else "")
+    cache_key = url + ("?auth=1" if admin_state.get("hfToken") else "")
     hit = _hf_cache.get(cache_key)
     if hit is not MISS:
         return hit
-    headers = {"User-Agent": "lama-caravan/1.0"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers)
+    req = urllib.request.Request(url, headers=_hf_headers())
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8"))
@@ -71,17 +82,29 @@ def _safetensors_format(repo_id, config_json=None):
     if method:
         return {"modelopt": "NVFP4", "fp8": "FP8", "awq": "AWQ", "gptq": "GPTQ",
                 "autoround": "AUTOROUND", "bitsandbytes": "BNB"}.get(method, method.upper())
-    dtype = str((config_json or {}).get("torch_dtype") or "").lower()
+    # transformers wrote the weights' type as `torch_dtype` and writes `dtype` since 4.56
+    # (nvidia/GR00T-N1.7-3B, 2026-10-12: "SAFETENSORS" stood where BF16 was meant).
+    cfg = config_json or {}
+    dtype = str(cfg.get("torch_dtype") or cfg.get("dtype") or "").lower()
     if dtype in ("bfloat16", "float16", "float32"):
         return {"bfloat16": "BF16", "float16": "FP16", "float32": "FP32"}[dtype]
     return "SAFETENSORS"
 
 
 def _fetch_repo_config(repo_id):
+    """The repository's config.json as the hub gives it, or what `fetch_json` makes of a refusal.
+
+    It carries the operator's token like every other read of the hub (_hf_headers). Without it a gated
+    repository whose terms the token HAS accepted answered 401 here although its tree listed fine, the
+    checkpoint's label fell to "SAFETENSORS" (no `dtype`, no `quantization_config` to read) and its
+    files were laid out under <model>/<author>/SAFETENSORS/ instead of .../BF16/ like those of a
+    repository that is not gated (nvidia/Cosmos-Reason2-2B, 2026-10-13). A refusal still reads as no
+    config, and the label stays "SAFETENSORS" for a token without the terms."""
     try:
         from caravan.common.fetch import fetch_json
         encoded = urllib.parse.quote(repo_id, safe="/")
-        return fetch_json(f"https://huggingface.co/{encoded}/resolve/main/config.json", timeout=8)
+        return fetch_json(f"https://huggingface.co/{encoded}/resolve/main/config.json", timeout=8,
+                          headers=_hf_headers())
     except Exception:
         return None
 
@@ -110,6 +133,12 @@ def hf_list_files(repo_id):
             last_modified = file_date
         lfs = item.get("lfs") or {}
         size = lfs.get("size") or item.get("size") or 0
+        # What the hub says about the file's bytes (hub_hash.py), read once and
+        # carried by every entry below. Size and date give a guess; the hash is
+        # definitive — the comparison uses it to tell "metadata re-uploaded" from
+        # "same bytes". `oid` stays "its LFS sha256, or empty"; a masked one (a
+        # gated repository) is empty and says `hashHidden`, never a mismatch.
+        digest = HubHash.from_tree_item(item).fields()
         if name.lower().endswith(".gguf"):
             kind = _classify_gguf(name)
             files.append({
@@ -119,10 +148,7 @@ def hf_list_files(repo_id):
                 "quant": _extract_quant(name) if kind == "model" else "",
                 "size": size,
                 "date": file_date,
-                # The file's own sha256, as LFS stores it. Size and date give
-                # a guess; this answer is definitive — the comparison uses it
-                # to tell "metadata re-uploaded" from "same bytes".
-                "oid": str(lfs.get("oid") or ""),
+                **digest,
             })
             continue
         # Everything else that belongs to a safetensors checkpoint is collected
@@ -130,9 +156,9 @@ def hf_list_files(repo_id):
         # repo lands in the models tree as <model>/<author>/<FORMAT>/…
         low = name.lower()
         if low in _SKIP_REPO_FILES or low.endswith((".md", ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".svg")):
-            other_files.append({"path": path, "name": name, "size": size})
+            other_files.append({"path": path, "name": name, "size": size, **digest})
             continue
-        st_files.append({"path": path, "name": name, "size": size})
+        st_files.append({"path": path, "name": name, "size": size, **digest})
     result = {"ok": True, "repo": repo_id, "files": files, "lastModified": last_modified}
     has_st = any(f["name"].lower().endswith(".safetensors") for f in st_files)
     # No safetensors weights in the repo -> the collected candidates are just
@@ -322,6 +348,10 @@ def hf_local_check(repo_id: str) -> dict:
     time to hold them against Hugging Face. They come from the libraries' last
     look (model_locator.py), never from the mount: a dead NAS must not hold
     this request, and a library that is not there holds nothing.
+
+    A safetensors checkpoint is a folder, not a file, so it has no name to put
+    in localNames: checkpointFolders names the folders under <model>/<author>/
+    that hold weights, and only tells the page there is a copy to verify.
     """
     repo_id = repo_id.strip().strip("/")
     if not repo_id:
@@ -332,7 +362,9 @@ def hf_local_check(repo_id: str) -> dict:
     scan_root = models_dir / model_name / author if author else models_dir / model_name
     local_names: set[str] = set()
     local_files: dict[str, dict] = {}
+    checkpoint_folders: list[str] = []
     if scan_root.is_dir():
+        checkpoint_folders = _checkpoint_folders(scan_root)
         for p in scan_root.rglob("*.gguf"):
             local_names.add(p.name)
             try:
@@ -350,7 +382,25 @@ def hf_local_check(repo_id: str) -> dict:
                 local_files[p.name] = {"size": st.st_size, "mtime": int(st.st_mtime),
                                        "path": str(p)}
     return {"ok": True, "localNames": sorted(local_names), "localFiles": local_files,
-            "libraryFiles": _library_files(f"{model_name}/{author}/" if author else f"{model_name}/")}
+            "libraryFiles": _library_files(f"{model_name}/{author}/" if author else f"{model_name}/"),
+            "checkpointFolders": checkpoint_folders}
+
+
+def _checkpoint_folders(scan_root: Path) -> list:
+    """The folders directly under <model>/<author>/ that hold safetensors weights, by name.
+
+    Where a checkpoint the /hf page downloaded lies — the page names the
+    folder by a label (BF16, NVFP4, …), and this does not guess it. Which files of the
+    repository are there and whether they are right is the verify's answer
+    (hf_checkpoint.py), which has the repository's file list to hold the folder
+    against. A weights file lying loose in <model>/<author>/ is no checkpoint folder.
+    """
+    labels = set()
+    for weights in scan_root.rglob("*.safetensors"):
+        parts = weights.relative_to(scan_root).parts
+        if len(parts) > 1 and not hidden(parts[0]):
+            labels.add(parts[0])
+    return sorted(labels)
 
 
 def _library_files(prefix: str) -> dict:

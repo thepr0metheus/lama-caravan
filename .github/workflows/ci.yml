@@ -40,6 +40,7 @@ jobs:
           python3 scripts/test_engine_runners.py
           python3 scripts/test_engine_cell_reserve.py
           python3 scripts/test_scout_pairing.py
+          python3 scripts/test_scout_scan.py
           python3 scripts/test_topology_remote_cells.py
           python3 scripts/test_install_llama_lock.py
           python3 scripts/test_deploy_same_commit.py
@@ -50,10 +51,12 @@ jobs:
           python3 scripts/test_vram_reservation.py
           python3 scripts/test_host_telemetry.py
           python3 scripts/test_prism_runner.py
+          python3 scripts/test_llama_preview_route.py
           python3 scripts/test_scout_launch_parity.py
           python3 scripts/test_vllm_machines.py
           python3 scripts/test_host_power_schedule.py
           python3 scripts/test_server_order.py
+          python3 scripts/test_kept_cells.py
           python3 scripts/test_retired_routes.py
           python3 scripts/test_api_spec.py
           python3 scripts/test_monitor_sample.py
@@ -75,6 +78,8 @@ jobs:
           python3 scripts/check_tour_i18n.py
           python3 scripts/check_messages_i18n.py
           python3 scripts/check_i18n_calls.py
+          python3 scripts/check_cell_form_text.py
+          python3 scripts/test_i18n_untranslated.py
 
       # docs/testability.md publishes the data-t names as a contract the E2E
       # suite locates by. A rename that skips the doc reads to that suite as
@@ -104,11 +109,14 @@ jobs:
           python3 scripts/check_subscription_resets.py
           python3 scripts/check_models_dir_source.py
           python3 scripts/check_api_spec.py
+          python3 scripts/check_public_leaks.py
           python3 scripts/test_admin_store.py
           python3 scripts/test_topology_store.py
           python3 scripts/test_proxy_store.py
+          python3 scripts/test_stale_copy.py
           python3 scripts/test_auth_store.py
           python3 scripts/test_cloud_store.py
+          python3 scripts/test_secret_writes.py
           python3 scripts/test_scout_errors.py
           python3 scripts/test_query_flags.py
           python3 scripts/test_proxy_models.py
@@ -116,9 +124,7 @@ jobs:
           python3 scripts/test_cloud_accounts.py
           python3 scripts/test_cloud_refs.py
           python3 scripts/test_output_refs.py
-          python3 scripts/test_cloud_move_cables.py
-          python3 scripts/test_cloud_ports.py
-          python3 scripts/test_cloud_sync.py
+          python3 scripts/test_pool_ports.py
           python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py
           python3 scripts/test_context_window.py
@@ -128,9 +134,13 @@ jobs:
           python3 scripts/test_output_health.py
           python3 scripts/test_usage_reserve.py
           python3 scripts/test_subscription_usage.py
-          python3 scripts/test_subscription_pools.py
+          python3 scripts/test_pools.py
+          python3 scripts/test_board_providers.py
+          python3 scripts/test_pool_steps.py
+          python3 scripts/test_proxy_heartbeat.py
+          python3 scripts/test_proxy_journal.py
           python3 scripts/test_subscription_resets.py
-          python3 scripts/test_subscription_pool_forward.py
+          python3 scripts/test_pool_forward.py
           python3 scripts/test_incidents.py
           python3 scripts/test_model_card.py
           python3 scripts/test_cell_crash.py
@@ -139,7 +149,13 @@ jobs:
           python3 scripts/test_llama_flags.py
           python3 scripts/test_model_freshness.py
           python3 scripts/test_model_jobs.py
+          python3 scripts/test_draft_file.py
           python3 scripts/test_hf_verify.py
+          python3 scripts/test_hf_verify_checkpoint.py
+          python3 scripts/test_hub_hash.py
+          python3 scripts/test_hf_list_files.py
+          python3 scripts/test_hf_repo_config.py
+          python3 scripts/test_hf_checkpoint_layout.py
           python3 scripts/test_hf_search.py
           python3 scripts/test_hf_local_check.py
           python3 scripts/test_model_watch.py
@@ -152,6 +168,8 @@ jobs:
           python3 scripts/test_models_list.py
           python3 scripts/test_models_dir_served.py
           python3 scripts/test_proxy_forward.py
+          python3 scripts/test_proxy_body.py
+          python3 scripts/test_machine_models.py
           python3 scripts/test_request_clock.py
           python3 scripts/test_upstream_pool.py
           python3 scripts/test_proxy_latency.py
@@ -168,16 +186,22 @@ jobs:
           python3 scripts/test_js_topology_activity.py
           python3 scripts/test_js_topology_nodes.py
           python3 scripts/test_js_llama_edit.py
+          python3 scripts/test_js_cell_previews.py
           python3 scripts/test_js_remote_cells.py
           python3 scripts/test_js_scout_add.py
           python3 scripts/test_js_suspect_banner.py
           python3 scripts/test_js_client_proxies.py
           python3 scripts/test_js_routers.py
+          python3 scripts/test_js_consumer_access.py
           python3 scripts/test_js_output_cells.py
           python3 scripts/test_js_cloud.py
-          python3 scripts/test_js_cloud_pools.py
+          python3 scripts/test_js_pools.py
+          python3 scripts/test_js_provider_glances.py
+          python3 scripts/test_js_pool_board.py
+          python3 scripts/test_js_step_carry.py
           python3 scripts/test_js_subscription_resets.py
           python3 scripts/test_js_server_order.py
+          python3 scripts/test_js_board_view.py
           python3 scripts/test_js_dialogs.py
           python3 scripts/test_js_dialog_llamas.py
           python3 scripts/test_js_topology_modals.py
@@ -199,6 +223,7 @@ jobs:
           python3 scripts/test_js_polling.py
           python3 scripts/test_js_utils.py
           python3 scripts/test_js_i18n.py
+          python3 scripts/test_js_river.py
           python3 scripts/test_js_onboarding.py
           python3 scripts/test_js_onboarding_tours.py
           python3 scripts/test_js_main.py
@@ -215,12 +240,49 @@ jobs:
           python3 scripts/test_listening_ports.py
           python3 scripts/check_container_answers.py
           python3 scripts/test_container_answers.py
+          python3 scripts/test_legacy_server_checks.py
           python3 scripts/test_machine_scout.py
+          python3 scripts/test_healthz.py
+          python3 scripts/test_packages.py
+          python3 scripts/test_data_tree.py
+          python3 scripts/test_first_run.py
+          python3 scripts/test_key_entry.py
+          python3 scripts/test_client_address.py
+          python3 scripts/test_proxy_entry.py
+          python3 scripts/test_client_misses.py
+          python3 scripts/test_model_sets.py
+          python3 scripts/test_week_windows.py
+          python3 scripts/test_model_schedules.py
+          python3 scripts/test_cell_outputs.py
+          python3 scripts/test_js_model_schedule.py
+          python3 scripts/test_entry_models.py
+          python3 scripts/test_openai_errors.py
+          python3 scripts/test_request_fields.py
+          python3 scripts/test_chat_levers.py
+          python3 scripts/test_model_kinds.py
+          python3 scripts/test_proxy_consumers.py
+          python3 scripts/test_consumers.py
+          python3 scripts/test_js_consumers.py
+          python3 scripts/test_device_login.py
           python3 scripts/test_proxy_restart.py
           python3 scripts/check_ci_coverage.py
           python3 scripts/check_command_mirrors.py
           python3 scripts/test_settings_bundle.py
           python3 scripts/test_data_volume_paths.py
+          python3 scripts/test_nas_lockdown.py
+          python3 scripts/test_nas_models_library.py
+          python3 scripts/test_board_model_pages.py
+          python3 scripts/test_kanban_dock_css.py
+          python3 scripts/test_model_folder.py
+          python3 scripts/test_cell_restart.py
+          python3 scripts/test_hf_checkpoint_format.py
+          # The Strata runner (1.3.512): its command, the files a scout
+          # brings, and the launcher against a stand-in Strata.
+          python3 scripts/test_strata_runner.py
+          # The GR00T runner and its cell: a robot policy behind HTTP (the SpiderMonkey task).
+          python3 scripts/test_gr00t_runner.py
+          python3 scripts/test_gr00t_server.py
+          python3 scripts/test_strata_launch.py
           python3 scripts/test_download_retry.py
           python3 scripts/test_download_replace.py
           python3 scripts/test_download_cancel.py
@@ -247,23 +309,10 @@ jobs:
             node --check /tmp/check.mjs || { echo "FAIL $f"; exit 1; }
           done
 
+      # The controller of this tree starts and answers what a fresh one answers:
+      # closed before the first account (be41edff, 2026-10-07), open to it after.
+      # Its own data folder and port, stopped on every way out — the step it
+      # replaces asked a fresh controller for /api/state, took the 401 for a
+      # broken boot and was red from that day; its `app.py &` was never stopped.
       - name: boot smoke (admin serves)
-        run: |
-          set -e
-          export LLAMA_ADMIN_STATE=/tmp/ci/admin.json
-          export AGENT_PROXY_CONFIG_FILE=/tmp/ci/agent-proxies.json
-          export AGENT_PROXY_STATE_FILE=/tmp/ci/agent-proxy-state.json
-          export TOKEN_HISTORY_FILE=/tmp/ci/token-history.json
-          export CLOUD_PROVIDERS_FILE=/tmp/ci/cloud-providers.json
-          export LLAMA_MONITOR_HISTORY=/tmp/ci/monitor-history.json
-          export LLAMA_CLIENT_LABELS_FILE=/tmp/ci/client-labels.json
-          mkdir -p /tmp/ci
-          python3 app.py &
-          for i in $(seq 1 30); do
-            if curl -sf -o /dev/null http://127.0.0.1:7990/api/auth/me; then break; fi
-            sleep 1
-          done
-          curl -sf -o /dev/null http://127.0.0.1:7990/api/auth/me
-          curl -sf -o /dev/null http://127.0.0.1:7990/
-          curl -sf -o /dev/null http://127.0.0.1:7990/api/state
-          echo "smoke OK"
+        run: python3 scripts/check_boot_smoke.py

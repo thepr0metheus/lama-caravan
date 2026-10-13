@@ -27,6 +27,11 @@ INFERENCE_PATH_SUFFIXES = (
     "/infill", "/tokenize", "/detokenize", "/generate", "/predict",
 )
 
+#: The paths of a chat: what a subscription's row can serve (1.3.501). Its backend speaks the
+#: Responses API, and the caravan translates a chat request into it — and nothing else: a form
+#: with a recording to transcribe, or a text to embed, has no translation there.
+CHAT_PATH_SUFFIXES = ("/chat/completions", "/responses")
+
 #: Statuses that mean "this server has no such path", and nothing else. A 401 or
 #: a 403 on the same probe is worth showing — the operator's key is wrong; a 5xx
 #: means the exit itself is broken. Only "no such path" is silence, not failure.
@@ -39,6 +44,12 @@ def is_inference_request(method, path):
         return False
     clean = str(path or "").split("?", 1)[0].rstrip("/")
     return any(clean.endswith(suffix) for suffix in INFERENCE_PATH_SUFFIXES)
+
+
+def is_chat_request(path):
+    """True for a chat's path — the only work a subscription's row does."""
+    clean = str(path or "").split("?", 1)[0].rstrip("/")
+    return any(clean.endswith(suffix) for suffix in CHAT_PATH_SUFFIXES)
 
 
 def is_discovery_probe(method, path, status):

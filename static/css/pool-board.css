@@ -1,0 +1,555 @@
+/* The kanban (pool-board.js; the owner, 2026-10-12): clients, sets, pools and models in four
+   columns, joined by cables. A client's one cable goes to its set, a set's to its pools; each row
+   of a pool has an output, cabled to a model on the right. The limit bars and their levels stand on the
+   subscription's models. Sizes are set here, on the board's own parts: the global button
+   (34px) and input (42px) heights would make each small control the largest thing on a
+   row (docs: css-global-control-sizes). */
+.pb {
+  position: relative; box-sizing: border-box; height: 100%; overflow: auto;
+  padding: 14px 20px 28px; color: var(--text); font-size: 13px; background: var(--bg);
+}
+/* Four columns, their heads on one line (the owner, 2026-10-12: as on the main board) — the sets
+   between the clients and the pools a little narrower: a set's card holds only names; the clients
+   30% narrower than a pool (the owner, 2026-10-12: "the whole scene on a laptop's screen") — and
+   gutters wide enough for the cables. The pools and the models keep their width: the narrowest
+   window, 1395px of board, fits a 1440px screen. */
+.pb-cols {
+  position: relative; display: grid; align-items: start;
+  grid-template-columns: minmax(0, .7fr) minmax(0, .78fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 80px; min-width: 1530px;
+}
+/* A narrower window gives up the gutters before the columns, as the main board does. */
+@media (max-width: 1799px) {
+  .pb-cols { gap: 56px; min-width: 1395px; }
+}
+.pb-col { position: relative; min-width: 0; z-index: 3; }
+.pb-col-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 10px; padding: 0 2px;
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+}
+.pb-add {
+  min-height: 0; height: auto; padding: 3px 10px; border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 999px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent-strong, var(--accent));
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0; text-transform: none; white-space: nowrap; cursor: pointer;
+}
+.pb-add:hover, .pb-add:focus-visible { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.pb-empty { margin: 0 0 12px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.pb-card { position: relative; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+
+/* A dot is where a cable leaves (an output, right) or arrives (an input, left). An output with
+   no cable is a dashed ring: nothing goes out of it yet. */
+.pb-dot {
+  position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; transform: translateY(-50%);
+  background: var(--panel); border: 2px solid color-mix(in srgb, var(--muted) 50%, var(--line)); z-index: 4; box-sizing: border-box;
+}
+.pb-dot.out { right: -8px; cursor: crosshair; }
+.pb-dot.in { left: -8px; }
+.pb-dot.open { border-style: dashed; border-color: var(--muted); }
+.pb-dot.out:hover { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* Clients. */
+.pb-client { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pb-client-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 700; }
+.pb-key { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.pb-client.paused { opacity: .55; }
+.pb-client-none { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+/* A client's card is a name, a key, how many models it sees and a badge when it was refused (1.3.532). The
+   address with ⧉ stands once under the column's head; the two questions it asks by GET, the tests and the
+   errors — each opening the entry's answer to its key — stand in the strip below (.pb-dock). The cable
+   still leaves from the name's line. */
+.pb-client { flex-wrap: wrap; }
+.pb-client > .pb-dot.out { top: 14px; transform: none; }
+.pb-client-url {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.pb .pb-entry .pb-tool { height: 20px; padding: 0 4px; }
+.pb-client-asks { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; font-size: 11px; }
+.pb-ask {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--accent-strong, var(--accent)); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none;
+}
+.pb-ask:hover, .pb-ask:focus-visible { text-decoration: underline; }
+/* The tests a client's card sends as the client (POST), folded under one quiet line until opened,
+   each opening its window; and what the client was answered with an error over 30 days. */
+.pb .pb-tests-head {
+  display: flex; align-items: center; gap: 6px; flex: 1 0 100%; min-height: 0; height: auto; margin: 2px 0 0; padding: 2px 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11px; text-align: left; cursor: pointer;
+}
+.pb .pb-tests-head::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+.pb .pb-tests-head.open::before { transform: rotate(90deg); }
+.pb .pb-tests-head:hover, .pb .pb-tests-head:focus-visible { color: var(--text); }
+.pb-client-probes { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; flex: 1 0 100%; min-width: 0; }
+.pb .pb-probe-btn {
+  min-height: 0; height: auto; padding: 1px 7px; border: 1px solid var(--line); border-radius: 999px; background: transparent;
+  color: var(--text); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; cursor: pointer; white-space: nowrap;
+}
+.pb .pb-probe-btn:hover, .pb .pb-probe-btn:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); color: var(--accent-strong, var(--accent)); }
+.pb-client-misses { flex: 1 0 100%; min-width: 0; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11px; }
+.pb-misses-head { color: var(--warn, #f59e0b); }
+.pb-client-misses ul { list-style: none; margin: 3px 0 0; padding: 0; display: grid; gap: 2px; }
+.pb-miss { display: flex; gap: 6px; align-items: baseline; min-width: 0; white-space: nowrap; }
+.pb-miss code { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.pb-miss b { color: var(--bad); }
+.pb-miss span, .pb-miss-more { color: var(--muted); }
+/* A test's window over the board: what was sent as the client and what came back. */
+.pb-probe { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, #000 45%, transparent); }
+.pb-probe-box {
+  width: min(760px, 100%); max-height: min(80vh, 900px); overflow: auto; padding: 14px 16px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--panel); box-shadow: 0 20px 60px rgba(0, 0, 0, .45); font-size: 12.5px;
+}
+.pb-probe-head { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; min-width: 0; }
+.pb-probe-head code { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.pb-probe-box h4 { margin: 10px 0 4px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.pb-probe-text {
+  margin: 0; max-height: 40vh; overflow: auto; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--field); font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+}
+.pb-probe-status { margin: 0 0 6px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.pb-probe-status.ok b { color: var(--good, #22c55e); }
+.pb-probe-status.bad b, .pb-probe-note.bad { color: var(--bad); }
+.pb-probe-note { margin: 6px 0 0; color: var(--muted); }
+.pb-probe-box audio { width: 100%; }
+
+/* Sets (the owner, 2026-10-12, «Набор»): a client's cable comes in on the left, each row is a model
+   the client sees, its cable going on to the pool; a new cable starts at the "＋" row at the foot. */
+.pb-set { border-color: var(--line); }
+.pb-set > .pb-dot.in { top: 24px; transform: none; }
+.pb .pb-set-models { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.pb-set-model {
+  position: relative; display: flex; align-items: center; min-width: 0; padding: 6px 12px 6px 10px;
+  border: 1px solid var(--line); border-radius: 9px; background: color-mix(in srgb, var(--field) 42%, transparent);
+}
+.pb-set-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+/* What a model does (1.3.502): its jobs' marks beside its name — on the pool's head and on each set row
+   that names it — and ⚠ when the pool's rows do different work. */
+.pb-kind { flex: 0 0 auto; margin-left: 6px; font-size: 12px; line-height: 1; white-space: nowrap; cursor: default; }
+.pb-kind.mixed { color: var(--warn, #f59e0b); }
+.pb-set-empty { margin: 0; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+/* A "＋" row that starts a new cable — a set's model, a pool's row: carried from any point of it, its
+   cable leaving from the dashed dot (pool-board.js, newOutHtml). */
+.pb-new-out {
+  position: relative; display: flex; align-items: center; margin: 7px 0 0; padding: 5px 12px 5px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 9px;
+  color: var(--accent-strong, var(--accent)); font-size: 11.5px; cursor: grab; user-select: none; touch-action: none;
+}
+.pb-new-out:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.pb-new-out:hover > .pb-dot.out { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+.pb .pb-probe-model {
+  width: auto; max-width: 160px; height: 22px; min-height: 0; padding: 0 6px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--field); color: var(--text); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Pools. */
+.pb-pool { border-color: var(--line); }
+.pb-pool > .pb-dot.in { top: 24px; transform: none; }
+.pb-pool-head { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; min-width: 0; }
+.pb .pb-pool-name {
+  flex: 1 1 auto; min-width: 0; height: 26px; min-height: 0; padding: 0 6px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--text); font: inherit; font-size: 15px; font-weight: 700;
+}
+.pb .pb-pool-name:hover, .pb .pb-pool-name:focus { border-color: var(--line); background: var(--field); }
+.pb-tool {
+  min-height: 0; height: 24px; padding: 0 6px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--muted); font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.pb-tool:hover, .pb-tool:focus-visible { color: var(--text); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.pb-tool.on { color: var(--accent-strong, var(--accent)); }
+.pb-tool.del:hover, .pb-tool.del:focus-visible { color: var(--bad); }
+.pb .pb-rows { list-style: none; margin: 0; padding: 0; }
+.pb .pb-rows > .pool-rung { margin: 5px 0 0; padding: 0; }
+.pb .pb-row {
+  position: relative; display: grid; grid-template-columns: 14px 22px minmax(0, 1fr) auto 22px; gap: 8px; align-items: center;
+  padding: 6px 12px 6px 8px; border: 1px solid var(--line); border-radius: 9px; background: color-mix(in srgb, var(--field) 42%, transparent);
+}
+.pb .pb-row.serving {
+  border-color: color-mix(in srgb, var(--accent) 78%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--field));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+.pb .pb-row.open { border-style: dashed; color: var(--muted); }
+.pb .pb-row.off { opacity: .55; }
+.pb .pb-row [data-pool-grip] { color: var(--muted); opacity: .7; cursor: grab; text-align: center; }
+.pb-rank {
+  display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 55%, transparent); color: var(--muted); font-size: 11px; font-weight: 600;
+}
+.pb .pb-row.serving .pb-rank { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pb-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-target b { font-size: 12.5px; }
+.pb-target small { margin-left: 6px; color: var(--muted); font-size: 11px; }
+.pb-target.gone b { color: var(--bad); }
+.pb-status { padding: 1px 7px; border-radius: 999px; font-size: 10.5px; white-space: nowrap; color: var(--muted); border: 1px solid var(--line); }
+.pb-status.serving { color: var(--accent-strong, var(--accent)); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.pb-status.reserve, .pb-status.stop, .pb-status.login, .pb-status.off-cell { color: var(--warn, #f59e0b); border-color: color-mix(in srgb, var(--warn, #f59e0b) 45%, var(--line)); }
+.pb-status.missing { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.pb-status.closed { color: var(--warn, #f59e0b); border-color: color-mix(in srgb, var(--warn, #f59e0b) 45%, var(--line)); }
+.pb .pb-row .pb-tool { height: 22px; padding: 0 4px; }
+/* "＋ model" under an account's models: the look of adding by a click. */
+.pb-add-model {
+  display: block; width: 100%; min-height: 0; height: auto; margin: 7px 0 0; padding: 5px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 9px; background: transparent;
+  color: var(--accent-strong, var(--accent)); font-size: 11.5px; text-align: center; cursor: pointer;
+}
+.pb-add-model:hover, .pb-add-model:focus-visible { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.pb-add-model { margin: 8px 0 8px; }
+.pb-history { margin: 8px 0 0; padding: 6px 8px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); }
+.pb-history div { margin: 2px 0; }
+.pb-history time { color: var(--text); margin-right: 6px; }
+/* "Pool settings" under a pool's rows: a quiet line, and under it, when opened, the window the pool
+   states to its clients. The page's controls are 34/42/22 px by default: sized here, not there. */
+.pb .pb-settings-head, .pb .pb-history-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 0; height: auto; margin: 6px 0 0; padding: 4px 2px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.pb .pb-settings-head::before, .pb .pb-history-toggle::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+.pb .pb-settings-head.open::before, .pb .pb-history-toggle.open::before { transform: rotate(90deg); }
+.pb .pb-settings-head:hover, .pb .pb-settings-head:focus-visible, .pb .pb-history-toggle:hover, .pb .pb-history-toggle:focus-visible { color: var(--text); }
+.pb-settings {
+  display: grid; gap: 8px; margin: 2px 0 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px;
+  background: color-mix(in srgb, var(--field) 42%, transparent); font-size: 12px;
+}
+.pb-window { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.pb-window > span { flex: 0 0 auto; }
+.pb .pb-window input {
+  flex: 1 1 auto; width: auto; min-width: 0; height: 28px; min-height: 0; padding: 0 8px; border: 1px solid var(--line);
+  border-radius: 6px; font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.pb-check { display: flex; align-items: flex-start; gap: 8px; color: var(--text); line-height: 1.35; cursor: pointer; }
+.pb .pb-check input { flex: 0 0 auto; width: 15px; height: 15px; min-height: 0; margin: 1px 0 0; padding: 0; accent-color: var(--accent); }
+.pb-stated { margin: 0; padding-top: 7px; border-top: 1px dashed var(--line); color: var(--text); font-variant-numeric: tabular-nums; }
+.pb-stated.none { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pb .pb-settings-head::before, .pb .pb-history-toggle::before { transition: none; } }
+
+/* Models: a subscription's models with their limit bars, a machine's cells. */
+.pb-src { padding: 10px 12px 4px; }
+/* The head wraps in a column of the board's one width: the account's name and its tools on the first
+   line, what it says of itself (connected, when its windows reset) on the second. On one line the
+   note pushed the name out of sight. */
+.pb-src-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 4px; min-width: 0; }
+.pb-src-head b { flex: 0 1 auto; min-width: 0; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pb-src-head .pb-src-note { order: 3; flex: 1 1 100%; color: var(--muted); font-size: 11px; }
+.pb-model {
+  position: relative; display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) 110px; gap: 4px 12px; align-items: center;
+  margin: 0 -12px; padding: 7px 12px 7px 18px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); font-size: 12px;
+}
+.pb-model.machine { grid-template-columns: minmax(0, 1fr) 110px; }
+/* A subscription's model is a line: its name and its marks, and the "in no pool" mark with its ✕ at the right. Its two
+   levels stand in the strip. */
+.pb-model:not(.machine) { grid-template-columns: minmax(0, 1fr) auto; }
+.pb-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-model-name code { font-size: 12px; }
+.pb-use { min-width: 0; font-size: 10.5px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Which pools use a model, and its ✕ while none does: shown on the row the pointer is over (and to the
+   keyboard), so a column of models does not read as a column of crosses. */
+.pb-use-line { display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; }
+.pb .pb-model-remove { flex: none; height: 18px; padding: 0 4px; font-size: 11px; line-height: 1; opacity: 0; transition: opacity .12s ease; }
+.pb-model:hover .pb-model-remove, .pb-model:focus-within .pb-model-remove, .pb .pb-model-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .pb .pb-model-remove { opacity: 1; } }
+.pb-use.none { color: var(--muted); }
+/* A subscription's limits, once on its card: the windows with what is left and when they reset. */
+.pb-limits { margin: 2px 0 6px; }
+.pb-limits .sub-usage-panel { margin: 0; padding: 0; border: 0; background: none; }
+.pb-limits .sub-usage-row { margin: 3px 0; }
+.pb-led { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--good, #22c55e); vertical-align: 0; }
+.pb-led.off { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.pb-led.wait { background: var(--warn, #f59e0b); }
+.pb-led.bad { background: var(--bad); }
+.pb-cell-state { color: var(--muted); font-size: 10.5px; margin-left: 6px; }
+/* How many cells serve a machine's model (1.3.506): its copies. */
+.pb-copies { color: var(--muted); font-size: 10.5px; margin-left: 4px; }
+.pb-more {
+  display: block; width: calc(100% + 24px); min-height: 0; height: auto; margin: 0 -12px; padding: 6px 18px 4px; border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); background: transparent;
+  color: var(--muted); font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.pb-more:hover, .pb-more:focus-visible { color: var(--text); }
+/* An account's faults, said on its card. Its window, saved resets and spend are the main board's. */
+.pb-account-issues { margin: 4px 0 6px; font-size: 11.5px; }
+.pb-src-empty { margin: 4px 0 0; padding: 8px 2px 2px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+
+/* "＋ model" open: the account's list in its card — a search field, the models it finds, and what the
+   board knows of the list when it has none to show. */
+.pb-picker {
+  margin: 8px 0 8px; padding: 6px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 10px;
+  background: color-mix(in srgb, var(--field) 55%, var(--panel)); box-shadow: 0 6px 18px color-mix(in srgb, #000 12%, transparent);
+}
+.pb-picker-head { display: flex; align-items: center; gap: 4px; }
+.pb .pb-picker-find {
+  flex: 1 1 auto; min-width: 0; width: auto; height: 30px; min-height: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--field); color: var(--text); font-size: 12.5px;
+}
+.pb .pb-picker-find:focus { outline: none; border-color: color-mix(in srgb, var(--accent) 70%, var(--line)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+/* The list's ✕ closes it; the browser's own ✕ in a search field would be a second cross beside it. */
+.pb .pb-picker-find::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.pb-picker-list { display: grid; gap: 1px; max-height: 232px; margin: 6px 0 0; overflow: auto; overscroll-behavior: contain; }
+.pb .pb-pick-model {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 0; height: auto;
+  padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font-size: 12px; text-align: left; cursor: pointer;
+}
+.pb .pb-pick-model:hover, .pb .pb-pick-model:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.pb-pick-model code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.pb-pick-model small { flex: none; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.pb .pb-pick-model.typed {
+  justify-content: center; margin: 6px 0 0; border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent-strong, var(--accent)); font-size: 11.5px;
+}
+.pb-picker-note { padding: 6px 8px 2px; color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+
+/* The cables, under the cards' parts and over the columns' gaps. A cable is cut by a click
+   on it: its wide twin, drawn without colour, is what the pointer finds. */
+.pb-cables { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 2; }
+.pb-cables path { fill: none; }
+/* As thin as the main board's (1px; the owner, 2026-10-12: "two or three times thinner"); the serving row's
+   and the lit path's a little thicker. */
+.pb-cables .pb-cable { stroke: color-mix(in srgb, var(--accent) 62%, transparent); stroke-width: 1; }
+.pb-cables .pb-cable.lit { stroke: var(--accent); stroke-width: 1.5; }
+.pb-cables .pb-cable.live { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; }
+/* The cable in the hand: a layer above the columns (their z-index is 3) and under the strip's tools. */
+.pb-live-layer { z-index: 30; }
+.pb-cables .pb-cable-hit { stroke: transparent; stroke-width: 16; pointer-events: stroke; cursor: pointer; }
+.pb-cables g:hover .pb-cable { stroke: var(--bad); }
+.pb.dragging-client .pb-set, .pb.dragging-set .pb-pool, .pb.dragging-row .pb-model[data-pb-model], .pb.dragging-new-row .pb-model[data-pb-model] { outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -1px; }
+.pb .pb-drop { background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+
+/* A model's name and its ⏱ (model-schedule.js): the ⏱ goes under the name when the column is too
+   narrow for both, so a long name never pushes it out of sight. */
+.pb-model-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.pb-model-head .pb-model-name { flex: 1 1 60px; }
+.pb .pb-sched {
+  flex: none; min-height: 0; height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; background: none;
+  color: var(--muted); font-size: 10.5px; line-height: 16px; white-space: nowrap; cursor: pointer;
+}
+/* No schedule, or one switched off: the model is open at any time, and its ⏱ stays quiet until pointed at. */
+.pb .pb-sched.none, .pb .pb-sched.off { padding: 0 4px; opacity: .45; }
+.pb-model:hover .pb-sched, .pb .pb-sched:focus-visible { opacity: 1; }
+@media (hover: none) { .pb .pb-sched { opacity: 1; } }
+.pb .pb-sched.open { color: var(--good, #22c55e); border-color: color-mix(in srgb, var(--good, #22c55e) 45%, var(--line)); }
+.pb .pb-sched.closed { color: var(--warn, #f59e0b); border-color: color-mix(in srgb, var(--warn, #f59e0b) 45%, var(--line)); }
+
+/* The schedule's window: a week of hours painted with the pointer, and the same hours as windows. */
+.ms-box { width: min(820px, 100%); }
+.ms-switch { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; font-weight: 600; }
+.ms-zone, .ms-hint, .ms-note, .ms-empty { margin: 4px 0; color: var(--muted); }
+.ms-now { margin: 4px 0; color: var(--text); }
+.ms-zone.bad, .ms-note.bad { color: var(--bad); }
+.ms-grid { display: grid; grid-template-columns: 36px repeat(24, minmax(12px, 1fr)); gap: 2px; margin: 8px 0 4px; user-select: none; touch-action: none; }
+.ms-grid.off { opacity: .5; }
+.ms-hour { font-size: 9px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ms-day { align-self: center; font-size: 11px; color: var(--muted); }
+.ms-cell { height: 18px; border-radius: 3px; background: color-mix(in srgb, var(--line) 55%, transparent); cursor: pointer; }
+.ms-cell.full { background: var(--accent); }
+.ms-cell.part { background: linear-gradient(90deg, var(--accent) 50%, color-mix(in srgb, var(--line) 55%, transparent) 50%); }
+.ms-cell.now { box-shadow: inset 0 0 0 2px var(--warn, #f59e0b); }
+.ms-windows { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ms-window { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ms-days { display: flex; flex-wrap: wrap; gap: 2px; }
+.pb .ms-daybtn {
+  min-height: 0; height: 24px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: none;
+  color: var(--muted); font-size: 11px; cursor: pointer;
+}
+.pb .ms-daybtn.on { color: var(--text); background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.pb .ms-time { min-height: 0; height: 28px; width: 96px; padding: 0 6px; font-size: 12px; }
+.pb .ms-add { margin: 6px 0 0; }
+.pb .ms-save:disabled { opacity: .5; cursor: not-allowed; }
+.ms-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+@media (max-width: 640px) {
+  .ms-grid { grid-template-columns: 28px repeat(24, minmax(8px, 1fr)); }
+  .ms-hour { font-size: 8px; }
+}
+
+/* ── 1.3.503: where the cables go (the owner, 2026-10-12) ─────────────────────────────────────── */
+
+/* Until 1.3.531 each pool had a colour of its own, one of eight by its id, on its card, its rows in the sets
+   and every cable to it: three of the eleven pools of the owner's board shared a colour with another, and
+   the board read as motley (the owner, 2026-10-13). The cables are one quiet colour now; the lit path
+   below is the one place where a path has its own. */
+.pb-cables .pb-cable { stroke: color-mix(in srgb, var(--accent) 26%, var(--line)); }
+.pb-cables .pb-cable.lit { stroke: var(--accent); }
+
+/* A pool of one row is one line under its name — "= the model"; a pool of two rows and more is a ladder,
+   "N in turn" in its head. When the pool goes on from a row to the next one stands in the strip (.pb-turn). */
+.pb .pb-pool.single .pb-row { grid-template-columns: 14px minmax(0, 1fr) auto 22px; }
+.pb-eq { color: var(--muted); font-weight: 700; text-align: center; }
+.pb-turns { flex: none; padding: 1px 0; color: #c9a24d; font-size: 10.5px; font-weight: 600; white-space: nowrap; cursor: default; }
+.pb-head-tools { display: flex; align-items: center; gap: 6px; }
+
+/* A model's handle: carried onto a pool it becomes a row of it, onto the Pools column a pool of its
+   own; a click lists the same places. Quiet until the row is pointed at. */
+.pb-model-grab {
+  flex: none; color: var(--muted); opacity: .45; font-size: 11px; line-height: 1; cursor: grab;
+  user-select: none; touch-action: none;
+}
+.pb-model:hover .pb-model-grab, .pb-model-grab:focus-visible { opacity: 1; }
+@media (hover: none) { .pb-model-grab { opacity: .8; } }
+/* The Pools column takes a model let go off any pool — a pool of its own: it runs the board's whole
+   height, with room under its last card, so there is always a free place to let go on. */
+.pb-col[data-pb-pools-drop] { align-self: stretch; padding-bottom: 56px; }
+.pb.dragging-model .pb-pool, .pb.dragging-model [data-pb-pools-drop] { outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -1px; }
+.pb.dragging-model [data-pb-pools-drop] { outline-offset: 6px; border-radius: 12px; }
+.pb.dragging-model [data-pb-pools-drop].pb-drop::after {
+  content: attr(data-pb-drop-hint); position: absolute; left: 0; right: 0; top: -4px; padding: 4px 10px; border-radius: 8px;
+  background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 600; text-align: center; pointer-events: none; z-index: 5;
+}
+
+/* A card's grip in its head: carried, the card changes its place in its column (step-carry.js). The
+   card rises and follows the pointer; its seat stays as a dashed place of its size; its column rises
+   over the others while it travels. */
+.pb-card-grip {
+  flex: none; display: inline-grid; place-items: center; width: 12px; color: var(--muted); opacity: .5;
+  font-size: 12px; line-height: 1; cursor: grab; user-select: none; touch-action: none;
+}
+.pb-card:hover .pb-card-grip, .pb-card-grip:focus-visible { opacity: 1; }
+@media (hover: none) { .pb-card-grip { opacity: .8; } }
+.pb-seat.carried { position: relative; }
+.pb-seat.carried::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: var(--hole-h, 100%); box-sizing: border-box;
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 75%, transparent); border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.pb-seat.carried > .pb-card {
+  z-index: 60; pointer-events: none; will-change: transform; border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 30px 60px -22px rgba(0, 0, 0, .7);
+}
+.pb-col.sorting, .pb-col:has(.sorting) { z-index: 6; }
+
+/* The path through a card (pool-board.js, path): pointed at or pinned by a click, its cards and cables
+   stand out and the rest step back. */
+.pb [data-pb-node] { transition: opacity .12s ease, box-shadow .12s ease; }
+.pb.tracing .pb-card[data-pb-node]:not(.on-path), .pb.tracing .pb-model[data-pb-node]:not(.on-path) { opacity: .38; }
+.pb.tracing .pb-card[data-pb-node].on-path [data-pb-node]:not(.on-path) { opacity: .45; }
+.pb.tracing .pb-card[data-pb-node].on-path { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+.pb.traced .pb-card[data-pb-node].on-path { box-shadow: 0 0 0 2px var(--accent); }
+.pb.tracing .pb-model[data-pb-node].on-path { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.pb.tracing .pb-cables g:not(.on-path) .pb-cable { opacity: .14; }
+.pb.tracing .pb-cables g.on-path .pb-cable { stroke: var(--accent); stroke-width: 1.5; }
+@media (prefers-reduced-motion: reduce) { .pb [data-pb-node] { transition: none; } }
+
+/* The chooser: where a clicked output's cable can go, with a search over them. It stands by the output
+   in the board's scrolled box; with little room below, it opens upward. */
+.pb-chooser {
+  position: absolute; z-index: 40; width: 320px; max-width: calc(100% - 16px); box-sizing: border-box; padding: 8px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 18px 44px -14px rgba(0, 0, 0, .6);
+}
+.pb-chooser.up { transform: translateY(-100%); }
+.pb-chooser-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 6px; font-size: 12px; }
+.pb-chooser-list { display: grid; gap: 1px; max-height: 300px; margin: 6px 0 0; overflow: auto; overscroll-behavior: contain; }
+.pb .pb-choice {
+  display: grid; gap: 1px; width: 100%; min-height: 0; height: auto; padding: 5px 8px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.pb .pb-choice:hover, .pb .pb-choice:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.pb .pb-choice.now { color: var(--muted); cursor: default; }
+.pb .pb-choice.now:hover { background: transparent; }
+.pb-choice-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.pb-choice small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+
+/* ── 1.3.531: a calm board (the owner, 2026-10-13: "crowded and motley: hide part of it, show it on hover") ── */
+
+/* A card's tools — the ✕, ⚙, ＋ and 🕘 of its head, a row's ✕ — and the grips that carry a card, a row
+   or a model are for the hand, not for the eye: they show while the pointer is on the card (or the keyboard
+   in it), and always where there is no pointer to put on it. The card keeps the room they stand in, so
+   nothing moves when they appear; the dashed "＋" rows below stay, only quieter. */
+.pb { --pb-quiet: 0; }
+@media (hover: none) { .pb { --pb-quiet: .8; } }
+.pb .pb-pool-head .pb-tool:not(.on), .pb .pb-row .pb-tool,
+.pb .pb-card-grip, .pb .pb-row [data-pool-grip], .pb .pb-model-grab { opacity: var(--pb-quiet); }
+.pb .pb-card:hover .pb-pool-head .pb-tool, .pb .pb-card:focus-within .pb-pool-head .pb-tool,
+.pb .pb-card:hover .pb-row .pb-tool, .pb .pb-card:focus-within .pb-row .pb-tool,
+.pb .pb-card:hover .pb-card-grip, .pb .pb-card:focus-within .pb-card-grip,
+.pb .pb-card:hover .pb-row [data-pool-grip], .pb .pb-card:focus-within .pb-row [data-pool-grip],
+.pb .pb-model:hover .pb-model-grab, .pb .pb-model:focus-within .pb-model-grab { opacity: 1; }
+.pb-new-out, .pb-add-model { border-color: var(--line); color: var(--muted); }
+.pb-new-out:hover, .pb-add-model:hover, .pb-add-model:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent-strong, var(--accent));
+}
+/* The column heads' buttons are text until pointed at. */
+.pb-add { border-color: transparent; background: transparent; color: var(--muted); }
+.pb-add:hover, .pb-add:focus-visible { color: var(--accent-strong, var(--accent)); }
+/* Marks of jobs and the key are grey (an emoji is the loudest colour on a card); a pool that does mixed
+   work keeps its ⚠. A row says its state by a pill only when the state is news: serving, closed, off, missing. */
+.pb-kind:not(.mixed), .pb-key { filter: grayscale(1); }
+.pb-kind:not(.mixed) { opacity: .7; }
+.pb-status { border-color: transparent; }
+/* The dots of the lit path are filled with the accent: where a path goes in and out of each card shows at once. */
+.pb.tracing [data-pb-node].on-path > .pb-dot:not(.open) { border-color: var(--accent); background: var(--accent); }
+
+/* ── 1.3.532: the strip below (pool-dock.js; the owner chose "details in a strip below", 2026-10-13) ───── */
+
+/* The address stands once under the clients' head. */
+.pb-entry { display: flex; align-items: center; gap: 4px; margin: -4px 2px 10px; min-width: 0; }
+.pb-entry .pb-client-url { font-size: 10.5px; }
+/* A client's second line: how many models it sees, and a badge when it was refused. */
+.pb-client-sub { display: flex; align-items: center; justify-content: space-between; flex: 1 0 100%; min-width: 0; color: var(--muted); font-size: 11.5px; }
+.pb-miss-badge {
+  padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, var(--bad) 14%, transparent);
+  color: var(--bad); font-size: 11px; font-weight: 600; line-height: 17px; white-space: nowrap; cursor: default;
+}
+
+/* The strip: always the last thing in the board's box, pinned to its bottom edge while the columns scroll under it;
+   its height is fixed, so pointing at a card moves nothing and covers no neighbour. */
+/* Flush with the bottom of the board's box: a sticky box keeps to the scrollport less its padding, and the board has 28px of it
+   at the foot — so `bottom` and the margin below both give those 28px back (before 1.3.539 the strip floated 28px above the edge,
+   with the foot of the board showing under it). */
+.pb-dock {
+  position: sticky; bottom: -28px; left: 0; z-index: 20; display: flex; box-sizing: border-box; height: 156px;
+  margin: 12px -20px -28px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 94%, #000); overflow: hidden;
+  transition: visibility 0s linear 0s;
+}
+/* Nothing pointed at, nothing pinned: no strip (the owner, 2026-10-14). It is hidden, not removed — it keeps its place at the
+   board's foot, so nothing moves when it shows and a board scrolled to its end does not jump when it goes. It goes a moment
+   late (a delay, not an animation): the pointer crossing the gap between two cards would flash it. */
+.pb-dock[data-t-state="empty"] { visibility: hidden; transition-delay: .25s; }
+.pb-dock-id { flex: none; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; width: 290px; min-width: 0; padding: 12px 16px; }
+.pb-dock-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
+.pb-dock-sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+.pb-route { display: grid; gap: 2px; margin: 4px 0 0; font-size: 11.5px; }
+.pb-route > div { display: flex; align-items: center; gap: 8px; height: 16px; min-width: 0; }
+.pb-route dt { flex: none; width: 58px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; }
+.pb-route dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-dock-foot { margin-top: auto; color: var(--muted); font-size: 10.5px; }
+/* The details flow in columns of the strip's own height: a client's questions, its tests, its errors. */
+.pb-dock-body {
+  flex: 1; box-sizing: border-box; min-width: 0; height: 100%; padding: 12px 16px 0; border-left: 1px solid var(--line);
+  column-width: 230px; column-gap: 24px; column-fill: auto; overflow: hidden;
+}
+.pb-dock-client { display: contents; }
+.pb-dock-body > *, .pb-dock-client > * { break-inside: avoid; margin-bottom: 8px; }
+.pb-dock-client .pb-client-misses { margin-top: 0; padding-top: 0; border-top: 0; }
+
+/* ── 1.3.533: pools and sets in the strip ────────────────────────────────────────────────────────── */
+
+/* A row says its state by a pill only when the state is news; when it is not, a dot: filled — the row is fit
+   and waits its turn —, hollow — the proxy has not asked it yet. The words stand in the dot's title and in the strip. */
+.pb-status.quiet {
+  box-sizing: border-box; width: 7px; height: 7px; padding: 0; border: 1.5px solid transparent; border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+.pb-status.quiet.unknown { border-color: color-mix(in srgb, var(--muted) 45%, transparent); background: transparent; }
+
+/* A pool and a set in the strip: the wrappers have no box, their parts flow in the strip's columns. A row of
+   the list is a rank, a model, the state in words, and under them when the pool goes on to the next row; the
+   list breaks between rows, not inside one. */
+.pb-dock-pool, .pb-dock-set { display: contents; }
+.pb-dock-pool > *, .pb-dock-set > * { break-inside: avoid; margin-bottom: 8px; }
+.pb-dock-pool > .pb-dock-steps, .pb-dock-set > .pb-dock-steps { break-inside: auto; }
+.pb-dock-steps { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pb-dock-step, .pb-dock-model { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 1px 8px; align-items: center; break-inside: avoid; }
+.pb-dock-model { grid-template-columns: minmax(0, 1fr) auto; }
+.pb-dock-step .pb-turn { grid-column: 2 / -1; margin: 0; color: var(--muted); font-size: 10.5px; line-height: 1.3; }
+/* While a row is carried the notes say nothing true: the order they speak of is changing. */
+.pb:has(.pool-ladder.sorting) .pb-dock .pb-turn { display: none; }
+.pb-dock .pb-new-out { margin: 0; }
+.pb-dock .pb-settings-head, .pb-dock .pb-history-toggle { margin-top: 0; }
+
+/* ── 1.3.534: models in the strip ───────────────────────────────────────────────────────────────── */
+
+/* A model whose pool has stepped aside or stopped it says so on its card, as a row's pill does. */
+.pb-model-head .pb-status { flex: none; }
+/* The strip's model: the account's two bars with the model's levels, the legend of the handles under them; or a cell's state. */
+.pb-dock-body > .pb-dock-levels { min-width: 0; break-inside: auto; }
+.pb-dock-levels .sub-usage-panel { margin: 0; padding: 0; border: 0; background: none; }
+.pb-dock-levels .sub-usage-row { margin: 2px 0; break-inside: avoid; }
+/* When the windows reset is on the account's card, in its limits: the strip does not say it twice. */
+.pb-dock-levels .sub-usage-resets { display: none; }
+.pb-dock-note { margin: 0; color: var(--muted); font-size: 11.5px; }
+.pb-dock-cell { display: flex; align-items: center; font-size: 12px; }

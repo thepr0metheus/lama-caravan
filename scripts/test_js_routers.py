@@ -10,11 +10,11 @@ board stuck in "saving" forever. Pinned across three trails — what went out
 on the wire, what happened to the state, what's left after a failure.
 
 Alongside that: what reads the graph for drawing — an output's caption
-(cloud ones by account, local ones by the model's nice name from the
-server), an output's liveness (matched by upstream host:port, for the cloud
-by providerId, because every cloud output shares one host:port), the
-router's compact card, and the output panel with its single "default" radio
-button.
+(a pool's by the pool's name, local ones by the model's nice name from the
+server), an output's liveness (matched by upstream host:port, for a pool
+by providerId, because a pool has no host:port of its own), the router's
+compact card, and the output panel with its single "default" radio button
+and a row per pool that says its steps and what keeps it from serving.
 
 The module is loaded FOR REAL (scripts/_js_harness.mjs), as are its
 neighbors state/i18n/form/utils/model-meta/topology-activity/topology-proxies;
@@ -47,10 +47,7 @@ Date.now = () => 1_700_000_100_000;
 // saveRouters держит «муравьиную дорожку» ещё 350 мс, если запись была быстрой:
 // пусть часы говорят, что прошла секунда, — снимок не ждёт анимацию.
 let _perf = 0; globalThis.performance = { now: () => (_perf += 1000) };
-// The closer of models' ports lives in cloud.js (stubbed): an object, so its
-// stand-in is a value — it writes down what it was asked and answers `answer`.
 globalThis.__stubValues = { ...(globalThis.__stubValues || {}),
-  "cloud.PORT_CLOSER": { calls: [], answer: null, close(id, port) { this.calls.push([id, port ?? null]); return Promise.resolve(this.answer); } },
   "canvas._cvView": { tx: 0, ty: 0, scale: 1 }, "canvas._cvPos": {} };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/routers.js").href);
 const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
@@ -68,10 +65,12 @@ reset();
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body }));
 const ROUTER = (extra = {}) => ({ id: "router:default", name: "default", inputs: [], outputs: [
   { id: "srv:22001", label: "Qwen3-Embedding-0.6B-f16.gguf ", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama", providerId: "" },
-  { id: "cb:terra", label: "☁ gpt-5.6-terra", upstreamHost: "127.0.0.1", upstreamPort: 8080, upstreamType: "cloud", providerId: "gpt-5-6-terra", accountId: "openai-subscription" },
+  { id: "cb:terra", label: "☁ gpt-5.6-terra", upstreamHost: "", upstreamPort: 0, upstreamType: "cloud", providerId: "gpt-5-6-terra" },
 ], rules: { default: "cb:terra", schedule: [], bySource: [] }, graph: { nodes: [], edges: [], inputs: {} }, ...extra });
-const CLOUD = () => ({ cloudAccounts: [{ id: "openai-subscription", type: "openai", name: "OpenAI (ChatGPT Plus)" }],
-  cloudProviders: [{ id: "gpt-5-6-terra", accountId: "openai-subscription", model: "gpt-5.6-terra", exposed: true }] });
+// A pool is one output, cb:<pool id> (caravan/admin/proxies_config.py, pool_output).
+const STEP = (id, accountId, model, extra = {}) => ({ id, accountId, model, enabled: true, switchAt: {}, ...extra });
+const CLOUD = (pool = {}) => ({ cloudAccounts: [{ id: "openai-subscription", type: "openai", name: "OpenAI (ChatGPT Plus)" }, { id: "or", type: "openrouter", name: "OpenRouter" }],
+  pools: [{ id: "gpt-5-6-terra", name: "Terra", ports: [], steps: [STEP("s1", "openai-subscription", "gpt-5.6-terra"), STEP("s2", "or", "vendor/terra")], ...pool }] });
 const MON = (items, port = 23001) => ({ latest: { agentProxies: { agents: { [String(port)]: { port, active: items.active || [], recent: items.recent || [] } } } } });
 // machineAt is topology-nodes' (stubbed here; the real one is pinned in
 // test_js_topology_nodes): two addresses of one machine, one other, the rest unknown.
@@ -85,6 +84,9 @@ globalThis.__stubReturns = { ...(globalThis.__stubReturns || {}),
   "topology-nodes.cellRunnerId": (cfg) => String((cfg || {}).RUNNER || "llama-server"), "topology-nodes.cellJobs": () => ["llm"],
   "canvas.canvasNodes": () => [], "canvas.renderRouterNodeConfig": () => "",
   "canvas.canvasPanels": () => ({ left: "<aside>CLIENTS</aside>", right: "<aside>SERVERS</aside>" }) };
+const rowIds = (h) => [...h.matchAll(/data-router-out-row="([^"]+)"/g)].map((x) => x[1]);
+// The groups of the Servers panel in their order, each by the outputs it holds: a machine's, a pool's.
+const groupOrder = (h) => [...h.matchAll(/class="router-(?:out-host-group|prov router-pool)[^"]*" data-cv-group-outs="([^"]*)"/g)].map((x) => x[1]);
 const heads = (h) => [...h.matchAll(/router-out-host-label">([^<]*?)\s*(?:<span class="router-out-host-addr">([^<]*)<\/span>)?</g)].map((x) => [x[1], x[2] || ""]);
 const out = {};
 """
@@ -102,21 +104,21 @@ PINS = [
      'true',
      "negative: неизвестный id — undefined, а не пустой объект, который выглядел бы как роутер"),
     # ── an output's caption ──
-    ("output_label_cloud_by_account_name",
+    ("output_label_cloud_by_pool_name",
      'st.setTopology({ ...st.topology, ...CLOUD() });',
-     'm.topologyRouterOutputLabel({ upstreamType: "cloud", accountId: "openai-subscription" })',
-     '"☁ OpenAI (ChatGPT Plus)"',
-     "облачный выход подписывается ИМЕНЕМ аккаунта, не id"),
+     'm.topologyRouterOutputLabel({ upstreamType: "cloud", providerId: "gpt-5-6-terra" })',
+     '"☁ Terra"',
+     "выход пула подписывается ИМЕНЕМ пула, не id"),
     ("output_label_cloud_keeps_own_label",
      'st.setTopology({ ...st.topology, ...CLOUD() });',
-     'm.topologyRouterOutputLabel({ upstreamType: "cloud", accountId: "openai-subscription", label: "☁ gpt-5.6-terra" })',
+     'm.topologyRouterOutputLabel({ upstreamType: "cloud", providerId: "gpt-5-6-terra", label: "☁ gpt-5.6-terra" })',
      '"☁ gpt-5.6-terra"',
-     "boundary: у выхода есть своя подпись — она побеждает имя аккаунта"),
-    ("output_label_cloud_unknown_account",
+     "boundary: у выхода есть своя подпись (контроллер ставит имя пула) — она побеждает"),
+    ("output_label_cloud_unknown_pool",
      '',
-     'm.topologyRouterOutputLabel({ upstreamType: "cloud", accountId: "gone" })',
+     'm.topologyRouterOutputLabel({ upstreamType: "cloud", providerId: "gone" })',
      '"☁ gone"',
-     "negative: аккаунт удалён — показывается его id, а не «cloud» и не пустота"),
+     "negative: пул удалён — показывается его id, а не «cloud» и не пустота"),
     ("output_label_local_pretty_model",
      'st.setTopology({ ...st.topology, nodes: [{ id: "m-ctl", servers: [{ port: 22001, model: "/models/Qwen3-Embedding-0.6B-f16.gguf" }] }] });',
      'm.topologyRouterOutputLabel({ upstreamType: "llama", upstreamHost: "127.0.0.1", upstreamPort: 22001, label: "Qwen3-Embedding-0.6B-f16.gguf :22001" })',
@@ -165,6 +167,26 @@ PINS = [
      '[m.topologyOutputActivity({ id: "eng:a", upstreamType: "engine", upstreamHost: "10.0.0.5", upstreamPort: 11434 }).state, m.topologyOutputActivity({ id: "eng:b", upstreamType: "engine", upstreamHost: "10.0.0.5", upstreamPort: 11434 }).state]',
      '["active","idle"]',
      "модели одного движка делят его host:port — совпадение по выходу, куда запрос направлен, и соседняя модель не оживает"),
+    # 2026-10-11: a pool also serves the entry's free clients directly, their requests carrying the
+    # pool's id — a kanban's output to that pool lights only for the requests its own ports brought.
+    ("output_activity_counts_its_kanbans_ports_only",
+     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001 }, { id: "skynet:proxy:23050", port: 23050, kind: "consumer" }] });'
+     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstreamType: "cloud", providerId: "terra" }] }, 23050);',
+     '(() => { const out = { upstreamType: "cloud", providerId: "terra" };'
+     ' return [m.topologyOutputActivity(out, ROUTER({ inputs: ["skynet:proxy:23001"] })).state,'
+     ' m.topologyOutputActivity(out, ROUTER({ inputs: ["skynet:proxy:23050"] })).state, m.topologyOutputActivity(out).state]; })()',
+     '["idle","active","active"]',
+     "выход канбана к пулу горит только от запросов его портов: запрос свободного клиента шёл мимо канбана — кабель тих; "
+     "positive: тот же запрос от порта этого канбана — горит (порт записи — из строки монитора); без канбана — по-старому, любой запрос"),
+    # 1.3.506: the models of a machine's entry share its scout's host:port, as an engine's do.
+    ("output_activity_machine_model_by_routed_output",
+     'st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstream: "10.0.0.5:8092/gemma", upstreamType: "machine", routedOutputId: "mm:a" }] });',
+     '(() => { const mm = (id, model) => ({ id, upstreamType: "machine", upstreamHost: "10.0.0.5", upstreamPort: 8092, upstreamModel: model });'
+     ' return [m.topologyOutputActivity(mm("mm:a", "gemma")).state, m.topologyOutputActivity(mm("mm:b", "ear")).state,'
+     ' m.topologyRouterOutputLabel({ ...mm("mm:a", "gemma"), label: "gemma" }), m.topologyRouterOutputLabel({ upstreamType: "machine", label: "x" })]; })()',
+     '["active","idle","gemma","x"]',
+     "модели входа машины делят адрес скаута — совпадение по имени очереди модели («адрес:порт/модель»), соседняя "
+     "модель не оживает; подпись — имя модели, без порта входа: он у всех моделей машины один"),
     ("output_label_engine",
      '',
      '[m.topologyRouterOutputLabel({ upstreamType: "engine", label: "qwen3:8b · Ollama", upstreamPort: 11434 }), m.topologyRouterOutputLabel({ upstreamType: "engine", upstreamModel: "qwen3:8b", engine: "ollama", upstreamPort: 11434 })]',
@@ -185,19 +207,6 @@ PINS = [
      'm.topologyOutputActivity({ upstreamHost: "127.0.0.1", upstreamPort: 22001 })',
      '{"state":"idle","title":""}',
      "negative: монитора нет — idle без исключения"),
-    # ── a router's liveness ──
-    ("router_activity_from_its_inputs",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p" }] });'
-     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23001 }] });',
-     'm.topologyRouterActivity({ inputs: ["skynet:proxy:23001"] }).state',
-     '"active"',
-     "роутер жив живостью своих входов"),
-    ("router_activity_idle_without_inputs",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p" }] });'
-     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23001 }] });',
-     '[m.topologyRouterActivity({ inputs: [] }).state, m.topologyRouterActivity({ inputs: ["skynet:proxy:29999"] }).state, m.topologyRouterActivity(null).state]',
-     '["idle","idle","idle"]',
-     "negative: без входов, с неизвестным входом, без роутера — idle, без исключения"),
     # ── saveRouters: three trails ──
     ("save_posts_the_mutated_copy",
      'st.setTopology({ ...st.topology, routers: [ROUTER()] });'
@@ -229,85 +238,118 @@ PINS = [
      'await (async () => { let err = ""; try { await m.saveRouters(() => {}); } catch (e) { err = String(e.message || e); } return [err, m._routersSaving]; })()',
      '["disk full",0]',
      "отказ сервера ДОХОДИТ до вызывающего, а флаг «сохраняется» снимается — иначе муравьиная дорожка бежала бы вечно"),
+    # ── saveRouters and an old copy (ProxyRevisions on the controller, 2026-10-08) ──
+    ("save_sends_the_version_it_was_built_from",
+     'st.setTopology({ ...st.topology, routers: [ROUTER()], proxyRevisions: { routes: "p1", routers: "r1" } });'
+     ' globalThis.__fetchReply["/api/agent-proxies/routers"] = { ok: true };',
+     'await (async () => { await m.saveRouters(() => {}); return JSON.parse(calls()[0].body).revision; })()',
+     '"r1"',
+     "запись несёт версию роутеров, из которой собрана: по ней контроллер узнаёт старую копию"),
+    ("save_without_a_version_sends_none",
+     'st.setTopology({ ...st.topology, routers: [ROUTER()] });'
+     ' globalThis.__fetchReply["/api/agent-proxies/routers"] = { ok: true };',
+     'await (async () => { await m.saveRouters(() => {}); return JSON.parse(calls()[0].body).revision; })()',
+     '""',
+     "negative: топология без версий (старый контроллер) — пустая версия, контроллер её не проверяет"),
+    ("save_from_an_old_copy_is_made_again_on_the_current",
+     'st.setTopology({ ...st.topology, routers: [ROUTER()], proxyRevisions: { routes: "p1", routers: "r1" } });'
+     ' let n = 0; globalThis.__fetchReply["/api/agent-proxies/routers"] = () => (++n === 1 ? { __status: 409, stale: true, error: "the routers changed since this page read them", topology: { proxies: [], clients: [], assignments: {}, routers: [ROUTER({ name: "fresh" })], proxyRevisions: { routes: "p2", routers: "r2" } } } : { ok: true });',
+     'await (async () => { await m.saveRouters((rs) => { rs[0].rules.default = "srv:22001"; }); const c = calls().map((x) => JSON.parse(x.body));'
+     ' return [c.length, c[1].revision, c[1].routers[0].name, c[1].routers[0].rules.default, toastText() === en.staleCopyRetried, m._routersSaving]; })()',
+     '[2,"r2","fresh","srv:22001",true,0]',
+     "отказ «старая копия»: то же изменение сделано ещё раз на текущей топологии из ответа, с её версией, и тост это говорит"),
+    ("save_refused_twice_reaches_the_caller",
+     'st.setTopology({ ...st.topology, routers: [ROUTER()], proxyRevisions: { routes: "p1", routers: "r1" } });'
+     ' globalThis.__fetchReply["/api/agent-proxies/routers"] = { __status: 409, stale: true, error: "the routers changed since this page read them", topology: { proxies: [], clients: [], assignments: {}, routers: [ROUTER({ name: "fresh" })], proxyRevisions: { routes: "p2", routers: "r2" } } };',
+     'await (async () => { let err = ""; try { await m.saveRouters(() => {}); } catch (e) { err = e.message; } return [calls().length, err, m._routersSaving]; })()',
+     '[2,"the routers changed since this page read them",0]',
+     "negative: второй отказ — ошибка вызывающему, третьей попытки нет, флаг «сохраняется» снят"),
+    ("save_other_409_is_not_retried",
+     'st.setTopology({ ...st.topology, routers: [ROUTER()], proxyRevisions: { routes: "p1", routers: "r1" } });'
+     ' globalThis.__fetchReply["/api/agent-proxies/routers"] = { __status: 409, error: "Local model srv:22001 has multiple queue policies" };',
+     'await (async () => { let err = ""; try { await m.saveRouters(() => {}); } catch (e) { err = e.message; } return [calls().length, err]; })()',
+     '[1,"Local model srv:22001 has multiple queue policies"]',
+     "negative: другой отказ 409 (две политики очереди) не повторяется — повторять имеет смысл только запись со старой копии"),
     ("save_nested_flag_counts",
      '',
      '(() => { m._setRoutersSaving(true); m._setRoutersSaving(true); const two = m._routersSaving; m._setRoutersSaving(false); const one = m._routersSaving; m._setRoutersSaving(false); m._setRoutersSaving(false); return [two, one, m._routersSaving]; })()',
      '[2,1,0]',
      "boundary: две записи подряд считаются, а лишнее снятие не уводит счётчик в минус"),
-    # ── the router's card ──
-    ("card_counts_inputs_and_outputs",
-     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ inputs: ["a", "b", "c"] })] });',
-     '(h => [h.includes("in 3 · out 2"), h.includes("router-output-row is-default"), h.includes("☁ gpt-5.6-terra"), h.includes(">default</span>")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
-     '[true,true,true,true]',
-     "карточка: счётчики входов/выходов, строка default с подписью выхода и чипом"),
-    ("card_without_outputs_says_so",
-     'st.setTopology({ ...st.topology, routers: [ROUTER({ outputs: [], rules: { default: "" } })] });',
-     '(h => [h.includes("router-output-row empty"), h.includes("is-default")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
+    # ── the kanban's card on the main board (2026-10-12: the pools stand on the kanban) ──
+    ("card_counts_the_clients_and_the_pools",
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ inputs: ["a", "b", "c"] })], proxies: ['
+     ' { id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }, { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", set: "", pool: "terra" },'
+     ' { id: "ctl:proxy:23003", port: 23003, kind: "consumer", label: "Zed", set: "cheap" },'
+     ' { id: "ctl:proxy:23050", port: 23050, label: "old agent" }] });',
+     '(h => [h.includes(`${en.topologyClientsSection} 2/3 · ${en.topologyLlamaServersSection} ${st.topology.pools.length}`),'
+     ' st.topology.pools.some((p) => h.includes(`data-t-id="${p.id}"`) || h.includes(String(p.name || p.id))), ["router-pool-name", "board-kanban-pool", "router-outputs"].some((x) => h.includes(x)),'
+     ' h.includes(\'data-t="board-kanban-card"\'), h.includes(`title="${en.rtTitleOpenKanban}"`), h.includes("data-topology-router-input"), h.includes("data-topology-router-output"), h.includes(" out ")])'
+     '(m.renderTopologyRouterCard(st.topology.routers[0]))',
+     '[true,false,false,true,true,true,true,false]',
+     "карточка канбана маленькая (владелец, 2026-10-13: «без перечисления всего внутри»): имя и две цифры — клиенты с набором из всех клиентов и число пулов; "
+     "щелчок открывает канбан; вход для канатов клиентов и выход к машинам и провайдерам, которых ведут пулы (владелец, 2026-10-12); "
+     "negative: имён пулов на ней нет, ни чипов, ни списка; счётчиков графа (in · out) нет; старое поле pool клиента не считается (1.3.497)"),
+    ("card_without_pools_says_zero",
+     'st.setTopology({ ...st.topology, pools: [], routers: [ROUTER()] });',
+     '(h => [h.includes(`${en.topologyLlamaServersSection} 0`), h.includes("router-output-row"), h.includes(en.rtNoPools), h.includes("router-pool-name")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
+     '[true,false,false,false]',
+     "пулов нет — карточка так и говорит цифрой «0»; negative: ни строки «пулов нет», ни имён, ни пустого списка"),
+    ("board_page_links",
+     '',
+     '(h => [(h.match(/<a [^>]*>/g) || []).map((a) => [(a.match(/href="([^"]*)"/) || [])[1], (a.match(/data-t="([^"]*)"/) || [])[1], a.includes(\'target="_blank"\') && a.includes(\'rel="noopener"\')]),'
+     ' h.includes(`title="${en.modelsPageSub}"`), h.includes(`title="${en.hfBrowserTitle}"`), h.includes(`${en.topologyModelsLabel}</span>`), h.includes("Hugging Face</span>"),'
+     ' h.includes(\'data-t="board-pages"\')])(m.renderBoardPageLinks())',
+     '[[["/models","board-models-open",true],["/hf","board-hf-open",true]],true,true,true,true,true]',
+     "под карточкой канбана — две страницы каравана: «Models» (модели в его папке) и «Hugging Face» (скачать ещё); каждая открывается в новой вкладке, "
+     "с подсказкой и словом на языке страницы (владелец, 2026-10-14: «переместить эти две кнопки в более подходящее место»)"),
+    ("card_lights_with_a_client",
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" },'
+     ' { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", set: "" }] });'
+     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23001 }] });',
+     '(() => { const lit = m.renderTopologyRouterCard(st.topology.routers[0]).includes("activity-active");'
+     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23002 }] }, 23002);'
+     ' return [lit, m.renderTopologyRouterCard(st.topology.routers[0]).includes("activity-active")]; })()',
      '[true,false]',
-     "negative: выходов нет — об этом сказано, и строки default нет"),
-    ("card_default_pointing_nowhere",
-     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ rules: { default: "cb:gone" } })] });',
-     '(h => [h.includes("is-default"), h.includes("in 0 · out 2")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
-     '[false,true]',
-     "boundary: default указывает на удалённый выход — строки default нет, но карточка не падает и счётчики верны"),
-    ("card_mentions_rules_when_any",
-     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ rules: { default: "cb:terra", schedule: [{}, {}], bySource: [{}] } })] });',
-     'm.renderTopologyRouterCard(st.topology.routers[0]).includes("3 rule(s)")',
-     'true',
-     "positive: правила посчитаны по обоим спискам"),
+     "карточка горит, пока идёт запрос клиента с набором; negative: запрос клиента без набора её не зажигает — к ней его канат не ведёт"),
+    ("card_is_red_while_a_clients_failure_is_in_the_window",
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999501, durationMs: 1000 }] });',
+     '(h => [h.includes("activity-error"), h.includes("health-failed")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
+     '[true,true]',
+     "карточка канбана красная, пока отказ клиента с набором (599 с назад) в окне монитора"),
+    ("card_is_calm_after_the_alarm_is_over",
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999499, durationMs: 1000 }] });',
+     '(h => [h.includes("activity-error"), h.includes("health-failed"), h.includes("activity-recent health-ok")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
+     '[false,false,true]',
+     "тот же отказ 601 с назад — карточка канбана не красная: activity-recent health-ok, как после любого старого запроса"),
     # ── the router's outputs: the Servers block on the kanban ──
     ("panel_one_radio_per_output_default_checked",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });',
      '(h => [(h.match(/class="router-out-radio"/g) || []).length, (h.match(/data-router-set-default="router:default"[^>]*>/g) || []).length, /data-router-set-default="router:default" data-router-out="cb:terra"[^>]*checked|checked data-router-set-default="router:default" data-router-out="cb:terra"/.test(h) || /is-default[^>]*data-router-out-row="cb:terra"/.test(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[2,2,true]',
      "по радиокнопке на выход, и отмечен ровно default"),
-    ("panel_provider_header_counts_exposed",
+    ("panel_pool_row_says_its_steps",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });',
-     '(h => [h.includes("☁ OpenAI (ChatGPT Plus)"), h.includes(">1/1</span>")])(m.renderServersBlockHtml(st.topology.routers[0]))',
-     '[true,true]',
-     "заголовок провайдера считает открытые модели из всех"),
-    ("servers_block_marks_new_and_gone_models",
-     'st.setTopology({ ...st.topology, cloudAccounts: [{ id: "acc", name: "Prov" }], cloudProviders: ['
-     ' { id: "a", accountId: "acc", model: "shown-1", exposed: true }, { id: "b", accountId: "acc", model: "zz-new", newSince: 1_700_000_000 },'
-     ' { id: "c", accountId: "acc", model: "aa-hidden" }, { id: "d", accountId: "acc", model: "old-gone", unlisted: true },'
-     ' { id: "e", accountId: "acc", model: "stale-new", newSince: 1_000 }], routers: [ROUTER({ outputs: [] })] });',
-     '(() => { m.topologyOutputsCloudExpanded.acc = true; try { const h = m.renderServersBlockHtml(st.topology.routers[0]);'
-     ' const all = (re) => [...h.matchAll(re)].map((x) => x[1]);'
-     ' return [h.match(/router-prov-count" title="([^"]*)">([^<]*)</).slice(1), all(/class="cloud-chip fresh">([^<]*)</g),'
-     ' all(/class="cloud-chip gone">([^<]*)</g), all(/router-prov-model-name">([^<]*)</g)]; }'
-     ' finally { delete m.topologyOutputsCloudExpanded.acc; } })()',
-     '[["1 on kanban · Models 5","1/5"],["1 new","new"],["1 gone"],["shown-1","zz-new","aa-hidden","old-gone","stale-new"]]',
-     "панель канбана говорит то же, что карточка провайдера: «1/5» с подсказкой «1 на канбане · Модели 5», метки «новых» и «ушли»; "
-     "в списке — метка «новая», показанные первыми, новые следом (иначе в длинном списке их не найти), дальше по цене, при равной — по имени; "
-     "boundary: модель старше недели — уже не новая"),
-    ("kanban_untick_goes_through_the_closer",
+     '(h => [(h.match(/data-router-out-row="cb:terra"/g) || []).length, (h.match(/class="router-out-steps" title="([^"]*)">([^<]*)</) || []).slice(1), h.includes("router-out-unlisted-warn"), groupOrder(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
+     '[1,["1. OpenAI (ChatGPT Plus) · gpt-5.6-terra\\n2. OpenRouter · vendor/terra","steps: 2"],false,["srv:22001","cb:terra"]]',
+     "пул — одна строка-выход в своей группе: сколько шагов, а в подсказке — шаги по порядку «аккаунт · модель»; здоровый пул — без ⚠"),
+    ("pool_row_marks_what_cannot_serve",
      '',
-     'await (async () => { const pc = globalThis.__stubValues["cloud.PORT_CLOSER"]; pc.calls = []; pc.answer = null; let renders = 0;'
-     ' globalThis.__stubReturns["topology-render.renderTopology"] = () => { renders++; };'
-     ' try { st.setTopology({ ...st.topology, cloudProviders: [{ id: "b", accountId: "acc", model: "m" }] });'
-     ' m.setCloudModelExposed("b", false); await m._cloudExposeChain; const cancelled = [pc.calls.slice(), renders];'
-     ' pc.answer = { closed: [23004] }; renders = 0; m.setCloudModelExposed("b", false); await m._cloudExposeChain;'
-     ' return [cancelled, pc.calls.length, renders, calls().length]; }'
-     ' finally { delete globalThis.__stubReturns["topology-render.renderTopology"]; } })()',
-     '[[[["b",null]],1],2,0,0]',
-     "снять галочку = закрыть порты модели через окно закрытия (оно спросит про канаты); отмена — доска перерисована, галочка вернулась; "
-     "закрыто — рисует ответ окна; negative: сам канбан ничего не шлёт"),
-    ("kanban_tick_opens_a_port",
+     '(() => { const warn = (pool) => { st.setTopology({ ...st.topology, ...CLOUD(pool), routers: [ROUTER()] }); return (m.renderServersBlockHtml(st.topology.routers[0]).match(/router-out-unlisted-warn" title="([^"]*)"/) || [null, null])[1]; };'
+     ' return [warn({ steps: [STEP("s1", "or", "m", { enabled: false })] }) === en.rtPoolNoStep, warn({ steps: [] }) === en.rtPoolNoStep,'
+     ' warn({ steps: [STEP("s1", "or", "m", { unlisted: true }), STEP("s2", "or", "n")] }) === en.cloudModelUnlisted, warn({ steps: [STEP("s1", "or", "m", { unlisted: true, enabled: false }), STEP("s2", "or", "n")] })]; })()',
+     '[true,true,true,null]',
+     "⚠ на строке пула: ни одного включённого шага (или шагов нет) — запросы получат отказ; модель включённого шага провайдер больше не отдаёт; negative: такая модель только у выключенного шага — тихо"),
+    ("pool_row_shows_no_port_of_its_own",
      '',
-     'await (async () => { globalThis.__fetchReply["/api/cloud-blocks/expose"] = { ok: true, port: 23012, topology: { ...st.topology, marker: 1 } };'
-     ' try { st.setTopology({ ...st.topology, cloudProviders: [{ id: "b", accountId: "acc", model: "gpt-x" }] });'
-     ' m.setCloudModelExposed("b", true); await m._cloudExposeChain;'
-     ' return [calls().map((c) => [c.path, JSON.parse(c.body)]), toastText() === fill(en.portOpened, { model: "gpt-x", port: "23012" }), st.topology.marker]; }'
-     ' finally { delete globalThis.__fetchReply["/api/cloud-blocks/expose"]; } })()',
-     '[[["/api/cloud-blocks/expose",{"id":"b","exposed":true}]],true,1]',
-     "поставить галочку = открыть модели свой порт; тост называет порт; доска — из ответа"),
-    ("servers_block_shows_each_cloud_models_port",
-     'st.setTopology({ ...st.topology, ...CLOUD(), proxies: [{ port: 23004, kind: "service", providerId: "gpt-5-6-terra" }], routers: [ROUTER()] });',
-     '(() => { m.topologyOutputsCloudExpanded["openai-subscription"] = true; try { const all = (h) => [...h.matchAll(/router-out-port">([^<]*)</g)].map((x) => x[1]);'
-     ' const withPort = all(m.renderServersBlockHtml(st.topology.routers[0])); st.setTopology({ ...st.topology, proxies: [] });'
-     ' return [withPort, all(m.renderServersBlockHtml(st.topology.routers[0]))]; } finally { delete m.topologyOutputsCloudExpanded["openai-subscription"]; } })()',
-     '[[":23004",":23004"],[]]',
-     "облачная модель на канбане — со своим портом, и он виден: у выхода и в списке моделей провайдера; negative: порта нет — номера нет"),
+     '(() => { const ports = (list) => { st.setTopology({ ...st.topology, ...CLOUD({ ports: list }), routers: [ROUTER()] }); return [...m.renderServersBlockHtml(st.topology.routers[0]).matchAll(/router-out-port">([^<]*)</g)].map((x) => x[1]); };'
+     ' return [ports([23004, 23011]), ports([])]; })()',
+     '[[],[]]',
+     "у пула нет своего порта (владелец, 2026-10-12): номер на строке пула не рисуется, даже если старые данные его несут"),
+    ("kanban_output_without_a_known_pool_keeps_its_row",
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ outputs: [...ROUTER().outputs, { id: "cb:ghost", label: "☁ ghost", upstreamType: "cloud", providerId: "ghost" }] })] });',
+     '(h => [groupOrder(h), h.includes(\'data-router-out-row="cb:ghost"\'), (h.match(/router-out-steps/g) || []).length])(m.renderServersBlockHtml(st.topology.routers[0]))',
+     '[["srv:22001","cb:terra","cb:ghost"],true,1]',
+     "выход, чей пул страница не знает, остаётся строкой после известных — канат к нему не теряет конца; шагов у него не придумано"),
     ("panel_without_cloud_says_so",
      'st.setTopology({ ...st.topology, routers: [ROUTER({ outputs: [] })] });',
      '(h => [h.includes("router-cfg-muted"), (h.match(/router-out-radio/g) || []).length])(m.renderServersBlockHtml(st.topology.routers[0]))',
@@ -352,42 +394,29 @@ PINS += [
     # the pin sets it and leaves it empty.
     ("kanban_groups_follow_the_board_order",
      'globalThis.__so = (await import(pathToFileURL(process.env.JS_ROOT + "/server-order.js").href)).SERVER_ORDER;'
-     ' st.setTopology({ ...st.topology, cloudAccounts: [{ id: "solo", type: "openai", name: "Router" },'
-     ' { id: "pp", type: "openai", name: "Pool", isPool: true, pool: { id: "pp", members: [{ accountId: "plus", enabled: true }] } },'
-     ' { id: "plus", type: "openai", name: "Plus" }], cloudProviders: [{ id: "own", accountId: "plus", model: "m-own" }],'
+     ' st.setTopology({ ...st.topology, cloudAccounts: [{ id: "or", type: "openrouter", name: "OpenRouter" }],'
+     ' pools: [{ id: "solo", name: "Router", steps: [STEP("s", "or", "m")] }, { id: "pp", name: "Pool", steps: [STEP("s", "or", "n")] }],'
      ' routers: [ROUTER({ outputs: [{ id: "srv:22003", label: "b", upstreamHost: "10.0.0.9", upstreamPort: 22003, upstreamType: "llama" },'
-     ' { id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }] })] });',
-     '(() => { const so = globalThis.__so; const heads = (h) => [...h.matchAll(/class="router-(?:out-host-label|prov-name)">(?:☁ )?([^<]*)/g)].map((x) => x[1].trim());'
+     ' { id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" },'
+     ' { id: "cb:pp", label: "☁ Pool", upstreamType: "cloud", providerId: "pp" }, { id: "cb:solo", label: "☁ Router", upstreamType: "cloud", providerId: "solo" }] })] });',
+     '(() => { const so = globalThis.__so;'
      ' try { const h0 = m.renderServersBlockHtml(st.topology.routers[0]);'
      ' so.held = { order: ["cloud:pp", "node:m-b", "cloud:solo", "node:m-ctl"], rev: 1 }; const h1 = m.renderServersBlockHtml(st.topology.routers[0]);'
      ' so.held = { order: ["node:m-b"], rev: 2 }; const h2 = m.renderServersBlockHtml(st.topology.routers[0]);'
-     ' return [heads(h0), heads(h1), heads(h2), [h0, h1].some((h) => h.includes("router-out-sec-h")), (h1.match(/class="router-out-sec"/g) || []).length]; }'
+     ' return [groupOrder(h0), groupOrder(h1), groupOrder(h2), [h0, h1].some((h) => h.includes("router-out-sec-h")), (h1.match(/class="router-out-sec"/g) || []).length]; }'
      ' finally { so.held = { order: [], rev: -1 }; } })()',
-     '[["ctl-box","box-b","Router","Pool","Plus"],["Pool","Plus","box-b","Router","ctl-box"],["box-b","ctl-box","Router","Pool","Plus"],false,1]',
-     "группы панели «Серверы» идут в порядке доски: ничего не сохранено — как раньше, машины (по наименьшему порту), "
-     "затем облако по записям; сохранено — вперемешку, как карточки, участник пула рядом со своим пулом; не названные — "
-     "после названных, в прежнем порядке; заголовков «Local» и «Cloud» больше нет — один список"),
-    # 2026-10-04: a pool's member without models of its own has no group — its models are
-    # reached through the pool, and the empty group said "0/0" and "↻ on its card" (no card).
-    ("kanban_hides_an_empty_pool_member",
-     '',
-     '(() => { const run = (blocks) => { st.setTopology({ ...st.topology, cloudAccounts: [{ id: "pp", type: "openai", name: "Pool", isPool: true,'
-     ' pool: { id: "pp", members: [{ accountId: "plus", enabled: true }] } }, { id: "plus", type: "openai", name: "Plus" }],'
-     ' cloudProviders: blocks, routers: [ROUTER({ outputs: [] })] }); const h = m.renderServersBlockHtml(st.topology.routers[0]);'
-     ' return [...h.matchAll(/class="router-prov-name">☁ ([^<]*)/g)].map((x) => x[1]); };'
-     ' return [run([{ id: "b1", accountId: "pp", model: "m1" }]), run([{ id: "b1", accountId: "pp", model: "m1" }, { id: "b2", accountId: "plus", model: "m2" }])]; })()',
-     '[["Pool"],["Pool","Plus"]]',
-     "участник пула без своих моделей — без группы на канбане (его модели идут через пул); "
-     "negative: у участника есть своя модель — группа остаётся, рядом с пулом"),
+     '[["srv:22001","srv:22003","cb:solo","cb:pp"],["cb:pp","srv:22003","cb:solo","srv:22001"],["srv:22003","srv:22001","cb:solo","cb:pp"],false,1]',
+     "группы панели «Серверы» идут в порядке доски: ничего не сохранено — машины (по наименьшему порту), затем пулы в порядке "
+     "контроллера; сохранено — вперемешку, как карточки; не названные — после названных, в прежнем порядке; заголовков «Local» и «Cloud» нет — один список"),
     ("kanban_says_which_kind_it_has_none_of",
      '',
-     '(() => { const run = (outputs, accounts) => { st.setTopology({ ...st.topology, cloudAccounts: accounts, cloudProviders: [], routers: [ROUTER({ outputs })] });'
-     ' const h = m.renderServersBlockHtml(st.topology.routers[0]); return [h.includes(en.rtNoLocalServers), h.includes(en.rtNoCloudProviders)]; };'
+     '(() => { const run = (outputs, pools) => { st.setTopology({ ...st.topology, cloudAccounts: [], pools, routers: [ROUTER({ outputs })] });'
+     ' const h = m.renderServersBlockHtml(st.topology.routers[0]); return [h.includes(en.rtNoLocalServers), h.includes(en.rtNoPools)]; };'
      ' const local = [{ id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }];'
-     ' return [run([], []), run(local, []), run([], [{ id: "solo", type: "openai", name: "Router" }]), run(local, [{ id: "solo", type: "openai", name: "Router" }])]; })()',
+     ' const pool = [{ id: "solo", label: "☁ Router", upstreamType: "cloud", providerId: "solo" }];'
+     ' return [run([], []), run(local, []), run(pool, [{ id: "solo", name: "Router", steps: [] }]), run([...local, ...pool], [{ id: "solo", name: "Router", steps: [] }])]; })()',
      '[[true,true],[false,true],[true,false],[false,false]]',
-     "пусто по своему виду — своя строка после списка: нет машин — «no local servers», нет облака — «no cloud providers»; "
-     "negative: есть и то и другое — ни одной"),
+     "пусто по своему виду — своя строка после списка: нет машин — «no local servers», нет пулов — «no pools»; negative: есть и то и другое — ни одной"),
     ("model_queue_below_its_local_row_only", 'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });', '(() => { const h = m.renderServersBlockHtml(st.topology.routers[0], { "srv:22001": "LOCAL-QUEUE", "cb:terra": "CLOUD-QUEUE" }); return [h.indexOf("LOCAL-QUEUE") > h.indexOf(\'data-router-out-row="srv:22001"\'), h.indexOf("LOCAL-QUEUE") < h.indexOf(\'data-router-out-row="cb:terra"\'), h.includes("CLOUD-QUEUE")]; })()',
      '[true,true,false]', "очередь стоит после строки своей локальной модели и до следующей модели; облако без автоматической очереди"),
     ("model_queue_folds_with_host", 'st.setTopology({ ...st.topology, routers: [ROUTER()] }); m.topologyOutputsFolded["host:m-ctl"] = true;', '(() => { try { return m.renderServersBlockHtml(st.topology.routers[0], { "srv:22001": "LOCAL-QUEUE" }).includes("LOCAL-QUEUE"); } finally { delete m.topologyOutputsFolded["host:m-ctl"]; } })()',
@@ -395,12 +424,11 @@ PINS += [
     ("router_detail_toolbar_has_no_queue_settings", 'st.setTopology({ ...st.topology, routers: [ROUTER()] }); st.ui.topologyRouterDetailId = "router:default";',
      '(() => { const h = m.renderTopologyRouterDetail(); const at = (k) => h.indexOf(k); return [typeof h, h.includes("rw-palette"), h.includes("kanban-palette-add"), h.includes("data-cv-queue-settings"), h.includes("cv-queue-settings"), h.includes("data-cv-cols"), h.includes("<aside>CLIENTS</aside>") && h.includes("<aside>SERVERS</aside>") && at("<aside>CLIENTS</aside>") < at("rw-center") && at("rw-center") < at("<aside>SERVERS</aside>"), at("<aside>SERVERS</aside>") > at("data-cv-viewport")]; })()',
      '["string",true,true,false,false,true,true,true]', "рабочее поле: панель клиентов слева, холст с палитрой посередине, панель серверов справа, внутри одной сетки; в панели инструментов нет строки политики очередей — она живёт в панели серверов, одна на доску"),
-    # 2026-10-04: "4 unassigned" on the live kanban counted four cloud models' own ports
-    # (kind "service") — outputs of the Servers panel that never feed a router. The badge
-    # counts only ports that can, and opens their list by name, both heads alike.
+    # 2026-10-04: "4 unassigned" on the live kanban counted four cloud models' own ports — outputs
+    # that never fed a router (those ports are gone since 1.3.487). The badge counts only ports
+    # that can feed one, and opens their list by name, both heads alike.
     ("kanban_unassigned_counts_only_ports_that_feed_routers",
      'st.setTopology({ ...st.topology, routers: [ROUTER(), { ...ROUTER(), id: "router:b", name: "second" }], proxies: ['
-     ' { id: "ctl:proxy:23004", port: 23004, kind: "service", routerId: "", label: "model port" },'
      ' { id: "ctl:proxy:23010", port: 23010, routerId: "", label: "alpha" },'
      ' { id: "ctl:proxy:23011", port: 23011, routerId: "router:b", label: "beta" },'
      ' { id: "ctl:proxy:23001", port: 23001, routerId: "router:default", label: "mine" }] });'
@@ -410,8 +438,8 @@ PINS += [
      ' const overlay = read(m.renderTopologyRouterDetail()); window.ROUTER_STANDALONE = true;'
      ' try { return [overlay, read(m.renderTopologyRouterDetail()), fill(en.rtUnassigned, { n: 2 })]; } finally { delete window.ROUTER_STANDALONE; } })()',
      '[["2 unassigned",["ctl:proxy:23010","ctl:proxy:23011"],["alpha","beta"]],["2 unassigned",["ctl:proxy:23010","ctl:proxy:23011"],["alpha","beta"]],"2 unassigned"]',
-     "значок считает только порты, которые могут кормить канбан: свободный и на другом канбане; порт модели облака "
-     "(kind service) — выход, не клиент, его нет ни в счёте, ни в списке; список называет порты по имени; обе шапки одинаковы"),
+     "значок считает только порты, которые могут кормить канбан: свободный и на другом канбане; список называет "
+     "порты по имени; обе шапки одинаковы"),
     # 2026-10-04: a row says its cell's state — on the live kanban 24 of 30 rows were stopped and
     # drew the same grey "idle" dot as the running six; a stopped cell's dot is a ring now, and
     # the word stands at the row's end.
@@ -427,6 +455,17 @@ PINS += [
      '[[["","live-idle","",true],["stopped","live-off","stopped",true],["failed","live-off","failed",true],["unknown","live-off","unknown",false]],["stopped","failed","unknown"]]',
      "строка говорит состояние ячейки: работающая — точка трафика, без слова; остановленная, отказавшая и неизвестная — "
      "кольцо и слово в конце строки; значки работ — у тех, чью ячейку доска знает; negative: ячейки нет — «unknown», не idle"),
+    # 2026-10-11: an output's dot on the kanban counts only the requests this kanban's ports brought —
+    # another kanban's port reaching the same cell is that kanban's traffic.
+    ("kanban_row_lights_only_for_its_own_ports",
+     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, routerId: "router:default" },'
+     ' { id: "skynet:proxy:23050", port: 23050, routerId: "router:b" }], nodes: [{ id: "m-ctl", servers: [{ port: 22001, phase: "running", model: "a.gguf" }] }],'
+     ' routers: [ROUTER({ inputs: ["skynet:proxy:23001"], outputs: [{ id: "srv:22001", label: "x :22001", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }] })] });',
+     '(() => { const dot = (port) => { st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstream: "127.0.0.1:22001", upstreamType: "llama" }] }, port);'
+     ' return (m.renderServersBlockHtml(st.topology.routers[0]).match(/router-out-live (live-\\w+)/) || [])[1] || ""; }; return [dot(23050), dot(23001)]; })()',
+     '["live-idle","live-active"]',
+     "точка выхода на канбане горит только от запросов портов этого канбана; negative: порт другого канбана идёт в ту же "
+     "ячейку — здесь точка тиха"),
     ("kanban_quiet_cells_fold_under_one_row",
      'st.setTopology({ ...st.topology, nodes: [{ id: "m-ctl", servers: [{ port: 22001, phase: "running", model: "a.gguf" },'
      ' { port: 22002, phase: "stopped", model: "b.gguf" }, { port: 22003, phase: "stopped", model: "c.gguf" }, { port: 22004, phase: "stopped", model: "d.gguf" }] }],'
@@ -483,14 +522,19 @@ PINS += [
      '["left:368px;top:372px","left:509px;top:359px"]',
      "узел правила стоит на месте с сервера; только бросок, чьё сохранение ещё не пришло, показан на месте броска, "
      "чтобы перерисовка в пути не дёрнула узел назад; третьего места нет"),
-    ("kanban_unassigned_absent_when_only_model_ports",
+    # 2026-10-12: a client of the entry feeds no kanban — its one cable leads to a set of models — so the
+    # kanban's list of ports that could feed it never names one.
+    ("kanban_lists_no_client_of_the_entry",
      'st.setTopology({ ...st.topology, routers: [ROUTER()], proxies: ['
-     ' { id: "ctl:proxy:23004", port: 23004, kind: "service", routerId: "", label: "model port" },'
-     ' { id: "ctl:proxy:23001", port: 23001, routerId: "router:default", label: "mine" }] });'
+     ' { id: "skynet:proxy:23020", port: 23020, kind: "consumer", routerId: "", label: "Hermes", keyTail: "e676", set: "" },'
+     ' { id: "ctl:proxy:23010", port: 23010, routerId: "", label: "alpha" }] });'
      ' st.ui.topologyRouterDetailId = "router:default";',
-     '(h => [h.includes("rw-unassigned"), h.includes("ctl:proxy:23004")])(m.renderTopologyRouterDetail())',
-     '[false,false]',
-     "negative: свободны только порты моделей облака — значка нет совсем (на проде было «4 unassigned» — ложная тревога)"),
+     '(() => { const h = m.renderTopologyRouterDetail(); const port = (h.split(\'data-router-attach="ctl:proxy:23010"\')[1] || "").split("</span></span>")[0];'
+     ' return [(h.match(/class="rw-unassigned-badge"[^>]*>([^<]*)</) || [])[1] === fill(en.rtUnassigned, { n: 1 }), h.includes("skynet:proxy:23020"), h.includes("…e676"),'
+     ' port.includes("503"), h.includes("router-pill free client")]; })()',
+     '[true,false,false,true,false]',
+     "клиент входа без пула — не в списке «не на канбане»: он не кормит канбан, его канат ведёт к пулу; "
+     "negative: свободный порт по-прежнему в списке и помечен 503"),
 ]
 
 _fail = []

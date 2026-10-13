@@ -37,7 +37,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_messages_i18n import untranslated  # noqa: E402
+from check_messages_i18n import NON_LATIN, DroppedLetters, untranslated  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 EN = ROOT / "static" / "js" / "i18n" / "en.js"
@@ -148,6 +148,9 @@ def check_hf_table(blocks) -> list:
             verdict = code != "en" and untranslated(code, key, block[key], en[key], HF_SAME_EVERYWHERE)
             if verdict:
                 problems.append(f"HFS.{code}.{key}: {verdict}")
+        if code != "en" and code not in NON_LATIN:
+            for key, why in DroppedLetters(code, block, HF_SAME_EVERYWHERE).findings():
+                problems.append(f"HFS.{code}.{key}: {why}")
     for code in sorted(set(blocks) - set(langs)):
         problems.append(f"HFS: language `{code}` is not an app language")
     return problems

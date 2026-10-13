@@ -17,7 +17,7 @@ state_write_lock = threading.Lock()   # serialize agent-proxy-state.json writes 
 
 queue_condition = threading.Condition()
 
-config_cache = {"mtime": 0, "routes": [], "policy": {}, "stopRequests": []}
+config_cache = {"mtime": 0, "routes": [], "policy": {}, "stopRequests": [], "entry": {}}
 
 active_controls = {}
 

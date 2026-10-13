@@ -1,5 +1,4 @@
-"""What the proxy last heard about each subscription account's limit windows,
-and the answer it gives itself when the operator's reserve is reached.
+"""What the proxy last heard about each subscription account's limit windows.
 
 The Codex backend states both of an account's windows on every answer, a
 refusal included: `x-codex-<slot>-used-percent`, `-window-minutes` and
@@ -8,8 +7,8 @@ backend on 2026-09-28). Nothing is asked for this: the reading rides on the
 traffic the caravan sends anyway, and on the idle probe's one-token question
 while the account's exit sees no traffic. The rule that reads it lives in
 caravan/common/usage_reserve.py, shared with the board. The one exception is a
-shut door (ReserveGate): then nothing is sent, and the reading is refreshed
-from the account's usage page instead.
+step that gets no traffic (UsagePage): its reading is refreshed from the
+account's usage page instead.
 """
 import http.client
 import json
@@ -17,9 +16,6 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from caravan.common.usage_reserve import UsageReserve
-from caravan.common.subscription_resets import SubscriptionResetJournal
-from caravan.proxy.paths import SUBSCRIPTION_RESETS_FILE
 from caravan.proxy.cloud_auth import load_provider_secret
 from caravan.proxy.translate import _extract_chatgpt_account_id
 
@@ -126,58 +122,18 @@ class SubscriptionUsage:
 subscription_usage = SubscriptionUsage()
 
 
-class ReserveGate:
-    """Whether an account's door is shut now: the one question the handler and
-    the probe both ask before sending anything to a subscription.
+class UsagePage:
+    """The account's usage page: what its limit windows are now, asked without
+    spending a share of any of them. A pool asks it for a step whose reading is
+    stale (caravan/proxy/pool_steps.py): a step held at its switch level gets
+    no traffic, so no answer brings a new reading, and a reset that came early
+    — a banked one, or one bought on chatgpt.com — would stay unseen until the
+    old reset time: up to a week on the weekly window."""
 
-    While the door is shut nothing is sent, so no answer brings a new reading.
-    A reset that came early — a banked one, or one bought on chatgpt.com — would
-    stay unseen until the old reset time: up to a week on the weekly window.
-    So while shut, a reading older than REFRESH_SEC is refreshed from the
-    account's usage page, which spends no share of any window. An open door
-    never asks: its reading rides on the answers.
-    """
-
-    REFRESH_SEC = 300
     USAGE_PATH = "/backend-api/wham/usage"
 
-    def __init__(self, usage, fetch=None, clock=time.time, resets=None):
-        self.usage = usage
-        self.fetch = fetch or self.fetch_usage_page
-        self.clock = clock
-        self.resets = resets or SubscriptionResetJournal(SUBSCRIPTION_RESETS_FILE)
-        self._tried = {}
-        self._lock = threading.Lock()
-
-    def verdict(self, provider):
-        """The window holding the account shut ({windowSeconds, remainingPct,
-        reservePct, resetAt}), or None when the door is open."""
-        account = str((provider or {}).get("usageAccountId") or (provider or {}).get("accountId") or "").strip()
-        reserve = UsageReserve.of(provider)
-        now = self.clock()
-        hit = reserve.verdict(self.usage.windows(account), now)
-        if hit and self._claim(account, now):
-            try:
-                payload = self.fetch(provider)
-            except Exception:
-                payload = None   # the page did not answer: the door stays as the last reading says
-            if self.usage.keep(account, SubscriptionUsage.windows_from_usage_page(payload), now):
-                hit = reserve.verdict(self.usage.windows(account), now)
-        return hit
-
-    def _claim(self, account, now):
-        """One refresh per account per REFRESH_SEC, counted from the reading and
-        from the last try: a page that does not answer is not asked on every request."""
-        read_at = self.usage.read_at(account) or 0
-        reset_at = self.resets.reset_at(account)
-        with self._lock:
-            if max(read_at, self._tried.get(account, 0)) >= reset_at and now - max(read_at, self._tried.get(account, 0)) < self.REFRESH_SEC:
-                return False
-            self._tried[account] = now
-            return True
-
     @classmethod
-    def fetch_usage_page(cls, provider, timeout=10):
+    def fetch(cls, provider, timeout=10):
         """GET the account's usage page with its own sign-in; the page's JSON, or None."""
         auth_pair = load_provider_secret(provider)
         base = urlsplit(str(provider.get("baseUrl") or ""))
@@ -196,79 +152,3 @@ class ReserveGate:
             return json.loads(raw.decode("utf-8")) if resp.status < 400 else None
         finally:
             conn.close()
-
-    def clear(self):
-        with self._lock:
-            self._tried.clear()
-
-
-reserve_gate = ReserveGate(subscription_usage)
-
-
-class ReserveRefusal:
-    """The proxy's own answer while the operator's reserve is reached: an HTTP
-    response a handler reads exactly as it reads the provider's.
-
-    It is the provider's refusal in shape — 429, `usage_limit_reached`, when the
-    window resets — so a client and a backup node treat it as they treat the
-    real one. Its words name the caravan, and `caravan_reserve` carries the
-    numbers: a refusal the provider never gave must not be read as the
-    provider's.
-    """
-
-    status = 429
-    reason = "Too Many Requests"
-    #: What the journal and the board call this refusal (proxy errorKind).
-    KIND = "usage_reserve"
-
-    def __init__(self, verdict, now=None):
-        now = float(now if now is not None else time.time())
-        self.verdict = dict(verdict)
-        reset_at = int(self.verdict["resetAt"])
-        self.retry_after = max(1, int(reset_at - now))
-        self.message = (f"The caravan keeps your reserve: the {self.window_name(self.verdict['windowSeconds'])} "
-                        f"window has {self.verdict['remainingPct']}% left and you keep "
-                        f"{self.verdict['reservePct']}% for yourself. Nothing is sent to this account "
-                        f"until the window resets at {time.strftime('%Y-%m-%d %H:%M', time.localtime(reset_at))}.")
-        self.body = json.dumps({"error": {
-            "type": "usage_limit_reached",
-            "message": self.message,
-            "resets_at": reset_at,
-            "resets_in_seconds": self.retry_after,
-            "caravan_reserve": {"window_seconds": self.verdict["windowSeconds"],
-                                "remaining_pct": self.verdict["remainingPct"],
-                                "reserve_pct": self.verdict["reservePct"]},
-        }}).encode("utf-8")
-        self._headers = [("Content-Type", "application/json"), ("Retry-After", str(self.retry_after)),
-                         ("Content-Length", str(len(self.body)))]
-        self._offset = 0
-
-    @staticmethod
-    def window_name(seconds):
-        seconds = int(seconds)
-        if seconds == 604800:
-            return "weekly"
-        if seconds % 3600 == 0:
-            return f"{seconds // 3600}-hour"
-        return f"{seconds}-second"
-
-    def getheaders(self):
-        return list(self._headers)
-
-    def getheader(self, name, default=None):
-        return next((value for key, value in self._headers if key.lower() == str(name).lower()), default)
-
-    def read(self, amount=None):
-        end = len(self.body) if amount is None or amount < 0 else self._offset + amount
-        chunk = self.body[self._offset:end]
-        self._offset += len(chunk)
-        return chunk
-
-    def readline(self, limit=-1):
-        rest = self.body[self._offset:]
-        cut = rest.find(b"\n") + 1 or len(rest)
-        if limit is not None and limit >= 0:
-            cut = min(cut, limit)
-        chunk = rest[:cut]
-        self._offset += len(chunk)
-        return chunk

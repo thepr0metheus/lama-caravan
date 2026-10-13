@@ -1,10 +1,10 @@
 // Entry point: DOMContentLoaded wiring and the standalone kanban page init.
 import { initDialogLlamas } from "./dialog-llamas.js";
+import { BOARD_VIEW, BoardView } from "./board-view.js";
 import { CARD_FOLD, FoldPeek } from "./card-fold.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
-import { canvasInitialView, canvasOpenPositions, cvSetViewport, drawCanvasConnectors } from "./canvas.js";
+import { drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyServerStats, systemSamples } from "./charts.js";
-import { openCloudProviderModal } from "./cloud.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
 import { fetchModelPricing, fetchProxyDailyStats } from "./model-meta.js";
@@ -14,7 +14,6 @@ import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { mountScoutAdd } from "./scout-add.js";
-import { SERVER_ORDER } from "./server-order.js";
 import { openIncidentsModal } from "./topology-nodes.js";
 import { topology, ui } from "./state.js";
 import {
@@ -24,7 +23,7 @@ import {
 } from "./topology-dnd.js";
 import { activeView, flushPendingTopologyRender, refreshTopology, renderAll, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal, refreshUsageOnReturn } from "./usage-stats.js";
-import { $, api, bindTooltips, escapeHtml, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
+import { $, api, bindTooltips, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
 
 // The pixel-llama page loader is inline in index.html/kanban.html so it shows
 // before the modules download; window.__plHide is defined there.
@@ -40,21 +39,9 @@ function initRouterStandalonePage() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("confirmOverlay").hidden) closeConfirmModal();
   });
-  const routerId = new URLSearchParams(location.search).get("id") || "router:default";
+  // The kanban page is the pools' board (pool-board.js): it draws what the topology says, and the
+  // monitor keeps the topology fresh. A `?id=` from the routers' days names nothing any more.
   refreshTopology().then(() => {
-    const router = (topology?.routers || []).find((r) => r.id === routerId);
-    if (!router) {
-      const el = $("topologyProxies");
-      if (el) el.innerHTML = `<div style="padding:20px;color:var(--muted)">${escapeHtml(t("routerNotFound", { id: routerId }))}</div>`;
-      hideAppLoader();
-      markPageState("error", `router not found: ${routerId}`);
-      return;
-    }
-    ui.topologyRouterDetailId = routerId;
-    ui.topologyCanvasRouterId = routerId;
-    ui.topologyRouterNodeCfgId = "";
-    ui.topologyRouterInputsExpanded = true;
-    cvSetViewport(canvasOpenPositions(routerId), canvasInitialView(routerId));
     renderTopology();
     startTopologyMonitor();
     hideAppLoader();
@@ -118,6 +105,9 @@ function bindUsageRefreshOnReturn() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // Which board this is — the main one, or a machine's own window — before anything draws:
+  // the styles show each its own parts (board-view.js).
+  BOARD_VIEW.mark();
   initDialogLlamas();
   bindUsageRefreshOnReturn();
   // The language table is its own module now (see i18n-data.js), so it has
@@ -149,7 +139,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   onLangChange(renderAll);
 
   bindUserChip();
-  // ＋ Add scout under Model servers: the one way a machine joins as a scout host.
+  // ＋ Add scout under Machines: the one way a machine joins as a scout host.
   mountScoutAdd();
   // Folded board cards float open on hover and pin on a click (card-fold.js).
   // Bound once, on the document: the lanes are repainted wholesale. No card
@@ -158,11 +148,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     busy: () => !!topologyPointerDrag,
     changed: () => { renderTopology(); requestAnimationFrame(drawTopologyCables); },
   }).bind(document);
-  // Model servers is one list of machines and cloud providers in the operator's order
-  // (server-order.js): a card moves by ↑ ↓ in its head. Bound once, on the list, which is
-  // static: the lanes inside it are repainted wholesale.
-  SERVER_ORDER.redraw = () => requestAnimationFrame(drawTopologyCables);
-  SERVER_ORDER.bind($("boardServerCards"));
+  // A click on a machine's glance opens the machine's own window (board-view.js), one window a
+  // machine, brought forward on the next click (the owner, 2026-10-12: the card itself opens, no
+  // "↗ Open"). What has a click of its own keeps it: a history chart opens its chart, a button is a
+  // button. The machine's name is the card's link: a click with a modifier, and a browser that
+  // refuses the window, follow it instead — a click on the card the browser refused goes to that
+  // link, rather than doing nothing. Bound once, on the lane, which is static.
+  $("topologyLlamaServers")?.addEventListener("click", (e) => {
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const link = e.target.closest?.("[data-machine-open]");
+    if (link) {
+      if (BoardView.open(link.dataset.machineOpen)) e.preventDefault();
+      return;
+    }
+    const card = e.target.closest?.(".machine-glance[data-node-id]");
+    if (!card || e.target.closest?.("[data-open-chart],[data-open-route-activity],a,button,input,select,textarea")) return;
+    if (!BoardView.open(card.dataset.nodeId)) card.querySelector?.("[data-machine-open]")?.click?.();
+  });
 
   // Remote llama-server modal buttons
   $("llamaRemoteEditStart")?.addEventListener("click", submitRemoteLlamaStart);
@@ -266,13 +268,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       observer.observe(board);
     }
   }
-  // Wide-button bindings.
-  document.addEventListener("click", (event) => {
-    if (event.target.closest("[data-topo-add-cloud]")) {
-      openCloudProviderModal(null);
-    }
-  });
-
   bindMonitorDrawer();
   bindTooltips();
   // Board renders deferred while a select/text field held focus (see
@@ -281,13 +276,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("focusout", () => setTimeout(flushPendingTopologyRender, 60));
   // The loader hides the moment the board is actually populated — polling the
   // DOM beats awaiting the init chain, whose slowest call (/api/state tail)
-  // can finish many seconds after the topology already rendered.
+  // can finish many seconds after the topology already rendered. Populated is
+  // the page's own word: refreshTopology marks it ready once the board is drawn,
+  // or the page says why it is not. It waited for a cell's card, and a board with
+  // no machine — a first run — or the main board, which shows no cells since the
+  // machines' windows (2026-10-11), kept the loader up for the whole 15 s.
   const boardReady = new Promise((resolve) => {
     const t0 = Date.now();
     (function tick() {
-      const filled = ($("topologyClients")?.children.length || 0) > 0
-        && !!document.querySelector("[data-node-cell-port]");
-      if (filled || Date.now() - t0 > 15000) resolve();
+      const said = document.body?.dataset.tState;
+      if (said === "ready" || said === "error" || Date.now() - t0 > 15000) resolve();
       else setTimeout(tick, 120);
     })();
   });

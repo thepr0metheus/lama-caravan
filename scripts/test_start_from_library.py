@@ -202,14 +202,17 @@ def section_scout_told_where():
 
         saved = {k: getattr(fleet_clients, k) for k in
                  ("_scout", "current_locations", "assert_server_cell_port_available", "upsert_server_slot",
-                  "move_server_cell")}
+                  "move_server_cell", "controller_models_dir")}
+        # The controller's models folder is its own; the cells carry another machine's (the cell form
+        # writes one into every config, and the cells moved from the old controller carried its own).
+        fleet_clients.controller_models_dir = lambda: models
         fleet_clients._scout = lambda host_id: FakeScout()
         fleet_clients.current_locations = lambda wait=False: Locations([LIB], exists=os.path.isfile)
         fleet_clients.assert_server_cell_port_available = lambda *a, **k: None
         fleet_clients.upsert_server_slot = lambda *a, **k: None
         fleet_clients.move_server_cell = lambda *a, **k: None
         try:
-            base = {"LLAMA_MODELS_DIR": str(models), "PORT": "22021"}
+            base = {"LLAMA_MODELS_DIR": "/home/someone/llama.cpp/models", "PORT": "22021"}
             fleet_clients.client_llama_start({"hostId": "box-a", "port": 22021, "modelPath": "l/local.gguf",
                                               "config": {**base, "MMPROJ_FILE": "m/mm.gguf",
                                                          "SPEC_DRAFT_MODEL_FILE": "gone/draft.gguf"}})
@@ -222,6 +225,12 @@ def section_scout_told_where():
             for k, v in saved.items():
                 setattr(fleet_clients, k, v)
         told = [payload.get("inPlace") for _path, payload in sent]
+        check(all("LLAMA_MODELS_DIR" not in (payload.get("config") or {}) for _path, payload in sent),
+              "defect-history: скауту не уходит LLAMA_MODELS_DIR другой машины — ни в конфиге, который он хранит "
+              "для автозапуска, ни в строке запуска (2026-10-12: seamless читал старую папку, а не кэш скаута)")
+        seamless_line = sent[2][1].get("shellLine") or "" if len(sent) > 2 else ""
+        check(seamless_line and "LLAMA_MODELS_DIR" in seamless_line and "export LLAMA_MODELS_DIR" not in seamless_line,
+              "строка seamless читает ${LLAMA_MODELS_DIR:-…} скаута и сама его не задаёт")
         check(told[:1] == [{"l/local.gguf": {"path": str(models / "l" / "local.gguf"), "size": 5},
                             "m/mm.gguf": {"path": "/mnt/lib/m/mm.gguf", "library": "NAS", "size": 2}}],
               f"файл на диске контроллера — путь и настоящий размер; файл в библиотеке — путь, имя библиотеки и "
@@ -238,6 +247,7 @@ def section_scout_told_where():
               "отображения, как у ячейки контроллера: карта по сети, мигнувшая шара роняет работающую ячейку")
         fleet_clients._scout = lambda host_id: FakeScout()
         fleet_clients.current_locations = lambda wait=False: Locations([LIB], exists=os.path.isfile)
+        fleet_clients.controller_models_dir = lambda: models
         try:
             for k in ("assert_server_cell_port_available", "upsert_server_slot", "move_server_cell"):
                 setattr(fleet_clients, k, lambda *a, **kw: None)
@@ -286,19 +296,22 @@ def section_vllm_folder():
             check("VLLM_MODEL" not in model_paths(cfg, away), f"negative: {why} — не модель корня моделей")
         # The start line, as the scout gets it.
         def payload(cfg, where):
-            keep = fleet_clients.topology_store, fleet_clients.current_locations
+            keep = fleet_clients.topology_store, fleet_clients.current_locations, fleet_clients.controller_models_dir
             fleet_clients.topology_store = lambda: {"hosts": {"box-a": {"id": "box-a"}}}
             fleet_clients.current_locations = lambda wait=False: where
+            fleet_clients.controller_models_dir = lambda: models
             try:
                 return fleet_clients.scout_start_payload({"hostId": "box-a", "port": 22026, "config": dict(cfg)})
             finally:
-                fleet_clients.topology_store, fleet_clients.current_locations = keep
+                fleet_clients.topology_store, fleet_clients.current_locations, fleet_clients.controller_models_dir = keep
         sent = payload(vllm, away)
         check(f"serve /mnt/lib/{rel} --host 0.0.0.0" in sent["shellLine"] and saved_path not in sent["shellLine"]
               and f"serve /mnt/lib/{rel} " in sent["command"],
               "строка запуска скаута называет папку в библиотеке — не старый путь")
-        check("--served-model-name qwen3-0.6b" in sent["shellLine"] and sent["config"]["VLLM_MODEL"] == saved_path,
-              "имя модели для клиентов то же, и сохранённый конфиг уходит как был: путь меняет только старт")
+        check("--served-model-name qwen3-0.6b" in sent["shellLine"] and sent["config"]["VLLM_MODEL"] == saved_path
+              and "LLAMA_MODELS_DIR" not in sent["config"],
+              "имя модели для клиентов то же, и сохранённый конфиг уходит как был, без папки моделей машины: путь "
+              "меняет только старт")
         check(sent["inPlace"].get(rel) == {"path": f"/mnt/lib/{rel}", "library": "NAS", "size": 1519},
               "скауту сказано, что папка в библиотеке NAS")
         before = dict(vllm)

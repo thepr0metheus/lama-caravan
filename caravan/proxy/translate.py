@@ -5,28 +5,21 @@ import json
 import socket
 import time
 
+from caravan.common.chat_levers import ChatLevers
 
-def rewrite_model_in_body(body, model):
-    if not body or not model:
-        return body
-    try:
-        payload = json.loads(body)
-        if isinstance(payload, dict) and "model" in payload:
-            payload["model"] = model
-            return json.dumps(payload).encode("utf-8")
-    except Exception:
-        pass
-    return body
 
 def model_named(body, model):
-    """The request with an engine's own model name in it.
+    """The request with the model the caravan chose in it.
 
     One engine next to the cells (Ollama, LM Studio) serves many models
     behind one port and picks the one a request names; the router's output
-    names the model it routes to. Set whenever the body is a JSON object —
-    added when the client sent none, replaced when it named another (its own
-    name for the port is not the engine's). Any other body goes as it came:
-    the same bytes, so the caller can tell nothing changed."""
+    names the model it routes to. A provider behind a pool's row is asked for
+    the row's model. Set whenever the body is a JSON object — added when the
+    client sent none (a key of the entry calls its pool and need not name a
+    model: before 1.3.486 a cloud request without one reached the provider
+    without one, and was refused there), replaced when it named another (its
+    own name for the port or the pool is not the provider's). Any other body
+    goes as it came: the same bytes, so the caller can tell nothing changed."""
     if not body or not model:
         return body
     try:
@@ -91,8 +84,9 @@ def _chat_to_responses_body(body_bytes, override_model=None):
                     if p.get("type") == "text":
                         parts.append({"type": "input_text", "text": p.get("text", "")})
                     elif p.get("type") == "image_url":
-                        url = (p.get("image_url") or {}).get("url", "")
-                        parts.append({"type": "input_image", "detail": "auto", "image_url": url})
+                        image = p.get("image_url") or {}
+                        url = image.get("url", "") if isinstance(image, dict) else ""
+                        parts.append({"type": "input_image", "detail": ChatLevers.detail(image), "image_url": url})
                 if parts:
                     input_msgs.append({"role": "user", "content": parts})
         elif role == "assistant":
@@ -136,7 +130,9 @@ def _chat_to_responses_body(body_bytes, override_model=None):
         "stream": True,
         "instructions": instructions,
         "input": input_msgs,
-        "text": {"verbosity": "low"},
+        # The client's reasoning_effort and verbosity, said the Responses way (ChatLevers):
+        # "text" always, "reasoning" when the client asked for an effort.
+        **ChatLevers.for_responses(payload),
         "include": [],
         "tool_choice": payload.get("tool_choice", "auto"),
         "parallel_tool_calls": payload.get("parallel_tool_calls", True),
@@ -341,6 +337,96 @@ def _iter_responses_as_completions_sse(upstream, completion_id, model_name):
             break
 
     yield b"data: [DONE]\n\n"
+
+class ChunkFold:
+    """Chat completion chunks folded into the one chat completion they stream.
+
+    A client that did not ask for a stream reads one JSON answer — OpenAI's
+    `stream` defaults to false — while a provider may stream regardless (the
+    Codex backend always does). The fold keeps what a client reads: each
+    choice's role, text, tool calls (by their index, the arguments joined)
+    and finish reason; the answer's id, time and model; and its usage.
+    `finished` says whether any choice got its finish reason: a stream cut
+    before its last word is no whole answer, and must not be handed out as one.
+    """
+
+    def __init__(self):
+        self.head = {}
+        self.choices = {}
+        self.usage = None
+
+    def add(self, chunk):
+        """Take one piece of the stream: `data: {…}` lines; [DONE] and anything else pass."""
+        for line in bytes(chunk).decode("utf-8", errors="replace").splitlines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                event = json.loads(data)
+            except ValueError:
+                continue
+            if isinstance(event, dict):
+                self._event(event)
+
+    def _event(self, event):
+        for key in ("id", "created", "model"):
+            if key in event and key not in self.head:
+                self.head[key] = event[key]
+        if isinstance(event.get("usage"), dict):
+            self.usage = event["usage"]
+        for choice in event.get("choices") or []:
+            if not isinstance(choice, dict):
+                continue
+            slot = self.choices.setdefault(int(choice.get("index") or 0),
+                                           {"role": "", "text": [], "calls": {}, "finish": None})
+            delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+            if delta.get("role"):
+                slot["role"] = str(delta["role"])
+            if isinstance(delta.get("content"), str):
+                slot["text"].append(delta["content"])
+            for call in delta.get("tool_calls") or []:
+                if isinstance(call, dict):
+                    self._call(slot["calls"], call)
+            if choice.get("finish_reason"):
+                slot["finish"] = str(choice["finish_reason"])
+
+    @staticmethod
+    def _call(calls, part):
+        held = calls.setdefault(int(part.get("index") or 0),
+                                {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+        if part.get("id"):
+            held["id"] = str(part["id"])
+        if part.get("type"):
+            held["type"] = str(part["type"])
+        fn = part.get("function") if isinstance(part.get("function"), dict) else {}
+        if fn.get("name"):
+            held["function"]["name"] += str(fn["name"])
+        if isinstance(fn.get("arguments"), str):
+            held["function"]["arguments"] += fn["arguments"]
+
+    def finished(self):
+        return any(slot["finish"] for slot in self.choices.values())
+
+    def completion(self):
+        """The answer as OpenAI's chat completion object. A message with tool
+        calls and no text has `content: null`, as OpenAI's has."""
+        choices = []
+        for index in sorted(self.choices):
+            slot = self.choices[index]
+            calls = [slot["calls"][i] for i in sorted(slot["calls"])]
+            text = "".join(slot["text"])
+            message = {"role": slot["role"] or "assistant", "content": text if (text or not calls) else None}
+            if calls:
+                message["tool_calls"] = calls
+            choices.append({"index": index, "message": message, "logprobs": None,
+                            "finish_reason": slot["finish"] or "stop"})
+        out = {"id": self.head.get("id", ""), "object": "chat.completion", "created": self.head.get("created", 0),
+               "model": self.head.get("model", ""), "choices": choices}
+        if self.usage is not None:
+            out["usage"] = self.usage
+        return out
 
 def _chat_to_anthropic_body(body_bytes, model_override=None):
     """Convert OpenAI chat/completions request to Anthropic Messages API format."""

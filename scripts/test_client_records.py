@@ -299,32 +299,25 @@ def _check_agent_port_steps(pc, BASE, taken, listening):
     check(pc._next_agent_port({BASE, BASE + 2}) == BASE + 4, "negative: шаг ровно два — чётные не выдаются")
 
 
-def test_next_app_port_is_the_mints_own():
-    """The number a bridge's button promises: the port mint_bridge_port takes.
+def test_consumer_number_is_in_the_proxy_range():
+    """A consumer's number: the next free port in the PROXY range, one by one.
 
-    It showed the next CELL port (22xxx) while the bridge landed in the proxy
-    range; now the board reads the mint's own rule from the topology.
+    The bridges' button promised the next CELL port (22xxx) while the bridge
+    landed in the proxy range. The bridges are gone (1.3.487); a consumer's
+    number is still taken by this rule.
     """
     import caravan.admin.proxies_config as pc
     from caravan.admin.paths import AGENT_PROXY_BASE_PORT as BASE
-    print("порт, который обещает кнопка моста:")
+    print("номер клиента входа — из диапазона прокси:")
     _saved = pc._all_taken_ports, pc.port_is_listening
     pc._all_taken_ports = lambda routes=None: {BASE, BASE + 1}
     pc.port_is_listening = lambda port: port == BASE + 2
     try:
-        got = pc.next_app_port([])
-        check(got == BASE + 3 and got == pc.next_free_proxy_port([]),
-              f"defect-history: диапазон прокси, по одному, мимо занятых и слушаемых — тот же порт, что возьмёт "
-              f"выпуск моста (было: следующий порт ячейки 22xxx) (got {got})")
-
-        def unreadable(routes=None):
-            raise RuntimeError("register unreadable")
-        pc._all_taken_ports = unreadable
-        try:
-            unknown = pc.next_app_port([])
-        except Exception as e:  # the pin says what escaped, instead of the run dying on it
-            unknown = f"raised {type(e).__name__}"
-        check(unknown is None, f"negative: не посчитать — None, и кнопка не обещает никакого номера (got {unknown})")
+        got = pc.next_free_proxy_port([])
+        check(got == BASE + 3,
+              f"defect-history: диапазон прокси, по одному, мимо занятых и слушаемых (было: следующий порт ячейки 22xxx) (got {got})")
+        check(not hasattr(pc, "next_app_port") and not hasattr(pc, "mint_bridge_port") and not hasattr(pc, "mint_app_port"),
+              "negative: ни моста, ни порта приложения больше не выпускают — каждый входит по одному адресу со своим ключом")
     finally:
         pc._all_taken_ports, pc.port_is_listening = _saved
 
@@ -332,7 +325,7 @@ def test_next_app_port_is_the_mints_own():
 def test_a_routes_save_keeps_the_proxy_running():
     """A routes save asks for a RUNNING proxy — `start`, never `restart`.
 
-    A restart cut every request in flight on every port: minting a bridge
+    A restart cut every request in flight on every port: minting a port
     dropped an agent's stream next door. The daemon re-reads its file itself.
     """
     import caravan.admin.proxies_config as pc
@@ -1104,6 +1097,76 @@ def test_the_card_names_the_ports_current_address():
           "строка порта на доске собрана тем же форматом")
 
 
+def test_a_closed_port_names_the_entry():
+    """Where a consumer calls the caravan: its port while it is open, the entry
+    once it is closed (caravan/admin/proxy_entry.py, ConsumerAddress) — one rule
+    for the proxy rows, the agents' cards and the kanban's clients panel."""
+    print("адрес потребителя: порт, пока открыт; вход, когда закрыт:")
+    from caravan.admin.proxy_entry import ConsumerAddress
+    cfg = {"routes": [{"port": 23001, "apiKey": "lcv1_" + "a" * 48, "portClosed": True}, {"port": 23003, "apiKey": "lcv1_x1y2"}],
+           "entry": {"port": 23999, "publicUrl": "https://caravan-api.example/v1"}}
+    addr = ConsumerAddress(cfg, "10.0.30.20")
+    check([addr.of(23001), addr.of(23003)] == ["https://caravan-api.example/v1", "http://10.0.30.20:23003/v1"],
+          "закрытый порт — адрес входа; открытый — свой порт")
+    check(addr.entry() == {"url": "https://caravan-api.example/v1", "port": 23999, "publicUrl": "https://caravan-api.example/v1"},
+          "вход на доске: адрес, порт и имя, как его ввёл владелец")
+    bare = ConsumerAddress({**cfg, "entry": {"port": 23999}}, "10.0.30.20")
+    check(bare.of(23001) == "http://10.0.30.20:23999/v1", "нет публичного имени — порт входа на машине контроллера")
+    off = ConsumerAddress({**cfg, "entry": {}}, "10.0.30.20")
+    check(off.of(23001) == "http://10.0.30.20:23001/v1" and off.entry() == {"url": "", "port": None, "publicUrl": ""},
+          "negative: вход выключен — у закрытого порта остаётся его адрес, а вход пуст, а не выдуман")
+    store = {"assignments": {"h": {"hostId": "h", "assignments": [{"agentId": "a", "routes": [
+        {"role": "primary", "proxyId": "skynet:proxy:23001", "endpoint": "http://10.0.20.20:23001/v1"},
+        {"role": "fallback", "proxyId": "skynet:proxy:23003", "endpoint": "http://10.0.20.20:23003/v1"}]}]}}}
+    T = _topology_harness(store, [23001, 23003])
+    routes = T._assignments_at_current_address(store["assignments"], addr)["h"]["assignments"][0]["routes"]
+    check([r["endpoint"] for r in routes] == ["https://caravan-api.example/v1", "http://10.0.30.20:23003/v1"],
+          "карточка агента называет вход у закрытого порта и порт у открытого")
+    board = T._board_proxy(cfg["routes"][0], holders={}, last_seen={}, routers_by_id={}, address=addr)
+    plain = T._board_proxy({"port": 23005}, holders={}, last_seen={}, routers_by_id={}, address=addr)
+    check(board["endpoint"] == "https://caravan-api.example/v1" and board["keyTail"] == "aaaa" and plain["keyTail"] == "",
+          "строка порта: адрес входа и последние 4 знака ключа; negative: без ключа — пусто")
+
+
+def test_a_port_without_a_door_has_no_address():
+    """Where the ports listen on loopback only (the NAS: deploy/nas/compose.yaml),
+    an address on the controller's IP leads nowhere. 2026-10-08 the board showed
+    and copied http://<NAS>:23001/v1 for a new port; the proxy now says where it
+    listens (`listenHost` in its state file) and the address follows (PortDoor)."""
+    print("порт без двери наружу: адреса нет, а не мёртвый адрес:")
+    import json as _json
+    import tempfile as _tempfile
+    from caravan.admin.proxy_entry import ConsumerAddress, PortDoor
+    check([PortDoor.opens(h) for h in ("0.0.0.0", "10.0.20.10", "127.0.0.1", "127.0.1.1", "localhost", "::1", "", None)]
+          == [True, True, False, False, False, False, None, None],
+          "слушает все адреса или адрес сети — дверь есть; петля — нет; адреса нет — не знаю")
+    state = Path(_tempfile.mkdtemp(prefix="caravan-door-")) / "state.json"
+    now = 1_800_000_000
+
+    def door(payload):
+        state.write_text(payload if isinstance(payload, str) else _json.dumps(payload), encoding="utf-8")
+        return PortDoor(state_file=state, clock=lambda: now).open()
+    check([door({"time": now - 5, "listenHost": "127.0.0.1"}), door({"time": now - 5, "listenHost": "0.0.0.0"})] == [False, True],
+          "слово прокси свежее: петля — двери нет, все адреса — есть")
+    check([door({"time": now - 60, "listenHost": "127.0.0.1"}), door({"time": now - 5}), door("not json")] == [None, None, None],
+          "negative: слово старше 30 с, без адреса или битое — не знаю, а не «открыто»")
+    cfg = {"routes": [{"port": 23001, "portClosed": True, "apiKey": "lcv1_" + "a" * 48}, {"port": 23003}],
+           "entry": {"port": 23999, "publicUrl": "https://caravan-api.example/v1"}}
+    shut = ConsumerAddress(cfg, "10.0.20.10", door=False)
+    check([shut.of(23001), shut.of(23003)] == ["https://caravan-api.example/v1", ""],
+          "без двери: закрытый порт — публичное имя входа; открытый порт — адреса нет")
+    nameless = ConsumerAddress({**cfg, "entry": {"port": 23999}}, "10.0.20.10", door=False)
+    check(nameless.of(23001) == "" and nameless.entry() == {"url": "", "port": 23999, "publicUrl": ""},
+          "без двери и без публичного имени у входа: адреса нет ни у порта, ни у входа — порт входа назван")
+    known = ConsumerAddress(cfg, "10.0.20.10", door=True)
+    unknown = ConsumerAddress(cfg, "10.0.20.10", door=None)
+    check([known.of(23003), unknown.of(23003)] == ["http://10.0.20.10:23003/v1"] * 2,
+          "negative: дверь есть или прокси молчит — адрес порта как раньше")
+    T = _topology_harness({"assignments": {}}, [23003])
+    check(T._board_proxy({"port": 23003}, holders={}, last_seen={}, routers_by_id={}, address=shut)["endpoint"] == "",
+          "строка порта на доске без двери — пустой адрес, доска говорит почему")
+
+
 def test_agent_delete_takes_its_row_and_leaves_its_ports():
     """An agent's ✕: the record and its assignment row go, its ports stay.
 
@@ -1220,20 +1283,28 @@ def test_the_payload_keeps_machines_and_clients_apart():
         "parse_config": lambda: {},
         # The board's layout as a hand-edited document may hold it: a key that is no key, one twice.
         "topology_store": lambda: {"assignments": {}, "serverSlots": {}, "clientAliases": {},
-                                   "layout": {"serverOrder": ["cloud:pool", 5, "node:box-a", "cloud:pool"], "serverOrderRev": 4}},
-        "load_agent_proxy_config": lambda: {"routes": [], "routers": [], "policy": {"maxSlots": 1}},
+                                   "layout": {"serverOrder": ["cloud:pool", 5, "node:box-a", "cloud:pool"], "serverOrderRev": 4,
+                                              "clientOrder": [23002, "23001", 23002, True, 23001], "clientOrderRev": 2}},
+        # One reading of the proxy document for the lists and for their versions (ProxyRevisions).
+        "read_agent_proxy_payload": lambda: {"routes": [{"port": 23001}], "routers": [{"id": "router:default"}]},
+        "load_agent_proxy_config": lambda payload=None: {"routes": [], "routers": [], "policy": {"maxSlots": 1},
+                                                         "entry": {"port": 23999, "publicUrl": "https://caravan-api.example/v1"}},
         "proxy_ports_last_seen": lambda: {},
         "_port_holders": lambda: {},
         "topology_server": lambda _config: {"id": "controller", "name": "Ctl", "llamaServers": []},
         "sync_router_outputs": lambda *a: False,
         "cloud_accounts_state": lambda: [],
-        "cloud_blocks_state": lambda: [],
+        # The pools and the proxy's word on them (caravan/admin/pools.py).
+        "PoolDesk": type("Desk", (), {"state": lambda self: [],
+                                      "runtime": lambda self: {"available": False, "pools": {}, "events": []},
+                                      "model_levels": lambda self: {"max": 90, "default": {}, "set": {}},
+                                      "added_models": lambda self: {}}),
+        "ProviderDesk": type("Providers", (), {"state": lambda self: []}),
         "topology_clients": lambda: [dict(c) for c in clients],
         "topology_hosts": lambda: [dict(h) for h in hosts],
         "annotate_route_windows": lambda *a: None,
         "topology_nodes": lambda *a: [],
         "cloud_provider_presets_public": lambda: [],
-        "next_app_port": lambda routes: 23007 if routes == [] else None,
     }
     patch["SCOUT_POLLER"] = T.SCOUT_POLLER
     from caravan.admin.models import ModelList
@@ -1269,18 +1340,25 @@ def test_the_payload_keeps_machines_and_clients_apart():
     check([c["id"] for c in payload["clients"]] == ["both", "hand"],
           "negative: машина без клиента не становится клиентом без агентов — её ✕ мог ответить только 404")
     check(payload["hosts"] == hosts, "машины — отдельным списком, с живостью, посчитанной при чтении")
-    check(payload.get("nextAppPort") == 23007,
-          "ответ доски несёт порт следующего моста — по правилу выпуска и по маршрутам из конфига прокси "
-          f"(got {payload.get('nextAppPort')})")
+    check(payload.get("entry") == {"url": "https://caravan-api.example/v1", "port": 23999, "publicUrl": "https://caravan-api.example/v1"},
+          "ответ доски несёт адрес входа и введённое имя — их показывает и спрашивает панель клиентов канбана (ConsumerAddress)")
+    check("nextAppPort" not in payload,
+          "negative: ответ доски не несёт номера следующего моста — кнопки, которой он был обещан, нет")
     check(payload.get("modelsStamp") == ModelList.stamp_of(listed) and len(payload["modelsStamp"]) == 16,
           "ответ доски несёт отпечаток списка моделей (ModelList): по нему доска дочитывает список, а не держит "
           "тот, что был при открытии страницы")
     check(not inline and board_read.get("clients") == clients and quiet == 1,
           "чтение доски только пинает фоновый опрос скаутов и не опрашивает их само — выключенная машина больше не добавляет 2 с к каждому опросу доски")
     check(len(kicks) == 1, "negative: ответы на действия (refresh_hosts=False) опрос не пинают")
-    check(payload.get("layout") == {"serverOrder": ["cloud:pool", "node:box-a"], "serverOrderRev": 4},
-          "ответ доски несёт порядок карточек Model servers и его ревизию — из того же документа, что и остальной ответ; "
-          f"то, что не ключ, и повтор не читаются (got {payload.get('layout')})")
+    from caravan.admin.proxies_config import ProxyRevisions
+    check(payload.get("proxyRevisions") == ProxyRevisions.of({"routes": [{"port": 23001}], "routers": [{"id": "router:default"}]})
+          and payload["proxyRevisions"] != ProxyRevisions.of({}),
+          "ответ доски несёт версии списков портов и роутеров — той же записи, из которой нарисованы: "
+          f"сохранение со старой копии сервер узнаёт по ним (got {payload.get('proxyRevisions')})")
+    check(payload.get("layout") == {"serverOrder": ["cloud:pool", "node:box-a"], "serverOrderRev": 4,
+                                    "clientOrder": [23002, 23001], "clientOrderRev": 2},
+          "ответ доски несёт порядок карточек Model servers и порядок клиентов (1.3.503) с их ревизиями — из того же документа, "
+          f"что и остальной ответ; то, что не ключ и не порт, и повтор не читаются (got {payload.get('layout')})")
 
 
 def test_the_pull_keeps_the_scout_version():
@@ -1292,13 +1370,43 @@ def test_the_pull_keeps_the_scout_version():
     saved = fc.fetch_json
     try:
         fc.fetch_json = lambda url, timeout=None, headers=None: {
-            "host": {"id": "m", "name": "M"}, "scoutVersion": "2.0.0", "llamaUpdate": {"running": True}}
+            "host": {"id": "m", "name": "M"}, "scoutVersion": "2.0.0", "llamaUpdate": {"running": True},
+            "controllerUrl": "http://10.0.0.1:7990"}
         fc.refresh_hosts_from_scouts()
     finally:
         fc.fetch_json = saved
     host = store["hosts"]["m"]
     check(host.get("scoutVersion") == "2.0.0" and host.get("llamaUpdate") == {"running": True},
           "версия скаута и статус обновления из /api/state — в записи хоста, как из пульса")
+
+
+def test_the_pull_never_brings_a_machine_back():
+    """A ✕ on the NAS board was undone by the pull (2026-10-11): one in flight
+    re-made the machine right after it was forgotten, and its scout, let go and
+    open to anyone, kept it "online" through every next pull."""
+    print("опрос не возвращает забытую машину:")
+    store, _r = harness(hosts={"m": {"id": "m", "name": "M", "agentUrl": "http://10.0.0.9:8092", "lastSeen": 1}})
+    paired = {"host": {"id": "m", "name": "M"}, "scoutVersion": "2.25.1", "controllerUrl": "http://10.0.0.1:7990"}
+    saved = fc.fetch_json
+    try:
+        def forgotten_meanwhile(url, timeout=None, headers=None):
+            store["hosts"].pop("m", None)        # the ✕ lands while the pull asks the scout
+            return dict(paired)
+        fc.fetch_json = forgotten_meanwhile
+        fc.refresh_hosts_from_scouts()
+        gone = "m" not in store["hosts"]
+        store["hosts"]["m"] = {"id": "m", "name": "M", "agentUrl": "http://10.0.0.9:8092", "lastSeen": 1}
+        fc.fetch_json = lambda url, timeout=None, headers=None: {**paired, "scoutVersion": "9.9.9", "controllerUrl": ""}
+        fc.refresh_hosts_from_scouts()
+        let_go = store["hosts"]["m"].get("scoutVersion")
+        fc.fetch_json = lambda url, timeout=None, headers=None: dict(paired)
+        fc.refresh_hosts_from_scouts()
+        kept = store["hosts"]["m"].get("scoutVersion")
+    finally:
+        fc.fetch_json = saved
+    check(gone, "машина, забытая, пока шёл опрос, остаётся забытой — опрос её не создаёт")
+    check(let_go is None, "negative: скаут, который отпустил все контроллеры, запись не обновляет")
+    check(kept == "2.25.1", "скаут при контроллере обновляет запись, как раньше")
 
 
 def test_bind_refuses_an_agent_the_record_does_not_have():
@@ -1459,7 +1567,7 @@ def test_a_machine_node_is_a_host():
           "negative: скаут причины не назвал — пусто; своё чтение контроллера на узел не попадает")
 
 
-for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_a_machine_node_is_a_host,
+for fn in (test_a_port_without_a_door_has_no_address, test_the_pull_keeps_the_scout_version, test_the_pull_never_brings_a_machine_back, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_a_machine_node_is_a_host,
            test_a_scouts_address_lives_on_its_host, test_the_payload_keeps_machines_and_clients_apart, test_apply_stores_and_calls_no_scout, test_route_can_be_removed,
            test_agent_delete_takes_its_row_and_leaves_its_ports,
            test_agent_alias_survives_the_report,
@@ -1467,14 +1575,14 @@ for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the
            test_new_port_for_a_fallback_is_the_neighbour,
            test_a_client_is_one_card,
                       test_bind_refuses_a_port_someone_else_holds,
-           test_the_board_is_told_who_holds_each_port, test_the_card_names_the_ports_current_address,
+           test_the_board_is_told_who_holds_each_port, test_the_card_names_the_ports_current_address, test_a_closed_port_names_the_entry,
                                  test_set_route_names_every_setting,
            test_saving_the_window_reaches_the_port_without_a_heartbeat,
            test_bridge_carries_the_window_to_the_route,
                       test_route_context_is_per_consumer, test_manual_client_is_an_ordinary_client,
            test_manual_client_id_rules, test_report_changes_only_the_machine, test_new_port_comes_from_the_agent_base,
            test_bind_writes_the_role_it_was_given, test_normalizer_rebuilds_the_row,            test_delete_is_explicit, test_staleness_is_a_display_state,
-           test_machines_stand_by_address, test_next_app_port_is_the_mints_own,
+           test_machines_stand_by_address, test_consumer_number_is_in_the_proxy_range,
            test_a_routes_save_keeps_the_proxy_running, test_new_ports_stay_in_the_opened_range,
            test_allocators_stop_at_the_range_ceiling):
     fn()

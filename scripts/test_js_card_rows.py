@@ -104,6 +104,19 @@ const agent = {
   bareEmpty: [bare.includes("ar-model"), bare.includes("ar-meta"), bare.includes("—")],
   escaped: new AgentRow({ key: "k", name: '"><b>x', kind: "<i>", routes: [] }).html(),
   noFace: new AgentRow({ key: "k", name: "n", routes: [{ role: "primary", port: "1" }] }).html().includes('class="route-confirmed-tag"'),
+  dot: (() => {
+    const NOW = new Date(2026, 9, 8, 15, 0, 0).getTime();
+    const today = new Date(2026, 9, 8, 9, 30, 0).getTime() / 1000, earlier = new Date(2026, 9, 5, 9, 30, 0).getTime() / 1000;
+    const time = new Date(today * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const day = new Date(earlier * 1000).toLocaleDateString([], { day: "numeric", month: "short" });
+    return {
+      unseen: AgentRow.dot(0, "ar-dot", NOW) === `<span class="ar-dot unseen" title="${en.agentDotUnseen}"></span>`,
+      today: AgentRow.dot(today, "ar-dot", NOW) === `<span class="ar-dot" title="${en.agentDotSeen.replace("{time}", time)}"></span>`,
+      earlier: AgentRow.dot(earlier, "topology-port-dot", NOW) === `<span class="topology-port-dot" title="${en.agentDotSeen.replace("{time}", day)}"></span>`,
+      junk: [AgentRow.dot(undefined), AgentRow.dot("x")].every((h) => h.includes("unseen")),
+      line: [hotel.includes('class="ar-dot unseen"'), new AgentRow({ key: "k", name: "n", seen: today, routes: [] }).html().includes('class="ar-dot" title=')],
+    };
+  })(),
 };
 
 const card = '<article class="node-server">card</article>';
@@ -252,6 +265,12 @@ check(a["bareEmpty"] == [False, False, False],
       "незаданного нет: ни пустой модели, ни прочерков — отсутствие не рисуется нормой")
 check("<b>x" not in a["escaped"] and "&lt;i&gt;" in a["escaped"], "имя и вид агента экранируются")
 check(a["noFace"], "маршрут без переданного лица — ✓ по умолчанию, как у карточки")
+dt = a["dot"]
+check(dt["unseen"] and dt["line"][0],
+      "точка без запросов через порты агента — пустое кольцо с подсказкой «запросов ещё не было» (раньше горела у всех: новый клиент выглядел живым)")
+check(dt["today"] and dt["earlier"] and dt["line"][1],
+      "был запрос — точка горит, подсказка с временем сегодняшнего или днём прежнего; тот же рисунок у полной карточки (класс topology-port-dot)")
+check(dt["junk"], "negative: нет времени или мусор — пустое кольцо, а не горящая точка")
 
 print("обёртка (FoldSlot):")
 check(s["line"].startswith('<div class="fold-slot cells-fold" data-fold-key="controller:22002" data-fold-lane="cells" data-fold-mode="line">'),

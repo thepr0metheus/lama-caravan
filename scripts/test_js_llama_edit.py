@@ -668,7 +668,8 @@ PINS = [
      '"nllb-repo"',
      'positive: artifactKind: translate/models--… даёт nllb-repo'),
     ('ak_seamless_found',
-     'st.state.artifacts = [{ path: "st/seamless-m4t-v2", arch: "seamless_m4t_v2" }];',
+     'st.setState({ ...st.state, runners: [{ id: "seamless", artifacts: ["seamless-st"], stArchs: ["seamless_m4t", "seamless_m4t_v2"] }] });'
+     ' st.state.artifacts = [{ path: "st/seamless-m4t-v2", arch: "seamless_m4t_v2" }];',
      'le.artifactKind("st/seamless-m4t-v2")',
      '"seamless-st"',
      'positive: artifactKind: не-gguf путь из state.artifacts с arch seamless_m4t* даёт seamless-st'),
@@ -1248,7 +1249,8 @@ PINS = [
      '"safetensors"',
      'negative: artifactKind: «translate/other» без префикса models-- → safetensors, а не nllb-repo'),
     ('ak_seamless_exact_arch',
-     'st.state.artifacts = [{ path: "st/x", arch: "seamless_m4t" }];',
+     'st.setState({ ...st.state, runners: [{ id: "seamless", artifacts: ["seamless-st"], stArchs: ["seamless_m4t", "seamless_m4t_v2"] }] });'
+     ' st.state.artifacts = [{ path: "st/x", arch: "seamless_m4t" }];',
      'le.artifactKind("st/x")',
      '"seamless-st"',
      'boundary: artifactKind: arch ровно «seamless_m4t» (граница startsWith) → seamless-st'),
@@ -1318,8 +1320,9 @@ PINS += [
      ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: "seamless" }, "tr-seamlessFields": { style: {} } });'
      ' try { le.applyCellKindUI("tr-"); } catch (e) {} const d = globalThis.__fields["tr-seamlessFields"].style.display; off(); return d; };',
      '[panel(true), panel(false)]',
-     '["","none"]',
-     'язык перевода seamless виден в форме машины контроллера; negative: на другой машине панели нет'),
+     '["",""]',
+     'defect-history: язык перевода seamless виден в форме любой машины — до 1.3.512 только на машине контроллера, '
+     'а с контроллером на NAS такой формы нет вовсе; папку модели скаут приносит сам (2.30)'),
     ('frcm_seamless_tab',
      _ON + ' const tabs = (flag) => { onMachine(flag); st.setState({ ...st.state, runners: ['
      '{ id: "llama-server", labelKey: "runnerLlama", artifacts: ["llm-gguf"] }, { id: "seamless", labelKey: "runnerSeamless", artifacts: ["seamless-st"] }] });'
@@ -1328,8 +1331,16 @@ PINS += [
      ' try { le.renderRunnerTabs("tr-"); } catch (e) {} off(); const b = norm(wrap.innerHTML).match(/<button[^>]*data-runner="seamless"[^>]*>/)[0];'
      ' return [b.includes(" disabled"), b.includes("Controller only")]; };',
      '[tabs(true), tabs(false)]',
-     '[[false,false],[true,true]]',
-     'вкладка seamless открыта в форме машины контроллера; negative: на другой машине закрыта, и подсказка говорит почему'),
+     '[[false,false],[false,false]]',
+     'defect-history: вкладка seamless открыта в форме любой машины — до 1.3.512 серой была везде, кроме машины '
+     'контроллера, хотя скаут 2.30 приносит папку модели сам'),
+    ('model_name_loads_the_cells_own',
+     '',
+     '(() => { const load = (config) => { F({ "tr-MODEL_NAME": { value: "left over" } }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
+     ' return globalThis.__fields["tr-MODEL_NAME"].value; }; return [load({ MODEL_NAME: "gemma-chat", RUNNER: "whisper" }), load({ ALIAS: "g4" })]; })()',
+     '["gemma-chat",""]',
+     'MODEL_NAME (1.3.507) — имя ячейки на входе машины, у любого раннера; negative: у ячейки его нет — поле пустое, а не имя, '
+     'оставшееся от другой ячейки, и не алиас'),
     ('runner_tab_not_for_engines',
      ' const tabsOf = (runners) => { st.setState({ ...st.state, runners }); const wrap = { innerHTML: "" };'
      ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
@@ -1359,6 +1370,140 @@ PINS += [
      'выбрана папка safetensors — путь vLLM выводится из неё в форме машины контроллера; negative: на другой машине путь не подставляется — её дерево другое'),
 ]
 
+
+
+# ── Strata (1.3.512): a runner button, its panel, its preview ─────────────────
+# The preview mirrors StrataRunner.command on the server; the expected text is
+# that method's own answer, so the two cannot drift apart unnoticed.
+sys.path.insert(0, str(ROOT))
+from caravan.domain.runner import get as _runner  # noqa: E402
+
+_S_FIRST = "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf"
+_S_FULL = {"MODEL_FILE": _S_FIRST, "SPEC_DRAFT_MODEL_FILE": "Q/I/IQ2_XS/mtp-q2_0.gguf", "STRATA_CONTEXT": "65536",
+           "STRATA_KV": "k8v4", "STRATA_DRAFT_VOCAB": "en", "STRATA_VRAM_RESERVE_MIB": "2048",
+           "MODEL_NAME": "qwen3.8-flash-next"}
+_S_BARE = {"MODEL_FILE": _S_FIRST}
+_S_NOTE = "# the scout brings both parts and the draft layer; Strata's pack is made from them at the start"
+
+
+def _strata_fields(cfg):
+    pairs = {**cfg, "RUNNER": "strata", "PORT": "22009"}
+    return "F({" + ", ".join(f'"tr-{k}": {{ value: {json.dumps(v)} }}' for k, v in pairs.items()) + "});"
+
+
+_S_REG = ('st.setState({ ...st.state, runners: [{ id: "llama-server", labelKey: "runnerLlama", artifacts: ["llm-gguf"] },'
+          ' { id: "strata", labelKey: "runnerStrata", artifacts: ["strata-gguf"], ggufArchs: ["qwen4exp"] }] });')
+
+PINS += [
+    ('strata_preview_mirrors_server',
+     _strata_fields(_S_FULL),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + _runner("strata").command(_S_FULL)),
+     'превью Strata — та же строка, что строит сервер (StrataRunner.command): обе части пути, черновик, окно, KV, '
+     'словарь, запас VRAM, имя'),
+    ('strata_preview_defaults',
+     _strata_fields(_S_BARE),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + _runner("strata").command(_S_BARE)),
+     'пустые поля — те же значения по умолчанию, что у сервера: 131072, int8, cyrillic; без черновика, запаса и имени'),
+    ('strata_gguf_kind',
+     _S_REG,
+     '[le.ggufKind({ sttVariant: "gigaam" }), le.ggufKind({ architecture: "qwen4exp" }),'
+     ' le.ggufKind({ architecture: "llama" }), le.ggufKind(null)]',
+     '["asr-gguf","strata-gguf","llm-gguf","llm-gguf"]',
+     'вид GGUF по его заголовку: речь — asr; архитектура, которую берёт раннер (qwen4exp — Strata), — его вид; '
+     'остальное — llm; без заголовка — llm'),
+    ('strata_gguf_kind_old_server',
+     'st.setState({ ...st.state, runners: [{ id: "llama-server", artifacts: ["llm-gguf"] }] });',
+     'le.ggufKind({ architecture: "qwen4exp" })',
+     '"llm-gguf"',
+     'negative: реестр сервера не знает Strata (старый сервер) — файл остаётся llm, а не выдуманным видом'),
+    ('strata_artifact_kind',
+     _S_REG + ' st.setState({ ...st.state, models: [{ path: "' + _S_FIRST + '", ggufMeta: { architecture: "qwen4exp" } }] });',
+     'le.artifactKind("' + _S_FIRST + '")',
+     '"strata-gguf"',
+     'файл модели Strata из списка моделей — вид strata-gguf: по нему выбор модели переключает раннер на Strata'),
+    ('strata_tabs',
+     _S_REG + ' st.setState({ ...st.state, models: [{ path: "' + _S_FIRST + '", ggufMeta: { architecture: "qwen4exp" } }] });'
+     ' const wrap = { innerHTML: "" }; F({ llamaRemoteEditOverlay: { hidden: false, dataset: {},'
+     ' querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "strata" }, "tr-MODEL_FILE": { value: "' + _S_FIRST + '" } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} globalThis.__wrap = wrap;',
+     '(() => { const h = norm(globalThis.__wrap.innerHTML);'
+     ' const b = (id) => h.match(new RegExp(`<button[^>]*data-runner="${id}"[^>]*>`))[0];'
+     ' return [b("strata").includes(" disabled"), b("strata").includes("is-active"), b("llama-server").includes(" disabled")]; })()',
+     '[false,true,true]',
+     'модель Strata выбрана: вкладка Strata открыта и активна; negative: llama.cpp серая — он не знает qwen4exp'),
+    ('strata_panel',
+     _S_REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: "strata" }, "tr-strataFields": { style: {} },'
+     ' "tr-llamaFields": { style: {} }, "tr-llamaAside": { style: {} }, "tr-commandAside": { style: {} },'
+     ' "tr-strataDraft": { textContent: "", dataset: {} },'
+     ' "tr-SPEC_DRAFT_MODEL_FILE": { value: "Q/I/IQ2_XS/mtp-q2_0.gguf" } });'
+     ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-strataFields"].style.display, f["tr-llamaFields"].style.display,'
+     ' f["tr-commandAside"].style.display, f["tr-strataDraft"].dataset.state,'
+     ' f["tr-strataDraft"].textContent.includes("mtp-q2_0.gguf")]; })()',
+     '["","none","",\"on\",true]',
+     'раннер Strata: её панель видна, флаги llama.cpp скрыты, справа — превью команды; панель называет слой черновика'),
+    ('cache_switch_opens_on_cell',
+     'globalThis.__open = (slot) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: slot ? [slot] : [] }] });'
+     ' F({ "tr-cacheModels": { checked: false, type: "checkbox" } });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], slot ? 22031 : ""); } catch (e) {}'
+     ' const v = globalThis.__fields["tr-cacheModels"].checked; try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {} return v; };',
+     '[__open({ isSlot: true, clientId: "h1", port: 22031, slotConfig: { MODEL_FILE: "m.gguf" }, cacheModels: false }),'
+     ' __open({ isSlot: true, clientId: "h1", port: 22031, slotConfig: { MODEL_FILE: "m.gguf" }, cacheModels: true }), __open(null)]',
+     '[false,true,true]',
+     'defect-history: галочка кэша открывается со значением ячейки — раньше всегда включённой, и Apply включал кэш '
+     'ячейке, где его выключили; новая ячейка — с кэшем: модель пишется на диск один раз (владелец, 2026-10-13)'),
+    ('strata_panel_no_draft',
+     _S_REG + ' F({ "tr-strataDraft": { textContent: "", dataset: {} }, "tr-SPEC_DRAFT_MODEL_FILE": { value: "" } });',
+     '(() => { le.syncStrataDraftNote("tr-"); const n = globalThis.__fields["tr-strataDraft"];'
+     ' return [n.dataset.state, n.textContent.length > 0]; })()',
+     '["off",true]',
+     'negative: черновика рядом с моделью нет — панель говорит это вслух, а не молчит: без него Strata вдвое медленнее'),
+]
+
+from caravan.domain.runner import registry_json as _registry_json  # noqa: E402
+
+#: The server's registry, as the page receives it: the folder kinds come from its stArchs.
+_REG = "st.setState({ ...st.state, runners: " + json.dumps(_registry_json()) + " });"
+_G_FULL = {"MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16/", "GR00T_BACKBONE": "/srv/models/Cosmos-Reason2-2B/nvidia/BF16",
+           "GR00T_EMBODIMENT": "XDOF", "GR00T_DENOISING_STEPS": "8", "MODEL_NAME": "gr00t-n1.7"}
+_G_BARE = {"MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16"}
+_G_NOTE = "# the scout brings the checkpoint and its backbone; the cell serves POST /v1/robot/predict"
+
+
+def _gr00t_fields(cfg):
+    pairs = {**cfg, "RUNNER": "gr00t", "PORT": "22011"}
+    return "F({" + ", ".join(f'"tr-{k}": {{ value: {json.dumps(v)} }}' for k, v in pairs.items()) + "});"
+
+
+PINS += [
+    ('gr00t_preview_mirrors_server',
+     _gr00t_fields(_G_FULL),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22011\n" + _G_NOTE + "\nexec " + _runner("gr00t").command(_G_FULL)),
+     'превью GR00T — та же строка, что строит сервер (Gr00tRunner.command): папка чекпойнта без хвостового «/», '
+     'своя основа, робот, шаги, имя'),
+    ('gr00t_preview_defaults',
+     _gr00t_fields(_G_BARE),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22011\n" + _G_NOTE + "\nexec " + _runner("gr00t").command(_G_BARE)),
+     'пустые поля — основа Cosmos из библиотеки и робот DROID, как у сервера'),
+    ('st_kind_from_the_registry',
+     _REG,
+     '[le.stKind("Gr00tN1d7"), le.stKind("seamless_m4t_v2"), le.stKind("seamless_m4t"), le.stKind("qwen3_vl"), '
+     'le.stKind(""), (le.stOwner("Gr00tN1d7") || {}).id, le.stOwner("qwen3_vl")]',
+     json.dumps(["gr00t-st", "seamless-st", "seamless-st", "safetensors", "safetensors", "gr00t", None]),
+     'вид папки safetensors — по stArchs раннеров сервера: GR00T и seamless свои, основа Cosmos (qwen3_vl) — общий; '
+     'negative: пустая архитектура — общий вид, владельца нет'),
+    ('ak_gr00t_found',
+     _REG + ' st.state.artifacts = [{ path: "GR00T-N1.7-3B/nvidia/BF16", arch: "Gr00tN1d7" }];',
+     'le.artifactKind("GR00T-N1.7-3B/nvidia/BF16")',
+     '"gr00t-st"',
+     'positive: папка GR00T в выборе модели — своего вида, кнопка GR00T берёт её, а vLLM — нет'),
+]
 
 def main():
     if len(PINS) < 40:

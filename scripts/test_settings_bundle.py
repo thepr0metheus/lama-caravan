@@ -512,6 +512,29 @@ def main():
           (AUTH_DB.stat().st_mode & 0o077) == 0, oct(AUTH_DB.stat().st_mode))
     check("import restores the cloud keys",
           json.loads(secrets_file.read_text())["openai"] == "sk-cloud-key")
+    check("the restored cloud keys are not world-readable",
+          (secrets_file.stat().st_mode & 0o077) == 0, oct(secrets_file.stat().st_mode))
+
+    # The cloud keys go back through the vault, under the lock a token renewal
+    # takes: a whole-file write between a renewal's read and its write would be
+    # undone by it, or undo it (caravan/common/credential_vault.py).
+    from caravan.common.credential_vault import CredentialVault
+    secrets_file.unlink()
+    restored = {}
+    with CredentialVault(secrets_file).locked(".write"):
+        restore = threading.Thread(target=lambda: restored.update(res=sb.apply_bundle(full)))
+        restore.start()
+        restore.join(0.5)
+        waited = restore.is_alive() and not secrets_file.exists()
+    restore.join(10)
+    check("the restore of the cloud keys waits while a renewal holds the document",
+          waited and json.loads(secrets_file.read_text())["openai"] == "sk-cloud-key")
+    odd = json.loads(json.dumps(full))
+    odd["files"]["provider-secrets"]["content"] = ["not", "an", "object"]
+    res = sb.apply_bundle(odd)
+    check("a cloud-keys entry that is no object is skipped, not written",
+          "provider-secrets" in res["skipped"]
+          and json.loads(secrets_file.read_text())["openai"] == "sk-cloud-key", str(res.get("skipped")))
 
     # And a bundle WITHOUT them must not wipe what is here.
     sb.apply_bundle(plain)

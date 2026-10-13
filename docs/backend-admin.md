@@ -38,6 +38,8 @@ place, never reassigned.
 | `model_artifacts` | Which folders are models in their own right — a whisper HF cache, a safetensors checkpoint. Outermost only: a snapshot directory inside a cache matches the rule too, but naming it as well would let one move carry half a model off. `folder_weight` counts what a COPY weighs — real files once, links never (a cache holds every blob under a link as well). The probe child in `model_stores.py` imports nothing of ours, so it carries this module's own source text: the models disk and a library are walked by the same lines. | `artifact_kind`, `artifact_dirs`, `folder_weight`, `hidden`, `relative` |
 | `checkout` | Which commit a checkout's code is, by one rule for every process: `git rev-parse` of the checkout, else the commit an image build baked into `CARAVAN_GIT_HEAD`, else `""` — never a guessed number. The admin's `/health` and version chip read it (`project_git_info`), and so does the proxy's start record. | `CheckoutCommit` (`commit`, `from_git`, `baked`, `error`) |
 | `container_preflight` | What a container must be told before it starts. In a container (`CARAVAN_CONTAINER=1`) the controller and the proxy refuse to start, with exit code 2 and the reason, unless `TZ` names a time zone (by name AND by effect: the C library's offset must equal the zone's, or the image has no zone data) and, for the controller, `LLAMA_TOPOLOGY_SERVER_IP` is an address the fleet reaches (not loopback, not `0.0.0.0`). Natively nothing is asked: the machine knows both. The one place that reads `CARAVAN_CONTAINER` (`paths.IS_CONTAINER` comes from it). | `ContainerPreflight` (`enforce`, `problems`, `in_container`) |
+| `proxy_heartbeat` | How often the proxy rewrites its state file (every 10 s, whatever happened) and when the admin stops trusting it (30 s: three beats missed). One rule for both sides: a cloud-only controller probed no cells, wrote the file only on requests, and its pool card fell back to "Not measured yet" 30 s after each (2026-10-08). | `ProxyHeartbeat` (`BEAT_SECONDS`, `STALE_SECONDS`, `fresh`) |
+| `draft_file` | Which speculative type a draft file is for, from its path: the first word of its name (`mtp`, `dflash`, `dspark`, `eagle3`, followed by `-`, `_` or `.`, any case), else `draft-mtp` for a file under a folder named `mtp` (the layout before upstream's `mtp-` names), else no sidecar (`""`) — launched as `draft-simple`. The model scanner files exactly the sidecars as drafts, and the builder launches a cell with an empty type by it. Twin of `static/js/draft-file.js`, both run against one table (`scripts/test_draft_file.py`): until 2026-10-11 the rule was read five ways, and a head in a model's `mtp/` folder was offered with the model and launched as `draft-simple`. | `DraftFile` (`sidecar_type`, `launch_type`) |
 | `ttl_cache` | `(timestamp, value)` TTL cache with an internal lock. `get()` returns the `MISS` sentinel so falsy values are cacheable. No single-flight by design: concurrent misses may both fetch, same as the pre-refactor call sites. | `TtlCache`, `MISS` |
 
 ## `paths.py`
@@ -71,7 +73,7 @@ created exactly once at import (loaded from disk, defaults seeded: monitor reten
 sub-maps, `localPricing`/`apiPricing`, `hfToken`, `hfFavorites`, `favFields`); every other module
 imports the object, mutates it in place, then calls `save_admin_state()` — never rebinds it.
 `topology_store()` returns `admin_state["topology"]` after ensuring its sub-keys exist (`clients`,
-`assignments`, `clientAliases`, `layout` — the order of the cards under Model servers, see
+`assignments`, `clientAliases`, `layout` — the order of the server cards (pools and machines), see
 `board_layout.py` — and `serverSlots`, the persistent host:port declarations that keep proxy cables
 attached across restarts). On load it drops, once, what scout reports and
 adoption left in the document (`AdminStore.SCOUT_WORDS`, the `deletedAgents` tombstones).
@@ -81,8 +83,10 @@ object), `topology_store` (defaults-ensured topology sub-store).
 
 ## `board_layout.py`
 
-The order of the cards under Model servers on the board — the machines and the cloud providers in
-one list (2026-10-04; until then the machines always stood above the cloud). `ServerOrder` keeps it
+The order of the server cards — the machines and the pools in one list (2026-10-04; until then the
+machines always stood above the cloud). Since 2026-10-11 the board shows the machines apart, under
+Machines, and since 2026-10-12 the pools stand on the kanban in their own order; no page reads the
+pools' places here any more, and the machines' places stay. `ServerOrder` keeps it
 in the admin document's `topology.layout`: `serverOrder`, a list of card keys (`node:<machine id>`,
 `cloud:<account id>`), and `serverOrderRev`, which grows by one with every save. `save(order)` checks
 the list whole and stores it whole — a list with one bad key, a key twice or more than 500 keys is
@@ -94,14 +98,27 @@ from the same document as the rest of the answer); the board places its cards by
 Owns: `topology.layout` in `admin.json`. Key functions: `ServerOrder.save`, `keys`, `revision`,
 `layout`; `SERVER_ORDER` is the route's instance (`POST /api/topology/server-order`).
 
+`ClientOrder` (1.3.503; the owner, 2026-10-12: "the order of the blocks in Clients, Sets and Pools
+changed by dragging") keeps the clients' order beside it, in the same section: `clientOrder`, the
+clients' ports, and `clientOrderRev`. A client is a route of `agent-proxies.json`, which the proxy reads
+and a page's save writes whole, so its place is kept here, not there; the sets' and the pools' order is
+their own order in `cloud-providers.json` (`SetDesk.order`, `PoolDesk.order`). `save(order)` refuses a
+list with anything but distinct ports, whole (400), and an empty list returns the clients to their order
+by name; `ports()` reads a hand-edited document as the ports there are, once each. GET /api/topology
+carries both orders under `layout`; the board places the clients by it (static/js/consumers.js
+`ConsumerCards.of`), the ones it does not name after them by name. `CLIENT_ORDER` is the route's
+instance (`POST /api/consumers/order`).
+
 ## `auth.py`
 
 Accounts, sessions and the fleet token — stdlib `sqlite3`, one `auth.db` next to `admin.json`
-(0600, `LLAMA_ADMIN_AUTH_DB` to override). Auth is OFF until the first user exists (open homelab
-default); creating one (Security panel or `python3 -m caravan.admin.auth create-user`) turns the
-guard on for every route except the login page, the auth bootstrap endpoints and the machine
-endpoints (heartbeats, `/metrics`), which switch to the **fleet token** — a shared machine secret
-scouts carry in their config. Passwords are PBKDF2 (per-user salt, constant-ish-time compare with
+(0600, `LLAMA_ADMIN_AUTH_DB` to override). A fresh controller is not open: until the first user
+exists the guard answers only the public routes — every page leads to `/setup`, every other API
+call is a 401 naming it (since 2026-10-07; before, it was open to anyone until somebody made an
+account). The first account comes from `/setup` or `python3 -m caravan.admin.auth create-user`.
+Then every route needs a session except the login and setup pages, the auth bootstrap endpoints and
+the machine endpoints (heartbeats, `/metrics`), which take the **fleet token** — a shared machine
+secret scouts carry in their config. Passwords are PBKDF2 (per-user salt, constant-ish-time compare with
 a timing pad on unknown users, per-IP lockout after 5 failures); sessions are random tokens stored
 as SHA-256 hashes with a TTL and a 5 s in-process cache. A CLI (`python3 -m caravan.admin.auth …`)
 covers create-user / set-password / fleet-token for headless bootstrap. The panel lists a session
@@ -126,6 +143,10 @@ all funnel through it — adding a flag means editing it and nothing else. Safet
 embeddings mode drops speculative decoding and `--jinja`; `ENABLE_THINKING` merges into
 `--chat-template-kwargs`. `parse_extra_args` is the inverse — it hoists recognized raw flags out of
 `EXTRA_ARGS` into their form fields.
+A cell with a draft file and no type is launched with the type its file is for (`DraftFile`,
+caravan/common/draft_file.py), read off `SPEC_DRAFT_MODEL_FILE` as the config names it, never off
+the path emitted: for a scout's cell that is the `{{SPEC_PATH}}` placeholder, and until 2026-10-11
+every such cell ran its draft as `draft-simple`.
 `model_paths` answers where this host reads the cell's three model files: without a `locations`
 snapshot every one is on the models disk (the answer from before libraries existed, and the right
 one for a command that is only being shown), with one a file that lives in a library is read from
@@ -202,7 +223,8 @@ Key functions: `render_launch_script`, `render_command_cell_script`,
 GGUF model catalog. `read_gguf_metadata` parses the binary GGUF (v2+) header directly for a wanted
 key set (architecture, block/context/embedding sizes, attention heads, `pooling_type`);
 `extract_runtime_meta` normalizes it (pooling read presence-aware since 0 is valid). `list_models`
-scans the models dir, classifies files (model / mmproj / draft; vocab skipped), suggests
+scans the models dir, classifies files (model / mmproj / draft — a draft by `DraftFile`, the rule its
+type is read by; vocab skipped), suggests
 same-directory companions (plus the sibling `default/` folder HF downloads land in), detects the
 family (`gemma-4-…` → `gemma4`) and applies `FAMILY_DEFAULTS`; embedding models (name hints or a
 GGUF pooling type) get `embedding_family_defaults` instead — `--embeddings`, the right `--pooling`,
@@ -277,14 +299,96 @@ address so the admin (itself a service) can talk to the user manager. What is le
 proxy daemon runs after a routes save (`ensure_agent_proxy_running` — `start`, a no-op on a running
 unit; a supervised child in the container). It is not bounced: the daemon re-reads its file every
 ~2 s, and a restart cut every request in flight on every port. Then the
-legacy single service (`llamacpp-current.service`: status, journal tail, repair), and who listens
-on a port (`listening_pid`, a face over `listening_ports.py`). `user_service_diagnostics` produces the bus/service/HTTP checklist shown in the UI. The
+legacy single service (`llamacpp-current.service`: status and repair), and who listens
+on a port (`listening_pid`, a face over `listening_ports.py`). `user_service_diagnostics` produces the
+bus/service/HTTP checklist shown in the UI; it asks the service's port (the probe `status.py` hands it,
+`/props`) only while the unit is active — asked always, any other server on that port read as the
+legacy server "ready" — and an active unit nobody probed reads "not asked". The service's journal
+tail (`logs`) went in 1.3.485: no page showed it. The
 per-port cell units (`lama-cell@<port>.service`) and their template went with the controller's own
 cells in step 6.9: its machine's cells run through that machine's scout.
 Owns: —.
 Key functions: `systemctl`, `ensure_agent_proxy_running`, `service_status`, `listening_pid`,
-`user_service_diagnostics`, `logs` (journal tail), `read_cmdline`, `repair_user_service`
-(daemon-reload + restart).
+`user_service_diagnostics`, `read_cmdline`, `repair_user_service` (daemon-reload + restart).
+
+## `proxy_entry.py`
+
+`EntrySettings` — where the entry for keys listens and the address consumers are given
+(`caravan/proxy/entry.py`, visumap `caravan-single-entry`). `write` takes `{port, publicUrl}`:
+the port must be nobody's — not a route's, a cell's or an excluded one (`_all_taken_ports`),
+and nothing else may listen there (409); null or 0 closes the entry, refused while any
+route's port is closed, since its agent would have no way in. A client of the entry
+(`kind: "consumer"`) is refused by name ("client X calls the caravan only through the entry:
+delete it…"): its number is a record's, never a port to open. The proxy watches the config
+and opens, moves or closes the listener by itself. `publicUrl`
+(`https://caravan-api.example.org/v1`) is words for the board; the proxy never reads it.
+`proxies_config.KeyAudit` refuses on every save a key two routes share and a closed port
+without a key; the entry's port is in `_all_taken_ports`, so no route is minted onto it,
+and `load_agent_proxy_config` carries `entry` through every writer that starts from it.
+`ConsumerAddress(config, host)` is the one rule for where a consumer calls the caravan: its
+route's own port while it is open, the entry once it is closed (the public name, else the entry's
+port on the controller's machine); a closed port whose entry is off keeps its port's address.
+The board's proxy rows (`endpoint`, plus `keyTail` — a key's last four characters), the agents'
+cards (`_assignments_at_current_address`) and the topology's `entry` (`{url, port, publicUrl}`) read
+it. `PortDoor` reads the proxy's own word on where its ports listen (`listenHost` in its state file,
+fresh by `ProxyHeartbeat`): on a loopback address — the NAS, whose ports have no door — only this
+machine reaches them, so `ConsumerAddress(config, host, door=False)` gives an open port no address
+(`""`) and the entry only its public name; the topology hands the door to the board
+(`portsReachable`: true, false, or null while the proxy has said nothing fresh). The board handed out
+`http://<NAS>:23001/v1` for a new port there (2026-10-08).
+`proxies_config.RouteKeys.issue(port)` — the board's "Give a key" — makes a key for a consumer's
+route that has none (409 if it has one) and closes its port in the
+same write: no window in which the old port answers without a key (the operator's word,
+2026-10-07); a consumer that has not moved yet gets no answer until it calls the entry with the
+key. With the entry off it is refused (409), and so is closing a port: the consumer would have no
+way in. A consumer of the entry has its key already: "Give a key" is refused for it (409).
+
+## `consumers.py`
+
+`ConsumerDesk` — a consumer of the entry as the board makes it (the owner, 2026-10-11: the caravan
+speaks the OpenAI API as a company's gateway does). A consumer is a name, its own key and the set of
+models a cable on the kanban leads it to (`set`, since 1.3.497; the owner, 2026-10-12: "only one cable
+goes on from a client", then the set between it and the pools) — kept as a route of kind `"consumer"`: the journal, the queue and the board know a route,
+and the route's number is its name in all of them. The number comes from the proxy range
+(`next_free_proxy_port`) and never listens: the route is `portClosed`, and the entry is the consumer's
+only way in, so `create(name)` is refused while the entry is off (409). A new consumer has no set
+(`set: ""`): no cable leads anywhere until the operator draws one. A name another consumer has is
+refused (409, compared without case: `clean_name`, which the route's door asks too when a consumer is
+renamed — until 2026-10-11 a rename took any name); an empty name is 400. `set_set(port, set)` sets
+its set, `""` takes the cable away; a set id no set has is 400 — refused, not dropped: the operator
+cabled something the board no longer has. `new_key(port)` replaces its key in the same write, so the
+old one stops working at once. A key is answered once, by `create` and `new_key`; the board gets only
+its last four characters (`topology._board_proxy` drops a consumer's `apiKey`), its set and the models
+its key calls (`annotate_consumer_set` → `set`, `setName` and `models`, read by
+`caravan/common/entry_models.py`, the rule the proxy routes by; `set` and `setName` are `""` when no cable
+reaches it). A save from the page keeps a consumer's key and set it does not carry
+(`proxies_config.PolicyOwnedFields`). Rename and delete go through the
+route's own doors (`route-policy` with `label`, `route-delete`). A consumer feeds no router:
+`router_dsl.normalize_agent_proxy_route` keeps its `routerId` empty, `normalize_routers` does so for a
+raw route too, and `route-policy` with `routerId` is 400 for it. `migrate()` runs once at the
+controller's start: a consumer of the form before 1.3.486 — `models`, the pools it might call, `"all"`
+or ids — gets the first of them as its pool (of `"all"`, the first pool of the board), the way the
+proxy reads it meanwhile (`ConsumerPool.of`); a consumer with a set is left alone. The ↑☁ rule leaves it
+alone.
+Owns: nothing in memory; the consumers live in `agent-proxies.json`.
+Key names: `ConsumerDesk` (`create`, `set_set`, `new_key`, `migrate`).
+
+`SetDesk` (`caravan/admin/model_sets.py`, 1.3.497) — the sets of models the entry's clients call, the
+kanban's «Набор» (the owner, 2026-10-12: a set between the clients and the pools, shared by several
+clients; a request's `model` picks a pool of it, an unknown name is 404). `cloud-providers.json` keeps them
+beside the pools they hold, `sets: [{id, name, pools}]`; a pool deleted leaves every set in the same write
+(`PoolDesk.delete` answers `unset`, the sets it left). `create(name)` — "Set", "Set 2"… when unnamed, a name
+another set has is 409; `rename`; `add_pool` (last, once; an unknown pool is 400); `remove_pool`; `delete`
+(its clients lose their cable — `uncabled`, their names); `order(ids)` — the sets in the order a carried
+card leaves on the kanban (1.3.503), refused 409 unless `ids` names every set once. `migrate()` runs once at start, after
+`ConsumerDesk.migrate`: each pool a client was cabled to becomes a set of that pool, named as the pool and
+shared by its clients; the sets are written before the routes, so the proxy, which reads a route's old
+`pool` meanwhile, never sees a client without its model (`entry: clients cabled to sets: …` in the log).
+Key names: `SetDesk` (`state`, `create`, `rename`, `add_pool`, `remove_pool`, `delete`, `order`, `migrate`),
+`ModelSets`, `ConsumerSet` (`caravan/common/entry_models.py`).
+Owns: nothing (the entry lives in `agent-proxies.json`).
+Key names: `EntrySettings` (`read`, `write`), `entry_settings`, `ConsumerAddress`, `PortDoor`; `KeyAudit`,
+`RouteKeys`, `PolicyOwnedFields` in `proxies_config.py`.
 
 ## `machine_scout.py`
 
@@ -338,24 +442,73 @@ llama-server telemetry primitives. `parse_llamacpp_metrics` extracts a fixed set
 text: live gauges (requests processing/deferred, KV usage, lifetime-average t/s) plus the cumulative
 token/second counters — those advance only at request completion, which is what per-request
 throughput is later derived from. `runtime_metrics_sample` scrapes `127.0.0.1:<port>/metrics` (3s
-timeout; a failed scrape is `ok:False`, never a fake zero). `runtime_phase` folds systemd state +
-`/health` + `/props` + `/v1/models` into one phase: unknown / failed / stopped / running / loading
-(503 while the model loads) / starting.
+timeout; a failed scrape is `ok:False`, never a fake zero). (`runtime_phase`, the legacy single
+server's phase from its unit and four probes of its port, went in 1.3.485 with the `runtime` it
+filled: no page read it.)
 Owns: —.
-Key functions: `parse_llamacpp_metrics`, `runtime_metrics_sample`, `runtime_phase`.
+Key functions: `parse_llamacpp_metrics`, `runtime_metrics_sample`.
 
 ## `hf.py`
 
 HuggingFace REST browser over the public API, with a 5-minute `TtlCache` and optional bearer auth
-from `admin_state["hfToken"]` (token participates in the cache key). `hf_search` returns
+from `admin_state["hfToken"]` (token participates in the cache key). Every read of the hub takes its
+headers from `_hf_headers`, `config.json` of a repository (`_fetch_repo_config`, the checkpoint's label comes
+from it) included: a gated repository refuses any file to a request with no token whose owner has the terms. `hf_search` returns
 GGUF-filtered repos sorted by downloads with modality hints (pipeline_tag/tags) straight from the
 search response; a query containing `/` is treated as a direct repo id. `hf_list_files` lists a repo
-tree, classifying `.gguf` files (model/mmproj/mtp/vocab) and extracting the quant from the filename.
-`hf_local_check` / `hf_local_delete` inspect and remove local copies under
-`<models>/<model>/<author>/…` (delete is traversal-guarded and prunes emptied directories).
+tree, classifying `.gguf` files (model/mmproj/mtp/vocab) and extracting the quant from the filename;
+the rest of a repo with safetensors weights is the `safetensors` plan the page downloads as one
+artifact (the weights, configs, tokenizer, a repository folder kept as a folder — not the README,
+pictures, licences or the weights again as `.bin`/`.pt`). Every file entry, GGUF or not, carries what
+the hub says of its bytes, read once by `hub_hash.py`: `oid` (the LFS sha256, empty when none),
+`gitOid` (the git blob id of an ordinary file) and `hashHidden` (a gated repo's mask).
+`hf_local_check` / `hf_local_delete` inspect and remove local GGUF copies under
+`<models>/<model>/<author>/…` (delete is traversal-guarded and prunes emptied directories);
+`hf_local_check` also names `checkpointFolders` — the folders there that hold safetensors weights —
+which is all the page needs to offer the verify for a repo with no GGUF file.
 Owns: `_hf_cache` (TtlCache 300s).
 Key functions: `hf_search`, `hf_list_files`, `hf_local_check`, `hf_local_delete`, `_hf_request`
 (shared by benchmarks).
+
+## `hub_hash.py`
+
+What the hub says about the bytes of one file, said once. A tree entry's `oid` means three things: the
+sha256 of the content in an LFS entry (`lfs.oid`), the git blob id (a sha1) in an ordinary entry, and
+64 asterisks where a gated repository's terms have not been accepted. `HubHash` reads an entry into
+one of four kinds — `sha256`, `git-sha1`, `hidden`, `none` — and writes them into the listing as
+`oid` / `gitOid` / `hashHidden`; `from_entry` reads those back, so a mask that reached `oid` is no
+hash. The mask used to read as a hash, and every file of a gated repo "differed".
+Owns: —.
+Key functions: `HubHash.from_tree_item`, `HubHash.from_entry`, `HubHash.fields`.
+
+## `hf_checkpoint.py`
+
+A safetensors repository on the models disk, for the verify. `CheckpointLayout` is the server's twin
+of the page's rule (`<model>/<author>/<label>/`, each file keeping its folder of the repository —
+`HfDownloads.checkpointDir` / `checkpointFileDir`), held against it by one table of cases
+(`scripts/test_hf_checkpoint_layout.py`). `CheckpointFinder` finds the copies: every folder under
+`<model>/<author>/` that holds a file of the plan, whatever its label (the label comes from the repo
+name and config.json at download time and a gated repo's cannot be read, so today's label may not be
+the one the copy was filed under); it looks and stats, and reads nothing. `CheckpointFile` decides a
+file's row — `same`, `differs`, `wrong-size`, `missing`, `size-only` (the hub gave no hash: checked by
+size only, and the row says so) or `unreadable` — and says which rows need the hash computed.
+`CheckpointResult` is what a job knows of one copy as its rows come in, with a `summary` that counts
+what is still `pending`.
+Owns: —.
+Key functions: `CheckpointFinder.copies`, `CheckpointFile.settled`, `CheckpointFile.judged`.
+
+## `hf_verify.py`
+
+Checking local files against Hugging Face by content, on a button press. A job runs in a thread with
+progress in bytes; one job per repository. GGUF files are hashed against the LFS sha256 (`files`, by
+name: `same`, `differs`, `unknown`, `unreadable`, each with the `hash` kind the hub gave). A
+safetensors repository answers in `checkpoints`, one entry per folder holding a copy: a missing file
+is named, a file of another size is named without being read, a file whose hash the hub gave is
+compared (the sha256 of an LFS file, the git blob id of an ordinary one), and one whose hash is
+hidden or absent is `size-only`. Rows that need no reading are settled when the job starts; the
+digest cache is keyed by (kind, path, size, mtime in ns) and lives in process memory.
+Owns: `_jobs`, `_hash_cache`.
+Key functions: `start_verify`, `verify_status`, `file_digest`, `file_sha256`.
 
 ## `downloads.py`
 
@@ -487,6 +640,36 @@ Owns: `topology.engineOutputs` (`{output id: {hostId, kind, model, port}}`).
 Key functions: `EngineOutputs.output_id`, `set`, `outputs`, `annotate`;
 `POST /api/engine-outputs/expose`.
 
+## `machine_models.py`
+
+The models of a machine as its scout's entry lists them, and the router outputs
+they become (1.3.506; step 2 of visumap caravan-scout-openai: the machine is a
+provider, a pool's row names "machine + model"). The scout serves the machine's
+models at one address by OpenAI's API (scout 2.27); both its reports carry the
+list, `entryModels` (scout 2.28), with each model's places (scout 2.29).
+
+`MachineModels.clean` keeps each model's name, state (running, starting,
+failed, stopped; another word is `unknown`), places (`slots`, `busy`) and copies
+(`{port, state, slots, busy}`) on the machine's record — None when the scout
+does not say (older than 2.28), [] when it says the machine has none.
+OpenAI's wrapper of each model (`object`, `created`, `owned_by`) is not kept.
+
+`MachineOutputs.outputs` makes each listed model an output, `mm:<hash>` of
+(machine, model name): no `:` or `/` of a name in an id read by prefix, and no
+port — a cell moved to another port, or a copy added, touches no pool row that
+names the model. The output's address is the machine's entry, its scout's
+`agentUrl`; `upstreamType: "machine"`, `upstreamModel` the model's name, which
+the proxy puts into every request, `hostId` its machine. What the model does and
+the window it serves are its copies' (`ModelKind.cell_facts` of the cells the
+controller knows by machine and port): the first copy's jobs and inputs, the
+smallest window — a request may land on any copy. A copy the controller has no
+record of says nothing; a model none of whose copies says anything carries no
+facts, and its pool's kind and window are not known. A machine whose scout gives
+no address or no list has no such outputs: its cells' `srv:<port>` outputs serve
+as before. `topology_nodes` gives each node its `entryModels`, as its record
+keeps them: the board reads a model's state and copies there.
+Key functions: `MachineModels.clean`, `MachineOutputs.output_id`, `entry_address`, `outputs`.
+
 ## `proxies_config.py`
 
 `agent-proxies.json` I/O and mutation — routes, routers, policy. The admin **owns** this file; the
@@ -499,18 +682,36 @@ newest 20 of those copies are kept (`ProxyStore.backups_kept`) and older ones ar
 next write — there was no limit, and a copy per save left 13 678 of them beside the file (2026-09-20). Reads
 migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) idempotently.
 `sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
-server + one `cb:<blockId>` per cloud block **with a port of its own** (`cloud_ports.py`; with a one-time migration from legacy
-`cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server.
+server, one per engine model the operator made an output, and one `cb:<pool id>` per pool
+(`pool_output`: a pool is on the kanban for as long as it is; with a one-time migration from legacy
+`cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server. A cell's output
+carries what its model does (1.3.502, `ModelKind.cell_facts`, caravan/common/model_kinds.py): its
+`jobs` by the record rule (`model_jobs.cell_jobs`, the twin of the board's `cellJobs`), a chat
+cell's `inputs` by llama.cpp's own `/props`, the `languages` and `maxAudioMs` it says on its health
+path, the `contextLength` it serves — each only when known, kept by `normalize_router_output`
+through `ModelKind.clean_facts`. The proxy tells the entry's clients a model's kind from them, and
+counts a cell's window in its pool's; the topology build marks each pool with its `kind`
+(`annotate_pool_kinds`: jobs and a chat's inputs, `{"mixed": true}`, or None) for the kanban.
 `save_agent_proxy_config` validates + dedupes routes by port, refuses a NEW port outside the proxy
 range the firewall lets in (`PROXY_PORTS` in `paths.py`, 400 before anything is written; a port
 already in the file keeps working), writes, and makes sure the proxy runs — it never restarts it:
 the daemon re-reads the file live, and a restart cut every request in flight. The caravan never
 runs ufw: the operator opens the range once (`check_firewall_untouched.py`). The allocators
 (`_next_agent_port`, `next_free_proxy_port`) stop at the range's ceiling with a 500 that names it. `set_routers` and the policy setters write the same way.
+`ProxyRevisions` names the version of `routes` and `routers` as stored (a digest per list, read
+by `topology_state` from the same reading it draws from, `proxyRevisions` in `/api/topology`).
+`save_agent_proxy_config(..., revision)` and `set_routers(..., revision)` check it under one lock
+with the write and refuse a list built from an older version (`StaleCopy`, 409): a tab left open
+since the morning saved its copy over the afternoon's and put back a deleted port's cable on the
+NAS (2026-10-08). No version given — a script's save — passes; background writers take no lock.
 Owns: `agent-proxies.json` and its `.bak-graph-*` autobackups; `DEFAULT_AGENT_PROXY_ROUTES`.
 Key functions: `read_agent_proxy_payload`, `write_agent_proxy_payload`, `load_agent_proxy_config`,
 `save_agent_proxy_config`, `normalize_routers` (default router always exists, orphan routes
-re-pointed — `""` stays deliberately unassigned, inputs derived), `sync_router_outputs`,
+re-pointed — `""` stays deliberately unassigned, a client of the entry whose kanban is gone goes free, inputs derived; through `PortInputs` a graph keeps
+no cable and no wait budget of a port no route has, on every read and write and before the graph
+is normalised, so a model's queue does not count such a cable — the graph names a port by its
+number, and a stale page once wrote a deleted port's cable back for the next port of that number;
+an unassigned port keeps its cables, unassigning deletes nothing), `sync_router_outputs`,
 `set_agent_proxy_policy`, `set_agent_proxy_route_policy`
 (label/mode/priority/preemptible/upstream/routerId/threshold overrides), `set_routers`,
 `remap_router_output_refs` (a cell moved to another port) and `swap_router_output_refs` (two cells
@@ -523,10 +724,10 @@ swapped ports, one pass) — both rewrite through `output_refs.py`.
 the rule lists (`schedule`, `bySource`), `failover`, and graph edges whose end is `out:<output id>`.
 `rewrite(new_id_of)` changes them in place — an edge keeps its id, so the roles a queue or a 🛟
 backup node holds by edge id stay — and returns how many places changed; `rules_naming` and
-`edges_touching` read the same table, and `drop` removes every place naming an output (a model
-leaving the kanban with its cables disconnected; the default goes too, and the router's save takes
+`edges_touching` read the same table, and `drop` removes every place naming an output (a pool
+deleted with its cables disconnected; the default goes too, and the router's save takes
 its first output). Remap, swap, the legacy cloud-output upgrade, the list of what
-points at a cloud model (`cloud_refs.py`) and the move of a model's cables all go through it: four
+points at a pool (`cloud_refs.py`) and the move of a pool's cables all go through it: four
 copies of the list had drifted, and the legacy upgrade never looked at the reserve default, audio
 or embeddings.
 Owns: —.
@@ -534,21 +735,31 @@ Key names: `RouterOutputRefs`.
 
 ## `cloud.py`
 
-Cloud provider data layer — pure data, no OAuth flows and no router logic. Two stores: accounts +
-model-blocks in `cloud-providers.json` (with migration from the legacy flat `providers[]` shape),
-and credentials in `provider-secrets.json` written 0600. `CLOUD_PROVIDER_PRESETS` defines the known
-account types (openai-subscription with its PKCE OAuth config, openai, ollama, anthropic,
-openrouter, custom) including auth header/prefix and test path. `account_auth_headers` builds
-request headers from either an API key or the stored OAuth access token. What turns a block into a
-router output is a port of its own (`cloud_ports.py`); `cloud_blocks_state` reads that and hands the
-board `exposed` as "has a port" — the block no longer stores the flag.
+Cloud provider data layer — pure data, no OAuth flows and no router logic. Two stores: accounts and
+pools in `cloud-providers.json` (with migration from the legacy flat `providers[]` shape; the pools
+themselves are `pools.py`'s), and credentials in `provider-secrets.json` written 0600.
+`CLOUD_PROVIDER_PRESETS` defines the known account types (openai-subscription with its sign-in by
+code — token, client and revoke addresses — openai, ollama, anthropic, openrouter, custom) including
+auth header/prefix and test path. Only a plan that signs in by code may use OAuth
+(`device_login_preset(accountType)`): the first subscriptions were made as type `openai` with
+accountType `openai-subscription` and keep it, while a new `openai` account takes a key.
+`account_auth_headers` builds request headers from either an API key or the stored OAuth access
+token. An account stands in no pool by itself: a pool's step names it (`upsert_cloud_account` keeps
+no reserve of its own any more — the levels are the steps'). `delete_cloud_account` takes every step
+that names the account out of its pool (`PoolDesk.remove_account`), ends the account's sign-in in
+progress (`oauth.end_pending_logins`), and once the account is gone ends its own sign-in at the
+provider (`oauth.SignOut`); it answers how that went. `cloud_accounts_state` tells the board which
+accounts that is (`signOutOnDelete`), whether an account is a subscription, and the steps of the
+pools that name it (`usedIn`) — what its deletion takes.
+The keys the file keeps beside accounts and pools — the models' levels, the kanban's added models,
+the board's providers, the sets, the models' schedules — are one table, `CloudFileKeys`
+(caravan/common/cloud_file_keys.py), read and written by this module and read by the proxy: until
+1.3.498 three lists named them, and a key one of them lacked was dropped by the next save.
 Owns: `cloud-providers.json`, `provider-secrets.json`, `CLOUD_PROVIDER_PRESETS`.
-Key functions: `load_cloud_data`/`save_cloud_data`, `load_provider_secrets`/`save_provider_secrets`,
-`account_secret_entry`, `upsert_cloud_account`/`upsert_cloud_block` + deletes,
-`mark_cloud_blocks_announced` (the "new model" window was answered for these; `announced`
-survives saves like `newSince` and `manual`), `account_auth_headers`,
-`account_credential_summary`,
-`cloud_accounts_state`/`cloud_blocks_state` (secret-free views for the UI).
+Key functions: `load_cloud_data`/`save_cloud_data`, `load_provider_secrets` (read-only: the secrets
+file is written only through `CredentialVault`, caravan/common/credential_vault.py),
+`account_secret_entry`, `upsert_cloud_account` + `delete_cloud_account`, `account_auth_headers`,
+`account_credential_summary`, `cloud_accounts_state` (a secret-free view for the UI).
 
 ## `token_history.py`
 
@@ -570,14 +781,19 @@ Read-only views over the **proxy daemon's** artifacts: `agent-proxy-state.json` 
 `logs/proxy-events/*.jsonl`. The admin never writes these — the proxy owns them.
 `agent_proxy_sample` loads the live state file; `summarize_proxy_item` normalizes an active/recent
 request record (upstream host/port recovery, usage tokens, phase) for the dashboard.
-`load_agent_proxy_logs` reads one date's JSONL (filterable, capped at 2000 rows);
+`load_agent_proxy_logs` reads one date's JSONL (filterable, capped at 2000 rows; `event` names one event or several, comma-separated — the history's Requests tab reads `finished,blocked`);
 `proxy_daily_stats` folds a day's `received`/`blocked`/`finished` events into per-route
 total/failed/paused counts (paused = blocked by route mode, not a real failure). (Matching the
 journal of the controller's own single server to requests by time went with that server in
-step 6.9.)
+step 6.9.) One reading of each day file (`_day_seen`: a finished day once, today's file only for
+its added bytes) serves two answers: `proxy_ports_last_seen` — each port's last successful request,
+the board's proof that a route is used — and `embeddings_last_called` — the last call for
+/v1/embeddings whatever came of it, 0 for none in 7 days: the kanban's unset embeddings slot is
+red only then (2026-10-08).
 Owns: — (reader only).
 Key functions: `agent_proxy_sample`, `summarize_proxy_item`, `proxy_usage_tokens`,
-`list_agent_proxy_log_dates`, `load_agent_proxy_logs`, `proxy_daily_stats`.
+`list_agent_proxy_log_dates`, `load_agent_proxy_logs`, `proxy_daily_stats`, `proxy_ports_last_seen`,
+`embeddings_last_called`.
 
 ## `proxy_latency.py`
 
@@ -615,7 +831,7 @@ Owns: `monitor_history` deque + `monitor_lock`, the rebound `monitor_last_cpu/_d
 `incident_lock` + `incident_logged_keys`, `monitor-history.json`, `incident-log.jsonl`.
 Key functions: `monitor_sampler_loop`, `collect_monitor_sample`, `system_monitor_state` (the
 `/api/system-monitor` payload), `correlate_activity`, `append_incidents_from_sample`,
-`gpu_state`/`cpu_state`/`memory_state`, `runtime_api`, `monitor_snapshot`,
+`gpu_state`/`cpu_state`/`memory_state`, `monitor_snapshot`,
 `set_monitor_retention`.
 
 ## `metrics.py`
@@ -654,112 +870,156 @@ Key functions: `ScoutPoller.kick`.
 
 ## `oauth.py`
 
-OAuth2 authorization-code + PKCE login for cloud accounts. `start_oauth_login` generates the
-verifier/challenge and state, binds a loopback `ThreadingHTTPServer` on the account's preset
-redirect port (e.g. 1455 for OpenAI), registers a session (shutting down any previous attempt for
-the same account), starts the server thread plus a 300s watchdog thread, and returns the authorize
-URL. `_OAuthCallbackHandler` exchanges the callback code, stores tokens (access/refresh/expiry +
-email decoded from the id_token) into `provider-secrets.json`, records the result, and shuts the
-listener down. `oauth_login_status` is what the UI polls. `refresh_oauth_token` runs the
-refresh-token grant (keeping the old refresh token when the response omits one); `cloud_api` calls
-it before authenticated requests.
-Owns: `_oauth_sessions` + `_oauth_lock`; the transient callback server + watchdog threads.
-Key functions: `start_oauth_login`, `oauth_login_status`, `refresh_oauth_token`.
+Signing a cloud account in and out. A ChatGPT subscription signs in by a one-time code
+(`DeviceLogin`, OpenAI's device authorization for the Codex app — `codex login --device-auth`):
+`start_device_login` asks OpenAI for a code, the board shows OpenAI's page and the code, the
+operator enters it on any computer, and the login's thread asks OpenAI every `interval` seconds
+(403 = not entered yet) until it gets the authorization code with its PKCE verifier, trades it at
+the account's token URL with the device redirect, and ends with `_finish_login` (tokens stored with
+the email from the id_token, and the account's model list fetched — the next thing "+ Add step" asks
+for is a model) — unless its account was deleted meanwhile. Nothing returns to localhost, so a controller on a NAS or in a container finishes it by
+itself. Which accounts have it is `cloud.device_login_spec` (by accountType). The device paths need
+a named User-Agent: Cloudflare in front of auth.openai.com refuses urllib's own. A failed step says
+its reason through `LoginFailure` — the HTTP status and the protocol's error word, never the
+provider's free text, which can quote the code.
+
+The other way, a return to `http://localhost:1455`, is gone since 1.3.455: it finished only in a
+browser on the controller's own machine, which a NAS or a container does not have.
+
+One login per account at a time: a new start ends the pending one, and so does deleting the
+account. `oauth_login_status` is what the board polls; a login it does not hold is `unknown`.
+`EndedLogins` keeps, for 30 minutes, why a login ended without a login — `replaced` by a newer start
+or `removed` with its account — so a window still waiting on that code says so instead of waiting
+15 minutes. A login that already ended on its own keeps its own answer. `refresh_oauth_token`
+renews through the credential vault's per-account lock; `cloud_api` calls it before authenticated
+requests.
+
+`SignOut` ends a deleted account's sign-in at the provider — the request `codex logout` sends: the
+refresh token with the client it was issued to (`token_type_hint: refresh_token`), or the access
+token when there is none, POSTed as JSON to the plan's `revokeUrl` (`https://auth.openai.com/oauth/revoke`),
+10 s at most. Only the account's own tokens, as the vault removed them, and only to its plan's
+address: a test alias signs in through its original and a pool has none of its own. The account is
+deleted first either way; a provider that refuses or does not answer is reported as `{ok: false, error}`.
+Owns: `_oauth_sessions` + `_oauth_lock`, `ENDED`; one thread per sign-in by code.
+Key names: `DeviceLogin`, `SignOut`, `EndedLogins`, `start_device_login`, `oauth_login_status`,
+`end_pending_logins`, `refresh_oauth_token`.
 
 ## `cloud_api.py`
 
 Live calls against the provider APIs. `test_account_key` probes the preset test path (401/403 =
-rejected; 404/405 counts as validated); `set_account_key` stores a key only after it passes.
+rejected; 404/405 counts as validated); `set_account_key` stores a key only after it passes, through
+`CredentialVault.put_api_key` under the lock a token renewal takes (a read and a write-back of the
+whole file here put a spent refresh token back when the proxy renewed in between — until 2026-10-07).
 `fetch_account_models` handles OpenAI- and Ollama-shaped listings with an OAuth pre-refresh;
 `fetch_subscription_models`/`fetch_subscription_usage` talk to the ChatGPT backend for subscription
-accounts (each limit carries `windowSeconds`, the length the reserve is keyed by). Both model fetchers
+accounts (each limit carries `windowSeconds`, the length a step's switch level is keyed by). Both model fetchers
 narrow an entry through `_catalogue_entry`: id, name, and `contextLength` only when the provider names
 a window (`declared_window`) — the subscription's `context_window`, not its `max_context_window`. A
-pool's catalogue (`CloudSources.common_models`) keeps the smallest window its members name, and none
-when one names none. `fetch_account_costs` and `fetch_openrouter_limits` read spend/credit endpoints;
-`auto_create_blocks` creates one block per fetched model. `usage_stats` is the statistics panel: a
-single pass over the last N days of proxy event logs' `finished` events — cloud requests priced from
-LiteLLM pricing (manual `apiPricing` overrides win), local requests counted in tokens plus a "would
-have cost" estimate from `localPricing` — aggregated per account, model, and day; capped by log
-retention.
-Owns: — (reads proxy logs, writes secrets/blocks via `cloud.py`).
+pool's window, when it takes the providers' figure, is the smallest one its enabled steps' models
+name, and none when one names none (`CloudPools.window`, caravan/common/cloud_pools.py). `fetch_account_costs` and `fetch_openrouter_limits` read spend/credit endpoints.
+`check_account_models` is "↻ Check now" in the step window: the account's list into the catalogue at
+once, with how many chat models it has (`ChatModels`, model_catalog.py) and how many it left out —
+nothing else follows from a list: no model is created, shown or removed by it.
+`annotate_cloud_topology` marks the pools' steps whose model the provider no longer lists (`unlisted`,
+only when a fetched list exists — no list, no verdict) and the accounts' `modelsCheckedAt`, and kicks
+stale lists' refreshes. `CloudLeg` reads which account and which model a finished cloud request went
+to: the record names the step's account and the model sent; an older record names the account and
+the client's model, and the pool the model block became knows the model; a pool's own refusal that
+names no account went to none (until 2026-10-11 the pool's first step took it as its own request).
+`cloud_spend_summary` (the 30 days per account and model) and `cloud_upstream_errors` (24 h of
+refused or failed requests per account, the caravan's own refusals as their own rows) read through it.
+`usage_stats` is the statistics panel: a single pass over the last N days of proxy event logs'
+`finished` events — cloud requests priced from LiteLLM pricing (manual `apiPricing` overrides win),
+local requests counted in tokens plus a "would have cost" estimate from `localPricing` — aggregated
+per account, model, and day; capped by log retention.
+Owns: — (reads proxy logs, writes secrets via `cloud.py`).
 Key functions: `test_account_key`, `set_account_key`, `fetch_account_models`,
 `fetch_subscription_models`, `fetch_subscription_usage`, `fetch_account_costs`,
-`fetch_openrouter_limits`, `auto_create_blocks`, `cloud_spend_summary`, `usage_stats`.
+`fetch_openrouter_limits`, `check_account_models`, `annotate_cloud_topology`, `CloudLeg`,
+`cloud_spend_summary`, `cloud_upstream_errors`, `usage_stats`.
 
-## `usage_reserve_desk.py`
+## `pools.py`
 
-`UsageReserveDesk` — the operator's reserve on a subscription account: the share of each limit
-window kept for the operator's own use (`usageReserve` in `cloud-providers.json`, window length in
-seconds → percent, 1–90). `set(account, windowSeconds, pct)` stores it; 0 lifts it; only an
-`openai-subscription` account takes one, since elsewhere it would be a setting that does nothing.
-`view(account)` is what the card shows beside the bars: the reserve, the proxy's verdict computed
-from its last reading (`subscriptionUsage` in the proxy's state file) with the rule the proxy
-enforces (`caravan/common/usage_reserve.py`), the reading's time and the ceiling.
-`normalize_cloud_account` keeps the reserve through an account's edit.
-Owns: — (writes `usageReserve` via `cloud.py`; reads the proxy's state file).
-Key names: `UsageReserveDesk.set`, `.view`, `.reading`.
+`PoolDesk` — the pools on the controller's files (the operator, 2026-10-10): a pool is what an
+agent's cable goes to, an ordered chain of steps, each one account with ONE model and its own switch
+levels (`CloudPools`, caravan/common/cloud_pools.py, read the same way by the proxy). The proxy
+chooses the step per request (caravan/proxy/pool_steps.py); this desk never routes. `create(name,
+account, model)` makes a pool with its first step (its id from its name, the model's name by
+default). A pool's name is the model id a consumer of the entry calls it by
+(caravan/common/entry_models.py), so no two pools share a name, compared without case: a name the
+operator gave that another pool carries is refused (409) — on `create` and on a rename by
+`save_pool` — and the default name gets a number instead (`gpt-6-sol 2`); `add_step` puts a step at the end — the same account may stand twice; `remove_step`;
+`save_pool` takes the pool as the board edits it — name, the window (`contextLength`,
+`contextAuto`), the steps in their new order with their switches, levels and models (no hand pick:
+the pool goes by its order, the operator 2026-10-11) — and refuses a step the pool does not have (a new one comes by `add_step`); `set_level` sets
+one window's level of one step, `stop` or `switch` (`LEVELS`; 0 lifts it; only a subscription's step
+takes one — elsewhere it would be a setting that does nothing). The switch is kept at or above the
+stop (`CloudPools.levels`): a stop raised past it takes it along. A subscription's new step starts with
+10% of each window as both (`UsageReserve.NEW_STEP`). `delete(pool, resolution)`: when cables
+or rules lead to it, `resolution` says where they go: `{moveTo}` another pool (`CloudModelRewire`) or
+`{cut: true}`; without one, 409. `remove_account` takes an account's steps out of every pool. `state()` is every pool as the board draws it: each
+step with the levels its subscription has reached now — the proxy's last reading, judged by the rule
+the proxy enforces (`stopReached`, `switchReached`) — what holds it on the kanban (`held`,
+`inUse`) and the levels' ceiling; `runtime()` is the proxy's word on each pool while the proxy is
+alive to say it. `migrate()` rewrites a file of the old form once (stamped `pools-of-steps-2026-10`):
+a model block on the kanban or pointed at becomes a pool with the block's id — so its `cb:<id>`
+cables and rules stay — its steps the members of the subscription pool it belonged to, or its
+one account, each with the block's model and the account's reserve as its levels; the other blocks
+were copies of a provider's list and go. `clone_test` keeps the legacy routing-test aliases.
+
+On the kanban (1.3.503): `create` also takes its first row as a row takes it (`target`: an account's
+model or a local output — a model carried onto the Pools column), named after `name_after`, the board's
+word for the model, else the model id. A pool still under the board's name ("Pool", "Pool 2"…,
+`default_named`) whose first cable `add_row` or `connect_row` draws takes that word as its name
+(`_named_after`; " 2" when taken): a pool's name is what its clients call, so only a pool no row of
+which was cabled before is renamed, and a name the operator typed never is. `order(ids)` is the pools'
+order a carried card leaves, refused 409 unless `ids` names every pool once. `arrange()` — "⇅ Arrange"
+— puts the pools in the order the sets name them, then the rest as they stood, and each account's added
+models in the order the arranged pools' rows name them (`AddedModels.put_first`), then the rest.
+Owns: nothing in memory; the pools live in `cloud-providers.json`.
+Key names: `PoolDesk` (`create`, `add_step`, `add_row`, `connect_row`, `remove_step`, `save_pool`, `set_level`,
+`order`, `arrange`, `default_named`, `delete`, `remove_account`, `state`, `runtime`, `migrate`, `clone_test`).
 
 ## `cloud_refs.py`
 
-`CloudModelRefs` — everything that points at a cloud model block, from one snapshot of
-`agent-proxies.json`: bridges and an agent's own cloud route (`providerId`), ↑☁ fallbacks
-(`cloudFallbackProviderId`), graph cables with the queue's (admit/spill) and a 🛟 backup node's
-(main/backup) roles, and every rule including `dormantDefault`. `of(block)` feeds the delete
-confirm (`GET /api/cloud-blocks/refs`), `in_use(block)` decides whether the sync may remove one.
-`CloudModelRewire(cfg).move(from, to, output)` — the "new model" window's move: everything that
-pointed at one model points at another of its provider, through `output_refs.py` (edges keep their
-ids, so a queue's and a 🛟 backup's roles stay) plus the ↑☁ fallbacks; the new model's router
-output (`proxies_config.cloud_block_output`) goes into every router first, because saving a router
-drops a rule naming an output it lacks. An app's own port stays on its model.
+`CloudModelRefs` — everything that points at a pool, from one snapshot of `agent-proxies.json`: an
+agent's own cloud route (`providerId`), ↑☁ fallbacks (`cloudFallbackProviderId`),
+graph cables with the queue's (admit/spill) and a 🛟 backup node's (main/backup) roles, and every rule
+including `dormantDefault`. `of(pool)` feeds the delete confirm (`GET /api/pools/refs`), `in_use(pool)`
+is what the board reads. `held(pool)` counts what would stop reaching it if it went — cables and the
+rules default, schedule, by source, failover, audio, embeddings; not a stashed `dormantDefault`, which
+waits for its output by design — and `cut(pool)` drops them all, in the routers of the snapshot,
+through `output_refs.py`. The same preflight names the clients of the entry cabled to the pool
+(`EntryModels.callers`, the entry's own reading asked the other way round), and `PoolDesk.delete`
+takes their cable away (`uncabled`): pool ids come from their names, and a later pool of the same
+name would have opened to them unasked. `CloudModelRewire(cfg).move(from, to, output)` — a pool's deletion with
+`{moveTo}`: everything that pointed at one pool points at another, through `output_refs.py` (edges keep
+their ids, so a queue's and a 🛟 backup's roles stay) plus the ↑☁ fallbacks; the other pool's router
+output goes into every router first, because saving a router drops a rule naming an output it lacks.
 Owns: —.
 Key names: `CloudModelRefs`, `CloudModelRewire`.
 
-## `cloud_ports.py`
+## `pool_ports.py`
 
-A cloud model's own ports — and with them its place on the kanban (the operator's rule,
-2026-09-27): a model is on the kanban while at least one route of kind `service` whose `providerId`
-is the model leads to it; without one it is not, and no cable reaches it there. The old `exposed`
-flag on the model block, set by the kanban's checklist apart from the ports, is gone: six models
-were on the kanban with two ports among them. `CloudModelPorts(cfg)` reads one snapshot of
-`agent-proxies.json` — `of(model)` (its ports), `on_kanban()`, `held(model)` (cables and the rules
-that stop reaching it if it leaves: default, schedule, by source, failover, audio, embeddings; not
-a stashed `dormantDefault`, which waits for its output by design), `cut(model)` (drop them all,
-through `output_refs.py`). `CloudPortDesk` works on the files: `open` (the first port, or a new one
-from the proxy range), `close(model, ports, resolution)` and `close_port(port, resolution)` —
-closing the last port of a held model needs `{moveTo}` (onto another model of the same provider,
-which gets a port if it had none) or `{cut: true}`, else 409 — `move_cables(src, dst)` (the "new
-model" window and "⇄ Move cables…"; `dst` gets a port), and `adopt_flags()`, the one-time change
-run at the controller's start: every model the old flag put on the kanban gets a port of its own,
-so no cable, default or rule loses its model; a port that cannot be opened leaves its flag for the
-next start.
+A pool's own ports are gone (the owner, 2026-10-12: every client comes in through one address with its
+own key). Such a port was a route of kind `service`, open without a key, straight into one pool; its
+"+ port" button went with the main board's pools column in 1.3.486. `PoolPortsRetired().migrate()`
+runs first among the start-up steps (`caravan/admin/main.py`): it takes every such route out of
+`agent-proxies.json` and answers `[{port, label, pool}]` for the log line, or None when there was none
+(nothing is written then). The controller refuses the kind on a save (`router_dsl`, 400 — an old tab
+cannot bring one back) and passes it by on a reading; the proxy opens no listener on it
+(`caravan/proxy/config.py`).
 Owns: —.
-Key names: `CloudModelPorts`, `CloudPortDesk`.
-
-## `cloud_sync.py`
-
-`CloudModelSync` — one successful model list applied to an account's blocks (the operator's
-word, 2026-09-27: the lists keep themselves). A chat model no block names gets a block, hidden
-from the kanban and stamped `newSince` (not on a first fill); a block the list lacks counts one
-more list in a row (`goneCount`), and after `GONE_AFTER` (2) lists, with nothing pointing at it
-(`CloudModelRefs`) and not added by hand (`manual`), it is removed and kept a day for "↶". Not a
-verdict: an empty list (counts nothing). A list that drops more than half of the account's blocks
-(and more than five) at once may be a partial answer: it counts, but removes only after
-`GONE_AFTER_MASS` (6) lists in a row — a glitch does not last, a renamed catalogue does (Ollama's
-cloud, 2026-09-27). Everything the provider lists counts as present, chat or not. `restore` brings a
-removed block back as the operator's own. `NON_CHAT_MODEL_RE` lives here.
-Owns: the per-account report of the latest list (`last`).
-Key names: `CloudModelSync`, `NON_CHAT_MODEL_RE`.
+Key names: `PoolPortsRetired`.
 
 ## `model_catalog.py`
 
 Provider model-catalog cache + upstream endpoint health, one small state file
 (`state/model-catalog.json`; legacy installs land it at the repo root). Three jobs: (1) per-account
 model lists with a 10-minute TTL refreshed by a background thread whenever the board reads the
-topology (`kick_refresh` + a guarded fetcher, which also applies the list to the account's blocks —
-`cloud_sync.py`) — blocks whose model fell out of the list paint "unlisted" in the UI, and the
-blocks the sync removed are kept a day (`record_removed_blocks`, `removed_blocks`,
-`take_removed_block`) so the board can say so and bring one back; (2) a circuit breaker around
+topology (`kick_refresh` + a guarded fetcher) — what "+ Add step" offers (`GET
+/api/cloud-accounts/catalogue`, chat models first by `ChatModels`) and what a step's model is checked
+against: a step whose model fell out of the list paints "unlisted"; (2) a circuit breaker around
 every provider endpoint (`guarded_call(key, fn)`: 3 consecutive failures open the breaker with
 exponential 6 h→48 h backoff; `endpoints_report` feeds the "API issues" panel and
 `retry_endpoint` the panel's retry button — 401/403 on spend/limit endpoints stay soft); (3) the
@@ -785,7 +1045,9 @@ Remote-node probes and the in-memory telemetry rings behind topology cards. Prob
 own `TtlCache`: `probe_remote_port` (TCP connect, 15s), `remote_llama_health` (`/health` → ok / loading — llama.cpp
 answers 503 while loading into VRAM — / down, 3s), `remote_llama_modalities` (`/props`, the
 authoritative vision/audio source, 300s), and `command_cell_health` (HEALTH_PATH JSON with
-download/load progress bytes, or a bare TCP probe when unset). A 401 or 403 on a health path is
+download/load progress bytes, or a bare TCP probe when unset), and `remote_cell_about` (what a cell
+this controller holds no settings for says it is: engine, model, kinds — and since 1.3.502 its
+`langs`, `maxAudioMs` and `targetLang`, which the entry tells its clients of an ear, 30s). A 401 or 403 on a health path is
 `broken` — "the cell refuses the caravan": a server started with a key of its own, which the
 proxy's requests meet as well — not the `ok` any answer below 500 used to be (2026-09-26). The three history rings —
 `_gpu_history` (mem/util/power per `node:gpuIndex`), `_cpu_history` (load/RAM per node),
@@ -843,7 +1105,61 @@ Owns: the `serverSlots` records inside admin state.
 Key functions: `server_slot_key`, `next_server_cell_port`, `used_server_cell_ports`,
 `assert_server_cell_port_available`, `upsert_server_slot`, `reserve_server_cell`,
 `move_server_cell`, `delete_server_slot`, `refuse_controller_host`, `reassign_server_slot_port`
-(fleet-wide free check, remaps router refs `srv:old→srv:new`).
+(fleet-wide free check). Every name of a cell — the routers' references, the pools' rows, its
+schedule — follows it on a port move, a swap and a start on another port (`move_server_cell`), and a
+deleted cell's rows lose their cable and its schedule goes (`cell_outputs.py`).
+
+`KeptCells` (1.3.504) makes a slot of each cell a scout keeps that the controller lacks. A stopped cell
+is drawn from its slot alone — the scout drops a stopped cell from its report — and a controller that
+did not start a cell had none: on 2026-10-12 the controller moved to the NAS had no slot of a machine's
+cells, and each went off the board as it was stopped, with its switch and the kanban's cable to it.
+The scout reports the start request it keeps for each autostart cell (`autostartRequests`, scout
+2.26); `adopt(host, requests)` — run on every report, the heartbeat's and the pull's
+(`record_host_report`) — makes a slot from each it lacks, the settings whole (an empty value too), the
+model and the cache switch, marked `adoptedFrom: "scout"`. A slot that exists is never touched. A port
+another slot holds, or one no cell may take (the controller's own, an excluded one), makes none — it
+would point one cell's cables at another server — and the log says so. `KEPT_CELLS` is the reports'
+instance.
+
+## `cell_outputs.py`
+
+A machine's cell is named by its output id, `srv:<port>`, in three files: the routers' outputs, rules
+and graph edges (`agent-proxies.json`, `output_refs.py`), the pools' rows (`cloud-providers.json`
+`pools[].steps[].output`) and the models' schedules (`schedules`, keyed `out:srv:<port>`).
+`CellOutputs.move(old, new)` and `swap(a, b)` follow the cell in all three at once — the rows and the
+schedules in one write of the cloud file; until 1.3.499 a move or a swap followed the routers only,
+and after a swap a pool sent its requests to the other model (found 2026-10-12). A move onto a port a
+row or a schedule still names (a cell deleted before 1.3.499 left it) takes those names away first.
+`drop(port)` — a cell deleted — takes its rows' cables (each row stays, open, as `PoolDesk.connect_row`
+leaves one) and its schedule: a new cell takes the smallest free port, and a row still naming it would
+serve the new cell's model. The routers keep their names of a deleted cell: their graph is drawn
+nowhere since 1.3.486 and decides only for the agent ports of the old kind. Each file is followed on
+its own; one that cannot be written is named in the answer (`notFollowed`) and in the log, and the
+cell's move stands. An engine's model (`eng:<id>`) is named by its machine, engine and model, not by a
+port, and is not followed; neither are the proxy's in-memory health verdicts (300 s; a move and a swap
+are offered on stopped cells only).
+Owns: nothing in memory.
+Key names: `CellOutputs` (`move`, `swap`, `drop`).
+
+## `model_schedules.py`
+
+When each model is open (1.3.498, step 1 of the visumap scheme caravan-model-schedule; the owner,
+2026-10-12: the schedule is the model's, not a pool's or a set's). `ModelScheduleDesk.set(key,
+{enabled, windows})` is the door the kanban's ⏱ calls (`POST /api/models/schedule`): the key is the
+kanban's — `acc:<account>/<model>` or `out:srv:<port>` / `out:eng:<id>` (`ModelKey`); the windows are
+read strictly (`WeekWindows.parse`, caravan/common/week_windows.py: what is wrong with which window,
+400); an unknown account is 404, and a schedule switched on with no window is 400 — it would close
+the model for good. The schedules live in `cloud-providers.json` under `schedules` (`ModelSchedules`,
+caravan/common/model_schedules.py), where the proxy reads them with each pool and passes over the
+row of a model closed now. A cell's schedule goes with the cell's other names (`cell_outputs.py`);
+`PoolDesk.remove_account` forgets an account's models' schedules,
+and a model taken off the kanban keeps its own, as its levels. `state()` is the board's
+`modelSchedules`: the caravan's zone (`CaravanZone`, caravan/common/caravan_zone.py — TZ, else the
+machine's zone, else UTC said as not known), the moment, and each model's schedule with what it says
+now (`open`, `until`, `opensAt`). Step 1 starts and stops no server: that is still `cell_schedule.py`'s
+older window on a slot, until the scheduler of step 3 takes it over.
+Owns: nothing in memory; the schedules live in `cloud-providers.json`.
+Key names: `ModelScheduleDesk` (`set`, `state`).
 
 ## `cell_schedule.py`
 
@@ -884,7 +1200,10 @@ default (`ControllerMachine`), and a legible refusal for an older scout.
 `refresh_hosts_from_scouts` pulls each scout's
 `/api/state` so the board stays current between heartbeats; it runs in the background
 (`SCOUT_POLLER`, see `scout_poll.py`), never inside a board read, and `scout_payload_from_state`
-turns what it reads into the shape of a heartbeat. Which fields a report carries is one sample for both
+turns what it reads into the shape of a heartbeat. The pull refreshes only the machines the board
+holds (`record_host_report(..., only_known=True)` makes none) and skips a scout that holds no
+controller: a ✕ on the NAS board was undone by a pull in flight, and the scout, let go and open to
+anyone, kept the machine "online" through every next pull (2026-10-11). Which fields a report carries is one sample for both
 repos: the scout's `docs/report-sample.json`, copied byte for byte to `scripts/fixtures/`, where
 `test_scout_report_sample.py` requires every field to reach the host record (or be listed as not read,
 with the reason) and the pull and the beat to make the same record. Agents and their ports are made by hand; removing an agent takes its
@@ -906,11 +1225,28 @@ its scout (caravan-scout `./install.sh`); the operator enters its address on the
 `connect` reads the scout's open `/api/pairing`, hands it the controller's address and the fleet
 token (`POST /api/controller-url`) and returns once the scout's first heartbeat has made the host
 record. `controller_url_for` picks the address the scout will reach: 127.0.0.1 for a scout on the
-controller's machine, else `LLAMA_TOPOLOGY_SERVER_IP`, else the interface that routes towards it.
+controller's machine, else the controller's name when it is reached by one through a reverse proxy
+(`LLAMA_TOPOLOGY_SERVER_URL`, the NAS's `https://caravan.example.org` — its own port listens on
+loopback only), else `LLAMA_TOPOLOGY_SERVER_IP`, else the interface that routes towards it. A name
+that is not a plain `http(s)://host[:port]` is refused (500, naming the setting), not handed out: a
+scout puts its own paths after it. A scout that took the name and cannot reach it is told to check
+the name, the reverse proxy and the home certificate, not to open a port.
 `disconnect` asks the scout to let go (`/api/unpair`) and forgets the host record — a silent scout's
 machine only forgotten, a refusing scout's kept. Every failure is worded with what to do. The network
 comes in through `http_get`/`http_post` parameters, which the snapshot (`test_scout_pairing.py`)
 replaces with a fake scout.
+
+## `scout_scan.py`
+
+`ScoutScan` — the 🔍 on the board's Add scout row (the owner, 2026-10-11): which machines of a private
+network answer as a caravan-scout. `scan(networks, port)` knocks on every address of the networks asked
+— networks or addresses typed by commas or spaces, or, when none, the controller's own /24s (the address
+it reaches the network from and `LLAMA_TOPOLOGY_SERVER_IP`) — and asks those that take the connection
+the scout's open `/api/pairing`. Only private IPv4 networks are scanned, at most 1024 addresses in one
+scan; anything else is refused with 400. A found scout is `free`, `here` (its machine is on this board)
+or `taken` (another controller holds it); nothing is changed — Connect on the board pairs a free one
+through `ScoutPairing`. `POST /api/topology/scout/scan` answers `{networks, port, scanned, found}`. The
+network comes in through `connect`/`ask` parameters, which the snapshot (`test_scout_scan.py`) replaces.
 
 ## `launch_files.py`
 
@@ -1006,15 +1342,20 @@ had put over that machine's cells.
 ## `status.py`
 
 The composite dashboard state. `state()` is the `/api/state` payload: parsed config + field
-metadata, paths, model catalog, chat templates, service status, runtime (with phase), diagnostics,
-CPU/GPU/memory, llama.cpp build info, journal logs and the project's own git info. (Starting and
+metadata, paths, model catalog, chat templates, the legacy single server's service status and
+diagnostics (`legacy_port_props` is the probe of its port, asked only while its unit is active),
+CPU/GPU/memory, llama.cpp build info and the project's own git info. That server's journal tail and
+runtime summaries left the payload in 1.3.485: no page showed them, and each page load ran journalctl
+and four HTTP probes for them. (Starting and
 stopping `llamacpp-current.service` and its start-server.sh backups went with the controller's own
 cells in step 6.9.) `llama_cpp_info` reports the binary
 version and feature support plus the llama.cpp checkout's git state (optionally checking upstream
 for the newest `bNNNN` build tag); `update_llama_cpp` refuses when tracked files are dirty, then
-fetch + ff-only merge + cmake-builds `llama-server`.
+fetch + ff-only merge + cmake-builds `llama-server`. `project_git_info` of an image build (no
+checkout) has no branch: `branch` is empty, `baked` true, `head` the baked commit — it named the
+branch "docker", and the board's chip read "git: docker".
 Owns: —.
-Key functions: `state`, `llama_cpp_info`, `update_llama_cpp`, `llama_server_path`,
+Key functions: `state`, `legacy_port_props`, `llama_cpp_info`, `update_llama_cpp`, `llama_server_path`,
 `project_git_info`.
 
 ## `cell_ops.py`
@@ -1023,7 +1364,11 @@ Server-cell lifecycle actions, each through the scout of the cell's machine; sit
 because its handlers return the composite `state()`. `client_server_slot_add` declares a persistent
 slot (reserving the next free port when none is given); `client_server_slot_delete` removes the slot
 and also tells the scout to stop/clear the node — otherwise the cell keeps coming back with the next
-report. `server_cell_save_config` saves without starting (and refreshes the request the scout keeps
+report. `CellAutostart` (1.3.504) keeps a cell's autostart with its slot: the scout's kept request
+makes a slot again where the controller lacks one (`KeptCells`), so a deletion takes the request away
+first (`forget`), and a port move or a swap (`moved`) takes it off the old port before the slots move
+and puts it on the new one after, from the slot there; a refused move puts it back. A scout out of
+reach keeps its request, and the answer says so (`autostart: {port, enabled, ok, error?}`). `server_cell_save_config` saves without starting (and refreshes the request the scout keeps
 for an autostart cell). `server_cell_action` forwards start/restart (from the saved slot config;
 command cells must have a COMMAND, llama cells a model), stop, and enable/disable (the scout's
 autostart) to the scout; the controller's own host id is refused — it runs no cells since step 6.8.
@@ -1032,7 +1377,7 @@ is room; when there is not, the cell reads it where it lies — the move planner
 IS that answer. `script_preview` shows a script a command names, from this machine's home.
 Owns: —.
 Key functions: `client_server_slot_add`, `client_server_slot_delete`, `server_cell_save_config`,
-`server_cell_action`, `bring_home`, `script_preview`.
+`server_cell_action`, `bring_home`, `script_preview`; `CellAutostart` (`CELL_AUTOSTART`: `forget`, `moved`).
 
 ## `routes.py`
 
@@ -1047,7 +1392,7 @@ subdirs (filename-class regex, no traversal) — checked before the exact-match 
 the body before the path lookup (empty → `{}`, anything but a JSON object → 400, chunked → 411);
 every verb answers with the status an `AppError` carries. `Handler` provides `send_json` (via
 `json_bytes`), `send_file` (mtime+size ETag with `Cache-Control: no-cache` — redeploys show up
-immediately, unchanged files answer 304) and `read_body`. 81 GET, 104 POST and one DELETE route
+immediately, unchanged files answer 304) and `read_body`. 87 GET, 113 POST and one DELETE route
 (`/api/hf/local-file`); static pages `/`, `/hf`, `/board` (`/` redirects here), `/kanban`
 (`/router` redirects), `/models`, `/system` and `/login` come from `static/`. When sign-in is
 enabled (`auth.py`), `_auth_guard` lets a request through by `ROUTE_ACCESS` (`route_access.py`).
@@ -1057,10 +1402,12 @@ Key functions: `_route`, `Handler.do_GET`/`do_POST`/`do_DELETE`,
 
 ## `route_access.py`
 
-`RouteAccess` — who may call a route: open (`/health`, `/openapi.json`, the login and setup pages
-and their POSTs, `/api/auth/me`, the favicons), the machine endpoints on the fleet token
+`RouteAccess` — who may call a route: open (`/health`, `/healthz`, `/openapi.json`, `/api/packages`,
+the login and setup pages and their POSTs, `/api/auth/me`, the favicons), the machine endpoints on
+the fleet token
 (`X-Caravan-Token`), `/metrics` on the fleet token as a header or a Bearer token or a session, and a
-session for everything else — a viewer account may call every GET and log out. One rule, read by
+session for everything else — a viewer account may call every GET but `ADMIN_GET` (the raw routes
+file: it holds the clients' keys) and log out. One rule, read by
 the guard that enforces it (`routes._auth_guard`) and by the document that states it
 (`security` and `x-caravan-roles` in `/openapi.json`).
 Owns: the open and machine path sets; the security schemes' words.
@@ -1076,9 +1423,25 @@ content types it answers with, following the helpers it hands the request to two
 the code does not show — a query or body passed on whole — is marked "may read more"
 (`x-caravan-query-complete` / `x-caravan-fields-complete: false`), never drawn as "reads nothing";
 field types and answer shapes are said to be not described yet (level 1). `ApiReference` renders
-the same document into [http-api.md](http-api.md) between two markers.
+the same document into [http-api.md](http-api.md) between two markers. `info.version` is the commit
+`/healthz` names — the home network's deploy check compares the two (visumap apps-openapi.md) —
+"unknown" when none is known, and `info.x-release` the controller's version.
 Owns: nothing mutable beyond the cached document.
 Key names: `ApiSpec.document`, `HandlerReading`, `ApiReference.splice`.
+
+## `packages.py`
+
+`GET /api/packages` (open, like `/healthz`): what the running controller is made of, named as osv.dev
+names it, for the vulnerability check of the home network (visumap apps-packages.md) —
+`{version, runtime, os, packages}`, each package `{ecosystem, name, version}`, `version` the commit
+`/healthz` names. The controller pins no library of its own, so the list is the interpreter's
+distributions (`PyPI`) and, in the image, Debian's installed packages (`Debian:<release>`) — by
+their SOURCE package and the source's version, the names Debian's advisories use (libc6 is glibc,
+a rebuilt `+b1` binary is its source's version). A system whose packages it cannot read (Ubuntu,
+Debian without a numbered release or without dpkg's status file) is `os.listed: false`; one it
+cannot tell is `os: null` — never an empty list that reads as "nothing to fix". Read once per process.
+Owns: `INSTALLED_PACKAGES`.
+Key names: `InstalledPackages.listing`, `.system`, `.python`, `.debian`.
 
 ## `main.py`
 

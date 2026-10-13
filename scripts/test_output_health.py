@@ -531,41 +531,47 @@ def test_first_pass_at_start():
           f"negative: упавший проход не останавливает цикл — следующий идёт по расписанию (got {calls})")
 
 
-def test_probe_keeps_the_reserve():
-    """The probe of a subscription exit: it reads the windows off the answer, and
-    while the operator's reserve is reached it spends nothing of it — the exit
-    refuses, and the probe says so without asking the provider."""
-    print("проверка выхода подписки и запас оператора:")
+def test_probe_keeps_the_level():
+    """The probe of a subscription exit asks through the pool's step (the block
+    of the old form is read as a pool of one step, its account's reserve as the
+    step's switch level): it reads the windows off the answer, and while the
+    step is down to its level it spends nothing of it — the exit refuses, and
+    the probe says so without asking the provider."""
+    print("проверка выхода подписки и порог шага:")
     import time as _t
+    from caravan.proxy.pool_steps import pool_steps
     from caravan.proxy.subscription_usage import subscription_usage
     out = {"id": "cb:s", "upstreamType": "cloud", "providerId": "blk:s", "accountId": "acc:s"}
     subscription_usage.clear()
-    before = len(_SubCloud.hits)
+    pool_steps.clear()
+    before, pages = len(_SubCloud.hits), len(_SubCloud.pages)
     ok, status, kind, msg = probe_output(out)
-    check((ok, status) == (True, 200) and len(_SubCloud.hits) == before + 1,
-          f"показаний нет — проба спрашивает провайдера (got {ok}, {status})")
+    check((ok, status) == (True, 200) and len(_SubCloud.hits) == before + 1
+          and _SubCloud.pages[pages:] == ["/backend-api/wham/usage"],
+          f"показаний нет — пул сначала читает страницу использования, потом проба спрашивает провайдера (got {ok}, {status})")
     check([(w["seconds"], w["usedPct"]) for w in subscription_usage.windows("acc:s")] == [(18000, 85)],
           "и оставляет показания из заголовков ответа")
     ok, status, kind, msg = probe_output(out)
-    check((ok, status, kind) == (False, 429, "usage_reserve") and len(_SubCloud.hits) == before + 1,
-          f"positive: осталось 15% при запасе 20% — выход отказывает, провайдера не спрашивают (got {ok}, {status}, {kind})")
-    check(msg.startswith("The caravan keeps your reserve"), "причина называет караван")
+    check((ok, status, kind) == (False, 429, "pool_unavailable") and len(_SubCloud.hits) == before + 1,
+          f"positive: осталось 15% при пороге 20% — выход отказывает, провайдера не спрашивают (got {ok}, {status}, {kind})")
+    check(msg.startswith("Pool sub-model has no step that fits now: acc:s (reserve)"), f"причина называет пул и шаг (got {msg!r})")
     subscription_usage.note("acc:s", {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
                                       "x-codex-primary-reset-at": str(int(_t.time()) - 5)})
+    pool_steps.clear()   # the pool asks the page again only FAILED_REFRESH_SEC after its last try
+    pages = len(_SubCloud.pages)
     ok, status, kind, msg = probe_output(out)
-    check((ok, status) == (True, 200) and len(_SubCloud.hits) == before + 2,
-          "negative: окно сбросилось — проба снова спрашивает провайдера")
-    from caravan.proxy.subscription_usage import reserve_gate
+    check((ok, status) == (True, 200) and len(_SubCloud.hits) == before + 2 and _SubCloud.pages[pages:] == ["/backend-api/wham/usage"],
+          "negative: окно сбросилось — пул перечитывает страницу, и проба снова спрашивает провайдера")
     subscription_usage.note("acc:s", {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
                                       "x-codex-primary-reset-at": str(int(_t.time()) + 3600)}, now=_t.time() - 400)
-    reserve_gate.clear()
+    pool_steps.clear()
     pages = len(_SubCloud.pages)
     ok, status, kind, msg = probe_output(out)
     check((ok, status) == (True, 200) and _SubCloud.pages[pages:] == ["/backend-api/wham/usage"]
           and len(_SubCloud.hits) == before + 3,
-          f"досрочный сброс: показания старые — проба спрашивает страницу использования, и выход снова жив (got {ok}, {status})")
+          f"досрочный сброс: показания старые — пул спрашивает страницу использования, и выход снова жив (got {ok}, {status})")
     subscription_usage.clear()
-    reserve_gate.clear()
+    pool_steps.clear()
 
 
 def main():
@@ -575,7 +581,7 @@ def main():
     test_request_follows_the_chain()
     test_questions_go_where_answers_come_from()
     test_first_pass_at_start()
-    test_probe_keeps_the_reserve()
+    test_probe_keeps_the_level()
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

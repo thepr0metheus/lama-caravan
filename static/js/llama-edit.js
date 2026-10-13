@@ -133,6 +133,9 @@ export function applyConfigToForm(config, pfx = "") {
   if (cmdEl) cmdEl.value = config.COMMAND || "";
   const hpEl = $(pfx + "HEALTH_PATH");
   if (hpEl) hpEl.value = config.HEALTH_PATH || "";
+  // The model's name at the machine's entry (1.3.507): the cell's own, never another's left over.
+  const mnEl = $(pfx + "MODEL_NAME");
+  if (mnEl) mnEl.value = config.MODEL_NAME || "";
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL"].forEach((k) => {
     const el = $(pfx + k);
     if (el) el.value = config[k] || "";
@@ -148,7 +151,7 @@ export function applyConfigToForm(config, pfx = "") {
   // presenting its own default as the cell's setting, and Apply silently
   // retargeting the cell. A new panel is now populated by existing.
   ["commandFields", "vllmFields", "whisperFields", "moonshineFields",
-   "seamlessFields", "translateFields"].forEach((panel) => {
+   "seamlessFields", "translateFields", "strataFields", "gr00tFields"].forEach((panel) => {
     $(pfx + panel)?.querySelectorAll("input, select, textarea").forEach((el) => {
       const key = String(el.id || "").slice(pfx.length);
       if (!key || !(key in config)) return;
@@ -266,24 +269,55 @@ export function artifactKind(model) {
   if (path.startsWith("whisper/models--Systran--faster-whisper-")) return "whisper-size";
   if (path.startsWith("translate/models--")) return "nllb-repo";
   if (!path.toLowerCase().endsWith(".gguf")) {
-    // A SeamlessM4T checkpoint gets its OWN kind, not the generic one. If it
-    // answered "safetensors", the runner picker's "a runner that names this
-    // kind wins" rule would drag every ST folder — Qwen, anything — onto the
-    // seamless runner the moment it was selected.
+    // A SeamlessM4T or GR00T checkpoint gets its OWN kind, not the generic one.
+    // If it answered "safetensors", the runner picker's "a runner that names
+    // this kind wins" rule would drag every ST folder — Qwen, anything — onto
+    // that runner the moment it was selected.
     const st = (state.artifacts || []).find((r) => r.path === path);
-    return String(st?.arch || "").startsWith("seamless_m4t") ? "seamless-st" : "safetensors";
+    return stKind(st?.arch);
   }
   const row = (state.models || []).find((r) => r.path === path);
   if (!row) return "";                       // unknown file — see above
-  return (row.ggufMeta || {}).sttVariant ? "asr-gguf" : "llm-gguf";
+  return ggufKind(row.ggufMeta);
+}
+
+// The kind of a GGUF by its own header: a speech recognizer (stt.* keys), a
+// model only one runner's engine reads (its architecture is one that runner
+// claims — Strata's qwen4exp, which llama.cpp does not know), or an LLM for
+// llama.cpp. One rule for the runner tabs and the picker's rows; the claims
+// come from the server's runner classes (ggufArchs), not from a list here.
+export function ggufKind(meta) {
+  const m = meta || {};
+  if (m.sttVariant) return "asr-gguf";
+  const arch = String(m.architecture || "");
+  const owner = arch ? runnerRegistry().find((r) => (r.ggufArchs || []).includes(arch)) : null;
+  return (owner && (owner.artifacts || [])[0]) || "llm-gguf";
+}
+
+// The runner that reads a safetensors folder of this architecture (config.json
+// model_type) and no other runner does — SeamlessM4T, GR00T — or null: any other
+// folder is a chat checkpoint for vLLM. The claims come from the server's runner
+// classes (stArchs), as GGUF architectures do; the picker and the runner tabs each
+// held a "seamless_m4t" literal of their own until GR00T made it two runners.
+export function stOwner(arch) {
+  const a = String(arch || "");
+  return (a && runnerRegistry().find((r) => (r.stArchs || []).includes(a))) || null;
+}
+
+// The kind of a safetensors folder: its owner's, or the generic one.
+export function stKind(arch) {
+  const owner = stOwner(arch);
+  return (owner && (owner.artifacts || [])[0]) || "safetensors";
 }
 
 const KIND_REASON = {
   "llm-gguf": "runnerNeedsLlmGguf",
   "asr-gguf": "runnerNeedsAsrGguf",
+  "strata-gguf": "runnerNeedsStrataGguf",
   "whisper-size": "runnerNeedsWhisperSize",
   "moonshine-lang": "runnerNeedsMoonshineLang",
   "seamless-st": "runnerNeedsSeamlessSt",
+  "gr00t-st": "runnerNeedsGr00tSt",
   "nllb-repo": "runnerNeedsNllbRepo",
 };
 
@@ -291,14 +325,11 @@ const KIND_REASON = {
 // vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
 // what sits in that field cannot disqualify them.
 function runnerAvailability(runner, pfx) {
-  // A form whose machine does not read the controller's models tree cannot
-  // offer a directory checkpoint: the scout's model cache is .gguf throughout —
-  // download, listing and eviction all key on that suffix. Leaving the runner
-  // selectable there produced a panel with nothing to pick, which reads as
-  // broken rather than unsupported. (formOnControllerMachine.)
-  if (!formOnControllerMachine(pfx) && (runner.artifacts || []).includes("seamless-st")) {
-    return { ok: false, reasonKey: "runnerControllerOnly" };
-  }
+  // A directory checkpoint (seamless) was offered only on the controller's own
+  // machine: a scout could not download a folder. It can since scout 2.30 and
+  // lama-caravan 1.3.509 (GET /api/models/folder), and with the controller on
+  // the NAS no form is on its machine — the tab stayed grey on every machine
+  // while the scout ran the cell (2026-10-13).
   if (runner.id === "llama-server" && /PQ2_0|PTQ1_0/i.test($(pfx + "MODEL_FILE")?.value || "")) {
     return { ok: false, reasonKey: "llamaErrUnsupportedQuantHint" };
   }
@@ -386,10 +417,14 @@ function markWhisperOptions(pfx) {
 // The runner panels (command/vLLM/whisper) are static HTML — give their field
 // labels the SAME (?) tip-trigger the llama fields get from labelWithTip.
 // Idempotent and re-run on every render so tooltips follow language switches.
-const _STATIC_TIP_FIELDS = ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
+// MODEL_NAME sits outside every runner's panel; its help line (p.ct-help) is a description the
+// editor's CSS hides, so the tip is the only place its help is read.
+const _STATIC_TIP_FIELDS = ["MODEL_NAME", "COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
   "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL", "MOONSHINE_MODEL",
-  "SEAMLESS_TGT_LANG", "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG"];
+  "SEAMLESS_TGT_LANG", "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
+  "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
+  "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS"];
 function injectStaticFieldTips(pfx) {
   _STATIC_TIP_FIELDS.forEach((f) => {
     const label = _cellKindOverlay(pfx)?.querySelector(`label[for="${pfx}${f}"]`);
@@ -420,6 +455,8 @@ export function renderRunnerTabs(pfx) {
   // Each tab carries a (?) with the full trade-off story: what the runner is
   // good at (benefitsKey) and what it costs (runner*Minus).
   const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "prism": "runnerPrismMinus", "vllm": "runnerVllmMinus",
+                      "strata": "runnerStrataMinus",
+                      "gr00t": "runnerGr00tMinus",
                       "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
                       "transcribe": "runnerTranscribeMinus",
                       "seamless": "runnerSeamlessMinus",
@@ -486,8 +523,14 @@ export function applyCellKindUI(pfx) {
   // translate takes no MODEL_FILE at all: its model is a repo id in its own
   // field, so the shared picker is irrelevant to it — like vLLM.
   const isTranslate = runner === "translate";
+  // Strata reads the shared picker like transcribe (its model is a GGUF), and
+  // its own settings sit in its panel: the llama flags mean nothing to it.
+  const isStrata = runner === "strata";
+  // GR00T reads the shared picker too (its checkpoint is a library folder) and
+  // its robot and backbone sit in its panel.
+  const isGr00t = runner === "gr00t";
   const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe
-                   || isSeamless || isTranslate;
+                   || isSeamless || isTranslate || isStrata || isGr00t;
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
@@ -507,7 +550,12 @@ export function applyCellKindUI(pfx) {
   // Unlike whisper/moonshine, seamless has a real setting of its own — the
   // language it translates INTO — so its block is shown, not just carried.
   const seamlessFields = $(pfx + "seamlessFields");
-  if (seamlessFields) seamlessFields.style.display = (isSeamless && formOnControllerMachine(pfx)) ? "" : "none";
+  if (seamlessFields) seamlessFields.style.display = isSeamless ? "" : "none";
+  const strataFields = $(pfx + "strataFields");
+  if (strataFields) strataFields.style.display = isStrata ? "" : "none";
+  if (isStrata) syncStrataDraftNote(pfx);
+  const gr00tFields = $(pfx + "gr00tFields");
+  if (gr00tFields) gr00tFields.style.display = isGr00t ? "" : "none";
   const translateFields = $(pfx + "translateFields");
   if (translateFields) translateFields.style.display = isTranslate ? "" : "none";
   // TRANSLATE_MODEL is now picked in the SHARED picker (a 🔄 row per NLLB
@@ -637,21 +685,16 @@ export function wireCellKindToggle(pfx) {
       if (fit && rEl) rEl.value = fit.id;
       applyCellKindUI(pfx);
     } else {
+      // The runner stays. Its command is not drawn here: ALIAS and the draft
+      // are written by the autofill that runs after this listener, and a draw
+      // now would name what the pick is about to replace. That autofill ends
+      // with renderCellPreviews, for this branch and the one above.
       renderRunnerTabs(pfx);
-      if (effectiveRunnerId(pfx) === "vllm") renderCommandCellPreview(pfx);
     }
   });
-  // Command-tab conveniences: preset dropdown + live preview on edit.
+  // Command-tab conveniences: the preset dropdown. The live preview on edit is not wired field by field
+  // here: the form's own input/change listeners (remote-cells.js) draw every preview after every edit.
   populateCommandPresets(pfx);
-  ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
-   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "WHISPER_MODEL"].forEach((k) => {
-    const el = $(pfx + k);
-    if (el) {
-      el.addEventListener("input", () => renderCommandCellPreview(pfx));
-      el.addEventListener("change", () => renderCommandCellPreview(pfx));
-    }
-  });
   // Device pin: the unified compute-target card above MODEL_FILE writes ENV for
   // command-path runners (see applyComputeMode → _applyDeviceToEnv). A hand-typed
   // ENV pin feeds back into the card so the two never disagree.
@@ -799,6 +842,59 @@ export function buildVllmCommandPreview(pfx) {
   return parts.join(" ");
 }
 
+// The run_strata.sh line as StrataRunner.command (caravan/domain/runner.py)
+// builds it — a mirror, pinned against the server's by test_js_llama_edit.py's
+// golden case: the server's line is the one that runs.
+export function buildStrataCommandPreview(pfx) {
+  const v = (k) => ($(pfx + k)?.value || "").trim();
+  const path = (rel) => (rel.startsWith("/") || rel.startsWith("$"))
+    ? rel : `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${rel}`;
+  const parts = ["bash", "$HOME/run_strata.sh", '"$PORT"', path(v("MODEL_FILE") || "…")];
+  if (v("SPEC_DRAFT_MODEL_FILE")) parts.push("--mtp", path(v("SPEC_DRAFT_MODEL_FILE")));
+  parts.push("--context", v("STRATA_CONTEXT") || "131072", "--kv", (v("STRATA_KV") || "int8").toLowerCase(),
+             "--draft-vocab", (v("STRATA_DRAFT_VOCAB") || "cyrillic").toLowerCase());
+  if (/^\d+$/.test(v("STRATA_VRAM_RESERVE_MIB")) && Number(v("STRATA_VRAM_RESERVE_MIB")) > 0) {
+    parts.push("--vram-reserve-mib", String(Number(v("STRATA_VRAM_RESERVE_MIB"))));
+  }
+  const name = v("MODEL_NAME") || v("ALIAS");
+  if (name) parts.push("--name", name);
+  return parts.join(" ");
+}
+
+// The run_gr00t.sh line as Gr00tRunner.command (caravan/domain/runner.py) builds
+// it — a mirror, pinned against the server's by test_js_llama_edit.py: the
+// server's line is the one that runs.
+export function buildGr00tCommandPreview(pfx) {
+  const v = (k) => ($(pfx + k)?.value || "").trim();
+  const path = (rel) => {
+    const r = rel.replace(/\/+$/, "");
+    return (r.startsWith("/") || r.startsWith("$")) ? r : `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${r}`;
+  };
+  const parts = ["bash", "$HOME/run_gr00t.sh", '"$PORT"', path(v("MODEL_FILE") || "…"),
+                 "--backbone", path(v("GR00T_BACKBONE") || "Cosmos-Reason2-2B/nvidia/BF16"),
+                 "--embodiment", v("GR00T_EMBODIMENT") || "OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"];
+  if (/^\d+$/.test(v("GR00T_DENOISING_STEPS")) && Number(v("GR00T_DENOISING_STEPS")) > 0) {
+    parts.push("--denoising-steps", String(Number(v("GR00T_DENOISING_STEPS"))));
+  }
+  const name = v("MODEL_NAME") || v("ALIAS");
+  if (name) parts.push("--name", name);
+  return parts.join(" ");
+}
+
+// Which draft layer the Strata cell starts with: the picker fills
+// SPEC_DRAFT_MODEL_FILE from the model's folder (its mtp-*.gguf), and that
+// field lives among the llama flags this runner hides — so the panel says it.
+// None found is said too: the cell then runs without it, about half as fast.
+export function syncStrataDraftNote(pfx) {
+  const note = $(pfx + "strataDraft");
+  if (!note) return;
+  const draft = ($(pfx + "SPEC_DRAFT_MODEL_FILE")?.value || "").trim();
+  note.textContent = draft
+    ? t("strataDraftOn", { file: draft.split("/").pop() })
+    : t("strataDraftOff");
+  note.dataset.state = draft ? "on" : "off";
+}
+
 export function _buildCommandExecPreview(pfx) {
   const port = $(pfx + "PORT")?.value || _trCellPort || "PORT";
   const runner = effectiveRunnerId(pfx);
@@ -844,6 +940,16 @@ export function _buildCommandExecPreview(pfx) {
             "# model downloads on first start into <models root>/translate",
             `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate" `
             + `bash $HOME/run_translate.sh "$PORT" ${model} ${src} ${tgt}`].join("\n");
+  }
+  if (runner === "strata") {
+    return [`export PORT=${port}`,
+            "# the scout brings both parts and the draft layer; Strata's pack is made from them at the start",
+            `exec ${buildStrataCommandPreview(pfx)}`].join("\n");
+  }
+  if (runner === "gr00t") {
+    return [`export PORT=${port}`,
+            "# the scout brings the checkpoint and its backbone; the cell serves POST /v1/robot/predict",
+            `exec ${buildGr00tCommandPreview(pfx)}`].join("\n");
   }
   if (runner === "seamless") {
     const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
@@ -1001,5 +1107,28 @@ export function renderCommandCellPreview(pfx) {
       });
     }
   }
+}
+
+// Draws every preview of the cell form from the fields as they stand now: the
+// controller's line (renderCommandPreview — asked for whatever the runner is,
+// and built by the controller for a llama.cpp cell), this page's own line for
+// any other runner (renderCommandCellPreview), and Strata's draft line, which
+// reads the SPEC_DRAFT_MODEL_FILE that command's --mtp reads.
+//
+// Whoever writes fields a preview reads ends with this call. A model pick
+// writes ALIAS, the projector and the draft AFTER the runner has followed the
+// artifact and drawn its own command, and that draw named what the pick was
+// replacing: on the live board (v1.3.515) GR00T's command kept the `--name` of
+// the model the list showed first until another field was edited, and Strata's
+// had no `--mtp`. maybeAutofillModelHelpersPfx is that writer — every pick,
+// form opening and backup load goes through it — so the draw lives at its end,
+// and no caller has to remember it or to order it.
+export function renderCellPreviews(pfx) {
+  renderCommandPreview(pfx);
+  const runner = effectiveRunnerId(pfx);
+  if (runner === "strata") syncStrataDraftNote(pfx);
+  // A llama.cpp cell's line is the controller's: _buildCommandExecPreview builds
+  // none for it, and the panel that would show it is hidden.
+  if (!usesLlamaConfig(runner)) renderCommandCellPreview(pfx);
 }
 

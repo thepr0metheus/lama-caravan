@@ -97,12 +97,10 @@ def pin_collect():
     fakes = {
         "read_cpu_times": lambda: None, "read_disk_counters": lambda: {}, "read_net_counters": lambda: {},
         "gpu_sample": lambda: {"utilPct": 1}, "agent_proxy_sample": lambda: {"agents": {}},
-        "load_agent_proxy_config": lambda: {}, "memory_sample": lambda: {}, "top_processes": lambda: [],
+        "memory_sample": lambda: {}, "top_processes": lambda: [],
         "record_token_history": lambda sample: None, "append_incidents_from_sample": lambda sample: None,
         "persist_monitor_history": lambda force=False: None, "trim_monitor_history": lambda: None,
         "run": lambda *a, **k: calls.append(("run", a)) or {"ok": False, "stdout": "", "stderr": ""},
-        "fetch_json": lambda *a, **k: calls.append(("fetch_json", a)) or {},
-        "fetch_text": lambda *a, **k: calls.append(("fetch_text", a)) or "",
     }
     for name, fake in fakes.items():
         saved[name] = getattr(monitoring, name)
@@ -121,9 +119,15 @@ def pin_collect():
         monitoring.monitor_history.clear()
         monitoring.monitor_history.extend(history)
         monitoring.monitor_latest_full = latest
-    check(sorted(sample) == ["agentProxies", "agentProxyConfig", "correlatedActivity", "cpu", "cpuLoad", "disk",
+    check(sorted(sample) == ["agentProxies", "correlatedActivity", "cpu", "cpuLoad", "disk",
                              "gpu", "memory", "net", "processes", "time"],
-          f"negative: в сэмпле нет llamaClients, llamaActivity и tokens (got {sorted(sample)})")
+          f"negative: в сэмпле нет llamaClients, llamaActivity и tokens; нет и конфига маршрутов с их ключами — "
+          f"его никто не читал, а он уходил на каждую страницу раз в секунду (2026-10-11) (got {sorted(sample)})")
+    check(not hasattr(monitoring, "load_agent_proxy_config"),
+          "negative: монитор больше не читает конфиг маршрутов вовсе")
+    check(not hasattr(monitoring, "fetch_json") and not hasattr(monitoring, "fetch_text"),
+          "negative: модуль монитора не держит HTTP-запроса вовсе — с 1.3.485 и пробы старого сервера ушли, "
+          "так что сэмпл не может спросить ни один сервер")
     check(calls == [],
           f"negative: секунда монитора не зовёт ни journalctl/ss, ни HTTP одиночного сервера, ни его /metrics (got {calls})")
 
@@ -151,6 +155,33 @@ def pin_payload():
           f"{['clientLabels' in body, 'tokenGenSamples' in body]})")
 
 
+def pin_no_keys():
+    print("состояние прокси без ключей:")
+    import json
+    import tempfile
+    key_a, key_b = "lcv1_" + "a" * 44 + "8af3", "lcv1_" + "b" * 44 + "36e8"
+    state = {"agents": {"23001": {"label": "Hermes", "port": 23001, "active": []}},
+             "routes": [{"label": "Hermes", "port": 23001, "kind": "consumer", "apiKey": key_a},
+                        {"label": "sinapse", "port": 23002, "kind": "consumer", "apiKey": key_b},
+                        {"label": "old port", "port": 23003, "apiKey": ""}]}
+    saved = proxy_stats.AGENT_PROXY_STATE_FILE
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "agent-proxy-state.json"
+        path.write_text(json.dumps(state), encoding="utf-8")
+        proxy_stats.AGENT_PROXY_STATE_FILE = path
+        try:
+            got = proxy_stats.agent_proxy_sample()
+            on_disk = json.loads(path.read_text(encoding="utf-8"))
+        finally:
+            proxy_stats.AGENT_PROXY_STATE_FILE = saved
+    text = json.dumps(got)
+    check([r.get("keyTail") for r in got["routes"]] == ["8af3", "36e8", ""] and all("apiKey" not in r for r in got["routes"]),
+          "маршруты состояния уходят без ключей: вместо ключа — его последние 4 знака, у маршрута без ключа — пусто")
+    check(key_a not in text and key_b not in text and got["agents"] == state["agents"] and got["ok"] is True,
+          "negative: ни один ключ не попадает в ответ ни в каком поле; живые запросы (agents) — как были")
+    check(on_disk["routes"][0]["apiKey"] == key_a, "negative: файл состояния на диске не тронут — прокси читает его как прежде")
+
+
 def pin_gone():
     print("что ушло из модулей:")
     gone = [f"{mod.__name__.rsplit('.', 1)[-1]}.{name}" for mod, names in (
@@ -172,6 +203,7 @@ def main():
     pin_slim(res)
     pin_collect()
     pin_payload()
+    pin_no_keys()
     pin_gone()
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")

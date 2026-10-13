@@ -43,7 +43,7 @@ class HostRecord:
 
     @classmethod
     def board_order(cls, record):
-        """Where a machine stands in the board's "Model servers" lane: by its
+        """Where a machine stands in the board's "Machines" section: by its
         address as a number (…30.9 before …30.20), then by name. Not by
         liveness: a machine that goes silent keeps its place, as a cell keeps
         its place on its card by port. A machine with no address, or with one

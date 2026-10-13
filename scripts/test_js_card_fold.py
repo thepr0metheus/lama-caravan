@@ -100,6 +100,38 @@ out.mode = (() => {
     otherLaneCompact: full.mode("clients", "k", true),
   };
 })();
+out.held = (() => {
+  const s = store(); const f = new CardFold({ storage: s, automated: false });
+  const key = CardFold.agentKey("neptune hermes", "neptune hermes");
+  const before = f.mode("clients", key, true);
+  f.hold(CardFold.agentKey("neptune hermes"));
+  const heldByClient = f.mode("clients", key, true);
+  const otherClient = f.mode("clients", CardFold.agentKey("neptune", "x"), true);
+  const cells = f.mode("cells", key, true);
+  const stored = s.m.get("boardCardPinned") ?? null;
+  const folded = f.togglePin(key);
+  const afterFold = f.mode("clients", key, true);
+  f.hold(key); const exact = f.mode("clients", key, true); f.togglePin(key);
+  const g = mk(); g.togglePin(key); g.hold(key); const pinnedHeld = g.togglePin(key); const pinnedHeldMode = g.mode("clients", key, true);
+  const fresh = new CardFold({ storage: s, automated: false }).mode("clients", key, true);
+  const h = mk(); h.hold(""); h.hold(null);
+  return { key, before, heldByClient, otherClient, cells, stored, folded, afterFold, exact, pinnedHeld,
+           pinnedHeldSaved: g.isPinned(key), pinnedHeldMode, fresh, emptyHolds: h.fresh.size, loudHeld: f.mode("clients", key, false) };
+})();
+out.switches = (() => {
+  const btn = (lane) => ({ dataset: { boardDensity: lane }, hidden: false, setAttribute() {}, title: "", textContent: "" });
+  const clients = btn("clients"), cells = btn("cells");
+  const doc = { querySelectorAll: () => [clients, cells] };
+  const f = mk();
+  f.syncSwitches(doc);
+  const before = [clients.hidden, cells.hidden];
+  f.syncSwitches(doc, { clients: 0, cells: 2 });
+  const counted = [clients.hidden, cells.hidden];
+  f.syncSwitches(doc);
+  const later = [clients.hidden, cells.hidden];
+  f.syncSwitches(doc, { clients: 1, cells: 0 });
+  return { before, counted, later, flipped: [clients.hidden, cells.hidden] };
+})();
 out.hide = (() => {
   const s = store(); const f = new CardFold({ storage: s, automated: false });
   const fresh = f.hidesIdle("controller");
@@ -363,6 +395,29 @@ check(m["quietPinnedClients"] == "pinned" and m["quietCompactClients"] == "line"
       "агент закрепляется, как раньше: закреплённый — на месте, прочие — строкой")
 check(m["quietFullLane"] == "full", "лента «full» — всё полностью")
 check(m["otherLaneCompact"] == "line", "«full» у ячеек не разворачивает клиентов")
+
+print("карточка, которую настраивают, не сворачивается (2026-10-08):")
+hd = got["held"]
+check(hd["key"] == "agent:neptune hermes:neptune hermes", "ключ карточки агента — один дом: agent:<клиент>:<агент>")
+check(hd["before"] == "line" and hd["heldByClient"] == "pinned",
+      "новый клиент: его карточка открыта на месте, как закреплённая — раньше сворачивалась с первым портом, и «+» запасного пропадал")
+check(hd["otherClient"] == "line", "negative: удержание клиента «neptune hermes» не держит карточку клиента «neptune»")
+check(hd["cells"] == "line", "negative: удержание не открывает ячейку — у ячеек окно, а не место на ленте")
+check(hd["stored"] is None, "negative: удержание не пишется в хранилище — настройка кончается с визитом, булавкой оно не становится")
+check(hd["folded"] is False and hd["afterFold"] == "line", "первое нажатие ▴ сворачивает удержанную карточку")
+check(hd["exact"] == "pinned", "удержание одной карточки по точному ключу (порт выдан агенту)")
+check(hd["pinnedHeld"] is False and hd["pinnedHeldSaved"] is False and hd["pinnedHeldMode"] == "line",
+      "закреплённая и удержанная: нажатие снимает булавку и удержание — карточка сворачивается, а не остаётся открытой")
+check(hd["fresh"] == "line", "после перезагрузки страницы удержаний нет")
+check(hd["emptyHolds"] == 0, "negative: пустой ключ ничего не держит")
+check(hd["loudHeld"] == "full", "беда сильнее удержания: полная карточка, как всегда")
+
+print("переключатель ленты без карточек:")
+sw = got["switches"]
+check(sw["before"] == [False, False], "negative: ничего не посчитано — переключатели на месте, как были")
+check(sw["counted"] == [True, False], "у пустой ленты клиентов «⊟» не показан (свёртывать нечего), у ленты с карточками — на месте")
+check(sw["later"] == [True, False], "щелчок по переключателю без счёта помнит прошлый счёт и не возвращает пустой ленте «⊟»")
+check(sw["flipped"] == [False, True], "появился клиент — «⊟» вернулся; ячеек не стало — у их ленты он спрятан")
 
 print("как открывается свёрнутая:")
 op = got["opens"]

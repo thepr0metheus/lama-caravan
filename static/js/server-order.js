@@ -1,9 +1,10 @@
-// The order of the cards under Model servers: machines and cloud providers in one list.
+// The order of the server cards: the machines' cards (a machine's own window) and, until 2026-10-12,
+// the pools under Pools — one list the controller keeps.
 import { t } from "./i18n.js";
 import { api, escapeHtml, toast } from "./utils.js";
 
 /**
- * Under Model servers the board drew its machines first and its cloud providers after
+ * Under Model servers (as the list was called) the board drew its machines first and its cloud providers after
  * them, always: two lanes, one above the other. Since 2026-10-04 the cards stand in one
  * list in the operator's order — a machine below the subscription pool, or between two
  * providers. The order is kept on the controller (POST /api/topology/server-order, read
@@ -27,6 +28,12 @@ import { api, escapeHtml, toast } from "./utils.js";
  * Named deviation: Tab and a screen reader follow the DOM — the machines, then the cloud
  * — and not the order on screen. Moving the cards in the DOM would take them out of the
  * lanes whose listeners and tests address them.
+ *
+ * Since 2026-10-11 the main board shows its machines apart, each at a glance, in a section of
+ * their own (board-view.js), and the list under Pools held the pools only. A pool moved there
+ * moved among the pools, and the machines kept the places the stored order gives them
+ * (`merged`). Since 2026-10-12 the pools stand on the kanban (pool-board.js) in their own order:
+ * the main board has no list under Pools, and nothing binds this class there any more.
  */
 export class ServerOrder {
   // The kinds of card the list holds: a machine (its node) and a cloud provider or pool (its account).
@@ -60,6 +67,15 @@ export class ServerOrder {
   // `keys` with `key` one place down, or up. Null at the end it would leave.
   static stepped(keys, key, down) {
     return ServerOrder.moved(keys, key, keys[keys.indexOf(key) + (down ? 1 : -1)], down);
+  }
+  // `full` with the cards of `shown` in `shown`'s order, in the places those cards hold in it; a card
+  // `full` does not name goes after it. Every other card keeps its place: a list that shows some of
+  // the cards must not drop the others' places when one of its own moves.
+  static merged(full, shown) {
+    const moving = new Set(shown);
+    let i = 0;
+    const kept = full.map((key) => (moving.has(key) ? shown[i++] : key));
+    return [...kept, ...shown.slice(i)];
   }
 
   constructor({
@@ -133,11 +149,16 @@ export class ServerOrder {
       }
     });
     const keys = this.sorted(cards.map((card) => card.dataset.serverCard), (key) => key);
+    // A card alone has nowhere to go: its ↑ and ↓ are not drawn at all. Two dead arrows in its
+    // corner read as a broken control (the pool card on the NAS, 2026-10-08).
+    const alone = cards.length < 2;
     cards.forEach((card) => {
       const key = card.dataset.serverCard;
       const up = card.querySelector?.('[data-server-step="up"]'), down = card.querySelector?.('[data-server-step="down"]');
       if (up) up.disabled = key === keys[0];
       if (down) down.disabled = key === keys[keys.length - 1];
+      const box = card.querySelector?.(".server-order");
+      if (box) box.hidden = alone;
     });
     return moved;
   }
@@ -192,7 +213,7 @@ export class ServerOrder {
     const next = ServerOrder.stepped(this.onScreen(event.currentTarget), key, button.dataset.serverStep === "down");
     if (!next) return true;
     const before = button.getBoundingClientRect().top;
-    const saving = this.save(next);   // on screen at once
+    const saving = this.save(ServerOrder.merged(this.current(), next));   // on screen at once
     const moved = button.getBoundingClientRect().top - before;
     if (moved) this.scroll(moved);
     await saving;

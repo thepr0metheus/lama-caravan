@@ -1,16 +1,16 @@
 // Render orchestration: renderAll/renderTopology, structure fingerprint, live sync.
+import { BOARD_VIEW } from "./board-view.js";
 import { CARD_FOLD } from "./card-fold.js";
 import { drawTopologyCables, topologyAccentStyle } from "./cables.js";
 import { _cvDrag, bindCanvasInteractions, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyGpuHistory } from "./charts.js";
 import {
-  NEW_MODELS,
-  prefetchAllSubscriptionModels,
+  renderPoolStepDialog,
   renderTopologyCloudAccountModal,
-  renderTopologyCloudBlockModal,
   renderTopologyCloudPicker,
   renderTopologyCloudProviders,
 } from "./cloud.js";
+import { CONSUMER_CARDS, ConsumerCards } from "./consumers.js";
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
 import { MODEL_LIST } from "./model-list.js";
@@ -23,7 +23,6 @@ import {
 } from "./polling.js";
 import {
   editRouteContext,
-  addTopologyClient,
   _pendingCellActions,
   _stoppingCells,
   bindServerSlotControls,
@@ -44,7 +43,9 @@ import {
   setRouteContextPrefer,
   setRouteModelLock,
 } from "./remote-cells.js";
-import { renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
+import { POOL_BOARD } from "./pool-board.js";
+import { PROVIDER_GLANCES } from "./provider-glances.js";
+import { renderBoardPageLinks, renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
 import { SERVER_ORDER } from "./server-order.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { SUSPECT_BANNER } from "./suspect-banner.js";
@@ -83,6 +84,7 @@ import {
   hostAgeText,
   hostPowerTextKey,
   isControllerMachine,
+  machinesLaneHtml,
   mountNodeTelemetry,
   nodesLaneHtml,
   nodeSparklineSvg,
@@ -144,13 +146,23 @@ export function setActiveView(view) {
   }
 }
 
+// What each lane switch (⊟) has to fold; a lane with nothing to fold hides its switch (card-fold.js).
+// The main board draws no cells — they are in the machines' windows (board-view.js) — and its cells'
+// switch counted the machines, so it stood there folding nothing (2026-10-11).
+export function laneSwitchCounts(top, view = BOARD_VIEW) {
+  return {
+    clients: (top?.clients || []).reduce((n, c) => n + (c.agents || []).length, 0),
+    cells: view.isMachine ? (top?.hosts || []).length : 0,
+  };
+}
+
 export function renderTopology() {
   if (!topology) return;
-  // The order of the cards under Model servers rides in the topology the page just got.
+  // The order of the server cards rides in the topology the page just got.
   SERVER_ORDER.read(topology);
   // The lane switches live in the page's static header, outside the lanes this
   // repaints; their words still follow the language and the current setting.
-  CARD_FOLD.syncSwitches();
+  CARD_FOLD.syncSwitches(document, laneSwitchCounts(topology));
   // Park live stat/chart elements back home before any innerHTML rebuild so we
   // never destroy them (they're re-mounted into the controller node below).
   parkLaneStats();
@@ -188,27 +200,55 @@ export function renderTopology() {
                title="${escapeHtml(t("agentIdleTip", { hours: String(AGENT_IDLE_HOURS) }))}"` : ""}
                style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">${card.html}</article>` }));
   });
-  if (clientsEl) clientsEl.innerHTML = clients.length ? sortedLaneCards(laneCards).map((card) => card.html).join("")
-    : `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyClientsWaiting"))}</div></article>`;
+  // The consumers of the entry first, under the address they are given (consumers.js); the
+  // client records of the old kind, with their ports, after them.
+  if (clientsEl) {
+    const old = clients.length ? sortedLaneCards(laneCards).map((card) => card.html).join("") : "";
+    const none = !old && !ConsumerCards.of(topology).length;
+    clientsEl.innerHTML = CONSUMER_CARDS.laneHtml(topology) + (none
+      ? `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyClientsWaiting"))}</div></article>` : old);
+    CONSUMER_CARDS.bind(clientsEl);
+  }
 
   $("topologyProxies").innerHTML = [
     renderUsageStatsModal(),
     renderTopologyRawConfigModal(),
+    renderPoolStepDialog(),
     renderTopologyCloudPicker(),
     renderTopologyCloudAccountModal(),
-    renderTopologyCloudBlockModal(),
     topologyRouteDetailHtml(),
     renderTopologyProxyForm(),
-    renderTopologyRouterDetail(),
+    // The kanban page is the pools' board (pool-board.js; the owner, 2026-10-12): clients, pools
+    // and models joined by cables. The main board keeps its router card.
+    window.ROUTER_STANDALONE ? POOL_BOARD.html(topology) : renderTopologyRouterDetail(),
     renderTopologyScheduleModal(),
     // Routing layer: a single router. The proxy is the client's
     // primary/fallback row (left); its handle drags to the router input.
-    `<div class="router-stack">${(topology.routers || []).filter((s) => s.id === "router:default").map(renderTopologyRouterCard).join("")}</div>`,
+    window.ROUTER_STANDALONE ? ""
+      : `<div class="router-stack">${(topology.routers || []).filter((s) => s.id === "router:default").map(renderTopologyRouterCard).join("")}${BOARD_VIEW.isMachine ? "" : renderBoardPageLinks()}</div>`,
   ].join("");
+  if (window.ROUTER_STANDALONE) POOL_BOARD.mount($("topologyProxies"));
 
   applyNodesViewMode();
+  // The main board shows each machine at a glance; a machine's own window, its whole card
+  // (board-view.js; the owner, 2026-10-11).
   const llamaServersEl = $("topologyLlamaServers");
-  if (llamaServersEl) llamaServersEl.innerHTML = nodesLaneHtml();
+  if (llamaServersEl) llamaServersEl.innerHTML = BOARD_VIEW.isMachine ? nodesLaneHtml(BOARD_VIEW.machine) : machinesLaneHtml();
+  // The cloud providers under the machines, each at a glance (provider-glances.js; the owner,
+  // 2026-10-12). A machine's own window has none.
+  if (!BOARD_VIEW.isMachine) PROVIDER_GLANCES.mount($("boardProviderCards"), topology, { after: drawTopologyCables });
+  if (BOARD_VIEW.isMachine) {
+    // The window is named after its machine, in the tab and in the page's head: "Main board" there
+    // would say the wrong page.
+    // A window for a machine the board does not have keeps the name its address asked for.
+    const shown = (topology.nodes || []).find((n) => String(n.id) === BOARD_VIEW.machine);
+    const name = String(shown ? (shown.name || shown.id) : BOARD_VIEW.machine);
+    const title = document.querySelector(".page-title");
+    if (name) {
+      document.title = `${name} — Lama Caravan`;
+      if (title) { title.removeAttribute("data-i18n"); title.textContent = name; }
+    }
+  }
   mountNodeTelemetry();  // relocate live controller charts into the controller node
   // Dismiss buttons on terminal (timeout/error) pending-start cards
   document.querySelectorAll("[data-pending-remote-dismiss]").forEach((btn) => {
@@ -264,7 +304,7 @@ export function renderTopology() {
   const addClientBtn = document.getElementById("topologyClientAddBtn");
   if (addClientBtn && !addClientBtn.dataset.bound) {
     addClientBtn.dataset.bound = "1";
-    addClientBtn.addEventListener("click", () => addTopologyClient());
+    addClientBtn.addEventListener("click", () => CONSUMER_CARDS.create());
   }
   // Delete an agent: the record, its route settings; its ports stay free.
   document.querySelectorAll("[data-agent-delete-client]").forEach((btn) => {
@@ -518,10 +558,6 @@ export async function refreshTopology() {
     _boardRenderedOnce = true;
     markPageState("ready");
   }
-  prefetchAllSubscriptionModels();
-  // A provider brought new models while some of its models are in use: the
-  // window asks (at most one at a time), never over a drag or a form.
-  if (!topologyInteractionActive()) NEW_MODELS.maybeAsk();
   // Daily spend is a DAILY aggregate and it rode this tick — which fires every
   // 1.5-5s, so the board asked for yesterday's totals up to forty times a
   // minute. main.js owns it on a 60s timer; that is the right cadence for a
@@ -531,11 +567,11 @@ export async function refreshTopology() {
 // True while the user is mid-interaction — rebuilding the DOM now would drop an
 // in-progress cable drag or close a proxy form, so we defer the render.
 export function topologyInteractionActive() {
-  if (topologyPointerDrag || ui.topologyProxyFormOpen || _cvDrag) return true;
+  if (topologyPointerDrag || ui.topologyProxyFormOpen || _cvDrag || POOL_BOARD.busy) return true;
   // A focused select/text field anywhere on the poll-rebuilt page defers the
   // rebuild too: a full render replaces the DOM under the user's cursor —
-  // closing an open dropdown mid-choice (bridge model select, port-registry
-  // router select) or stealing the caret from a text field (cell note).
+  // closing an open dropdown mid-choice (a port-registry router select) or
+  // stealing the caret from a text field (cell note).
   // The deferred render lands via flushPendingTopologyRender on focusout.
   // A field in a block the render never replaces (data-survives-render: the
   // "+ Add scout" address) does not defer it — nothing is rebuilt under it.
@@ -634,12 +670,42 @@ export function topologyStructureParts() {
     .sort().join(",");
   // The kanban a port feeds is structure too: binding a port from the "unassigned" list
   // changed only routerId, and the kanban kept the old clients and the old badge.
+  // A client's set is its one cable (2026-10-12): moved from another tab, the board redraws it,
+  // and when the models of its set change.
+  // So do its errors of the last 30 days, which its card lists.
   const prox = (topology.proxies || [])
-    .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}@${p.routerId || ""}`)
+    .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}@${p.routerId || ""}~${p.set || ""}=${(p.models || []).join("+")}`
+      + `!${p.misses ? (p.misses.items || []).map((m) => `${m.method} ${m.path} ${m.status}x${m.count}`).join(";") + `+${p.misses.more}` : "?"}`)
     .sort().join(",");
-  const cloud = (topology.cloudProviders || [])
-    .map((p) => `${p.id}:${(p.models || []).length}:${p.enabled !== false ? 1 : 0}`)
+  // The pools are outputs on the kanban: their names and rows label it — a row of a local model by
+  // its output, and an open row as open. Their settings say the window each states to its clients:
+  // the number, the switch and the controller's word on what it states now (`window`).
+  // The sets (the kanban's «Набор»): their names and the pools each holds, in order.
+  const sets = (topology.sets || []).map((x) => `${x.id}:${x.name}:${(x.pools || []).join("+")}`).join(",");
+  const cloud = (topology.pools || [])
+    .map((p) => `${p.id}:${p.name}:${(p.steps || []).map((s) => `${s.id}=${s.accountId || ""}/${s.model || ""}/${s.output || ""}${s.enabled === false ? "-" : ""}${s.unlisted ? "!" : ""}`).join("+")}`
+      + `#${p.contextLength ?? ""}${p.contextAuto ? "A" : ""}=${"window" in p ? p.window ?? "none" : "?"}`)
     .sort().join(",");
+  // The levels of the subscription models: their handles stand on the kanban's models. Which
+  // models stand there is the accounts' added models (pool-board.js): one added or taken off — from
+  // this page or another — redraws the column.
+  // The models' schedules and what each says now (model-schedule.js): a model opening or closing
+  // changes its ⏱ and its rows' pills, so the board is drawn anew when it does.
+  const levels = JSON.stringify(topology.modelLevels?.set || {}) + JSON.stringify(topology.addedModels || {})
+    + JSON.stringify(topology.modelSchedules?.models || {}) + String(topology.modelSchedules?.zone?.name || "");
+  // The cloud providers' blocks on the main board, their accounts and their faults (provider-glances.js):
+  // a provider put there or taken off, an account added, signed in or tripped redraws them — from
+  // this page or another. Their readings redraw them by themselves.
+  const providers = (topology.cloudAccounts || [])
+    .map((a) => `${a.id}:${a.name || ""}:${a.hasCredential ? 1 : 0}:${a.type || ""}:${a.accountType || ""}:${a.testAliasOf || ""}`)
+    .join(",") + `|${Object.keys(topology.cloudApiHealth?.endpoints || {}).sort().join(",")}`
+    + `|${(topology.boardProviders || []).map((p) => `${p.kind}=${(p.accounts || []).join("+")}`).join(",")}`;
+  // On the kanban, the proxy's word on each pool — which row served, why the others did not — is
+  // what its rows say; its time is not (it moves with every request).
+  const decided = window.ROUTER_STANDALONE
+    ? Object.entries(topology.poolsRuntime?.pools || {}).map(([id, st]) => `${id}>${st?.selectedStepId || ""}:`
+      + (st?.steps || []).map((r) => `${r.stepId}=${r.reason}`).join("+")).sort().join(",") + `:${topology.poolsRuntime?.available ? 1 : 0}`
+    : "";
   // llama.cpp build state per node: the client-update job flipping running
   // on/off and a finished build changing the binary version/mtime must
   // re-render the version chip (building indicator, stale badge, ⇪ button).
@@ -654,10 +720,10 @@ export function topologyStructureParts() {
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  // The order of the cards under Model servers: the kanban's Servers panel is built in that
+  // The order of the server cards: the kanban's Servers panel is built in that
   // order, and a new order — from this page or another — rebuilds it (server-order.js).
   const order = SERVER_ORDER.current().join(",");
-  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, cloud, llamaVer, models, view, pendingCells, modals, order };
+  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, sets, cloud, levels, providers, decided, llamaVer, models, view, pendingCells, modals, order };
 }
 
 // Decide between a full structural rebuild and a cheap in-place live patch —
@@ -709,6 +775,9 @@ export function _liveShow(el, show) {
 
 export function syncTopologyLive() {
   if (!topology) return;
+  // The pools' cards say which step serves and why the others wait: the proxy's word changes
+  // between structural renders. The lane draws itself only when its own key moved.
+  renderTopologyCloudProviders();
 
   const updatedEl = $("topologyUpdated");
   if (updatedEl && topology.time) {

@@ -95,33 +95,3 @@ def vllm_metrics_sample(port):
                 "promptTps": vals.get("vllm:avg_prompt_throughput_toks_per_s")}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
-
-
-def runtime_phase(service, runtime):
-    active_state = service.get("ActiveState") or "unknown"
-    sub_state = service.get("SubState") or ""
-    pid = service.get("MainPID") or "0"
-    health = runtime.get("health") if isinstance(runtime, dict) else {}
-    props = runtime.get("props") if isinstance(runtime, dict) else {}
-    models = runtime.get("models") if isinstance(runtime, dict) else {}
-    health_ok = isinstance(health, dict) and health.get("status") == "ok"
-    props_ok = isinstance(props, dict) and props.get("ok") is not False and "error" not in props
-    models_ok = isinstance(models, dict) and (models.get("data") or models.get("models"))
-    error = ""
-    for item in (health, props, models):
-        if isinstance(item, dict) and item.get("error"):
-            error = str(item.get("error"))
-            break
-    if not service.get("ok"):
-        return {"phase": "unknown", "label": "admin cannot read service", "kind": "bad", "detail": service.get("error") or "systemctl --user failed"}
-    if active_state == "failed":
-        return {"phase": "failed", "label": "failed", "kind": "bad", "detail": error or sub_state}
-    if active_state != "active":
-        return {"phase": "stopped", "label": active_state, "kind": "bad", "detail": sub_state}
-    if health_ok or props_ok or models_ok:
-        return {"phase": "running", "label": "running", "kind": "good", "detail": "HTTP ready"}
-    if pid and pid != "0":
-        if "503" in error or "Service Unavailable" in error:
-            return {"phase": "loading", "label": "loading model", "kind": "warn", "detail": error}
-        return {"phase": "starting", "label": "starting", "kind": "warn", "detail": error or "waiting for HTTP"}
-    return {"phase": "starting", "label": "starting", "kind": "warn", "detail": error or "waiting for process"}

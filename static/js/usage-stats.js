@@ -9,9 +9,9 @@ import { $, api, escapeHtml, toast } from "./utils.js";
 // route row and is managed via the Proxy Ports registry modal.)
 
 // Cache: accountId → { data, fetchedAt, loading, error }
-// Good data has no TTL — it is fetched once on first render, then only on manual
-// refresh via the button. A FAILURE is different: it must expire, or the panel it
-// feeds is gone for the life of the tab.
+// Good data has no TTL — it is fetched once on first render, then again only by the
+// ↻ button, a spent reset or a return to the tab (refreshUsageReading). A FAILURE is
+// different: it must expire, or the panel it feeds is gone for the life of the tab.
 export const subscriptionUsageCache = new Map();
 // How long a failed fetch is remembered before another attempt is allowed. These
 // fetchers run from the RENDER path, so retrying with no cooldown would turn a
@@ -19,26 +19,40 @@ export const subscriptionUsageCache = new Map();
 const FETCH_RETRY_MS = 60000;
 
 /** Should we (re)fetch for this account? Skip while one is in flight and while we
- *  hold good data; retry a failure once the cooldown has passed.
+ *  hold good data — unless `force`d by a refresh; retry a failure once the cooldown
+ *  has passed.
  *
  *  The bug this replaces: `if (cached) return` treated a stored FAILURE as a
  *  completed fetch. One transient error — a controller restart, a dropped
  *  connection — poisoned the cache permanently, and since the renderer draws
  *  nothing when data is missing, a whole panel vanished from the card with no
  *  message and no way back short of reloading the page. */
-function _shouldFetch(cache, accountId) {
+// Who draws again when a reading lands: the main board's cloud lane, and whoever else asked —
+// the kanban's board (pool-board.js), which has no such lane. One call where each reading ends
+// (and where a reading starts again by hand, to show it being read); a read the guard below
+// skips calls nothing, so a drawing that asks for a reading cannot loop on itself.
+export const READING_LANDED = new Set();
+export function readingLanded() {
+  renderTopologyCloudProviders();
+  for (const drawAgain of READING_LANDED) {
+    try { drawAgain(); } catch { /* a listener's own failure is not the reading's */ }
+  }
+}
+
+function _shouldFetch(cache, accountId, force = false) {
   const c = cache.get(accountId);
   if (!c) return true;
   if (c.loading) return false;
-  if (c.data) return false;                       // have it; manual refresh busts
+  if (force) return true;
+  if (c.data) return false;                       // have it; a refresh forces
   return Date.now() - (c.fetchedAt || 0) >= FETCH_RETRY_MS;
 }
 // API providers: official spend via /v1/organization/costs (needs api.usage.read scope).
 export const apiCostsCache = new Map();
 // OpenRouter: key info + daily token limit + request rate limit.
 export const openrouterLimitsCache = new Map();
-export async function fetchApiCosts(accountId) {
-  if (!_shouldFetch(apiCostsCache, accountId)) return;
+export async function fetchApiCosts(accountId, { force = false } = {}) {
+  if (!_shouldFetch(apiCostsCache, accountId, force)) return;
   apiCostsCache.set(accountId, { ...(apiCostsCache.get(accountId) || {}), loading: true });
   try {
     const res = await api(`/api/cloud-accounts/api-costs?id=${encodeURIComponent(accountId)}`);
@@ -46,12 +60,12 @@ export async function fetchApiCosts(accountId) {
   } catch (e) {
     apiCostsCache.set(accountId, { data: null, error: String(e), fetchedAt: Date.now(), loading: false });
   }
-  renderTopologyCloudProviders();
+  readingLanded();
 }
-export async function fetchOpenRouterLimits(accountId) {
+export async function fetchOpenRouterLimits(accountId, { force = false } = {}) {
   // Already retried on error — but with no cooldown, so a persistently dead
   // endpoint got a request per repaint. Same guard as its siblings now.
-  if (!_shouldFetch(openrouterLimitsCache, accountId)) return;
+  if (!_shouldFetch(openrouterLimitsCache, accountId, force)) return;
   openrouterLimitsCache.set(accountId, { ...(openrouterLimitsCache.get(accountId) || {}), loading: true });
   try {
     const res = await api(`/api/cloud-accounts/openrouter-limits?id=${encodeURIComponent(accountId)}`);
@@ -59,7 +73,7 @@ export async function fetchOpenRouterLimits(accountId) {
   } catch (e) {
     openrouterLimitsCache.set(accountId, { data: null, error: String(e), fetchedAt: Date.now(), loading: false });
   }
-  renderTopologyCloudProviders();
+  readingLanded();
 }
 // Local spend-meter: $ spent through the proxy (our token counts × pricing). One fetch
 // returns every account; cached briefly.
@@ -74,7 +88,7 @@ export async function fetchProxySpend() {
   } catch { proxySpendData = proxySpendData || {}; }
   proxySpendFetchedAt = Date.now();
   proxySpendLoading = false;
-  renderTopologyCloudProviders();
+  readingLanded();
 }
 // Data-plane cloud failures (routed traffic that came back 4xx/5xx or died),
 // aggregated per account over 24h — the runtime twin of the API-issues panel.
@@ -89,7 +103,7 @@ export async function fetchUpstreamErrors() {
   } catch { upstreamErrData = upstreamErrData || {}; }
   upstreamErrFetchedAt = Date.now();
   upstreamErrLoading = false;
-  renderTopologyCloudProviders();
+  readingLanded();
 }
 export function upstreamErrorsHtml(accountId) {
   const rows = (upstreamErrData || {})[accountId] || [];
@@ -129,14 +143,20 @@ export function compactCount(n) {
 // window — one line, the models behind it on a click. It stood as a block of
 // rows under a bare "$698.73" (2026-09-27, the operator: "it confuses"); for a
 // subscription the figure is not a bill, and the line says whose price it is.
-// "30 days via the caravan": one line, the total. Each model's share stands
-// on its own row in the models list (cloud-models.js, the operator's ask of
-// 2026-09-27 — the breakdown here repeated the rows below it). On a
+// "30 days via the caravan": one line, the account's total. Each step's model
+// has its share in the step's head (cloud.js, cloudStepSpend). On a
 // subscription the line says whose price it is: the subscription covers it.
 export function spendCost(s) { return `$${Math.round(Number(s?.total) || 0).toLocaleString("en-US")}`; }
 
-export function proxySpendHtml(accountId, { subscription = false } = {}) {
+export function proxySpendHtml(accountId, { subscription = false, zero = false } = {}) {
   const s = (proxySpendData || {})[accountId];
+  // `zero`: a place where the line is all there is (the kanban's account details) says a month
+  // without traffic as such once the spend is read — nothing there would read as "not known".
+  if (zero && proxySpendData && (!s || (!s.total && !s.requests))) {
+    return `<div class="sub-usage-panel spend-panel"><div class="spend-line">`
+      + `<span class="spend-line-what">⇄ ${escapeHtml(t("spendWindow", { days: String(s?.windowDays || 30) }))}</span>`
+      + `<span class="spend-line-count">${escapeHtml(t("spendReqTok", { req: "0", tok: "0" }))}</span></div></div>`;
+  }
   if (!s || (!s.total && !s.requests)) return "";
   const tokens = (Number(s.promptTokens) || 0) + (Number(s.completionTokens) || 0);
   const title = [t("spendEstimateTitle"), subscription ? t("spendSubscriptionNote") : ""].filter(Boolean).join(" ");
@@ -395,8 +415,8 @@ export function openRouterLimitsHtml(accountId) {
   return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}${tierBadge}</div>${rows}</div>`;
 }
 
-export async function fetchSubscriptionUsage(accountId) {
-  if (!_shouldFetch(subscriptionUsageCache, accountId)) return;
+export async function fetchSubscriptionUsage(accountId, { force = false } = {}) {
+  if (!_shouldFetch(subscriptionUsageCache, accountId, force)) return;
   const cached = subscriptionUsageCache.get(accountId);
   subscriptionUsageCache.set(accountId, { data: cached?.data || null, fetchedAt: cached?.fetchedAt || 0, loading: true });
   try {
@@ -405,13 +425,18 @@ export async function fetchSubscriptionUsage(accountId) {
   } catch (e) {
     subscriptionUsageCache.set(accountId, { data: null, fetchedAt: Date.now(), loading: false, error: String(e) });
   }
-  renderTopologyCloudProviders();
+  readingLanded();
 }
 
-export function subscriptionUsageHtml(accountId, { refresh = true } = {}) {
+export function subscriptionUsageHtml(accountId, { refresh = true, step = null } = {}) {
   const cached = subscriptionUsageCache.get(accountId);
-  // Keep showing old data while a background refresh is in progress — avoids card collapsing
   if (!cached) return "";
+  // A read under way says so (the operator, 2026-10-11). The first one has nothing to show yet:
+  // a line instead of nothing, which read as "no limits".
+  if (cached.loading && !cached.data?.ok) {
+    return `<div class="sub-usage-panel sub-usage-loading" aria-busy="true" data-t="sub-usage-loading">`
+      + `<div class="sub-usage-row"><span class="muted"><i class="sub-usage-spinner" aria-hidden="true"></i>${escapeHtml(t("usLoadingLimits"))}</span></div></div>`;
+  }
   // A failed read is not "no subscription". Silently rendering nothing is how a
   // whole limit bar disappeared off the card and stayed gone with no clue why —
   // say the read failed and that a retry is coming.
@@ -422,12 +447,19 @@ export function subscriptionUsageHtml(accountId, { refresh = true } = {}) {
   }
   const { limits = [], credits } = cached.data;
   if (!limits.length && credits == null) return "";
-  const rows = limits.map((lim) => subscriptionLimitRowHtml(accountId, lim, cached.data)).join("");
+  const rows = limits.map((lim) => subscriptionLimitRowHtml(accountId, lim, step)).join("");
+  // What the two handles mean, once under the bars that carry them.
+  const legend = step?.switchMax && limits.some((l) => Number(l.windowSeconds) > 0)
+    ? `<div class="sub-usage-legend" data-t="pool-levels-legend">${levelsLegendHtml()}</div>` : "";
   const creditsHtml = credits != null
     ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
   // A card that keeps the refresh button elsewhere (a pool rung puts it in its head) asks for none here.
   const head = refresh ? `<div class="sub-usage-head">${subscriptionRefreshHtml(accountId)}</div>` : "";
-  return `<div class="sub-usage-panel">${subscriptionBannerHtml(cached.data)}${head}${rows}${creditsHtml}</div>`;
+  // A read again keeps the bars as last read — the card does not collapse under the pointer — and
+  // marks them as being read: a light runs along them until the answer lands.
+  const panel = cached.loading
+    ? `class="sub-usage-panel refreshing" aria-busy="true" title="${escapeHtml(t("usLoadingLimits"))}"` : `class="sub-usage-panel"`;
+  return `<div ${panel}>${subscriptionBannerHtml(cached.data, step)}${head}${rows}${legend}${creditsHtml}</div>`;
 }
 
 /** The button that re-reads an account's limits, spinning while the read is under way. It has
@@ -440,51 +472,107 @@ export function subscriptionRefreshHtml(accountId) {
   return `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRereadLimits"))}" aria-label="${escapeHtml(t("usTitleRereadLimits"))}" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
 }
 
-/** One limit bar of a subscription, with the operator's reserve on it.
+/** One limit bar of a subscription, with a pool step's two levels on it (caravan/common/usage_reserve.py,
+ *  caravan/proxy/pool_steps.py; the operator, 2026-10-11).
  *
- *  The reserve is the share of the window the operator keeps for themselves:
- *  once the window is down to it, the proxy answers requests to the account
- *  itself (caravan/common/usage_reserve.py). The slider lies over the bar at the
- *  reserve's mark, the kept share is hatched, and the mark is named beside the
- *  label. A window the reading does not name by length gets no slider: the
- *  proxy knows windows by length, and a reserve on an unnamed one would be a
- *  setting that does nothing. Neither without the server's ceiling — the
- *  slider's range is the server's rule, not a copy of it. The slider spans
- *  that ceiling's share of the bar, so its handle stands where the hatching
- *  ends: stretched over the whole bar, a 20% reserve sat at 22%. */
-export function subscriptionLimitRowHtml(accountId, lim, data) {
+ *  ▲ STOP, red, under the bar: the share of the window the step never spends — once the window is
+ *  down to it, the step does not serve, and with no other step the caravan answers "limit reached".
+ *  ▼ SWITCH, yellow, over the bar, never below the stop: from that share on, the pool sends requests to its
+ *  next steps first, and the step still serves when none of them can. The share under the stop is
+ *  hatched red, the one between the stop and the switch amber, and each level is named right of its
+ *  handle, on the handle's side of the bar. Each step has its own levels — the same subscription may
+ *  stand in two pools. A bar
+ *  without a step gets no handles, and neither does a window the reading does not name by length:
+ *  the proxy knows windows by length, and a level on an unnamed one would be a setting that does
+ *  nothing. Neither without the server's ceiling — the handles' range is the server's rule, not a
+ *  copy of it. Each handle spans that ceiling's share of the bar, so it stands where its hatching
+ *  ends: stretched over the whole bar, a 20% level sat at 22%. */
+export function subscriptionLimitRowHtml(accountId, lim, step = null) {
   const pct = Math.max(0, Math.min(100, lim.remainingPct ?? 0));
   const color = pct > 50 ? "#22c55e" : pct > 15 ? "#f59e0b" : "#ef4444";
   const resetsLine = lim.resetsAt
     ? `<span class="sub-usage-resets">${escapeHtml(formatSubUsageReset(lim.resetsAt))}</span>` : "";
   const seconds = Number(lim.windowSeconds || 0);
-  const max = Number(data?.reserveMax || 0);
-  const settable = seconds > 0 && max > 0;
-  const reserve = settable ? Math.max(0, Math.min(max, Number((data?.reserve || {})[String(seconds)] || 0))) : 0;
-  const mark = settable
-    ? `<span class="sub-usage-reserve-mark"${reserve ? "" : " hidden"}>${escapeHtml(t("usReserveMark", { pct: String(reserve) }))}</span>` : "";
-  const zone = settable ? `<b class="sub-usage-reserve-zone" style="width:${reserve}%"></b>` : "";
-  const slider = settable
-    ? `<input class="sub-usage-reserve${reserve ? "" : " is-off"}" type="range" min="0" max="${max}" step="1" value="${reserve}"`
-      + ` style="width:${max}%" data-usage-reserve="${escapeHtml(accountId)}" data-window-seconds="${seconds}" data-t="usage-reserve"`
-      + ` aria-label="${escapeHtml(t("usReserveHandle"))}" title="${escapeHtml(t("usReserveHandle"))}">` : "";
+  const max = Number(step?.switchMax || 0);
+  const settable = !!step && seconds > 0 && max > 0;
+  const levelOf = (levels) => Math.max(0, Math.min(max, Number((levels || {})[String(seconds)] || 0)));
+  const stop = settable ? levelOf(step.stopAt) : 0;
+  const next = settable ? Math.max(stop, levelOf(step.switchAt)) : 0;
+  const marks = settable ? LEVEL_MARKS.html("switch", next, stop, max) + LEVEL_MARKS.html("stop", next, stop, max) : "";
+  const zones = settable
+    ? `<b class="sub-usage-zone stop" style="width:${stop}%"></b><b class="sub-usage-zone switch" style="left:${stop}%;width:${next - stop}%"></b>` : "";
+  // Whose levels a handle sets: a model's, by its account and model (the kanban's right column,
+  // 1.3.486 — a model's levels hold in every pool that names it), or a pool's row, by the pool and
+  // the row (the main board's pool card).
+  const owner = step?.accountId && step?.model
+    ? `data-level-account="${escapeHtml(step.accountId)}" data-level-model="${escapeHtml(step.model)}"`
+    : `data-pool-switch="${escapeHtml(step?.poolId)}" data-step-id="${escapeHtml(step?.stepId)}"`;
+  const handle = (level, value, off) => `<input class="sub-usage-switch ${level}${off ? " is-off" : ""}" type="range" min="0" max="${max}" step="1" value="${value}"`
+    + ` style="width:${max}%" ${owner} data-window-seconds="${seconds}" data-level="${level}" data-t="${LEVEL_HANDLES[level].hook}"`
+    + ` aria-label="${escapeHtml(t(LEVEL_HANDLES[level].label))}" title="${escapeHtml(t(LEVEL_HANDLES[level].label))}">`;
+  const handles = settable ? handle("switch", next, !(next > stop)) + handle("stop", stop, !stop) : "";
   return `
       <div class="sub-usage-row">
         <div class="sub-usage-meta">
           <span class="sub-usage-label">${escapeHtml(lim.label)}</span>
-          ${mark}
           <span class="sub-usage-pct" style="color:${color}">${pct}%</span>
         </div>
-        <div class="sub-usage-track"><div class="sub-usage-bar"><i style="width:${pct}%;background:${color}"></i>${zone}</div>${slider}</div>
+        <div class="sub-usage-track${settable ? " leveled" : ""}"><div class="sub-usage-bar"><i style="width:${pct}%;background:${color}"></i>${zones}</div>${handles}${marks}</div>
         ${resetsLine}
       </div>`;
 }
 
-/** Whether a reserve slider is being dragged: the cloud lane must not be rebuilt
- *  under the pointer, or the slider jumps back mid-gesture. Cleared on ANY
- *  release — a click that moves nothing fires no `change`, and a flag left up
- *  would keep the lane from ever rendering again. */
-export const reserveDrag = {
+//: A level's handle by the level's name: its sign — the triangle the handle is in modals.css, pointing
+//: at the bar from its side, and the legend's in every language (the owner, 2026-10-12: a red triangle
+//: up for the stop, a yellow one down for the switch, in place of the emoji of 2026-10-11) — its
+//: testability hook (docs/testability.md lists it from here, scripts/testability_names.py) and the
+//: words of its hover.
+export const LEVEL_HANDLES = {
+  switch: { sign: "▼", hook: "pool-switch", label: "poolSwitchHandle" },
+  stop: { sign: "▲", hook: "pool-stop", label: "poolStopHandle" },
+};
+
+//: The legend under the bars, its signs in their handles' colours: the words are the language's, the
+//: signs LEVEL_HANDLES's — each wrapped where the words carry it (every language does: pinned).
+export function levelsLegendHtml() {
+  return Object.entries(LEVEL_HANDLES).reduce((html, [level, h]) =>
+    html.split(h.sign).join(`<span class="sub-usage-sign ${level}" aria-hidden="true">${h.sign}</span>`), escapeHtml(t("poolLevelsLegend")));
+}
+
+//: The names of a step's two levels, one rule for the first drawing and for the live preview while a
+//: handle moves: the switch, said only above the stop (at the stop it changes nothing), the stop,
+//: said only when there is one. Each name stands right of its handle, on the handle's side of the
+//: bar — the handle is the sign, so the words go without it. They stood in a line of their own
+//: beside the bar's label, and the owner asked for a compacter bar (2026-10-11).
+const LEVEL_MARKS = {
+  text(level, next, stop) {
+    return level === "switch" ? t("poolSwitchMark", { pct: String(next) }) : t("poolStopMark", { pct: String(stop) });
+  },
+  shown(level, next, stop) {
+    return level === "switch" ? next > stop : stop > 0;
+  },
+  //: Where a level's name stands: right of its handle, or — past the middle of the bar, where the
+  //: name would run off the bar's end into the reset time — left of it. The handle's input spans
+  //: `max`% of the track and its thumb (--level-thumb wide, modals.css) travels that width less its
+  //: own: the thumb's left edge stands at value% − the thumb × value/max, its right edge a thumb
+  //: further. The name keeps 3px from it.
+  place(value, max) {
+    const frac = max > 0 ? Math.max(0, Math.min(1, value / max)) : 0;
+    if (value > 50) return { left: "", right: `calc(${100 - value}% + var(--level-thumb) * ${+frac.toFixed(3)} + 3px)` };
+    return { left: `calc(${value}% + var(--level-thumb) * ${+(1 - frac).toFixed(3)} + 3px)`, right: "" };
+  },
+  html(level, next, stop, max) {
+    const at = this.place(level === "switch" ? next : stop, max);
+    return `<span class="sub-usage-level ${level}" data-level-mark="${level}" style="${at.left ? `left:${at.left}` : `right:${at.right}`}"`
+      + `${this.shown(level, next, stop) ? "" : " hidden"}>${escapeHtml(this.text(level, next, stop))}</span>`;
+  },
+};
+
+/** Whether a switch-level slider is being dragged: the cloud lane must not be
+ *  rebuilt under the pointer, or the slider jumps back mid-gesture. Cleared on
+ *  ANY release — a click that moves nothing fires no `change`, and a flag left
+ *  up would keep the lane from ever rendering again. */
+export const switchDrag = {
   active: false,
   deferred: false,
   begin(onEnd) {
@@ -503,38 +591,59 @@ export const reserveDrag = {
   },
 };
 
-/** While dragging: the hatched share and its mark follow the slider, nothing is saved. */
-export function previewUsageReserve(slider) {
-  const pct = Number(slider.value || 0);
+/** While dragging: the hatched share and the level's name follow the slider, nothing is saved. */
+export function previewSwitchLevel(slider) {
   const row = slider.closest(".sub-usage-row");
-  const zone = row?.querySelector(".sub-usage-reserve-zone");
-  const mark = row?.querySelector(".sub-usage-reserve-mark");
-  if (zone) zone.style.width = `${pct}%`;
-  if (mark) {
-    mark.textContent = t("usReserveMark", { pct: String(pct) });
-    mark.hidden = !pct;
+  const stopEl = row?.querySelector(".sub-usage-switch.stop");
+  const nextEl = row?.querySelector(".sub-usage-switch.switch");
+  if (slider === nextEl && stopEl && Number(nextEl.value) < Number(stopEl.value)) {
+    nextEl.value = stopEl.value;                 // the switch rests on the stop
+  } else if (slider === stopEl && nextEl && Number(stopEl.value) > Number(nextEl.value)) {
+    nextEl.value = stopEl.value;                 // a stop raised past the switch takes it along
   }
-  slider.classList.toggle("is-off", !pct);
+  const stop = Number(stopEl?.value || 0);
+  const next = Math.max(stop, Number(nextEl?.value || 0));
+  const zoneStop = row?.querySelector(".sub-usage-zone.stop");
+  const zoneNext = row?.querySelector(".sub-usage-zone.switch");
+  if (zoneStop) zoneStop.style.width = `${stop}%`;
+  if (zoneNext) {
+    zoneNext.style.left = `${stop}%`;
+    zoneNext.style.width = `${next - stop}%`;
+  }
+  const max = Number(nextEl?.max || stopEl?.max || 0);
+  for (const level of ["switch", "stop"]) {
+    const mark = row?.querySelector(`[data-level-mark="${level}"]`);
+    if (!mark) continue;
+    mark.textContent = LEVEL_MARKS.text(level, next, stop);
+    mark.hidden = !LEVEL_MARKS.shown(level, next, stop);
+    const at = LEVEL_MARKS.place(level === "switch" ? next : stop, max);
+    mark.style.left = at.left;
+    mark.style.right = at.right;
+  }
+  nextEl?.classList.toggle("is-off", !(next > stop));
+  stopEl?.classList.toggle("is-off", !stop);
 }
 
-/** On release: save the window's reserve, then draw what the server kept.
- *  A failed save is said, and the redraw puts the slider back where the saved
- *  value is — a slider left at an unsaved mark would read as a kept reserve. */
-export async function saveUsageReserve(slider) {
-  const accountId = slider.dataset.usageReserve;
+/** On release: save the step's level on that window — the handle says which, switch or stop —
+ *  then draw the board the server answers with: a stop that took the switch along is the
+ *  server's rule too, so one save carries both. A failed save is said, and the redraw puts the
+ *  handle back where the saved value is — a handle left at an unsaved mark would read as a
+ *  level the pool keeps. */
+export async function saveSwitchLevel(slider, apply = () => {}, failed = null) {
+  const owner = slider.dataset.levelAccount
+    ? { accountId: slider.dataset.levelAccount, model: slider.dataset.levelModel }
+    : { poolId: slider.dataset.poolSwitch, stepId: slider.dataset.stepId };
   try {
-    const res = await api("/api/cloud-accounts/usage-reserve", { method: "POST", body: JSON.stringify({
-      id: accountId, windowSeconds: Number(slider.dataset.windowSeconds), pct: Number(slider.value || 0) }) });
-    const cached = subscriptionUsageCache.get(accountId);
-    if (cached?.data) {
-      cached.data = { ...cached.data, reserve: res.reserve, reserveKept: res.reserveKept,
-                      reserveReadAt: res.reserveReadAt, reserveMax: res.reserveMax };
-    }
+    const res = await api("/api/pools/level", { method: "POST", body: JSON.stringify({
+      ...owner, level: slider.dataset.level, windowSeconds: Number(slider.dataset.windowSeconds), pct: Number(slider.value || 0) }) });
+    apply(res.topology);
   } catch (err) {
-    toast(t("usReserveSaveFailed", { error: String(err?.message || err) }));
+    toast(t("poolSwitchSaveFailed", { error: String(err?.message || err) }));
+    // Put the slider back where the saved level is: the page that drew it draws it again.
+    if (failed) { failed(); return; }
+    ui._lastCloudProvidersKey = "";
+    renderTopologyCloudProviders();
   }
-  ui._lastCloudProvidersKey = "";   // the reserve is not part of the lane's render key
-  renderTopologyCloudProviders();
 }
 
 // The moment itself, without the "resets" word: the banner says "until {moment}".
@@ -560,8 +669,10 @@ export function formatSubUsageReset(resetsAt, now = new Date()) {
 // counter and its enforcement are two facts. `limitReached` is the provider's
 // own verdict; credits and a reserve allowance (its "gpt-reserve" window) are
 // the two things that carry requests past it; OpenAI's banner is quoted as it
-// came, because it names the way out (a banked reset, a paid reset).
-export function subscriptionBannerHtml(data) {
+// came, because it names the way out (a banked reset, a paid reset). Under it,
+// the pool's own word for this step: its switch level is reached, and the pool
+// uses its next step until the window resets.
+export function subscriptionBannerHtml(data, step = null) {
   if (!data || !data.ok) return "";
   const limits = data.limits || [];
   const exhausted = limits.filter((l) => Number(l.remainingPct ?? 100) <= 0 && !/reserve|base-model/i.test(String(l.name || "")));
@@ -579,15 +690,17 @@ export function subscriptionBannerHtml(data) {
     return `<div class="sub-usage-banner blocked" data-t="sub-usage-banner">⛔ ${escapeHtml(t("usBannerLimitReached", { reset }))}`
       + `<div class="sub-usage-banner-keeps">${escapeHtml(keeps)}</div>${own}</div>`;
   }
-  // The caravan's own refusal, said as its own: the proxy keeps the operator's
-  // reserve and answers the account's requests with 429 itself. After the
-  // provider's verdict above — once OpenAI refuses, it is OpenAI's word.
-  const kept = data.reserveKept;
-  if (kept && kept.resetAt) {
+  // The pool's own move, said as its own: the step is at its stop — it does not serve — or below
+  // its switch — the pool takes its next steps first. The stop first: at both, the step is
+  // stopped. After the provider's verdict above — once OpenAI refuses, it is OpenAI's word.
+  const own = step?.stopReached?.resetAt ? ["stop", step.stopReached, "■", "poolBannerStopped"]
+    : step?.switchReached?.resetAt ? ["reserve", step.switchReached, "↓", "poolBannerSwitched"] : null;
+  if (own) {
+    const [look, kept, sign, key] = own;
     const lim = limits.find((l) => Number(l.windowSeconds || 0) === Number(kept.windowSeconds));
     const until = formatSubUsageMoment(new Date(Number(kept.resetAt) * 1000).toISOString());
-    return `<div class="sub-usage-banner reserve" data-t="sub-usage-banner">🛡 ${escapeHtml(t("usBannerReserveKept", {
-      label: lim ? lim.label : "", remaining: String(kept.remainingPct), reserve: String(kept.reservePct), reset: until }))}</div>`;
+    return `<div class="sub-usage-banner ${look}" data-t="sub-usage-banner">${sign} ${escapeHtml(t(key, {
+      label: lim ? lim.label : "", remaining: String(kept.remainingPct), level: String(kept.reservePct), reset: until }))}</div>`;
   }
   if (exhausted.length) {
     return `<div class="sub-usage-banner warn" data-t="sub-usage-banner">⚠ ${escapeHtml(t("usBannerCounterFull", { label: exhausted[0].label }))}</div>`;
@@ -632,15 +745,18 @@ export function staleReadings(cache, now, minAgeMs = RETURN_REFRESH_MIN_AGE_MS) 
   return out;
 }
 
-/** Forget one reading and ask again — exactly what the ↻ button does, because
- *  it is the same call. `_shouldFetch` refuses while good data is held, so the
- *  cache entry has to go first; that is what makes this a REFRESH and not a
- *  no-op. */
+/** Ask for one reading again — exactly what the ↻ button does, because it is
+ *  the same call. The reading held stays on the card while the new one is read,
+ *  marked as being read; it is forced past `_shouldFetch`, which would refuse
+ *  while good data is held, but never past one already in flight. Until
+ *  1.3.463 the entry was forgotten first, and the bars vanished from the card
+ *  until the answer came (the operator, 2026-10-11: show that it is updating).
+ *  The lane is drawn at once, so the mark does not wait for the next tick. */
 export function refreshUsageReading(kind, accountId) {
   const reading = USAGE_READINGS[kind];
   if (!reading || !accountId) return false;
-  reading.cache.delete(accountId);
-  reading.fetch(accountId);
+  reading.fetch(accountId, { force: true });
+  readingLanded();
   return true;
 }
 

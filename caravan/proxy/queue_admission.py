@@ -14,6 +14,8 @@ from caravan.proxy.capacity import (
 )
 from caravan.proxy.config import current_config, live_route_for_port, load_config
 from caravan.common.fsio import atomic_write_text
+from caravan.common.upstream_types import UpstreamType
+from caravan.common.proxy_heartbeat import ProxyHeartbeat
 from caravan.proxy.events import write_proxy_event
 from caravan.proxy.paths import CONFIG_FILE, DEFAULT_POLICY
 from caravan.proxy.runtime import (
@@ -135,35 +137,57 @@ def stop_request_watcher():
                     seen.add(request_id)
         except Exception:
             pass
-        # Proactively probe each distinct llama upstream's /slots (every ~10s) so the
-        # admin can show slot totals even while idle — otherwise a group's count is only
-        # known after its first request. Covers ALL router outputs (queue node admit
-        # targets), not just the proxies' default upstreams.
         now = time.time()
-        if now - last_slot_probe >= 10:
+        if now - last_slot_probe >= ProxyHeartbeat.BEAT_SECONDS:
             last_slot_probe = now
-            try:
-                cfg = current_config()
-                probed = set()
-                for router in (cfg.get("routers") or []):
-                    for out in (router.get("outputs") or []):
-                        # /slots is llama.cpp's: a cloud account has none, and
-                        # neither has an engine next to the cells (Ollama, LM Studio).
-                        if str(out.get("upstreamType") or "llama") in ("cloud", "engine"):
-                            continue
-                        host = str(out.get("upstreamHost") or "").strip()
-                        port = int(out.get("upstreamPort") or 0)
-                        if not host or not port or (host, port) in probed:
-                            continue
-                        probed.add((host, port))
-                        # Generous timeout: a loaded /slots (big ctx / active slot) can
-                        # exceed the 0.8s request-path default; this is a bg thread.
-                        upstream_slot_total({"upstreamHost": host, "upstreamPort": port}, timeout=3.0)
-                if probed:
-                    write_state()   # flush refreshed slotTotals for the admin to read
-            except Exception:
-                pass
+            heartbeat_pass()
         time.sleep(0.25)
+
+
+def heartbeat_pass(config=None, probe=None, write=None):
+    """One beat of the background thread: probe each distinct llama upstream's /slots,
+    then rewrite the state file — probed or not (caravan/common/proxy_heartbeat.py).
+
+    The probe lets the admin show slot totals while idle; otherwise a group's count is
+    only known after its first request. It covers ALL router outputs (queue node admit
+    targets), not just the proxies' default upstreams. The write is the heartbeat: it
+    used to follow only a probe, so a cloud-only controller, which probes nothing, let
+    the file age between requests. Answers the queues probed, by the name the proxy gives
+    them (route_group_key): a cell's "host:port", a machine model's "host:port/model".
+    `config`, `probe` and `write` are parameters so a beat can be checked by value."""
+    probe = probe or upstream_slot_total
+    write = write or write_state
+    probed = set()
+    try:
+        cfg = config if config is not None else current_config()
+        for router in (cfg.get("routers") or []):
+            for out in (router.get("outputs") or []):
+                # /slots is llama.cpp's: a cloud account has none, and
+                # neither has an engine next to the cells (Ollama, LM Studio).
+                # A machine's model is asked of its machine's entry, one
+                # model a time (capacity.MachinePlaces, 1.3.506).
+                kind = UpstreamType.of(out)
+                if kind in (UpstreamType.CLOUD, UpstreamType.ENGINE):
+                    continue
+                host = str(out.get("upstreamHost") or "").strip()
+                port = int(out.get("upstreamPort") or 0)
+                asked = {"upstreamHost": host, "upstreamPort": port}
+                if kind == UpstreamType.MACHINE:
+                    asked.update(upstreamType=kind, upstreamModel=str(out.get("upstreamModel") or ""))
+                group = route_group_key(asked)
+                if not host or not port or group in probed:
+                    continue
+                probed.add(group)
+                # Generous timeout: a loaded /slots (big ctx / active slot) can
+                # exceed the 0.8s request-path default; this is a bg thread.
+                probe(asked, timeout=3.0)
+    except Exception:
+        pass
+    try:
+        write()
+    except Exception:
+        pass
+    return probed
 
 def keepalive_sse_bytes(model=""):
     """SSE keepalive that carries a REAL content-bearing delta — `reasoning_content`.

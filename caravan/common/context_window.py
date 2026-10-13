@@ -173,14 +173,14 @@ def route_window_inputs(route):
     return _positive_int(route.get("contextLength")), bool(route.get("contextAuto"))
 
 
-def block_window(declared, reported, prefer_reported=False):
-    """The window a cloud BLOCK stands for.
+def pool_window(declared, reported, prefer_reported=False):
+    """The window a cloud POOL stands for (caravan/common/cloud_pools.py).
 
     The operator's declared figure is the rule: it is deliberate, and it is the
-    only source for a provider that publishes none. The figure the provider
-    reports is used ONLY when the operator ticked the block's switch — it used
-    to be a silent fallback, and a number nobody chose is the same trap as a
-    guessed one. Neither known → None.
+    only source for a provider that publishes none. The figure the providers
+    report — the smallest of the pool's steps — is used ONLY when the operator
+    ticked the pool's switch — it used to be a silent fallback, and a number
+    nobody chose is the same trap as a guessed one. Neither known → None.
     """
     declared = _positive_int(declared)
     reported = _positive_int(reported)

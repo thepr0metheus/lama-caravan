@@ -1,8 +1,15 @@
-"""One OAuth renewal owner across the controller and proxy processes.
+"""One OAuth renewal owner across the controller and proxy processes, and the
+one writer of the credential document.
 
 Refresh tokens rotate: copying one into a test account or letting both services
 renew it at once destroys the other copy. Per-account file locks serialize
 renewal, and a short document lock merges writes for unrelated accounts.
+
+Every write re-reads the document under that lock. A writer that read it,
+changed one entry and wrote all of it back without the lock put a spent refresh
+token back whenever a renewal landed in between, and the subscription needed a
+new login: the board's "set key" did that until 2026-10-07.
+scripts/check_oauth_owner.py keeps the document to this one writer.
 """
 import contextlib
 import fcntl
@@ -45,22 +52,53 @@ class CredentialVault:
         with self.locked("." + str(account_id)):
             return self._put_oauth(account_id, oauth)
 
+    def put_api_key(self, account_id, key):
+        """Set one account's API key. Every other entry, and this account's
+        OAuth tokens, stay as the file holds them at the moment of the write.
+
+        Only the document lock: the account lock is the renewal's, held across
+        a token request, and a key write has no reason to wait one out. The
+        renewal re-reads under the document lock, so it keeps this key.
+        """
+        account_id = str(account_id)
+        with self.locked(".write"):
+            data = self.read()
+            entry = data.get(account_id)
+            entry = dict(entry) if isinstance(entry, dict) else {}
+            entry["apiKey"] = key
+            data[account_id] = entry
+            self._write(data)
+
+    def replace(self, document):
+        """Write a whole document (a settings restore) under the document lock.
+
+        A renewal waiting on its token request when the restore lands writes its
+        fresh token into the restored document: the restored copy of that token
+        is older, so it is spent already. An account the restored document lacks
+        comes back then, holding only that token.
+        """
+        if not isinstance(document, dict):
+            raise ValueError("credential document must be an object")
+        with self.locked(".write"):
+            self._write(document)
+
     def delete(self, account_id):
         """Remove this registration, never revoke other logins of its identity.
 
         Use the renewal lock and merge under the write lock: a refresh must
         not put a deleted credential back or lose a different account's update.
+        Answers the entry it removed — the tokens a sign-out at the provider
+        ends, as they were at the last renewal — or None when none was stored.
         """
         account_id = str(account_id)
         with self.locked("." + account_id):
             with self.locked(".write"):
                 data = self.read()
                 if account_id not in data:
-                    return False
-                del data[account_id]
-                atomic_write_text(self.path, json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                                  chmod=0o600, mkdir=True)
-                return True
+                    return None
+                removed = data.pop(account_id)
+                self._write(data)
+                return removed
 
     def _put_oauth(self, account_id, oauth):
         with self.locked(".write"):
@@ -69,9 +107,14 @@ class CredentialVault:
             entry = dict(entry) if isinstance(entry, dict) else {}
             entry["oauth"] = oauth
             data[account_id] = entry
-            atomic_write_text(self.path, json.dumps(data, ensure_ascii=False, indent=2) + "\n",
-                              chmod=0o600, mkdir=True)
+            self._write(data)
         return oauth
+
+    def _write(self, data):
+        """The one shape of the file on disk: whole or not at all, 0600 from the
+        first byte it holds under its own name. Callers hold the document lock."""
+        atomic_write_text(self.path, json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                          chmod=0o600, mkdir=True)
 
     def oauth(self, account_id, config, force=False):
         with self.locked("." + str(account_id)):

@@ -227,18 +227,18 @@ def test_router_takes_engines():
                         save=lambda: None, controller=Controller()).outputs([host()])
     server = {"llamaServers": [{"port": 22001, "clientIp": "10.0.0.5", "model": "m.gguf"}]}
     routers = [{"id": "router:default", "outputs": [], "rules": {"default": ""}}]
-    same(sync_router_outputs(routers, server, [], [], eng), True, "выходы изменились — записать")
+    same(sync_router_outputs(routers, server, [], eng), True, "выходы изменились — записать")
     same([o["id"] for o in routers[0]["outputs"]], ["srv:22001", oid], "ячейки, потом модели движков")
     same(routers[0]["rules"]["default"], "srv:22001", "по умолчанию — ячейка")
-    same(sync_router_outputs(routers, server, [], [], eng), False, "negative: ничего не менялось — не писать")
+    same(sync_router_outputs(routers, server, [], eng), False, "negative: ничего не менялось — не писать")
 
     lonely = [{"id": "router:default", "outputs": [], "rules": {"default": ""}}]
-    sync_router_outputs(lonely, {"llamaServers": []}, [], [], eng)
+    sync_router_outputs(lonely, {"llamaServers": []}, [], eng)
     same(lonely[0]["rules"]["default"], oid, "ячеек нет — по умолчанию модель движка (локальное прежде облака)")
-    sync_router_outputs(lonely, {"llamaServers": []}, [], [], [])
+    sync_router_outputs(lonely, {"llamaServers": []}, [], [])
     same((lonely[0]["rules"].get("dormantDefault"), lonely[0]["outputs"]), (oid, []),
          "выход движка пропал (машину забыли) — его место по умолчанию припрятано, как у srv:")
-    sync_router_outputs(lonely, {"llamaServers": []}, [], [], eng)
+    sync_router_outputs(lonely, {"llamaServers": []}, [], eng)
     same((lonely[0]["rules"]["default"], "dormantDefault" in lonely[0]["rules"]), (oid, False),
          "вернулся — место по умолчанию снова его")
 

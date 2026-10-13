@@ -16,6 +16,7 @@ _remote_port_probe_cache = TtlCache(15)   # "ip:port" -> reachable
 _remote_health_cache = TtlCache(3)        # "ip:port" -> state
 
 _remote_modalities_cache = TtlCache(300)  # "ip:port" -> {vision,video,audio}
+_remote_about_cache = TtlCache(30)        # "ip:port" -> what the cell says it is
 
 # Per-GPU telemetry history for sparklines, keyed by "nodeId:gpuIndex".
 # Fed on every topology build (cadence = the view's poll rate). Compact rows:
@@ -154,6 +155,43 @@ def remote_llama_health(ip, port, timeout=1.2, ttl=3):
         state = "down"
     _remote_health_cache.put(key, state)
     return state
+
+def remote_cell_about(ip, port, timeout=1.0, ttl=30):
+    """What a cell says it is on its /health, for a cell this controller holds no settings for
+    (made by another controller, say): `{"engine", "model", "kinds"}`, and — what the entry tells
+    its clients of a model since 1.3.502 — the languages it hears or writes (`langs`), the
+    longest recording it takes (`maxAudioMs`) and the language a translating cell writes
+    (`targetLang`): only what it said. The caravan's own cell servers say the first three
+    (faster-whisper: "large-v3-turbo", ["asr"]; transcribe: also ["ru"] and 25000); a
+    llama-server says only its status, and is answered {}. Nothing said is {} — never a guess."""
+    key = f"{ip}:{port}"
+    hit = _remote_about_cache.get(key, ttl=ttl)
+    if hit is not MISS:
+        return hit
+    about = {}
+    try:
+        with urllib.request.urlopen(f"http://{ip}:{int(port)}/health", timeout=timeout) as resp:
+            body = json.loads(resp.read(65536).decode("utf-8", errors="replace"))
+        if isinstance(body, dict):
+            for name in ("engine", "model"):
+                if isinstance(body.get(name), str) and body[name].strip():
+                    about[name] = body[name].strip()[:120]
+            if isinstance(body.get("kinds"), list):
+                kinds = [str(k).strip() for k in body["kinds"] if isinstance(k, str) and k.strip()]
+                if kinds:
+                    about["kinds"] = kinds[:16]
+            if isinstance(body.get("langs"), list):
+                langs = [str(k).strip()[:32] for k in body["langs"] if isinstance(k, str) and k.strip()]
+                if langs:
+                    about["langs"] = langs[:400]
+            if isinstance(body.get("maxAudioMs"), int) and not isinstance(body["maxAudioMs"], bool) and body["maxAudioMs"] > 0:
+                about["maxAudioMs"] = body["maxAudioMs"]
+            if isinstance(body.get("targetLang"), str) and body["targetLang"].strip():
+                about["targetLang"] = body["targetLang"].strip()[:32]
+    except Exception:
+        about = {}
+    _remote_about_cache.put(key, about)
+    return about
 
 def command_cell_health(ip, port, health_path="", timeout=1.0):
     """Health + optional startup progress for a generic command cell.

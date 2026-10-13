@@ -7,7 +7,7 @@ property of the path: at least one output that failed; status ok/error),
 table rows (duration ms/s/m, p+c tokens with a tooltip, TPS only when
 completion>0 and duration >100ms, the status class, the error row class, a
 model truncated at 24 characters, a rescue badge with the output trail),
-empty states, loading (a request with limit and event=finished, the date in
+empty states, loading (a request with limit and event=finished,blocked, the date in
 the request, an error into the wrapper), an event cache by date, the event
 list, the full detail card with Raw JSON always expanded, the modal is
 created once and reused.
@@ -55,7 +55,7 @@ const fire = (id, type) => (F()[id].listeners[type] || []).forEach((fn) => fn({ 
 const calls = () => globalThis.__fetchCalls.map((c) => c.path);
 const ROW = (over = {}, item = {}) => ({ time: 1_700_000_070, event: "finished", item: { route: "hotel", client: "10.0.0.7", startedAt: 1_700_000_070, status: 200, durationMs: 2500, upstreamType: "llama", request: { model: "gpt-5.6-terra-extended-long-name" }, stream: { usage: { prompt_tokens: 100, completion_tokens: 50 } }, ...item }, ...over });
 const ROWS = () => [ROW({}, { rescued: { hops: 0, trail: [] } }), ROW({}, { route: "scout", client: "10.0.0.8", status: 502, error: "boom", upstreamType: "cloud", durationMs: 90, stream: null }), ROW({}, { route: "saved", upstreamType: "cloud", rescued: { hops: 1, trail: [{ from: "srv:22001", status: 400 }] }, durationMs: 65000 })];
-const reqUrl = () => "/api/agent-proxy-logs?limit=500&event=finished" + (m.historyCurrentDate ? "&date=" + m.historyCurrentDate : "");
+const reqUrl = () => "/api/agent-proxy-logs?limit=500&event=finished%2Cblocked" + (m.historyCurrentDate ? "&date=" + m.historyCurrentDate : "");
 const evUrl = () => "/api/agent-proxy-logs?limit=500" + (m.historyCurrentDate ? "&date=" + m.historyCurrentDate : "");
 const load = async (rows, extra = {}) => { globalThis.__fetchReply[reqUrl()] = { rows, dates: [m.historyCurrentDate || "2026-09-05"], date: m.historyCurrentDate || "2026-09-05", ...extra }; await m.loadRequestHistory(); };
 const setFilter = (id, value) => { F()[id].value = value; fire(id, id === "historyClientInput" ? "input" : "change"); };
@@ -73,10 +73,10 @@ const out = {};
 
 PINS = [
     ("load_requests_query_and_rows", '', 'await (async () => { await load(ROWS()); return [calls(), m.historyRows.length, m.historyCurrentDate, (wrap().innerHTML.match(/history-data-row/g) || []).length]; })()',
-     '[["/api/agent-proxy-logs?limit=500&event=finished"],3,"2026-09-05",3]', "загрузка: limit 500 и только finished; строки и дата из ответа; три строки в таблице"),
-    ("load_requests_with_date_and_error", 'globalThis.__fetchReply["/api/agent-proxy-logs?limit=500&event=finished&date=2026-09-01"] = { __status: 500, error: "disk" };',
+     '[["/api/agent-proxy-logs?limit=500&event=finished%2Cblocked"],3,"2026-09-05",3]', "загрузка: limit 500, законченные и отказанные (2026-10-11: отказ входа не оставлял строки); строки и дата из ответа; три строки в таблице"),
+    ("load_requests_with_date_and_error", 'globalThis.__fetchReply["/api/agent-proxy-logs?limit=500&event=finished%2Cblocked&date=2026-09-01"] = { __status: 500, error: "disk" };',
      'await (async () => { setFilter("historyDateSelect", "2026-09-01"); await new Promise((r) => setImmediate(r)); const a = [calls()[0], wrap().innerHTML.includes("history-error"), wrap().innerHTML.includes("disk")]; globalThis.__fetchReply[reqUrl()] = { rows: [], dates: [], date: "" }; setFilter("historyDateSelect", ""); await new Promise((r) => setImmediate(r)); return [...a, m.historyCurrentDate]; })()',
-     '["/api/agent-proxy-logs?limit=500&event=finished&date=2026-09-01",true,true,""]', "дата попадает в запрос; отказ сервера — текст ошибки в обёртке"),
+     '["/api/agent-proxy-logs?limit=500&event=finished%2Cblocked&date=2026-09-01",true,true,""]', "дата попадает в запрос; отказ сервера — текст ошибки в обёртке"),
     ("sync_date_select", '', '(() => { const cur = m.historyCurrentDate || "2026-09-05"; m._syncHistoryDateSelect({ dates: [cur, "2026-09-04"], date: cur }); const a = [F().historyDateSelect.innerHTML.includes(`<option value="${cur}" selected>${cur}</option><option value="2026-09-04">2026-09-04</option>`), m.historyCurrentDate === cur]; const before = F().historyDateSelect.innerHTML; m._syncHistoryDateSelect({ dates: [] }); return [...a, F().historyDateSelect.innerHTML === before]; })()',
      '[true,true,true]', "выбор даты: опции с текущей отмеченной; пустой список дат ничего не трогает"),
     ("row_cells", '', 'await (async () => { await load([ROW()]); const h = wrap().innerHTML; return [h.includes("30s ago"), h.includes("<b>hotel</b><span class=\\"history-sub\\">10.0.0.7</span>"), h.includes(">gpt-5.6-terra-extended…<"), h.includes("history-tag-llama"), h.includes(">2.5s<"), h.includes(\'title="100p + 50c">150<\'), h.includes(">20.0<"), h.includes(\'history-status-ok">200<\'), h.includes("history-row-error")]; })()',
@@ -92,6 +92,16 @@ PINS = [
      '[1,1,0,"zzz"]', "фильтр клиента: по адресу и по маршруту, ввод приводится к нижнему регистру; чужое — ноль строк"),
     ("filter_via_and_rescued", '', 'await (async () => { await load(ROWS()); const n = () => (wrap().innerHTML.match(/history-data-row/g) || []).length; setFilter("historyViaSelect", "cloud"); const c = n(); setFilter("historyViaSelect", "rescued"); const r = n(); setFilter("historyViaSelect", "llama"); const l = n(); return [c, r, l]; })()',
      '[2,1,1]', "via: облако — двое; спасённые — только с провалившимся выходом; llama — один"),
+    # 2026-10-11: a request the caravan refused at the door ("blocked": no key, a wrong one, a paused route)
+    # is a row of its own: a refusal, its status and reason, and no time as if it had run.
+    ("refused_row_and_its_filter", '',
+     'await (async () => { const refused = ROW({ event: "blocked" }, { route: "entry", client: "192.0.2.44", status: 401, reason: "entry:no-key", durationMs: undefined, upstreamType: undefined, request: undefined, stream: undefined });'
+     ' await load([ROW(), refused]); const h = wrap().innerHTML; const row = h.split("history-data-row").pop(); const n = () => (wrap().innerHTML.match(/history-data-row/g) || []).length;'
+     ' const shown = [row.includes(\'history-tag-refused" title="entry:no-key"\'), row.includes("history-tag-llama"), row.includes(\'history-td-dur">—<\'), row.includes(\'history-status-err">401<\'), h.includes("history-data-row history-row-error")];'
+     ' setFilter("historyViaSelect", "refused"); const r = n(); setFilter("historyViaSelect", "llama"); const l = n(); setFilter("historyStatusSelect", "error"); setFilter("historyViaSelect", ""); const e = n(); return [shown, r, l, e]; })()',
+     '[[true,false,true,true,true],1,1,1]',
+     "отказанный запрос — своя строка: метка отказа с причиной, статус 401 ошибкой, длительность «—», а не «0ms»; "
+     "фильтр «отклонённые» — только он; negative: в «llama» его нет, хотя пути у него нет; статус «ошибка» его находит"),
     ("filter_status", '', 'await (async () => { await load(ROWS()); const n = () => (wrap().innerHTML.match(/history-data-row/g) || []).length; setFilter("historyStatusSelect", "ok"); const ok = n(); setFilter("historyStatusSelect", "error"); const er = n(); return [ok, er]; })()',
      '[2,1]', "статус: ok — 2xx, error — 4xx/5xx"),
     ("empty_states", '', 'await (async () => { await load([]); const a = wrap().innerHTML.includes("No requests found"); await load(ROWS()); setFilter("historyClientInput", "zzz"); const b = wrap().innerHTML.includes("No matching requests"); return [a, b, m._historyFilteredRows.length]; })()',
@@ -115,9 +125,9 @@ PINS = [
     ("filters_combine", '',
      'await (async () => { await load(ROWS()); const n = () => (wrap().innerHTML.match(/history-data-row/g) || []).length; setFilter("historyClientInput", "SCOUT"); const a = n(); setFilter("historyViaSelect", "llama"); const b = n(); setFilter("historyClientInput", ""); setFilter("historyStatusSelect", "error"); const c = n(); setFilter("historyViaSelect", "cloud"); const d = n(); return [a, b, c, d]; })()',
      '[1,0,0,1]', "фильтры складываются: scout — облако, поэтому с via=llama — ноль; error+llama — ноль, error+cloud — один"),
-    ("date_listener_reloads", 'globalThis.__fetchReply["/api/agent-proxy-logs?limit=500&event=finished&date=2026-09-04"] = { rows: [ROW()], dates: ["2026-09-05", "2026-09-04"], date: "2026-09-05" };',
+    ("date_listener_reloads", 'globalThis.__fetchReply["/api/agent-proxy-logs?limit=500&event=finished%2Cblocked&date=2026-09-04"] = { rows: [ROW()], dates: ["2026-09-05", "2026-09-04"], date: "2026-09-05" };',
      'await (async () => { setFilter("historyDateSelect", "2026-09-04"); await new Promise((r) => setImmediate(r)); const a = [calls()[0], m.historyCurrentDate, m.historyRows.length]; globalThis.__fetchReply[reqUrl()] = { rows: [], dates: [], date: "" }; setFilter("historyDateSelect", ""); await new Promise((r) => setImmediate(r)); return [...a, m.historyCurrentDate]; })()',
-     '["/api/agent-proxy-logs?limit=500&event=finished&date=2026-09-04","2026-09-04",1,""]', "смена даты перезагружает историю за выбранный день; пустая дата — без параметра"),
+     '["/api/agent-proxy-logs?limit=500&event=finished%2Cblocked&date=2026-09-04","2026-09-04",1,""]', "смена даты перезагружает историю за выбранный день; пустая дата — без параметра"),
     ("close_listener", '', '(() => { fire("historyCloseBtn", "click"); return F().requestHistoryOverlay.attrs.hidden; })()', '""', "кнопка × прячет модал"),
     ("overlay_click_outside_closes", '', '(() => { const ov = F().requestHistoryOverlay; (ov.listeners.click || []).forEach((fn) => fn({ target: F().historyCloseBtn })); const a = "hidden" in ov.attrs; (ov.listeners.click || []).forEach((fn) => fn({ target: ov })); return [a, "hidden" in ov.attrs]; })()', '[false,true]', "клик по содержимому не закрывает, клик по подложке закрывает"),
 ]

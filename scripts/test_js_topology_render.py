@@ -42,10 +42,8 @@ st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
 Date.now = () => 1_700_000_100_000;
 // No drag is under way: a stubbed non-function export is a (truthy) stub, and
 // topologyInteractionActive() read every board as mid-drag.
-// The "new model" window is an object, not a function: its stand-in counts asks.
 globalThis.__stubValues = { ...(globalThis.__stubValues || {}),
-  "topology-dnd.topologyPointerDrag": null, "canvas._cvDrag": null,
-  "cloud.NEW_MODELS": { asks: 0, maybeAsk() { this.asks += 1; } } };
+  "topology-dnd.topologyPointerDrag": null, "canvas._cvDrag": null };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/topology-render.js").href);
 const reset = () => { st.setState({ config: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} }); };
@@ -327,6 +325,19 @@ PINS += [
      json.dumps(_en("nodeScoutLastReport").replace("{ago}", "15m")),
      "positive: живой патчер двигает возраст молчащего скаута тем же текстом, что и узел (hostAgeText), — "
      "иначе починка текста держалась бы один тик опроса"),
+    # 2026-10-11: the pools' cards say which step serves and why the others wait — the proxy's word
+    # changes between structural renders, so every live tick asks the lane, which draws itself only
+    # when its own key moved (cloud.js).
+    ("live_tick_asks_the_pools_lane",
+     'globalThis.__lane = 0; globalThis.__stubReturns = { ...(globalThis.__stubReturns || {}),'
+     ' "cloud.renderTopologyCloudProviders": () => { globalThis.__lane += 1; } };',
+     '(() => { try { m.syncTopologyLive(); m.syncTopologyLive(); const ticks = globalThis.__lane;'
+     ' st.setTopology(null); m.syncTopologyLive(); return [ticks, globalThis.__lane]; }'
+     ' finally { delete globalThis.__stubReturns["cloud.renderTopologyCloudProviders"];'
+     ' st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} }); } })()',
+     '[2, 2]',
+     "живой тик доски просит полосу пулов перерисоваться (она сама решает по своему ключу) — иначе «Serving now» и причины шагов "
+     "ждали бы структурной перерисовки; negative: топологии нет — не просит"),
     ("a_field_that_survives_render_does_not_hold_the_board",
      'globalThis.__ae = document.activeElement;'
      ' document.activeElement = { matches: () => true,'
@@ -378,37 +389,83 @@ PINS += [
     ("refresh_brings_the_models_before_the_render",
      'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s1" }); ' + _REFRESH_SETUP,
      _REFRESH_RUN,
-     '[["/api/topology", "/api/models/rows"], ["new.gguf"], "s2", ["s2", "s2"]]',
+     '[["/api/topology", "/api/models/rows"], ["new.gguf"], "s2", ["s2"]]',
      "defect-history: отпечаток списка в топологии сдвинулся — опрос дочитывает строки, и решение о перерисовке "
      "принимается уже над новым списком (иначе полка рисовала бы старый до следующего опроса)"),
     ("refresh_leaves_a_current_list_alone",
      'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s2" }); ' + _REFRESH_SETUP,
      _REFRESH_RUN,
-     '[["/api/topology"], ["old.gguf"], "s2", ["s2", "s2"]]',
+     '[["/api/topology"], ["old.gguf"], "s2", ["s2"]]',
      "negative: отпечаток тот же — опрос не ходит за строками, список страницы как был"),
-    # The topology answers null: the board draws nothing (no DOM in node), and
-    # the refresh still reaches the window's check.
-    ("refresh_asks_about_new_models_only_when_idle",
-     'document.body = { dataset: {}, setAttribute: () => undefined };'
-     ' globalThis.__fetchReply["/api/topology"] = null;',
-     'await (async () => { const nm = globalThis.__stubValues["cloud.NEW_MODELS"]; nm.asks = 0;'
-     ' try { await m.refreshTopology(); const idle = nm.asks;'
-     ' Object.defineProperty(document, "activeElement", { configurable: true, get: () => ({ matches: () => true, closest: () => null }) });'
-     ' await m.refreshTopology(); return [idle, nm.asks]; }'
-     ' finally { Object.defineProperty(document, "activeElement", { configurable: true, writable: true, value: undefined });'
-     ' delete globalThis.__fetchReply["/api/topology"]; } })()',
-     '[1, 1]',
-     "после опроса окно «новая модель» спрашивает, если оператор ничего не делает; negative: фокус в поле — не спрашивает"),
 ]
 
 PINS += [
+    # 2026-10-12: the kanban is the pools' board — what it draws is structure, moved from any page.
+    ("fingerprint_follows_the_pools_board",
+     'st.setTopology({ ...st.topology, proxies: [{ port: 23001, kind: "consumer", set: "chat", models: ["S"] }],'
+     ' sets: [{ id: "chat", name: "Chat", pools: ["std"] }],'
+     ' pools: [{ id: "std", name: "S", steps: [{ id: "r1", kind: "output", output: "srv:22008" }] }],'
+     ' modelLevels: { set: {} }, poolsRuntime: { available: true, pools: { std: { selectedStepId: "r1", decidedAt: 1, steps: [] } } } });',
+     '(() => { const fp = () => m.topologyStructureFingerprint(); const moved = (change) => { const before = fp(); change(); return fp() !== before; };'
+     ' const top = st.topology; globalThis.ROUTER_STANDALONE = true;'
+     ' try { return [moved(() => { top.proxies[0].set = "cheap"; }), moved(() => { top.proxies[0].models = ["S", "E"]; }),'
+     ' moved(() => { top.sets[0].pools = ["std", "eco"]; }), moved(() => { top.sets[0].name = "Chat 2"; }),'
+     ' moved(() => { top.pools[0].steps[0].output = "srv:22009"; }),'
+     ' moved(() => { top.modelLevels = { set: { sub: { m: { stopAt: { "18000": 20 } } } } }; }), moved(() => { top.addedModels = { sub: ["m"] }; }),'
+     ' moved(() => { top.poolsRuntime.pools.std.selectedStepId = ""; }), moved(() => { top.poolsRuntime.pools.std.decidedAt = 99; }),'
+     ' (() => { globalThis.ROUTER_STANDALONE = false; return moved(() => { top.poolsRuntime.pools.std.selectedStepId = "r1"; }); })()]; }'
+     ' finally { delete globalThis.ROUTER_STANDALONE; } })()',
+     '[true,true,true,true,true,true,true,true,false,false]',
+     "канбан перерисовывается, когда клиент перенёс канат на другой набор, у клиента сменились модели, у набора сменились пулы "
+     "или имя (1.3.497), строка сменила выход, задан уровень модели, у аккаунта добавлена "
+     "или убрана модель (2026-10-12), прокси выбрал другую строку; "
+     "negative: время решения прокси меняется с каждым запросом — не структура; на главной доске решение прокси не перестраивает страницу"),
+    # 1.3.498: a model opening or closing by its schedule changes its ⏱ and its rows' pills.
+    ("fingerprint_follows_model_schedules",
+     'st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: 1,'
+     ' models: { "acc:a/m": { enabled: true, windows: [], open: true, until: 100, opensAt: null } } } });',
+     '(() => { const fp = () => m.topologyStructureFingerprint(); const moved = (change) => { const before = fp(); change(); return fp() !== before; };'
+     ' const ms = st.topology.modelSchedules; return [moved(() => { ms.models["acc:a/m"] = { ...ms.models["acc:a/m"], open: false, until: null, opensAt: 200 }; }),'
+     ' moved(() => { ms.zone = { ...ms.zone, name: "Asia/Tbilisi" }; }), moved(() => { ms.now = 2; })]; })()',
+     '[true,true,false]',
+     "доска перерисовывается, когда модель закрылась или открылась и когда сменилась зона каравана; "
+     "negative: миг «сейчас» меняется с каждым опросом — не структура"),
+    ("fingerprint_follows_a_clients_errors",
+     'st.setTopology({ ...st.topology, proxies: [{ port: 23001, kind: "consumer", set: "chat" }] });',
+     '(() => { const fp = () => m.topologyStructureFingerprint(); const moved = (change) => { const before = fp(); change(); return fp() !== before; };'
+     ' const c = st.topology.proxies[0]; return [moved(() => { c.misses = { items: [], more: 0 }; }),'
+     ' moved(() => { c.misses = { items: [{ method: "POST", path: "/api/show", status: 404, count: 1, last: 1 }], more: 0 }; }),'
+     ' moved(() => { c.misses.items[0].count = 2; }), moved(() => { c.misses = { ...c.misses, more: 3 }; }),'
+     ' moved(() => { c.misses = { items: [{ ...c.misses.items[0] }], more: 3 }; }), moved(() => { delete c.misses; })]; })()',
+     '[true,true,true,true,false,true]',
+     "канбан перерисовывает карточку клиента, когда у него новая ошибка, выросло число или пришли ещё (2026-10-12); "
+     "нет чтения журнала — это не «ошибок нет»; negative: те же ошибки новым объектом — не новая структура"),
+    ("fingerprint_follows_a_pools_window",
+     'st.setTopology({ ...st.topology, pools: [{ id: "std", name: "S", steps: [] }] });',
+     '(() => { const fp = () => m.topologyStructureFingerprint(); const moved = (change) => { const before = fp(); change(); return fp() !== before; };'
+     ' const pool = st.topology.pools[0]; return [moved(() => { pool.window = null; }), moved(() => { pool.window = 272000; }),'
+     ' moved(() => { pool.contextLength = "300000"; }), moved(() => { pool.contextAuto = true; }), moved(() => { pool.window = 272000; }),'
+     ' moved(() => { delete pool.window; })]; })()',
+     '[true,true,true,true,false,true]',
+     "канбан перерисовывается, когда у пула сменилось окно в «Pool settings», переключатель или то, что пул называет клиентам "
+     "(2026-10-12) — с этой страницы или с другой; ответа контроллера нет — это не «окна нет»; negative: то же значение — не новая структура"),
+    ("fingerprint_follows_the_providers_on_the_board",
+     'st.setTopology({ ...st.topology, cloudAccounts: [{ id: "sub", name: "Sub", hasCredential: true }],'
+     ' boardProviders: [{ kind: "openai-subscription", accounts: ["sub"] }] });',
+     '(() => { const part = () => m.topologyStructureParts().providers; const moved = (change) => { const before = part(); change(); return part() !== before; };'
+     ' const top = st.topology; return [moved(() => { top.boardProviders = [...top.boardProviders, { kind: "anthropic", accounts: [] }]; }),'
+     ' moved(() => { top.boardProviders = top.boardProviders.slice(0, 1); }), moved(() => { top.boardProviders[0].accounts = ["sub", "sub-2"]; }),'
+     ' moved(() => { top.boardProviders = top.boardProviders.map((p) => ({ ...p })); })]; })()',
+     '[true,true,true,false]',
+     "главная доска перерисовывает облачных провайдеров, когда провайдера поставили на доску или убрали, когда в блок добавили аккаунт "
+     "(2026-10-12) — с этой страницы или с другой; negative: тот же список новым объектом — не новая структура"),
     ("fingerprint_parts_are_named_in_one_place",
      'st.setTopology({ ...st.topology, nodes: [{ id: "h1", online: true }] });',
      '[Object.keys(m.topologyStructureParts()),'
      ' Object.values(m.topologyStructureParts()).join("||") === m.topologyStructureFingerprint(),'
      ' (() => { const saved = st.topology; st.setTopology(null);'
      ' try { return [m.topologyStructureParts(), m.topologyStructureFingerprint()]; } finally { st.setTopology(saved); } })()]',
-     '[["clients", "hosts", "classicSrv", "nodeSrv", "gpus", "engines", "prox", "cloud", "llamaVer", "models",'
+     '[["clients", "hosts", "classicSrv", "nodeSrv", "gpus", "engines", "prox", "sets", "cloud", "levels", "providers", "decided", "llamaVer", "models",'
      ' "view", "pendingCells", "modals", "order"], true, [{}, ""]]',
      "defect-history: window.__fpDebug называл части своим списком, без hosts и engines, — каждая часть после "
      "clients печаталась под именем соседки; теперь имена и порядок — сами части, и отпечаток — их склейка; "
@@ -423,6 +480,13 @@ _SO_FRESH = ('globalThis.__so = (await import(pathToFileURL(process.env.JS_ROOT 
              ' Object.assign(globalThis.__so, { held: { order: [], rev: -1 }, shown: null, dragging: null, target: null });')
 _SO_DONE = 'Object.assign(globalThis.__so, { held: { order: [], rev: -1 }, shown: null, dragging: null, target: null });'
 PINS += [
+    ("lane_switch_counts_by_board",
+     '',
+     '[m.laneSwitchCounts({ clients: [{ agents: [1, 2] }, { agents: [3] }], hosts: [{}, {}] }, { isMachine: false }),'
+     ' m.laneSwitchCounts({ hosts: [{}, {}] }, { isMachine: true }), m.laneSwitchCounts(null, { isMachine: false })]',
+     '[{"clients":3,"cells":0},{"clients":0,"cells":2},{"clients":0,"cells":0}]',
+     "⊟ ячеек — только там, где ячейки нарисованы: в окне машины; negative: главная доска ячеек не рисует — счёт 0, "
+     "и переключатель прячется (раньше считал машины и стоял без дела, 2026-10-11); нет сведений — ноль, а не падение"),
     ("server_order_is_structure",
      _SO_FRESH,
      '(() => { const so = globalThis.__so; try {'

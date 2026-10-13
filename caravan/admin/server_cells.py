@@ -40,10 +40,10 @@ def used_server_cell_ports(exclude_key=None):
             used.add(int(slot.get("port") or 0))
         except (TypeError, ValueError):
             pass
-    # Proxy routes (agent ports AND bridge ports) share the fleet-wide port
-    # numbering: one number means one thing, so a cell may never reserve a
-    # port a proxy is already listening on. Lazy import — proxies_config
-    # imports this module for the same shared-pool reason.
+    # Proxy routes share the fleet-wide port numbering: one number means one
+    # thing, so a cell may never reserve a port a proxy is already listening
+    # on. Lazy import — proxies_config imports this module for the same
+    # shared-pool reason.
     try:
         from caravan.admin.proxies_config import read_agent_proxy_payload
         for route in read_agent_proxy_payload().get("routes") or []:
@@ -129,10 +129,10 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
 
 def reassign_server_slot_port(body):
     """Move a STOPPED cell slot to another FREE port (the fleet-wide pool:
-    cells on every host + agent/bridge proxy ports). The slot record, its
-    saved config PORT and every router
-    reference to srv:<old> (graph cables, rules, embeddings/audio outputs)
-    all follow — the cell keeps its wiring on the new number."""
+    cells on every host + proxy ports). The slot record, its saved config
+    PORT and every name of srv:<old> — the routers' cables and rules, the
+    pools' rows, the model's schedule (caravan/admin/cell_outputs.py) — all
+    follow: the cell keeps its wiring on the new number."""
     host_id = str(body.get("hostId") or "").strip()
     old_port = int(body.get("port") or 0)
     new_port = int(body.get("newPort") or 0)
@@ -158,20 +158,15 @@ def reassign_server_slot_port(body):
         cfg["PORT"] = str(new_port)
     store["serverSlots"][new_key] = slot
     save_admin_state()
-    # Cables follow the cell: srv:<old> → srv:<new> across every router.
-    try:
-        from caravan.admin.proxies_config import remap_router_output_refs
-        remap_router_output_refs(f"srv:{old_port}", f"srv:{new_port}")
-    except Exception:
-        pass
-    return {"ok": True, "key": new_key, "port": new_port}
+    followed = _cell_outputs().move(old_port, new_port)
+    return {"ok": True, "key": new_key, "port": new_port, "followed": followed}
 
 
 def swap_server_slot_ports(body):
     """Swap the ports of two STOPPED cells (fleet-wide, any hosts). Both slot
-    records, their config PORT and every router reference (srv:<a> ↔ srv:<b>)
-    trade places — each cell's cables follow it. The board offers it on stopped
-    cells only."""
+    records, their config PORT and every name of them (srv:<a> ↔ srv:<b>: the
+    routers' cables, the pools' rows, the schedules) trade places — each cell's
+    cables follow it. The board offers it on stopped cells only."""
     host_a = str(body.get("hostId") or "").strip()
     port_a = int(body.get("port") or 0)
     port_b = int(body.get("targetPort") or 0)
@@ -209,14 +204,9 @@ def swap_server_slot_ports(body):
     slots[slot_a["id"]] = slot_a
     slots[slot_b["id"]] = slot_b
     save_admin_state()
-    # Cables follow their cells: srv:<a> ↔ srv:<b> across every router.
-    try:
-        from caravan.admin.proxies_config import swap_router_output_refs
-        swap_router_output_refs(f"srv:{port_a}", f"srv:{port_b}")
-    except Exception:
-        pass
+    followed = _cell_outputs().swap(port_a, port_b)
     return {"ok": True, "a": {"host": host_a, "port": port_b},
-            "b": {"host": host_b, "port": port_a}}
+            "b": {"host": host_b, "port": port_a}, "followed": followed}
 
 def set_server_slot_note(host_id, port, note):
     """Free-form user note on a cell slot (shown on the board card and in the
@@ -255,6 +245,9 @@ def reserve_server_cell(body):
     return {"ok": True, "cell": slot, "nextPort": next_server_cell_port()}
 
 def move_server_cell(host_id, old_port, new_port, config=None, model=None):
+    """A cell started on another port than its slot's: the slot moves there, and every name of
+    the cell follows it, as on a port move (until 1.3.499 the routers and the pools' rows stayed
+    on the old port)."""
     old_key = server_slot_key(host_id, old_port)
     new_key = server_slot_key(host_id, new_port)
     assert_server_cell_port_available(new_port, exclude_key=old_key)
@@ -266,6 +259,8 @@ def move_server_cell(host_id, old_port, new_port, config=None, model=None):
     slot["kind"] = "serverCell"
     store["serverSlots"][new_key] = slot
     save_admin_state()
+    if old is not None and int(old_port) != int(new_port):
+        _cell_outputs().move(old_port, new_port)
     return slot
 
 def move_host_cells(body):
@@ -309,8 +304,72 @@ def move_host_cells(body):
     return {"ok": True, "from": src, "to": dst, "ports": [int(slot["port"]) for slot in moving]}
 
 def delete_server_slot(host_id, port):
+    """Forget a cell's slot. Its rows in the pools lose their cable and its schedule goes with it
+    (caravan/admin/cell_outputs.py): a new cell on this port is another model."""
     store = topology_store()
     removed = store["serverSlots"].pop(server_slot_key(host_id, port), None)
     if removed is not None:
         save_admin_state()
+        _cell_outputs().drop(port)
     return removed is not None
+
+
+def _cell_outputs():
+    # cell_outputs.py reads the cloud file and the routers; taken here, below this data layer.
+    from caravan.admin.cell_outputs import CellOutputs
+    return CellOutputs()
+
+
+class KeptCells:
+    """A scout's kept start requests → the controller's records of the cells it lacks (1.3.504).
+
+    A stopped cell is drawn from the controller's own record of it (serverSlots, topology.py): the
+    scout drops a stopped cell from its report. A controller that did not start a cell had no record
+    — one moved to another machine starts with none — and on 2026-10-12 every cell of a machine went
+    off the board as it was stopped: its row, its switch and the kanban's cable to it. The scout
+    keeps the start request of each autostart cell and both its reports carry them
+    (`autostartRequests`, scout 2.26). A record is made from each the controller lacks — the settings
+    whole, the model, the cache switch — and none that exists is touched: the controller's record is
+    the operator's, edited on the board.
+
+    A port another record holds, or one the controller does not let a cell take (its own, an excluded
+    one), makes no record: a guess there would point the cables of one cell at another server. It is
+    said in the log, as is each record made."""
+
+    def __init__(self, store=topo, save=save_admin_state, log=print):
+        self.store = store
+        self.save = save
+        self.log = log
+
+    @staticmethod
+    def port(key):
+        return int(key) if str(key).isdigit() and 1 <= int(key) <= 65535 else 0
+
+    def adopt(self, host_id, requests):
+        """Make a record of each kept request the controller lacks; answer the ports it made."""
+        host_id = str(host_id or "").strip()
+        if not isinstance(requests, dict) or not host_id or is_controller_host(host_id):
+            return []
+        made = []
+        for key in sorted(requests, key=lambda k: self.port(k)):
+            port, request = self.port(key), requests[key]
+            if not port or not isinstance(request, dict) or not isinstance(request.get("config"), dict):
+                continue
+            if self.store.has_slot(host_id, port):
+                continue
+            if port in used_server_cell_ports():
+                self.log(f"[cells] {host_id}:{port}: its scout keeps a cell there, but the number is taken here — no record made")
+                continue
+            slot = upsert_server_slot(host_id, port, config=request["config"], model=str(request.get("modelPath") or "") or None)
+            slot["cacheModels"] = bool(request.get("cacheModels"))
+            slot["adoptedFrom"] = "scout"
+            self.store.put_slot(host_id, port, slot)
+            made.append(port)
+        if made:
+            self.save()
+            self.log(f"[cells] {host_id}: a record made of each cell its scout keeps and this controller lacked: {made}")
+        return made
+
+
+#: The heartbeat's and the pull's: record_host_report (fleet_clients.py).
+KEPT_CELLS = KeptCells()

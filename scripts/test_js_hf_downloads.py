@@ -153,6 +153,17 @@ PINS = [
      '[["Not enough space on the models disk"],0]]',
      "чекпойнт: вопрос с форматом, размером (в тех же GB, что строка) и папкой; «нет» — ничего; «да» — одно задание, все файлы в одну папку, выбор не тронут; не влезает — сначала вопрос о месте, «нет» — дальше не идёт"),
 
+    ("checkpoint_keeps_its_subfolders", "",
+     r"""await (async () => { const G = "nvidia/GR00T-N1.7-3B";
+        const ST = { format: "BF16", totalSize: 7e9, files: [{ path: "model-00001-of-00002.safetensors", name: "model-00001-of-00002.safetensors", size: 5e9 },
+          { path: "experiment_cfg/conf.yaml", name: "conf.yaml", size: 31159 }, { path: "a/../b/./c.json", name: "c.json", size: 1 }] };
+        replies["/api/hf/download"] = { ok: true, jobId: "g1" }; answers = [true]; await dl.startCheckpoint(G, ST); await settle();
+        return [posts[0][1].files.map((f) => [f.name, f.destDir]), D.HfDownloads.checkpointFileDir("x/y/BF16", "top.json")]; })()""",
+     '[[["model-00001-of-00002.safetensors","GR00T-N1.7-3B/nvidia/BF16"],["conf.yaml","GR00T-N1.7-3B/nvidia/BF16/experiment_cfg"],'
+     '["c.json","GR00T-N1.7-3B/nvidia/BF16/a/b"]],"x/y/BF16"]',
+     "defect-history: файл чекпойнта ложится в свою подпапку репозитория — experiment_cfg/ у GR00T терялась, всё ложилось в одну папку; "
+     "файл в корне — в папке чекпойнта; «..» и «.» в пути не выводят наружу"),
+
     ("poll_progress_speed_retrying", "",
      r"""await (async () => { const job = dl.addJob({ jobId: "j1", repoId: A, title: A, totalFiles: 2, state: "resuming" });
         const S = (over) => ({ ok: true, status: "running", total_bytes: 100 * MIB, total_bytes_done: 0, current_idx: 0, total_files: 2, current_file: "a-00001.gguf", file_bytes_total: 50 * MIB, file_bytes_done: 0, ...over });

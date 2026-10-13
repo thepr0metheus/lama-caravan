@@ -7,8 +7,8 @@ from pathlib import Path
 from struct import calcsize, unpack
 
 from caravan.admin.config_builder import models_dir_from_config, parse_config
-from caravan.admin.config_builder import _SPEC_SIDECAR_TYPES as SPEC_SIDECAR_TYPES
 from caravan.admin.paths import LLAMA_HOME
+from caravan.common.draft_file import DraftFile
 
 
 GGUF_VALUE_TYPES = {
@@ -288,16 +288,13 @@ def _gguf_kind(rel):
     if "vocab" in name or (parts and parts[0] in ("vocabs", "templates")):
         return None
     is_mmproj = any(token in name for token in ["mmproj", "mm-proj", "projector"])
-    # Draft: filename starts with a speculative-sidecar prefix, OR lives in a
-    # legacy "mtp" subdirectory. Only "mtp-" was recognised until b10357, so a
+    # Draft: a speculative sidecar by its name or its mtp/ folder — the rule
+    # the type is read by, so a file offered as a draft is launched as the one
+    # it is (DraftFile). Only "mtp-" was recognised until b10357, so a
     # dflash-/dspark-/eagle3- sidecar was filed as an ordinary MODEL: it never
     # reached suggestedDraft, and the operator had to know it existed and type
     # its path by hand. That is what kept Muse Glimmer at a third of its speed.
-    is_draft = (
-        any(name.startswith(prefix + "-") for prefix, _ in SPEC_SIDECAR_TYPES)
-        or (len(parts) >= 2 and parts[1] == "mtp")
-    )
-    if is_draft:
+    if DraftFile(rel).sidecar_type:
         return "draft"
     if is_mmproj:
         return "mmproj"

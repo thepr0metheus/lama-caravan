@@ -1,6 +1,6 @@
 """The order of the board's model-server cards: machines and cloud providers in one list.
 
-Under Model servers the board drew its machines first and its cloud providers after
+The board drew its machines first and its cloud providers after
 them, always — two lanes, one above the other. The operator could not put the
 subscription pool above a machine, or a machine between two providers (2026-10-04).
 The order is the operator's, and it is kept here, in the admin document's
@@ -21,7 +21,7 @@ from caravan.common.errors import AppError
 
 
 class ServerOrder:
-    """The stored order of the Model servers cards, and the one way to change it."""
+    """The stored order of the server cards — the pools under Pools, the machines — and the one way to change it."""
 
     #: The kinds of card: a machine (its node) and a cloud provider or pool (its account).
     KINDS = ("node", "cloud")
@@ -104,4 +104,71 @@ class ServerOrder:
         return {"ok": True, "order": self.keys(), "rev": self.revision()}
 
 
+class ClientOrder:
+    """The operator's order of the clients' cards (1.3.503, the owner, 2026-10-12: "the order of the
+    blocks in Clients, Sets and Pools changed by dragging"), kept beside the server cards' order.
+
+    The sets and the pools keep their order where they are kept, in the cloud file; a client is a
+    route of the proxies' file, which the proxy reads and a page's save writes whole — its order is
+    kept here instead. What is kept is the clients' ports, with a revision like ServerOrder's. The
+    board draws the clients the list names in its order and the rest after them by name
+    (static/js/consumers.js ConsumerCards.of); a port whose client is gone names nothing."""
+
+    #: Ports in one order: a client per port, a few dozen at most.
+    LIMIT = 500
+
+    def __init__(self, section=topology_store, save=save_admin_state):
+        self._section = section
+        self._save = save
+
+    def _layout(self):
+        layout = self._section().get("layout")
+        return layout if isinstance(layout, dict) else {}
+
+    @staticmethod
+    def is_port(value):
+        return isinstance(value, int) and not isinstance(value, bool) and 0 < value < 65536
+
+    def ports(self):
+        """The stored order: the well-formed ports, once each — nothing readable, no order."""
+        stored = self._layout().get("clientOrder")
+        seen, ports = set(), []
+        for port in stored if isinstance(stored, list) else []:
+            if self.is_port(port) and port not in seen:
+                seen.add(port)
+                ports.append(port)
+        return ports
+
+    def revision(self):
+        rev = self._layout().get("clientOrderRev")
+        return rev if isinstance(rev, int) and not isinstance(rev, bool) and rev >= 0 else 0
+
+    def layout(self):
+        """What the topology payload carries under `layout` for the clients."""
+        return {"clientOrder": self.ports(), "clientOrderRev": self.revision()}
+
+    def save(self, order):
+        """Store `order` whole, after checking it whole: a list with one bad port is refused, not
+        trimmed. An empty list returns the clients to their order by name."""
+        if not isinstance(order, list):
+            raise AppError("order must be a list of the clients' ports", 400)
+        if len(order) > self.LIMIT:
+            raise AppError(f"order holds {len(order)} ports; at most {self.LIMIT}", 400)
+        seen = set()
+        for at, port in enumerate(order):
+            if not self.is_port(port):
+                raise AppError(f"order[{at}] is not a port: {str(port)[:40]!r}", 400)
+            if port in seen:
+                raise AppError(f"order lists {port} twice", 400)
+            seen.add(port)
+        topo = self._section()
+        if not isinstance(topo.get("layout"), dict):
+            topo["layout"] = {}
+        topo["layout"]["clientOrder"] = list(order)
+        topo["layout"]["clientOrderRev"] = self.revision() + 1
+        self._save()
+        return {"ok": True, "order": self.ports(), "rev": self.revision()}
+
+
 SERVER_ORDER = ServerOrder()
+CLIENT_ORDER = ClientOrder()

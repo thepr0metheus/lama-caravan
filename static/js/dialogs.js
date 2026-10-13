@@ -11,12 +11,17 @@ let _mode = "confirm";
 // resets it — also one opened over a dialog that never settled — and only a
 // "confirm-choice" settle reads it.
 let _choice = null;
+// The ticks of a "confirm-checks" dialog: the "all" box, and the values ticked,
+// in the order the dialog lists them. Reset by every dialog that opens, read
+// only by a "confirm-checks" settle — as _choice is.
+let _checks = null;
 
 function openDialog(message, opts, mode) {
   return new Promise((resolve) => {
     _resolve = resolve;
     _mode = mode;
     _choice = null;
+    _checks = null;
     // A prompt asks for text; a "confirm-choice" offers choices instead.
     const asks = mode === "prompt";
     const dlg = $("confirmOverlay").querySelector(".modal");
@@ -29,6 +34,7 @@ function openDialog(message, opts, mode) {
     const meta = $("confirmMeta");
     if (meta) { meta.hidden = true; meta.innerHTML = ""; }
     if (meta && mode === "confirm-choice") renderChoices(meta, opts);
+    if (meta && mode === "confirm-checks") renderChecks(meta, opts);
     const path = $("confirmPath");
     if (path) path.textContent = opts.detail || "";
     const input = $("confirmInput");
@@ -106,8 +112,52 @@ function renderChoices(meta, opts) {
   });
 }
 
+// The boxes of a "confirm-checks" dialog: any number ticked. opts.allLabel puts a first
+// box that stands for all of them, the ones added later too; ticked, it greys the others
+// out. opts.checked is "all" or the values ticked first; opts.emptyLabel says what an
+// empty list means, so a dialog with nothing to tick does not look broken.
+function renderChecks(meta, opts) {
+  const choices = Array.isArray(opts.choices) ? opts.choices : [];
+  const first = opts.checked === "all" ? [] : (Array.isArray(opts.checked) ? opts.checked : []).map(String);
+  _checks = { all: opts.checked === "all" && !!opts.allLabel, picked: new Set(first), order: choices.map((c) => String(c.value)) };
+  meta.hidden = false;
+  const box = (attrs, label, on, off) => `<label class="dlg-check"><input type="checkbox" ${attrs}${on ? " checked" : ""}${off ? " disabled" : ""}><span>${escapeHtml(label)}</span></label>`;
+  meta.innerHTML = `<div class="dlg-checks" role="group" aria-label="${escapeHtml(opts.choiceLabel || "")}">`
+    + (opts.choiceLabel ? `<span class="dlg-choices-label">${escapeHtml(opts.choiceLabel)}</span>` : "")
+    + (opts.allLabel ? box(`data-check-all data-t="confirm-check-all"`, opts.allLabel, _checks.all, false) : "")
+    + choices.map((c) => box(`data-check="${escapeHtml(String(c.value))}" data-t="confirm-check" data-t-id="${escapeHtml(String(c.value))}"`,
+      c.label, _checks.all || _checks.picked.has(String(c.value)), _checks.all)).join("")
+    + (choices.length ? "" : `<span class="dlg-checks-empty">${escapeHtml(opts.emptyLabel || "")}</span>`)
+    + "</div>";
+  const all = meta.querySelector("[data-check-all]");
+  const each = [...meta.querySelectorAll("[data-check]")];
+  if (all) {
+    all.onchange = () => {
+      _checks.all = all.checked;
+      each.forEach((b) => { b.disabled = all.checked; b.checked = all.checked || _checks.picked.has(b.dataset.check); });
+    };
+  }
+  each.forEach((b) => {
+    b.onchange = () => { if (b.checked) _checks.picked.add(b.dataset.check); else _checks.picked.delete(b.dataset.check); };
+  });
+}
+
+// The ticks as the dialog settles them: "all", or the values ticked in the dialog's order.
+function checksValue() {
+  if (!_checks) return [];
+  return _checks.all ? "all" : _checks.order.filter((v) => _checks.picked.has(v));
+}
+
 export function appConfirm(message, opts = {}) {
   return openDialog(message, opts, "confirm");
+}
+
+// A confirm that asks which of several things are meant — the pools a consumer may call.
+// opts.choices: [{value, label}], opts.checked: "all" or the values ticked first,
+// opts.allLabel: the box for all of them, opts.emptyLabel: what an empty list means.
+// Resolves "all", the ticked values as an array (maybe empty), or null on cancel.
+export function appConfirmChecks(message, opts = {}) {
+  return openDialog(message, opts, "confirm-checks");
 }
 
 // (A mode whose answer is one of several buttons — appChoose — served one
@@ -143,6 +193,7 @@ export function settleAppConfirm(ok) {
   _resolve = null;
   const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null)
       : _mode === "confirm-choice" ? (ok ? _choice : null)
+      : _mode === "confirm-checks" ? (ok ? checksValue() : null)
       : !!ok;
   _mode = "confirm";
   $("confirmOverlay").hidden = true;

@@ -4,6 +4,15 @@
     "autostart": [
       22001
     ],
+    "autostartRequests": {
+      "22001": {
+        "cacheModels": false,
+        "config": {
+          "PORT": 22001
+        },
+        "modelPath": "models/org/model-q4.gguf"
+      }
+    },
     "computeApps": [
       {
         "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
@@ -159,6 +168,84 @@
         "version": ""
       }
     ],
+    "entryModels": [
+      {
+        "caravan": {
+          "busy": 1,
+          "copies": [
+            {
+              "busy": 1,
+              "port": 22001,
+              "slots": 4,
+              "state": "running"
+            }
+          ],
+          "slots": 4,
+          "state": "running"
+        },
+        "created": 0,
+        "id": "model-q4",
+        "object": "model",
+        "owned_by": "box-a"
+      },
+      {
+        "caravan": {
+          "busy": 0,
+          "copies": [
+            {
+              "busy": null,
+              "port": 22002,
+              "slots": null,
+              "state": "starting"
+            }
+          ],
+          "slots": 0,
+          "state": "starting"
+        },
+        "created": 0,
+        "id": "cell-22002",
+        "object": "model",
+        "owned_by": "box-a"
+      },
+      {
+        "caravan": {
+          "busy": 2,
+          "copies": [
+            {
+              "busy": 2,
+              "port": 22012,
+              "slots": null,
+              "state": "running"
+            }
+          ],
+          "slots": null,
+          "state": "running"
+        },
+        "created": 0,
+        "id": "cell-22012",
+        "object": "model",
+        "owned_by": "box-a"
+      },
+      {
+        "caravan": {
+          "busy": null,
+          "copies": [
+            {
+              "busy": null,
+              "port": 22013,
+              "slots": null,
+              "state": "running"
+            }
+          ],
+          "slots": null,
+          "state": "running"
+        },
+        "created": 0,
+        "id": "cell-22013",
+        "object": "model",
+        "owned_by": "box-a"
+      }
+    ],
     "gpuError": "",
     "gpus": [
       {
@@ -206,6 +293,7 @@
       "modelPath": "/models/org/model-q4.gguf",
       "phase": "running",
       "pid": 4242,
+      "pids": [],
       "port": 22001,
       "promptTps": 812.5,
       "requestsProcessing": 1,
@@ -239,6 +327,7 @@
         "modelPath": "/models/org/model-q4.gguf",
         "phase": "running",
         "pid": 4242,
+        "pids": [],
         "port": 22001,
         "promptTps": 812.5,
         "requestsProcessing": 1,
@@ -262,6 +351,9 @@
         "modelPath": "",
         "phase": "running",
         "pid": 4343,
+        "pids": [
+          4345
+        ],
         "port": 22012,
         "promptTps": 150.0,
         "requestsProcessing": 2,
@@ -283,6 +375,7 @@
         "modelPath": "",
         "phase": "running",
         "pid": 4444,
+        "pids": [],
         "port": 22013,
         "running": true,
         "startedAt": 1789999940,
@@ -341,6 +434,15 @@
     "autostart": [
       22001
     ],
+    "autostartRequests": {
+      "22001": {
+        "cacheModels": false,
+        "config": {
+          "PORT": 22001
+        },
+        "modelPath": "models/org/model-q4.gguf"
+      }
+    },
     "computeApps": [
       {
         "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
@@ -497,6 +599,84 @@
         "version": ""
       }
     ],
+    "entryModels": [
+      {
+        "caravan": {
+          "busy": 1,
+          "copies": [
+            {
+              "busy": 1,
+              "port": 22001,
+              "slots": 4,
+              "state": "running"
+            }
+          ],
+          "slots": 4,
+          "state": "running"
+        },
+        "created": 0,
+        "id": "model-q4",
+        "object": "model",
+        "owned_by": "box-a"
+      },
+      {
+        "caravan": {
+          "busy": 0,
+          "copies": [
+            {
+              "busy": null,
+              "port": 22002,
+              "slots": null,
+              "state": "starting"
+            }
+          ],
+          "slots": 0,
+          "state": "starting"
+        },
+        "created": 0,
+        "id": "cell-22002",
+        "object": "model",
+        "owned_by": "box-a"
+      },
+      {
+        "caravan": {
+          "busy": 2,
+          "copies": [
+            {
+              "busy": 2,
+              "port": 22012,
+              "slots": null,
+              "state": "running"
+            }
+          ],
+          "slots": null,
+          "state": "running"
+        },
+        "created": 0,
+        "id": "cell-22012",
+        "object": "model",
+        "owned_by": "box-a"
+      },
+      {
+        "caravan": {
+          "busy": null,
+          "copies": [
+            {
+              "busy": null,
+              "port": 22013,
+              "slots": null,
+              "state": "running"
+            }
+          ],
+          "slots": null,
+          "state": "running"
+        },
+        "created": 0,
+        "id": "cell-22013",
+        "object": "model",
+        "owned_by": "box-a"
+      }
+    ],
     "gpuError": "",
     "gpus": [
       {
@@ -548,6 +728,7 @@
       "modelPath": "/models/org/model-q4.gguf",
       "phase": "running",
       "pid": 4242,
+      "pids": [],
       "port": 22001,
       "promptTps": 812.5,
       "requestsProcessing": 1,
@@ -581,6 +762,7 @@
         "modelPath": "/models/org/model-q4.gguf",
         "phase": "running",
         "pid": 4242,
+        "pids": [],
         "port": 22001,
         "promptTps": 812.5,
         "requestsProcessing": 1,
@@ -604,6 +786,9 @@
         "modelPath": "",
         "phase": "running",
         "pid": 4343,
+        "pids": [
+          4345
+        ],
         "port": 22012,
         "promptTps": 150.0,
         "requestsProcessing": 2,
@@ -625,6 +810,7 @@
         "modelPath": "",
         "phase": "running",
         "pid": 4444,
+        "pids": [],
         "port": 22013,
         "running": true,
         "startedAt": 1789999940,

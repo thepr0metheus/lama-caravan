@@ -6,10 +6,11 @@ about exactly the routes that matter most — the open ones.
 
 
 class RouteAccess:
-    """Open until the first user exists. Then: a session cookie for humans (a
-    viewer account may call every GET and log out, nothing else), the fleet
-    token (X-Caravan-Token) for the machine endpoints, and a small public
-    allowlist.
+    """A session cookie for humans (a viewer account may call every GET but the ones
+    that hold keys, and log out, nothing else), the fleet token (X-Caravan-Token) for the machine
+    endpoints, and a small public allowlist. Before the first account exists
+    only the allowlist answers — the guard sends pages to /setup — so a fresh
+    controller is never an open one (since 2026-10-07).
     """
 
     PUBLIC = "public"      # no credentials at all
@@ -25,25 +26,34 @@ class RouteAccess:
     # /setup is public so ITS OWN route decides what it means: with auth enabled
     # it 302s to /login, which is exactly what the guard would have done — but
     # stated where the page is defined, not implied by an omission here.
+    # /healthz is /health in the home network's shape (visumap nas-new-app.md):
+    # the commit a deploy check compares with the one it shipped.
     # /openapi.json is open for the same reason /health is, and by the home rule
     # (visumap, apps-openapi.md): it holds paths and words — what the API is,
     # not what the fleet holds — and a test suite reads it before it signs in.
+    # /api/packages likewise (visumap apps-packages.md): names and versions of
+    # what the controller runs on, for the vulnerability check of the home network.
     PUBLIC_GET = frozenset({"/login", "/setup", "/favicon.svg", "/favicon.ico",
-                            "/api/auth/me", "/health", "/api/health", "/openapi.json"})
+                            "/api/auth/me", "/health", "/api/health", "/healthz", "/openapi.json",
+                            "/api/packages"})
     PUBLIC_POST = frozenset({"/api/auth/login", "/api/auth/setup"})
-    MACHINE_GET = frozenset({"/api/models/download", "/api/cell-assets", "/api/cell-assets/file"})
+    MACHINE_GET = frozenset({"/api/models/download", "/api/models/folder", "/api/cell-assets", "/api/cell-assets/file"})
     MACHINE_POST = frozenset({"/api/topology/client-heartbeat"})
     # Prometheus can't do cookies: /metrics takes the fleet token via either
     # X-Caravan-Token or Authorization: Bearer, and a logged-in browser can peek too.
     METRICS_GET = frozenset({"/metrics"})
     #: What a viewer may call besides every GET: leaving.
     VIEWER_ALSO = frozenset({"/api/auth/logout"})
+    #: The GETs a viewer may not call: the routes' file as stored holds every client's key, and a
+    #: client's key is answered once, to an admin, when it is made (2026-10-11).
+    ADMIN_GET = frozenset({"/api/agent-proxies/raw"})
 
     SECURITY_SCHEMES = {
         "session": {
             "type": "apiKey", "in": "cookie", "name": "caravan_session",
             "description": "Set by POST /api/auth/login {username, password}. A viewer account may call "
-                           "every GET and log out; everything else needs an admin account.",
+                           "every GET but the raw routes file, which holds the clients' keys, and log out; "
+                           "everything else needs an admin account.",
         },
         "fleetToken": {
             "type": "apiKey", "in": "header", "name": "X-Caravan-Token",
@@ -57,9 +67,11 @@ class RouteAccess:
 
     #: The sign-in paragraph of the API description (/openapi.json `info.description`).
     DESCRIPTION = (
-        "Sign-in is off until the first account exists — GET /health says `authRequired`. Then "
-        "POST /api/auth/login `{username, password}` sets the `caravan_session` cookie. A viewer "
-        "account may call every GET and log out; everything else needs an admin account "
+        "Every route but the public ones needs a session. Before the first account exists only "
+        "the public ones answer — GET /health says `setupRequired`, and POST /api/auth/setup "
+        "makes that account. Then POST /api/auth/login `{username, password}` sets the "
+        "`caravan_session` cookie. A viewer "
+        "account may call every GET but the raw routes file and log out; everything else needs an admin account "
         "(`x-caravan-roles` on each operation). The machine endpoints take the fleet token in "
         "`X-Caravan-Token` instead."
     )
@@ -76,7 +88,7 @@ class RouteAccess:
 
     def viewer_may(self, method, path):
         """Whether a viewer account may call `method path` (it is read-only)."""
-        return method == "GET" or path in self.VIEWER_ALSO
+        return (method == "GET" and path not in self.ADMIN_GET) or path in self.VIEWER_ALSO
 
     def security(self, method, path):
         """The OpenAPI `security` of `method path` — and, for a session, the roles that may call it."""

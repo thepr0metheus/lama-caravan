@@ -55,6 +55,9 @@ def client_server_slot_delete(body: dict) -> dict:
     port = int(body.get("port") or 0)
     if not host_id or not port:
         raise AppError("hostId and port are required", 400)
+    # The request its scout keeps goes first: a report between would make the record again
+    # (CellAutostart). A scout out of reach keeps it — said in the answer.
+    autostart = CELL_AUTOSTART.forget(host_id, port)
     removed = delete_server_slot(host_id, port)
     # A scout's cell IS its node there (not just a stored slot), so also tell
     # the scout to stop and clear it — otherwise a configured/failed cell keeps
@@ -63,7 +66,63 @@ def client_server_slot_delete(body: dict) -> dict:
         client_llama_stop({"hostId": host_id, "port": port})
     except Exception:
         pass
-    return {"ok": True, "removed": removed}
+    return {"ok": True, "removed": removed, **({"autostart": autostart} if autostart is not None else {})}
+
+
+class CellAutostart:
+    """A cell's autostart follows its record (1.3.504).
+
+    A scout keeps the start request of an autostart cell by port, starts the cell at boot, and its
+    reports carry the kept requests — from which this controller makes a record of each cell it lacks
+    (server_cells.KeptCells). A record deleted while its request stayed would come back with the next
+    report; a cell moved to another port would come back on the old one too, and the machine's next
+    boot would start it there. So a deletion takes the request away first, and a port move takes it
+    to the new port: off on the old one before the records move — a report in between would make the
+    old record again — and on at the new one after, from the record as it stands then. A move that is
+    refused puts the requests back. A scout out of reach keeps what it has, and the answer says so."""
+
+    def __init__(self, autostart=client_llama_autostart, hosts=None, slot=None):
+        self.autostart = autostart
+        self.hosts = hosts or (lambda: topology_store().get("hosts") or {})
+        self.slot = slot or (lambda host_id, port: topo.slot(host_id, port))
+
+    def kept(self, host_id, port):
+        host = self.hosts().get(canonical_host_id(host_id)) or {}
+        return int(port) in (host.get("autostart") or [])
+
+    def _set(self, host_id, port, enabled):
+        try:
+            if enabled:
+                body = scout_start_body(host_id, port, self.slot(host_id, port), check=False)
+            else:
+                body = {"hostId": host_id, "port": int(port)}
+            result = self.autostart(body, enabled=enabled)
+            return {"port": int(port), "enabled": bool(enabled), "ok": bool((result or {}).get("ok"))}
+        except Exception as exc:  # noqa: BLE001 — the records are the operator's word either way
+            return {"port": int(port), "enabled": bool(enabled), "ok": False, "error": str(exc)}
+
+    def forget(self, host_id, port):
+        """The deleted cell's request goes. None when its scout kept none."""
+        return self._set(host_id, port, False) if self.kept(host_id, port) else None
+
+    def moved(self, moves, change):
+        """Run `change` — the records' move — with each kept request off its old port before and on
+        its new one after. `moves`: (host, old port, new port). Answers `change`'s answer and what was
+        done to the requests (`[]` when no scout kept one)."""
+        kept = [(host_id, int(old), int(new)) for host_id, old, new in moves if self.kept(host_id, old)]
+        said = [self._set(host_id, old, False) for host_id, old, _new in kept]
+        try:
+            result = change()
+        except Exception:
+            for host_id, old, _new in kept:
+                self._set(host_id, old, True)
+            raise
+        said += [self._set(host_id, new, True) for host_id, _old, new in kept]
+        return result, said
+
+
+#: The deletion's and the port moves' (routes.py).
+CELL_AUTOSTART = CellAutostart()
 
 def server_cell_save_config(body: dict) -> dict:
     """Save config for a server cell slot without starting the server."""
@@ -159,6 +218,15 @@ def server_cell_action(body: dict) -> dict:
             # of this controller.
             result = client_llama_autostart(body, enabled=action_name == "enable")
         else:
+            if action_name == "restart":
+                # A restart was a start, and the scout refused it: "a server is
+                # already running on port …" (2026-10-12). It stops the cell first;
+                # a stop that fails ends the restart, said in the answer.
+                stopped = client_llama_stop({"hostId": host_id, "port": port})
+                if not stopped.get("ok"):
+                    return {"ok": False, "hostId": host_id, "port": port, "action": action_name,
+                            "result": {"ok": False, "error": f"the stop before the start failed: "
+                                                            f"{stopped.get('error') or stopped}", "stop": stopped}}
             # A model in a library is no reason to refuse: client_llama_start
             # tells the scout where this controller reads it, and a scout that
             # mounts the library at the same path reads it there. One that does

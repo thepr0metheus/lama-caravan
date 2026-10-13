@@ -86,15 +86,18 @@ def locations(library=False):
 
 
 def payload(cfg, library=False, model=None):
-    keep = fc.topology_store, fc.current_locations
+    keep = fc.topology_store, fc.current_locations, fc.controller_models_dir
     fc.topology_store = lambda: {"hosts": {"box-a": {"id": "box-a"}}}
     fc.current_locations = lambda wait=False: locations(library)
+    # The header is read where this controller keeps its models — its own folder, whatever folder
+    # the cell's config names (fleet_clients.ScoutCellConfig).
+    fc.controller_models_dir = lambda: MODELS
     try:
         return fc.scout_start_payload({"hostId": "box-a", "port": int(cfg.get("PORT") or 22007),
                                        "config": dict(cfg),
                                        "modelPath": cfg.get("MODEL_FILE", "") if model is None else model})
     finally:
-        fc.topology_store, fc.current_locations = keep
+        fc.topology_store, fc.current_locations, fc.controller_models_dir = keep
 
 
 def section_the_engines_environment():

@@ -260,6 +260,9 @@ class ApiSpec:
         self.commit = commit
         self._document = None
 
+    def running_commit(self):
+        return self.commit() if callable(self.commit) else str(self.commit or "")
+
     def document(self):
         if self._document is None:
             self._document = self.build()
@@ -280,8 +283,10 @@ class ApiSpec:
             "openapi": self.OPENAPI,
             "info": {
                 "title": "lama-caravan admin API",
-                "version": self.version,
-                "x-commit": self.commit() if callable(self.commit) else str(self.commit or ""),
+                # The commit, as /healthz names it (visumap apps-openapi.md): the home
+                # network's deploy check reads both and compares them.
+                "version": self.running_commit() or "unknown",
+                "x-release": self.version,
                 "description": "\n\n".join((f"{self.ABOUT} {self.ERRORS}", self.access.DESCRIPTION, self.LEVEL)),
             },
             "servers": [{"url": "/", "description": "the controller that served this document"}],

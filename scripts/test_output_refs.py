@@ -53,22 +53,15 @@ def to(old, new):
 
 
 class FakeStore:
-    """agent-proxies.json and cloud-providers.json in memory, for the rewrites that load and save."""
+    """agent-proxies.json in memory, for the rewrites that load and save."""
 
-    def __init__(self, routers, blocks=None):
+    def __init__(self, routers):
         self.payload = {"routes": [], "routers": routers}
-        self.cloud = {"accounts": [], "blocks": blocks or []}
         self.saved = []
-        self.cloud_saved = 0
 
     def patch(self):
         pc.load_agent_proxy_config = lambda: self.payload
         pc.save_agent_proxy_config = lambda routes, routers=None: self.saved.append(copy.deepcopy(routers))
-        pc.load_cloud_data = lambda: self.cloud
-        pc.save_cloud_data = self._save_cloud
-
-    def _save_cloud(self, data):
-        self.cloud_saved += 1
 
 
 def main():
@@ -150,41 +143,6 @@ def main():
     store.patch()
     check(pc.swap_router_output_refs("srv:8", "srv:9") is False and store.saved == [],
           "negative: ни одного из двух — ничего не сохранено")
-
-    print("migrate: старый облачный выход «cloud:<аккаунт>» → «cb:<модель>»")
-    legacy = {
-        "id": "router:default",
-        "outputs": [{"id": "cloud:acc", "upstreamType": "cloud", "providerId": "blk"}],
-        "rules": {"default": "cloud:acc", "dormantDefault": "cloud:acc", "audioOutput": "cloud:acc",
-                  "bySource": [{"output": "cloud:acc"}], "failover": ["cloud:acc"]},
-        "graph": {"edges": [{"id": "e1", "from": "rule:q", "to": "out:cloud:acc"}]},
-    }
-    store = FakeStore([], blocks=[{"id": "blk", "accountId": "acc"}])
-    store.patch()
-    routers = [copy.deepcopy(legacy)]
-    check(pc.migrate_legacy_cloud_outputs(routers, ["acc"]) is True and store.cloud["blocks"][0].get("exposed") is True,
-          "модель старого выхода показана на канбане")
-    rules = routers[0]["rules"]
-    check(rules["default"] == "cb:blk" and rules["bySource"] == [{"output": "cb:blk"}] and rules["failover"] == ["cb:blk"]
-          and routers[0]["graph"]["edges"][0]["to"] == "out:cb:blk",
-          "правила и канаты — на новый id")
-    check(rules["dormantDefault"] == "cb:blk" and rules["audioOutput"] == "cb:blk",
-          "defect-history: резервное «по умолчанию» и аудио тоже (своя копия списка их не видела)")
-    empty_failover = copy.deepcopy(legacy)
-    empty_failover["rules"]["failover"] = []
-    no_rules = {"id": "r2", "outputs": [{"id": "cloud:acc", "upstreamType": "cloud", "providerId": "blk"}]}
-    routers = [empty_failover, no_rules]
-    store = FakeStore([], blocks=[{"id": "blk", "accountId": "acc"}])
-    store.patch()
-    pc.migrate_legacy_cloud_outputs(routers, ["acc"])
-    check("failover" not in routers[0]["rules"] and routers[1]["rules"] == {},
-          "as-is: пустой failover снимается ключом; маршрутизатор без правил получает пустые правила")
-    store = FakeStore([], blocks=[{"id": "blk", "accountId": "acc"}])
-    store.patch()
-    routers = [copy.deepcopy(legacy)]
-    check(pc.migrate_legacy_cloud_outputs(routers, ["other"]) is False and routers[0] == legacy
-          and store.cloud_saved == 0,
-          "negative: аккаунт не тот — ничего не переписано и не сохранено")
 
     if _fail:
         print(f"FAILED ({len(_fail)}):")

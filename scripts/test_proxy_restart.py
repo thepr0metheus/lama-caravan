@@ -180,6 +180,21 @@ def test_checkout_commit():
             got = CheckoutCommit(repo)
             check((got.commit, got.from_git, got.baked) == (head, True, False),
                   f"git and a baked value — git wins (got {vars(got)})")
+            os.environ.pop("CARAVAN_GIT_HEAD", None)
+            (bare / "VERSION").write_text("1a2b3c4\n", encoding="utf-8")
+            got = CheckoutCommit(bare)
+            check((got.commit, got.from_git, got.baked) == ("1a2b3c4", False, True),
+                  f"no git, no build argument, a copy made by git archive — VERSION's commit (got {vars(got)})")
+            os.environ["CARAVAN_GIT_HEAD"] = "cafe123"
+            check(CheckoutCommit(bare).commit == "cafe123", "the build argument before VERSION")
+            os.environ.pop("CARAVAN_GIT_HEAD", None)
+            for text, why in (("$Format:%h$\n", "a checkout's own VERSION, not archived"),
+                              ("not a commit\n", "anything but a commit's hex"), ("", "an empty file")):
+                (bare / "VERSION").write_text(text, encoding="utf-8")
+                got = CheckoutCommit(bare)
+                check((got.commit, got.baked) == ("", False), f"negative: {why} — no commit, not a guess (got {vars(got)})")
+            (repo / "VERSION").write_text("1a2b3c4\n", encoding="utf-8")
+            check(CheckoutCommit(repo).commit == head, "a git checkout with a VERSION file — git wins")
     finally:
         for key, value in saved.items():
             if value is None:

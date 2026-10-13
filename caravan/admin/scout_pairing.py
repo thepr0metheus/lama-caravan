@@ -27,7 +27,10 @@ class ScoutPairing:
     controller's address; the board says so before it is done.
 
     A scout on the controller's own machine is added at 127.0.0.1 like any
-    other, and is handed the controller at 127.0.0.1.
+    other, and is handed the controller at 127.0.0.1. Where the controller is
+    reached by name through a reverse proxy (`advertised_url`, the NAS's
+    https://caravan.example.org), every other scout is handed that name:
+    the controller's own port there listens on loopback only.
 
     The network is reached through `http_get` / `http_post`, parameters so a
     test can stand in for a scout without one.
@@ -35,14 +38,18 @@ class ScoutPairing:
 
     DEFAULT_PORT = 8092
     _HOST_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+    #: The controller by name: a scheme, a host, maybe a port — and nothing after,
+    #: since a scout puts its own paths (/api/topology/client-heartbeat) after it.
+    _URL_RE = re.compile(r"^https?://[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::\d{1,5})?$")
 
     def __init__(self, store, save, headers, admin_port, advertised_ip="",
-                 http_get=None, http_post=None, facing_ip=None):
+                 http_get=None, http_post=None, facing_ip=None, advertised_url=""):
         self.store = store                  # () -> the topology store
         self.save = save                    # () -> persists it
         self.headers = headers              # () -> {"X-Caravan-Token": …} or {}
         self.admin_port = int(admin_port)
         self.advertised_ip = str(advertised_ip or "").strip()
+        self.advertised_url = str(advertised_url or "").strip().rstrip("/")
         self.http_get = http_get or self._get
         self.http_post = http_post or post_json
         self.facing_ip = facing_ip or self._facing_ip
@@ -74,12 +81,20 @@ class ScoutPairing:
 
     def controller_url_for(self, scout_url: str) -> str:
         """The controller as the scout will reach it. A scout on this machine
-        gets 127.0.0.1; any other gets the configured LAN address, or else the
-        address of the interface that routes towards it."""
+        gets 127.0.0.1; any other gets the controller's name when it is reached
+        by one, else the configured LAN address, or else the address of the
+        interface that routes towards it. A name that is not a plain
+        http(s)://host[:port] is refused, not handed out: a scout would put its
+        paths after whatever stands there."""
         host = scout_url.split("://", 1)[1].rsplit(":", 1)[0]
         if self.is_loopback(host):
-            ip = "127.0.0.1"
-        elif self.advertised_ip and not self.is_loopback(self.advertised_ip):
+            return f"http://127.0.0.1:{self.admin_port}"
+        if self.advertised_url:
+            if not self._URL_RE.match(self.advertised_url):
+                raise AppError(f"LLAMA_TOPOLOGY_SERVER_URL must be http(s)://host or http(s)://host:port, "
+                               f"not {self.advertised_url!r} — fix it in the controller's settings", 500)
+            return self.advertised_url
+        if self.advertised_ip and not self.is_loopback(self.advertised_ip):
             ip = self.advertised_ip
         else:
             ip = self.facing_ip(host)
@@ -117,9 +132,11 @@ class ScoutPairing:
         beat = answer.get("heartbeat") if isinstance(answer, dict) else None
         beat = beat if isinstance(beat, dict) else {}
         if beat.get("state") != "ok":
+            what = (f"check that {controller} answers on that machine — its name, the reverse proxy, the "
+                    f"home certificate" if self.advertised_url else
+                    f"open port {self.admin_port} on the controller to that machine")
             raise AppError(f"the scout at {url} took the controller's address ({controller}) but cannot reach "
-                           f"it: {beat.get('error') or 'no answer'} — open port {self.admin_port} on the "
-                           f"controller to that machine", 502)
+                           f"it: {beat.get('error') or 'no answer'} — {what}", 502)
         host = ((beat.get("result") or {}).get("host") or {}) if isinstance(beat.get("result"), dict) else {}
         return {"ok": True, "hostId": host.get("id") or info.get("hostId") or "",
                 "name": host.get("name") or info.get("hostId") or "",

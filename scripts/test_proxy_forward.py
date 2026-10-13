@@ -41,7 +41,8 @@ sys.path.insert(0, str(ROOT))
 from caravan.common.request_kind import is_inference_request as _is_inference_request  # noqa: E402
 from caravan.proxy.handler import ProxyHandler  # noqa: E402
 from caravan.proxy.output_health import output_health  # noqa: E402
-from caravan.proxy.subscription_usage import reserve_gate, subscription_usage  # noqa: E402
+from caravan.proxy.pool_steps import pool_steps  # noqa: E402
+from caravan.proxy.subscription_usage import subscription_usage  # noqa: E402
 from caravan.proxy.state import write_state  # noqa: E402
 
 _fail = []
@@ -496,6 +497,7 @@ def _rude_upstream():
  P_RESCUE, P_NORESCUE, P_VANISH, P_VANISH2) = (free_port() for _ in range(21))
 P_RESCUE_DEAD = free_port()
 P_ASK = free_port()
+P_SUBPOOL = free_port()
 
 
 def _route(port, **extra):
@@ -520,6 +522,9 @@ CONFIG = {
         _route(P_KA_A), _route(P_KA_B),
         _route(P_RESCUE), _route(P_NORESCUE), _route(P_RESCUE_DEAD), _route(P_VANISH), _route(P_VANISH2),
         _route(P_ASK),
+        # The subscription as a pool's one step (a model block of the old form):
+        # where its switch level is kept.
+        _route(P_SUBPOOL),
     ],
     "routers": [{
         "id": "router:t",
@@ -529,6 +534,7 @@ CONFIG = {
             {"id": "out:rude", "name": "rude", "upstreamHost": "127.0.0.1", "upstreamPort": RUDE},
             {"id": "out:sub", "name": "sub", "upstreamType": "cloud", "accountId": "acc:sub",
              "upstreamHost": "127.0.0.1", "upstreamPort": SUB},
+            {"id": "out:subpool", "name": "subpool", "upstreamType": "cloud", "providerId": "blk:sub"},
             {"id": "out:load", "name": "load", "upstreamHost": "127.0.0.1", "upstreamPort": LOADING},
             {"id": "out:o503", "name": "o503", "upstreamHost": "127.0.0.1", "upstreamPort": OTHER503},
             {"id": "out:q1", "name": "q1", "upstreamHost": "127.0.0.1", "upstreamPort": ONE_SLOT},
@@ -584,6 +590,7 @@ CONFIG = {
         "rules": {"bySource": [{"proxyId": f"skynet:proxy:{P_DEAD}", "output": "out:dead"},
                                {"proxyId": f"skynet:proxy:{P_RUDE}", "output": "out:rude"},
                                {"proxyId": f"skynet:proxy:{P_SUB}", "output": "out:sub"},
+                               {"proxyId": f"skynet:proxy:{P_SUBPOOL}", "output": "out:subpool"},
                                {"proxyId": f"skynet:proxy:{P_LOAD}", "output": "out:load"},
                                {"proxyId": f"skynet:proxy:{P_OTHER503}", "output": "out:o503"},
                                {"proxyId": f"skynet:proxy:{P_NORESCUE}", "output": "fail"},
@@ -602,7 +609,8 @@ Path(os.environ["CLOUD_PROVIDERS_FILE"]).write_text(json.dumps({
                   "baseUrl": f"http://127.0.0.1:{ANTHRO}"},
                  {"id": "acc:sub", "type": "openai", "accountType": "openai-subscription",
                   "baseUrl": f"http://127.0.0.1:{SUB}"}],
-    "blocks": [{"id": "blk:anthro", "accountId": "acc:anthro", "model": "claude-test-model"}],
+    "blocks": [{"id": "blk:anthro", "accountId": "acc:anthro", "model": "claude-test-model"},
+               {"id": "blk:sub", "accountId": "acc:sub", "model": "sub-model"}],
 }), encoding="utf-8")
 # With no key, the route answers "cloud provider not configured" and never reaches translation.
 Path(os.environ["PROVIDER_SECRETS_FILE"]).write_text(
@@ -695,6 +703,20 @@ def test_unrouted():
     check((doc.get("error") or {}).get("type") == "unrouted", "type=unrouted")
     check("unassigned" in ((doc.get("error") or {}).get("message") or ""),
           "сообщение называет причину")
+    # The journal's record says the status the client got: the history's Requests tab shows a
+    # refusal by it (2026-10-11), and this one had none.
+    deadline, found = time.time() + 5, []
+    while not found and time.time() < deadline:
+        for path in sorted(Path(os.environ["AGENT_PROXY_LOG_DIR"]).glob("*")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                row = json.loads(line) if line.strip() else {}
+                item = row.get("item") or {}
+                if row.get("event") == "blocked" and str(item.get("reason") or "").startswith("unrouted:"):
+                    found.append({k: item.get(k) for k in ("status", "path")})
+        if not found:
+            time.sleep(0.05)
+    check(found[-1:] == [{"status": 503, "path": "/v1/chat/completions"}],
+          f"отказ записан в журнал с кодом 503 и путём (got {found[-1:]})")
 
 
 def test_api_key():
@@ -1492,7 +1514,9 @@ def test_questions_go_to_the_exit_that_answers():
 
 
 def _set_reserve(reserve):
-    """Put a reserve on the subscription account (None lifts it); returns the file's old text."""
+    """Put levels on the subscription account (None lifts them); returns the
+    file's old text. The file is of the old form: the proxy reads the account's
+    reserve as the switch level of the pool step the block becomes."""
     path = Path(os.environ["CLOUD_PROVIDERS_FILE"])
     old = path.read_text(encoding="utf-8")
     doc = json.loads(old)
@@ -1506,17 +1530,17 @@ def _set_reserve(reserve):
     return old
 
 
-def test_reserve_answers_before_the_provider():
-    """The operator's reserve on a subscription: once a window is down to it,
-    the proxy answers the account's requests itself — the provider's own 429 in
-    shape — and sends nothing on.
+def test_a_step_level_answers_before_the_provider():
+    """A pool's step on a subscription: once a window is down to the step's
+    switch level, the pool goes on to its next step — and with none left, the
+    proxy answers itself (429, the pool's refusal) and sends nothing on.
 
     2026-09-28: the five-hour window ran out under the caravan's traffic, and
     with it the operator's own chats. The Codex backend states both windows on
     every answer (x-codex-*-used-percent, -window-minutes, -reset-at); the proxy
     keeps the last reading and refuses before the provider has to.
     """
-    print("запас оператора на лимитах подписки:")
+    print("порог шага пула на лимитах подписки:")
     now = time.time()
     SUB_CODEX_HEADERS.update({
         "x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
@@ -1524,67 +1548,72 @@ def test_reserve_answers_before_the_provider():
         "x-codex-secondary-used-percent": "10", "x-codex-secondary-window-minutes": "10080",
         "x-codex-secondary-reset-at": str(int(now + 86400)),
     })
+    # The usage page, read for a step with no reading yet.
+    SUB_USAGE_PAGE.update({"rate_limit": {"primary_window": {
+        "used_percent": 10, "limit_window_seconds": 18000, "reset_at": int(now + 3600)}}})
     saved = _set_reserve({"18000": 20})
     subscription_usage.clear()
+    pool_steps.clear()
     output_health.clear()
     try:
-        before = len(sub_seen)
-        status, raw = post(P_SUB)
-        check(status == 200 and len(sub_seen) == before + 1,
-              f"показаний ещё нет — запрос уходит провайдеру (получено {status}, отправлено {len(sub_seen) - before})")
+        before, pages = len(sub_seen), len(sub_pages_seen)
+        status, raw = post(P_SUBPOOL)
+        check(status == 200 and len(sub_seen) == before + 1 and len(sub_pages_seen) == pages + 1,
+              f"показаний ещё нет — пул читает страницу использования, запрос уходит провайдеру (получено {status})")
+        check(json.loads(sub_seen[-1][2] or b"{}").get("model") == "sub-model", "модель — шага пула, а не клиента")
         windows = subscription_usage.windows("acc:sub")
         check([(w["seconds"], w["usedPct"]) for w in windows] == [(18000, 85), (604800, 10)],
               f"ответ провайдера оставил показания обоих окон (получено {windows})")
 
-        status, raw, got = post(P_SUB, want_headers=True)
+        status, raw, got = post(P_SUBPOOL, want_headers=True)
         body = json.loads(raw) if raw.startswith("{") else {}
         err = body.get("error") or {}
-        check(status == 429 and err.get("type") == "usage_limit_reached",
-              f"positive: осталось 15% при запасе 20% — ответ 429 usage_limit_reached, как у OpenAI (получено {status} {raw[:80]!r})")
+        check(status == 429 and err.get("type") == "pool_unavailable",
+              f"positive: осталось 15% при пороге 20% — ответ пула 429 (получено {status} {raw[:80]!r})")
         check(len(sub_seen) == before + 1, "провайдеру не отправлено ничего")
-        check(err.get("caravan_reserve") == {"window_seconds": 18000, "remaining_pct": 15, "reserve_pct": 20},
-              f"ответ называет окно, остаток и запас (получено {err.get('caravan_reserve')})")
         check(3500 <= int(got.get("retry-after") or 0) <= 3600 and err.get("resets_at") == int(now + 3600),
               f"и когда окно сбросится: Retry-After и resets_at (получено {got.get('retry-after')}, {err.get('resets_at')})")
-        check(str(err.get("message") or "").startswith("The caravan keeps your reserve"),
-              "слова ответа называют караван, а не провайдера")
+        check(str(err.get("message") or "").startswith("Pool sub-model has no step that fits now: acc:sub (reserve)"),
+              f"слова ответа называют пул, шаг и причину, а не провайдера (получено {err.get('message')!r})")
         rows = []
         for _ in range(60):
-            rows = [r for r in _read_finished() if r.get("route") == f"r{P_SUB}"]
+            rows = [r for r in _read_finished() if r.get("route") == f"r{P_SUBPOOL}"]
             if rows and (rows[-1].get("errorKind") or (rows[-1].get("item") or {}).get("status") == 429):
                 break
             time.sleep(0.05)
         last = rows[-1] if rows else {}
-        check(last.get("errorKind") == "usage_reserve" and last.get("status") == 429,
+        check(last.get("errorKind") == "pool_unavailable" and last.get("status") == 429,
               f"журнал пишет отказ как отказ каравана (получено {last.get('errorKind')!r}, {last.get('status')})")
-        health = output_health.row("out:sub") or {}
+        health = output_health.row("out:subpool") or {}
         check(health.get("state") == "error" and health.get("status") == 429,
               f"выход помечен мёртвым, как при 429 провайдера — узел 🛟 уведёт мимо (получено {health})")
 
         _set_reserve({"18000": 10})
-        status, raw = post(P_SUB)
+        status, raw = post(P_SUBPOOL)
         check(status == 200 and len(sub_seen) == before + 2,
-              f"negative: запас 10% при остатке 15% — запрос уходит провайдеру (получено {status})")
+              f"negative: порог 10% при остатке 15% — запрос уходит провайдеру (получено {status})")
 
         _set_reserve({"18000": 20})
         subscription_usage.note("acc:sub", {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
                                             "x-codex-primary-reset-at": str(int(now - 5))}, now=now - 3600)
         SUB_CODEX_HEADERS.clear()
-        status, raw = post(P_SUB)
-        check(status == 200 and len(sub_seen) == before + 3,
-              f"negative: окно уже сбросилось — старые показания не держат дверь закрытой (получено {status})")
+        SUB_USAGE_PAGE.update({"rate_limit": {"primary_window": {
+            "used_percent": 0, "limit_window_seconds": 18000, "reset_at": int(now + 18000)}}})
+        pool_steps.clear()   # the pool asks the page again only FAILED_REFRESH_SEC after its last try
+        pages = len(sub_pages_seen)
+        status, raw = post(P_SUBPOOL)
+        check(status == 200 and len(sub_seen) == before + 3 and len(sub_pages_seen) == pages + 1,
+              f"negative: окно уже сбросилось — пул перечитывает страницу, старые показания шаг не держат (получено {status})")
 
-        # A reset that came early (a banked or bought one): the door is shut on
-        # a reading nothing will renew, since nothing is sent — the proxy asks
-        # the account's usage page instead, which spends no share of any window.
+        # A reset that came early (a banked or bought one): the step is held on a
+        # reading nothing renews, since nothing is sent — the pool asks the
+        # account's usage page instead, which spends no share of any window.
         shut = {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
                 "x-codex-primary-reset-at": str(int(now + 3600))}
         subscription_usage.note("acc:sub", shut, now=time.time() - 400)
-        reserve_gate.clear()
-        SUB_USAGE_PAGE.update({"rate_limit": {"primary_window": {
-            "used_percent": 0, "limit_window_seconds": 18000, "reset_at": int(now + 18000)}}})
+        pool_steps.clear()
         pages = len(sub_pages_seen)
-        status, raw = post(P_SUB)
+        status, raw = post(P_SUBPOOL)
         check(status == 200 and len(sub_seen) == before + 4 and len(sub_pages_seen) == pages + 1,
               f"positive: показания старше пяти минут — страница использования говорит о сбросе, запрос уходит "
               f"(получено {status}, страниц {len(sub_pages_seen) - pages})")
@@ -1592,15 +1621,15 @@ def test_reserve_answers_before_the_provider():
         check(page_path == "/backend-api/wham/usage" and "authorization" in {k.lower() for k in page_headers},
               "страница спрошена по своему пути и с подписью аккаунта (сама подпись не печатается)")
         subscription_usage.note("acc:sub", shut, now=time.time())
-        status, raw = post(P_SUB)
+        status, raw = post(P_SUBPOOL)
         check(status == 429 and len(sub_pages_seen) == pages + 1 and len(sub_seen) == before + 4,
-              f"negative: свежие показания — страницу не спрашиваем, дверь закрыта (получено {status})")
+              f"negative: свежие показания — страницу не спрашиваем, шаг держит порог (получено {status})")
     finally:
         SUB_CODEX_HEADERS.clear()
         SUB_USAGE_PAGE.clear()
         Path(os.environ["CLOUD_PROVIDERS_FILE"]).write_text(saved, encoding="utf-8")
         subscription_usage.clear()
-        reserve_gate.clear()
+        pool_steps.clear()
         output_health.clear()
 
 
@@ -1912,7 +1941,7 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stay
            test_dead_main_is_skipped, test_dead_verdict_expires,
            test_failed_replay_names_the_chain,
            test_discovery_probe_neither_rescued_nor_a_verdict,
-           test_questions_go_to_the_exit_that_answers, test_reserve_answers_before_the_provider,
+           test_questions_go_to_the_exit_that_answers, test_a_step_level_answers_before_the_provider,
            test_error_inside_an_open_stream, test_client_vanishes_mid_response,
            test_client_vanishes_before_first_byte, test_keepalive_not_sent_to_cloud,
            test_loading_model_retry_not_for_cloud, test_latency_in_the_journal):

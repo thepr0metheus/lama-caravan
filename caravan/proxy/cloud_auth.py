@@ -4,13 +4,16 @@ import json
 import os
 import time
 
-from caravan.common.fsio import atomic_write_text
 from caravan.proxy.paths import MODEL_CATALOG_FILE, CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
 from caravan.proxy.runtime import config_lock
-from caravan.common.context_window import block_window
-from caravan.common.usage_reserve import UsageReserve
+from caravan.common.cloud_file_keys import CloudFileKeys
+from caravan.common.cloud_pools import CloudPools
+from caravan.common.entry_models import EntryModels
 from caravan.common.cloud_sources import CloudSources
 from caravan.common.credential_vault import CredentialVault
+from caravan.common.model_kinds import ModelKind
+from caravan.common.model_levels import ModelLevels
+from caravan.common.model_schedules import ModelSchedules
 
 
 CLOUD_PROVIDER_AUTH = {
@@ -21,19 +24,18 @@ CLOUD_PROVIDER_AUTH = {
 }
 
 def _read_cloud_data():
-    if not CLOUD_PROVIDERS_FILE.exists():
-        return {"accounts": [], "blocks": []}
+    """The cloud document as the proxy reads it: accounts and pools — and, in a file of
+    the old form, its model blocks, which CloudPools reads as pools — with every key the
+    file keeps beside them (caravan/common/cloud_file_keys.py): the models' levels and
+    schedules, the sets of models the entry's consumers call."""
+    lists = ("accounts", "pools", "blocks")
     try:
         parsed = json.loads(CLOUD_PROVIDERS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {"accounts": [], "blocks": []}
-    if isinstance(parsed, dict) and ("accounts" in parsed or "blocks" in parsed):
-        return {
-            "accounts": parsed.get("accounts") if isinstance(parsed.get("accounts"), list) else [],
-            "blocks": parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else [],
-            "pools": parsed.get("pools") if isinstance(parsed.get("pools"), list) else [],
-        }
-    return {"accounts": [], "blocks": []}
+    except Exception:  # noqa: BLE001 — no file, or one that does not read, is an empty document
+        parsed = None
+    parsed = parsed if isinstance(parsed, dict) else {}
+    return {**{key: parsed.get(key) if isinstance(parsed.get(key), list) else [] for key in lists},
+            **CloudFileKeys.read_all(parsed)}
 
 def _cached_context_length(account_id, model_id):
     """What the account's catalogue last heard from the provider for this model.
@@ -57,54 +59,84 @@ def _cached_context_length(account_id, model_id):
     return None
 
 
-def load_cloud_provider(block_id):
-    """Resolve a proxy route's providerId (a model-block id) to an effective
-    provider dict combining the block (model/modelMode) and its account
-    (type/baseUrl/authMode)."""
-    block_id = str(block_id or "").strip()
-    if not block_id:
+def load_cloud_provider(pool_id):
+    """A cable's cloud end — a pool, by the id a route's providerId and the
+    kanban's output `cb:<id>` name — as the proxy routes it: the pool with its
+    steps and the window it stands for. Which step serves is chosen per request
+    (caravan/proxy/pool_steps.py); `model` stays empty until then, and `name`
+    is what a client is told it calls."""
+    pool_id = str(pool_id or "").strip()
+    if not pool_id:
         return None
     data = _read_cloud_data()
-    block = next((b for b in data["blocks"] if isinstance(b, dict) and b.get("id") == block_id), None)
-    if not block:
+    secrets = CredentialVault(PROVIDER_SECRETS_FILE).read()
+    sources = CloudSources(data, secrets)
+    reading = CloudPools(data, secrets)
+    pool = reading.get(pool_id)
+    if not pool:
         return None
-    account = CloudSources(data, CredentialVault(PROVIDER_SECRETS_FILE).read()).source(block.get("accountId"))
-    if not account:
-        return None
+    # A file of the old form keeps its levels as the accounts' reserves: the
+    # steps its blocks become carry them, and ModelLevels reads them as their
+    # models' — as it reads a step's from before 1.3.486.
+    levels = ModelLevels({**data, "pools": list(data.get("pools") or []) + [{"steps": reading.legacy_steps}]})
+
+    def named(account_id, model):
+        owner = sources.canonical(account_id)
+        return _cached_context_length(owner["id"] if owner else account_id, model)
     return {
-        "id": block_id,
-        "accountId": account.get("id"),
-        "credentialAccountId": account.get("credentialAccountId") or account.get("id"),
-        "usageAccountId": account.get("usageAccountId") or account.get("id"),
-        **({"pool": account["pool"]} if account.get("pool") else {}),
-        "type": account.get("type") or "openai",
-        # Whether this is a ChatGPT subscription is the ACCOUNT's fact, and a
-        # model of it must say so as the account does: without it a block was
-        # a subscription only when its address happened to be chatgpt.com.
-        "accountType": account.get("accountType") or "",
-        "baseUrl": account.get("baseUrl") or "",
-        "authMode": account.get("authMode") or "apiKey",
-        "oauthConfig": account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {},
-        "model": block.get("model") or "",
-        "modelMode": block.get("modelMode") or "rewrite",
-        # The window this block stands for: the operator's declared figure, or
-        # the provider's reported one when they ticked the switch — the rule is
-        # block_window's, shared with the board so both say the same number.
-        # The catalogue is read only when the switch is on: it is a file on
-        # disk, and a block that never asked for it should not depend on it.
-        "contextLength": block_window(
-            block.get("contextLength"),
-            _cached_context_length(account.get("id"), block.get("model")) if block.get("contextAuto") else None,
-            bool(block.get("contextAuto"))),
-        # The share of each limit window the operator keeps for themselves —
-        # an ACCOUNT's setting: every model of it draws on the same pool.
-        "usageReserve": UsageReserve.normalize(account.get("usageReserve")),
+        "id": pool_id,
+        "pool": pool,
+        "name": pool["name"],
+        "model": "",
+        "modelMode": "rewrite",
+        # The window the pool stands for: the operator's figure, or the
+        # smallest its steps' providers name when they ticked that (the rule is
+        # CloudPools.window, shared with the board so both say one number) — a
+        # cell's the window it serves, as its router output carries it. The
+        # catalogue is read only when the switch is on: it is a file on disk,
+        # and a pool that never asked for it should not depend on it.
+        "contextLength": CloudPools.window(pool, named, _output_window),
+        # Each subscription model's stop and switch levels, the same in every
+        # pool (caravan/common/model_levels.py) — read with the pool, so a request
+        # is judged by one reading of the file.
+        "levels": levels.stored(),
+        # When each model is open (caravan/common/model_schedules.py): a row of a
+        # model closed now is passed over, read with the pool for the same reason.
+        "schedules": ModelSchedules(data).stored(),
     }
 
+def _output_window(output_id):
+    """The window a pool's cell serves, as its router output carries it, or None."""
+    from caravan.proxy.outputs import router_output
+    return (router_output(output_id) or {}).get("contextLength")
+
+
+def load_pool_kind(pool):
+    """What a pool's rows do together (caravan/common/model_kinds.py), from one reading of the
+    cloud file and the routers' outputs: what the entry tells its clients of a model, and the
+    work it refuses a model before sending."""
+    from caravan.proxy.config import current_config
+    from caravan.proxy.outputs import router_output
+    accounts = CloudSources(_read_cloud_data()).accounts
+    config = current_config()
+    return ModelKind.of_pool(pool, accounts.get, lambda output_id: router_output(output_id, config))
+
+
+def load_cloud_pools():
+    """Every pool as the proxy reads it, in the file's order: what the entry
+    publishes to its consumers (caravan/common/entry_models.py)."""
+    return CloudPools(_read_cloud_data(), CredentialVault(PROVIDER_SECRETS_FILE).read()).all()
+
+def load_entry_models():
+    """The entry's reading of what its consumers call: the pools and the sets that
+    hold them, from one reading of the file (caravan/common/entry_models.py)."""
+    data = _read_cloud_data()
+    return EntryModels(CloudPools(data, CredentialVault(PROVIDER_SECRETS_FILE).read()).all(), data.get("sets"))
+
 def load_cloud_account(account_id):
-    """Resolve a router cloud output that targets an ACCOUNT directly (no block):
-    same provider shape as load_cloud_provider but with model passthrough (the client's
-    requested model is forwarded unchanged)."""
+    """One account as a provider: what a pool's step goes to, and what a route
+    that names an account and no pool reaches — then with the client's model
+    forwarded unchanged (passthrough)."""
     account_id = str(account_id or "").strip()
     if not account_id:
         return None
@@ -117,7 +149,6 @@ def load_cloud_account(account_id):
         "accountId": account_id,
         "credentialAccountId": account.get("credentialAccountId") or account_id,
         "usageAccountId": account.get("usageAccountId") or account_id,
-        **({"pool": account["pool"]} if account.get("pool") else {}),
         "type": account.get("type") or "openai",
         "accountType": account.get("accountType") or "",
         "baseUrl": account.get("baseUrl") or "",
@@ -125,15 +156,7 @@ def load_cloud_account(account_id):
         "oauthConfig": account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {},
         "model": "",
         "modelMode": "passthrough",
-        "usageReserve": UsageReserve.normalize(account.get("usageReserve")),
     }
-
-def _write_provider_secrets(secrets):
-    try:
-        atomic_write_text(PROVIDER_SECRETS_FILE, json.dumps(secrets, ensure_ascii=False, indent=2) + "\n",
-                          chmod=0o600, mkdir=True)
-    except Exception:
-        pass
 
 def _refresh_oauth(provider, entry):
     """Facade for the shared cross-process renewal owner; entry is a legacy argument."""
@@ -146,8 +169,8 @@ def provider_secret_present(provider):
     provider's account? No refresh, no network — health must not mutate tokens."""
     account_id = str((provider or {}).get("credentialAccountId") or (provider or {}).get("accountId") or "").strip()
     if (provider or {}).get("pool"):
-        return any(provider_secret_present(load_cloud_account(m.get("accountId")))
-                   for m in provider["pool"].get("members", []) if m.get("enabled", True))
+        return any(provider_secret_present(load_cloud_account(s.get("accountId")))
+                   for s in provider["pool"].get("steps", []) if s.get("enabled", True))
     if not account_id or not PROVIDER_SECRETS_FILE.exists():
         return False
     try:

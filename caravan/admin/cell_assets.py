@@ -47,6 +47,10 @@ CELL_ASSETS = (
     "run_translate.sh",
     "engine_cell_server.py",
     "run_engine.sh",
+    "strata_launch.py",
+    "run_strata.sh",
+    "gr00t_server.py",
+    "run_gr00t.sh",
 )
 
 # Which assets a runner needs in $HOME before its command can run. The command
@@ -62,6 +66,12 @@ RUNNER_ASSETS = {
     "transcribe": ("run_transcribe.sh", "cell_base.py", "transcribe_server.py"),
     "seamless": ("run_seamless.sh", "cell_base.py", "seamless_server.py"),
     "translate": ("run_translate.sh", "cell_base.py", "translate_server.py"),
+    # Strata serves itself (its own server.py, in the engine's install); the
+    # caravan brings only what makes its files and starts it.
+    "strata": ("run_strata.sh", "strata_launch.py"),
+    # GR00T's runtime is NVIDIA's (scripts/install-gr00t.sh); the cell that serves it over HTTP
+    # is ours, and runs with the runtime's Python.
+    "gr00t": ("run_gr00t.sh", "cell_base.py", "gr00t_server.py"),
     # A cell whose model runs inside an engine next to it. Its server needs
     # only the standard library; the launcher is there because a scout brings
     # a cell's files by the run_<name>.sh its command names — the two engines

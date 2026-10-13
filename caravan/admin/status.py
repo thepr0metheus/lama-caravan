@@ -16,17 +16,17 @@ from caravan.admin.config_builder import (
     models_dir_from_config,
     parse_config,
 )
-from caravan.admin.llama_metrics import runtime_phase
 from caravan.admin.settings_bundle import passphrase_available
 from caravan.admin.models import (MODEL_LIST, list_chat_templates, list_st_artifacts,
                                   list_translate_models, list_whisper_sizes)
-from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
+from caravan.admin.monitoring import cpu_state, gpu_state, memory_state
 from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVICE_NAME, START_SCRIPT
 from caravan.admin.state import admin_state
-from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
+from caravan.admin.systemd_ctl import service_status, systemctl, user_service_diagnostics
 from caravan import __version__ as APP_VERSION
 from caravan.common.checkout import CheckoutCommit
 from caravan.common.errors import AppError
+from caravan.common.fetch import fetch_json
 from caravan.common.procs import run, run_in
 
 
@@ -35,8 +35,10 @@ def project_git_info():
     # else the commit an image build baked in (caravan/common/checkout.py).
     source = CheckoutCommit(PROJECT_ROOT, short=True)
     if source.baked:
-        # The Docker image ships without .git — the build bakes the commit in.
-        return {"branch": "docker", "head": source.commit, "dirtyCount": 0, "ok": True, "error": ""}
+        # The Docker image ships without .git — the build bakes the commit in. No checkout,
+        # no branch: `baked` says so, rather than a branch named "docker" (the board's chip
+        # read "git: docker", 2026-10-08).
+        return {"branch": "", "baked": True, "head": source.commit, "dirtyCount": 0, "ok": True, "error": ""}
     branch = run_in(["git", "branch", "--show-current"], timeout=3, cwd=PROJECT_ROOT)
     dirty = run_in(["git", "status", "--porcelain"], timeout=3, cwd=PROJECT_ROOT)
     branch_name = branch["stdout"].strip()
@@ -142,11 +144,20 @@ def _field_flags():
     return {k: sorted(v) for k, v in out.items()}
 
 
+def legacy_port_props(config):
+    """The legacy single server's /props on its configured port: the one answer of
+    that server a page still shows (Diagnostics), asked while its unit is active."""
+    return fetch_json(f"http://127.0.0.1:{config.get('PORT') or '8080'}/props")
+
+
 def state():
+    # The legacy single server's journal and its runtime summaries (/health,
+    # /v1/models, /metrics) left the answer in 1.3.485: no page showed them
+    # since its view went in 1.3.365, and every page load still ran journalctl
+    # and four HTTP probes for them. Its unit stays in `service` (Repair names
+    # its PID) and in `diagnostics`.
     config = parse_config()
     service = service_status()
-    runtime = runtime_api(config)
-    runtime["status"] = runtime_phase(service, runtime)
     models, models_stamp = MODEL_LIST.current()
     return {
         "appVersion": APP_VERSION,
@@ -177,13 +188,11 @@ def state():
         "settingsPassphrase": passphrase_available(),
         "chatTemplates": list_chat_templates(config),
         "service": service,
-        "runtime": runtime,
-        "diagnostics": user_service_diagnostics(service, runtime),
+        "diagnostics": user_service_diagnostics(service, probe=lambda: legacy_port_props(config)),
         "cpu": cpu_state(),
         "gpu": gpu_state(),
         "memory": memory_state(),
         "llamaCpp": llama_cpp_info(fetch_remote=False),
-        "logs": logs(),
         "projectGit": project_git_info(),
         "time": int(time.time()),
     }

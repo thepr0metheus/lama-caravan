@@ -24,7 +24,7 @@ def ensure_agent_proxy_running(timeout=30):
     """Start the proxy daemon if it is down; a running one is left alone.
 
     A routes save used to RESTART it, and a restart cuts every request in
-    flight on every port — an agent's stream dropped because a bridge was
+    flight on every port — an agent's stream dropped because a port was
     minted next door. The daemon reads agent-proxies.json by itself (routes,
     policy and routers per request, listeners reconciled every ~2 s), so a
     save needs it running, not bounced. Native: its systemd --user unit, where
@@ -57,7 +57,10 @@ def service_status():
     status["cmdline"] = read_cmdline(pid)
     return status
 
-def user_service_diagnostics(service=None, runtime=None):
+def user_service_diagnostics(service=None, probe=None):
+    """The System page's Diagnostics: the user bus, the legacy single server's unit
+    and its HTTP port. `probe` answers the port's /props; it is asked only while the
+    unit is active, and an active unit nobody probed says so rather than "ready"."""
     if IS_CONTAINER:
         from caravan.admin import proxy_supervisor
         from caravan.admin.paths import DATA_DIR
@@ -78,7 +81,6 @@ def user_service_diagnostics(service=None, runtime=None):
             "legacyActive": False,
         }
     service = service or service_status()
-    runtime = runtime or {}
     env = user_systemd_env()
     bus_path = Path(env["XDG_RUNTIME_DIR"]) / "bus"
     checks = []
@@ -104,9 +106,12 @@ def user_service_diagnostics(service=None, runtime=None):
             "title": "llamacpp-current.service (legacy)",
             "detail": (service.get("error") or "systemctl --user failed").strip(),
         })
-    props = runtime.get("props") if isinstance(runtime, dict) else {}
-    ready = isinstance(props, dict) and props.get("ok") is not False and "error" not in props
-    if legacy_active or ready:
+    # The port is asked only while the unit is active. Asked always, any other
+    # server on it (8080 is many programs' default) read as the legacy server
+    # "ready" with its unit off; and every page load probed a port nothing used.
+    if legacy_active:
+        props = probe() if probe else {"ok": False, "error": "the port was not asked"}
+        ready = isinstance(props, dict) and props.get("ok") is not False and "error" not in props
         checks.append({
             "kind": "good" if ready else "warn",
             "title": "llama.cpp HTTP (legacy port)",
@@ -133,12 +138,6 @@ def read_cmdline(pid):
         return path.read_bytes().replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
     except OSError:
         return ""
-
-def logs():
-    if IS_CONTAINER:
-        return "The journal is unavailable in a container — docker logs <container> shows the controller's output"
-    result = run(["journalctl", "--user", "-u", SERVICE_NAME, "-n", "160", "--no-pager"], timeout=8)
-    return result["stdout"] if result["ok"] else result["stderr"]
 
 def repair_user_service():
     if IS_CONTAINER:

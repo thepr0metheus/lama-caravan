@@ -3,7 +3,7 @@
 
 Pins the VALUE of `effective_window` for every combination of its three
 inputs — the operator's limit, the model's own window, the "model if larger"
-switch — and of `block_window` and `route_window_inputs`. The proxy publishes
+switch — and of `pool_window` and `route_window_inputs`. The proxy publishes
 this figure in /v1/models and the board shows it on the route; the rule lives
 once, and this is where it is spelled out row by row.
 
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from caravan.common.context_window import (  # noqa: E402
-    block_window, effective_window, props_served_window, route_window_inputs, served_window, trained_window,
+    pool_window, effective_window, props_served_window, route_window_inputs, served_window, trained_window,
     window_paths,
 )
 
@@ -48,7 +48,7 @@ EFFECTIVE = [
     (8192, -1, False, 8192, "отрицательное окно модели — отсутствие"),
 ]
 
-BLOCK = [
+POOL = [
     (200000, 131072, False, 200000, "выключатель выкл: объявленное оператором, каталог не в счёт"),
     (200000, 131072, True, 131072, "выключатель вкл: число провайдера поверх объявленного"),
     (None, 131072, True, 131072, "вкл, объявленного нет — провайдер"),
@@ -88,9 +88,9 @@ def main():
     for limit, model, prefer, expected, why in EFFECTIVE:
         got = effective_window(limit, model, prefer)
         check(got == expected, f"({limit!r}, {model!r}, {prefer}) → {expected!r}: {why} (got {got!r})")
-    print("block_window(declared, reported, prefer_reported):")
-    for declared, reported, prefer, expected, why in BLOCK:
-        got = block_window(declared, reported, prefer)
+    print("pool_window(declared, reported, prefer_reported):")
+    for declared, reported, prefer, expected, why in POOL:
+        got = pool_window(declared, reported, prefer)
         check(got == expected, f"({declared!r}, {reported!r}, {prefer}) → {expected!r}: {why} (got {got!r})")
     print("route_window_inputs(route):")
     for route, expected, why in INPUTS:
@@ -129,7 +129,7 @@ def main():
         for msg in _fail:
             print("  - " + msg)
         sys.exit(1)
-    print(f"OK: {len(EFFECTIVE) + len(BLOCK) + len(INPUTS) + len(WINDOW_PATHS) + 11} пинов зелёные")
+    print(f"OK: {len(EFFECTIVE) + len(POOL) + len(INPUTS) + len(WINDOW_PATHS) + 11} пинов зелёные")
 
 
 if __name__ == "__main__":

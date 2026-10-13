@@ -28,6 +28,11 @@ export class OutputCells {
   // An engine's state (caravan/domain/engine.py) → the same words. A model of a running engine
   // is served: the engine loads it on the first request.
   static ENGINE = { ok: "running", stopped: "stopped", auth: "failed", unreachable: "failed" };
+  // A model of a machine's entry (its scout, 1.3.506): the scout's own words, the same four.
+  static MACHINE = { running: "running", starting: "starting", failed: "failed", stopped: "stopped" };
+  // The outputs whose port serves many models, each named in the request: an engine's and a
+  // machine's entry (caravan/common/upstream_types.py, NAMED). A model is told by its output's id.
+  static NAMED = new Set(["engine", "machine"]);
   // The word a row says beside its name (i18n keys). A running row says none — its dot speaks.
   static WORDS = { stopped: "stopped", starting: "starting", stopping: "rtCellStopping", failed: "failed", unknown: "unknown" };
   // Settings whose values never go on a row: they may carry a key or a token. A twin that
@@ -41,16 +46,45 @@ export class OutputCells {
     this.router = router || {};
   }
 
-  // The machine an output stands on: an engine's model says its machine, a cell its address.
+  static named(out) {
+    return OutputCells.NAMED.has(String(out?.upstreamType || ""));
+  }
+
+  // The queue a local output's requests stand in, as the proxy names it on each request
+  // (caravan/proxy/capacity.py route_group_key — the twin pinned by scripts/test_machine_models.py):
+  // "host:port" for a cell or an engine, "host:port/model" for a model of a machine's entry — its
+  // port serves every model of the machine, each with places of its own (1.3.506).
+  static upstream(out) {
+    const base = `${out?.upstreamHost || ""}:${out?.upstreamPort || ""}`;
+    return String(out?.upstreamType || "") === "machine" ? `${base}/${out.upstreamModel || ""}` : base;
+  }
+
+  // The machine an output stands on: an engine's or a machine's model says its machine, a cell
+  // its address.
   nodeAt(out) {
-    const key = String(out.upstreamType || "") === "engine"
+    const key = OutputCells.named(out)
       ? String(out.hostId || "") : String(machineAt(out.upstreamHost || "127.0.0.1").key);
     return this.nodes.find((n) => String(n.id) === key) || null;
   }
 
-  // The record of the cell behind a local output; null when the board has none.
+  // The record of the cell behind a local output; null when the board has none — and for a model
+  // of a machine's entry, which no one cell is (its copies are).
   cellOf(out) {
+    if (String(out?.upstreamType || "") === "machine") return null;
     return (this.nodeAt(out)?.servers || []).find((s) => Number(s.port) === Number(out.upstreamPort)) || null;
+  }
+
+  // A model of a machine's entry as its scout last said it: {id, state, slots, busy, copies}; null
+  // when its scout does not say (an older scout) or no longer lists it.
+  modelOf(out) {
+    if (String(out?.upstreamType || "") !== "machine") return null;
+    const models = this.nodeAt(out)?.entryModels;
+    return Array.isArray(models) ? models.find((m) => String(m?.id) === String(out.upstreamModel || "")) || null : null;
+  }
+
+  // How many cells serve a machine's model: its copies; 0 for any other output.
+  copies(out) {
+    return (this.modelOf(out)?.copies || []).length;
   }
 
   // running | stopped | starting | stopping | failed | unknown for a local output, "" for a
@@ -62,6 +96,7 @@ export class OutputCells {
       const engine = (this.nodeAt(out)?.engines || []).find((e) => String(e?.kind || "") === String(out.engine || ""));
       return OutputCells.ENGINE[String(engine?.state || "")] || "unknown";
     }
+    if (type === "machine") return OutputCells.MACHINE[String(this.modelOf(out)?.state || "")] || "unknown";
     const cell = this.cellOf(out);
     return OutputCells.PHASES[String(cell?.phase || cell?.status?.phase || "")] || "unknown";
   }
@@ -70,6 +105,7 @@ export class OutputCells {
   // (cell_artifact_label — "moonshine en", "run_tts.sh xtts"), else the model's short name as
   // the cell card says it, else the output's label without its port.
   name(out) {
+    if (String(out?.upstreamType || "") === "machine") return String(out.upstreamModel || out.label || "");
     const cell = this.cellOf(out);
     const own = String(cell?.cellLabel || "").trim() || parseModelName(cell?.model)?.label || "";
     return own || String(out.label || "").replace(/\s*:\d+\s*$/, "").trim();
@@ -78,6 +114,8 @@ export class OutputCells {
   // What the cell does, as marks — the list the cell card's job chips draw (cellJobs). A cell
   // whose job cannot be named has none.
   marks(out) {
+    // A machine's model says what it does on its output, from its copies (machine_models.py).
+    if (String(out?.upstreamType || "") === "machine") return (out.jobs || []).map((job) => JOB_MARKS[job] || "").join("");
     const cell = this.cellOf(out);
     if (!cell) return "";
     const cfg = cell.slotConfig || {};

@@ -221,6 +221,8 @@ def synthetic_configs():
         "HOST": "0.0.0.0", "PORT": "29999",
         "LLAMA_MODELS_DIR": PINNED["LLAMA_MODELS_DIR"],
         "MODEL_FILE": "vendor/model/Q4_K_M/synthetic-7B-Q4_K_M.gguf",
+        # An embodiment is a tag (letters, digits, "_"); a hyphenated free text is refused.
+        "GR00T_EMBODIMENT": "SYNTHETIC_EMBODIMENT",
     }
 
     numeric_hint = ("SIZE", "PORT", "THREADS", "LAYERS", "TOKENS", "COUNT", "MAX", "MIN",
@@ -243,7 +245,7 @@ def synthetic_configs():
     import re as _re
 
     out = {}
-    for runner in ("llama-server", "vllm", "whisper", "moonshine",
+    for runner in ("llama-server", "vllm", "strata", "gr00t", "whisper", "moonshine",
                    "transcribe", "seamless", "translate", "custom"):
         cfg = {f: value_for(f) for f in cb.CONFIG_FIELDS}
         cfg["RUNNER"] = runner
@@ -261,11 +263,11 @@ def synthetic_configs():
                 render_launch_script(cfg)
                 break
             except AppError as exc:
-                m = _re.match(r"([A-Z_]+) must be (?:a number|an integer)", str(exc))
+                m = _re.match(r"([A-Z][A-Z0-9_]*) must be (?:a number|an integer)", str(exc))
                 if m and cfg.get(m.group(1)) != "7":
                     cfg[m.group(1)] = "7"
                     continue
-                m2 = _re.match(r"([A-Z_]+)\b", str(exc))
+                m2 = _re.match(r"([A-Z][A-Z0-9_]*)\b", str(exc))
                 if m2 and m2.group(1) in cfg and cfg[m2.group(1)]:
                     # Cannot satisfy it: empty it and record that this field is
                     # therefore NOT covered, rather than leaving a refusal that

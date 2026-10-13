@@ -2,9 +2,12 @@
 proxy-route records. Pure validation — no file I/O."""
 import re
 
+from caravan.common.entry_models import ConsumerSet
 from caravan.common.errors import AppError
 from caravan.admin.model_queues import ModelQueues
 from caravan.common.queue_policy import SharedQueuePolicy
+from caravan.common.model_kinds import ModelKind
+from caravan.common.upstream_types import UpstreamType
 
 
 # ── Router — Stage 1 ────────────────────────────────────────────────────
@@ -38,9 +41,7 @@ def _default_router_output():
 
 def normalize_router_output(out):
     out = out if isinstance(out, dict) else {}
-    upstream_type = str(out.get("upstreamType") or "llama").strip().lower()
-    if upstream_type not in ("llama", "cloud", "engine"):
-        upstream_type = "llama"
+    upstream_type = UpstreamType.of(out)
     norm = {
         "id": str(out.get("id") or "").strip() or "o1",
         "label": str(out.get("label") or "").strip()[:80],
@@ -60,6 +61,17 @@ def normalize_router_output(out):
     if upstream_type == "engine":
         for key, limit in (("upstreamModel", 200), ("engine", 40), ("hostId", 120)):
             norm[key] = str(out.get(key) or "").strip()[:limit]
+    # A model of a machine's entry (its scout, 1.3.506): the scout's port serves many models, so
+    # the output names its own, and the machine it stands on (caravan/admin/machine_models.py).
+    if upstream_type == "machine":
+        for key, limit in (("upstreamModel", 200), ("hostId", 120)):
+            norm[key] = str(out.get(key) or "").strip()[:limit]
+    # What the model behind a cell's output does — its jobs, a chat's inputs, its languages,
+    # its longest recording, the window it serves (caravan/common/model_kinds.py, 1.3.502): the
+    # entry tells its clients from them, and a pool's window counts the cell's. A machine's model
+    # carries its copies' (1.3.506).
+    if upstream_type in ("llama", "machine"):
+        norm.update(ModelKind.clean_facts(out))
     return norm
 
 def normalize_router(router):
@@ -125,7 +137,7 @@ def _valid_edge_ref(ref, node_ids, out_ids):
         # None for the missing output (→ legacy-rules fallback), but the edge —
         # and any queue admit/spill role naming it — is preserved, so the wiring
         # auto-restores the moment an output with the same id reappears.
-        if out_id.startswith(("srv:", "cb:", "eng:")):
+        if out_id.startswith(("srv:", "cb:", "eng:", "mm:")):
             return True
         return out_id in out_ids
     return False
@@ -362,16 +374,22 @@ def normalize_agent_proxy_route(route):
     if upstream_type not in ("llama", "cloud"):
         upstream_type = "llama"
     provider_id = str(route.get("providerId") or "").strip()
-    # "" = an agent port (default). "service" = a bridge port for an external
-    # consumer (e.g. a voice app): route-level cloud upstream, no router, no agent
-    # semantics — the kanban and ↑☁ eligibility skip it.
+    # "" = an agent port (default). "consumer" = a consumer of the entry
+    # (caravan/admin/consumers.py): a key and the set of models it is cabled to,
+    # no port of its own and no router — the pool its request names serves it. "service"
+    # was a pool's own port, open without a key: gone since 1.3.487 (the owner,
+    # 2026-10-12: everyone comes in through one address with their own key), so
+    # it is refused, not read as an agent's port (caravan/admin/pool_ports.py).
     kind = str(route.get("kind") or "").strip().lower()
-    if kind not in ("", "service"):
+    if kind == "service":
+        raise AppError("a pool's own port is gone: a client comes in through the entry with its own key", 400)
+    if kind not in ("", "consumer"):
         kind = ""
     return {
         "label": label,
         "port": port,
         "kind": kind,
+        **(ConsumerSet.fields(route) if kind == "consumer" else {}),
         "upstreamHost": upstream_host,
         "upstreamPort": upstream_port,
         "upstreamType": upstream_type,
@@ -381,6 +399,9 @@ def normalize_agent_proxy_route(route):
         # Data-plane auth: when set, the proxy port demands this key as
         # `Authorization: Bearer …` (or x-api-key). Empty = open (default).
         "apiKey": str(route.get("apiKey") or "").strip()[:128],
+        # The agent moved to the entry: its port is closed and its key alone
+        # finds it there (caravan/common/key_entry.py). Written only when set.
+        **({"portClosed": True} if route.get("portClosed") else {}),
         "priority": int(route.get("priority") or 0),
         "preemptible": bool(route.get("preemptible", True)),
         # Client wait timeout (seconds) — the operator's number on the port.
@@ -426,10 +447,11 @@ def normalize_agent_proxy_route(route):
         # explicit instead of being inferred from the label suffix.
         # An ABSENT routerId defaults to router:default (fresh proxy); an EXPLICIT
         # empty string ("") means "unassigned" (free) — not routed by any router,
-        # which the runtime treats as 503 until the user binds it. Bridge ports
-        # are ALWAYS router-free: their routing is the route-level cloud pin,
-        # and no client rebuild may re-attach them to a router.
-        "routerId": ("" if kind == "service"
+        # which the runtime treats as 503 until the user binds it. A client of
+        # the entry is ALWAYS router-free (the owner, 2026-10-12): its cable
+        # leads to a set, the set to pools, and a pool's rows decide — no router's rules, and
+        # no client rebuild may re-attach it to a router.
+        "routerId": ("" if kind == "consumer"
                      else DEFAULT_ROUTER_ID if route.get("routerId") is None
                      else str(route.get("routerId")).strip()),
         "role": (str(route.get("role") or "").strip().lower() or _role_from_label(route.get("label"))),
@@ -455,8 +477,8 @@ def recompute_cloud_fallback_eligibility(routes):
     for route in routes:
         if not isinstance(route, dict):
             continue
-        if str(route.get("kind") or "") == "service":
-            continue  # bridge ports never act as a group's cloud sibling
+        if str(route.get("kind") or "") == "consumer":
+            continue  # a consumer never acts as a group's cloud sibling
         if str(route.get("upstreamType") or "llama").strip().lower() == "cloud":
             pid = str(route.get("providerId") or "").strip()
             if pid:
@@ -464,8 +486,8 @@ def recompute_cloud_fallback_eligibility(routes):
     for route in routes:
         if not isinstance(route, dict):
             continue
-        if str(route.get("kind") or "") == "service":
-            continue  # ↑☁ is an agent-route ability; leave bridges untouched
+        if str(route.get("kind") or "") == "consumer":
+            continue  # ↑☁ is an agent-route ability; leave consumers untouched
         is_cloud = str(route.get("upstreamType") or "llama").strip().lower() == "cloud"
         cloud_pid = group_cloud.get(_proxy_group_key(route.get("label")), "")
         eligible = bool(cloud_pid) and not is_cloud

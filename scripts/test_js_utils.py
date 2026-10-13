@@ -11,8 +11,7 @@ but not on auth paths or on the sign-in page itself. `toast` — text, class, a
 an honest false. Memory and boolean formats. `positionTooltip` — clamped to
 the window's edges and repositioned under the trigger. `markPageState` — a
 single flag on body: state, details capped at 200 characters, aria-busy only
-while loading. `inferSpecType` — a draft's type from the FIRST token of the
-filename. `fillVersionChipFromHealth` — the version from /health, only where
+while loading. `fillVersionChipFromHealth` — the version from /health, only where
 a git branch hasn't already been written. `fmtGb` — one gigabyte format for
 the models page and its stores panel (two copies of a format drift apart).
 
@@ -61,6 +60,16 @@ PINS = [
     ("api_blob_body_untouched", 'globalThis.__fetchReply["/x"] = { ok: true };', 'await (async () => { const b = new Blob(["z"]); await m.api("/x", { method: "POST", body: b }); return rawCalls()[0].body === b; })()', 'true', "Blob — провод понимает сам, не сериализуется"),
     ("api_error_message_from_body_or_status", '', 'await (async () => { globalThis.__fetchReply["/x"] = { __status: 500, error: "disk full" }; let a = ""; try { await m.api("/x"); } catch (e) { a = e.message; } globalThis.__fetchReply["/x"] = { __status: 503 }; let b = ""; try { await m.api("/x"); } catch (e) { b = e.message; } return [a, b]; })()', '["disk full",""]',
      "отказ: текст из тела, иначе statusText — а он пуст у Response без текста (и у браузера под HTTP/2): отказ без error в теле показывается пустой строкой (as-is)"),
+    ("api_error_carries_status_and_answer", 'globalThis.__fetchReply["/x"] = { __status: 409, error: "changed", stale: true, topology: { a: 1 } };',
+     'await (async () => { try { await m.api("/x", { method: "POST", body: "{}" }); return "no throw"; } catch (e) { return [e.message, e.status, e.data.stale, e.data.topology.a]; } })()',
+     '["changed",409,true,1]',
+     "отказ несёт свой статус и весь ответ: кто умеет действовать по отказу (старая копия, 409), читает их; остальным — то же сообщение"),
+    ("is_stale_copy_only_the_stale_refusal", '',
+     '(() => { const e = (status, data) => Object.assign(new Error("x"), { status, data });'
+     ' return [m.isStaleCopy(e(409, { stale: true, topology: {} })), m.isStaleCopy(e(409, { error: "two queue policies" })),'
+     ' m.isStaleCopy(e(409, { stale: true })), m.isStaleCopy(e(500, { stale: true, topology: {} })), m.isStaleCopy(new Error("x")), m.isStaleCopy(null)]; })()',
+     '[true,false,false,false,false,false]',
+     "старая копия — только 409 со `stale` и текущей топологией; negative: другой 409 (две политики очереди), 409 без топологии, другой статус, ошибка без статуса — не она"),
     ("api_401_redirects_to_login", 'globalThis.__fetchReply["/api/x"] = { __status: 401, error: "no session" };', 'await (async () => { let msg = ""; try { await m.api("/api/x"); } catch (e) { msg = e.message; } return [globalThis.location, msg]; })()', '["/login","no session"]', "401 вне авторизации — уход на /login, и ошибка всё равно брошена"),
     ("api_401_no_redirect_on_auth_paths_or_login_page", '', 'await (async () => { globalThis.__fetchReply["/api/auth/login"] = { __status: 401, error: "bad password" }; try { await m.api("/api/auth/login"); } catch {} const a = globalThis.location.pathname; globalThis.location.pathname = "/login"; globalThis.__fetchReply["/api/x"] = { __status: 401, error: "x" }; try { await m.api("/api/x"); } catch {} return [a, globalThis.location.pathname]; })()', '["/board","/login"]',
      "negative: на путях авторизации и на самой странице входа 401 не уводит никуда"),
@@ -84,11 +93,11 @@ PINS = [
     ("mark_page_state", '', '(() => { m.markPageState("loading"); const a = [document.body.dataset.tState, document.body.attrs["aria-busy"]]; m.markPageState("error", "x".repeat(300)); const b = [document.body.dataset.tState, document.body.dataset.tStateDetail.length, document.body.attrs["aria-busy"]]; m.markPageState("ready"); return [...a, ...b, document.body.dataset.tState, "tStateDetail" in document.body.dataset]; })()', '["loading","true","error",200,"false","ready",false]',
      "флаг готовности: loading = aria-busy, error с деталью не длиннее 200, ready снимает деталь"),
     ("mark_page_state_without_body", 'document.body = null;', '(() => { m.markPageState("ready"); return true; })()', 'true', "negative: без body — без исключения"),
-    ("infer_spec_type", '', '["/m/dflash-qwen.gguf", "DSPARK_x.gguf", "eagle3.head.gguf", "mtp-draft.gguf", "my-dflash-lookalike.gguf", "plain.gguf", ""].map(m.inferSpecType)', '["draft-dflash","draft-dspark","draft-eagle3","draft-mtp","draft-simple","draft-simple","draft-simple"]',
-     "тип черновика по ПЕРВОМУ токену имени файла без учёта регистра; похожее имя дальше по строке не считается; иначе draft-simple"),
     ("version_chip_from_health", 'globalThis.__fetchReply["/health"] = { version: "1.3.306", commit: "abc" }; globalThis.__fields.projectGitBranch = mkEl();', 'await (async () => { m.fillVersionChipFromHealth(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); const el = F().projectGitBranch; return [el.textContent, el.title]; })()', '["v1.3.306","lama-caravan v1.3.306 @ abc"]',
      "чип версии из /health на страницах без state"),
-    ("version_chip_not_over_git_label", 'globalThis.__fetchReply["/health"] = { version: "1.3.306" }; globalThis.__fields.projectGitBranch = mkEl({ textContent: "v1 · git: main" });', 'await (async () => { m.fillVersionChipFromHealth(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); return F().projectGitBranch.textContent; })()', '"v1 · git: main"', "negative: где ветка git уже написана, чип не перезаписывается"),
+    ("version_chip_not_over_an_image_commit", 'globalThis.__fetchReply["/health"] = { version: "1.3.306" }; globalThis.__fields.projectGitBranch = mkEl({ textContent: "v1.3.306 · 018d9695", dataset: { fromState: "1" } });', 'await (async () => { m.fillVersionChipFromHealth(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); return F().projectGitBranch.textContent; })()', '"v1.3.306 · 018d9695"',
+     "negative: чип, написанный из state, не перезаписывается и без «git:» в тексте — у сборки образа там коммит (раньше /health стёр бы его до «v1.3.306»)"),
+    ("version_chip_not_over_git_label", 'globalThis.__fetchReply["/health"] = { version: "1.3.306" }; globalThis.__fields.projectGitBranch = mkEl({ textContent: "v1 · git: main", dataset: { fromState: "1" } });', 'await (async () => { m.fillVersionChipFromHealth(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); return F().projectGitBranch.textContent; })()', '"v1 · git: main"', "negative: где ветка git уже написана, чип не перезаписывается"),
     ("version_chip_without_element_or_version", 'globalThis.__fetchReply["/health"] = {};', 'await (async () => { m.fillVersionChipFromHealth(); const a = rawCalls().length; globalThis.__fields.projectGitBranch = mkEl(); m.fillVersionChipFromHealth(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r)); return [a, F().projectGitBranch.textContent]; })()', '[0,""]', "negative: без элемента запроса нет; без версии в ответе — пусто"),
 ]
 

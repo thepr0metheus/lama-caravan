@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _node import find_node  # noqa: E402
 from caravan.common.model_jobs import (  # noqa: E402
-    JOBS, jobs_for_artifact, jobs_for_cell, jobs_from_kinds,
+    JOBS, cell_jobs, cell_runner_id, jobs_for_artifact, jobs_for_cell, jobs_from_kinds,
 )
 
 _fail = []
@@ -57,6 +57,10 @@ ARTIFACTS = [
      "safetensors под vLLM — тоже LLM"),
     ("safetensors_seamless", "st", "", "seamless_m4t_v2", "", ["speech-translate"],
      "positive: seamless — речь → перевод, ОТДЕЛЬНАЯ работа от распознавания: транскрипта он не отдаёт"),
+    ("safetensors_gr00t", "st", "", "Gr00tN1d7", "", ["robot-policy"],
+     "positive: папка GR00T — действия робота, а не чат: её ответ — числа для робота, которых не прочтёт ни один чат-клиент"),
+    ("safetensors_cosmos_backbone", "st", "", "qwen3_vl", "", ["llm"],
+     "negative: основа GR00T (Cosmos, qwen3_vl) — сама по себе чат-модель, не робот"),
     ("whisper_size", "whisper", "", "", "", ["asr"],
      "whisper — распознавание, хотя «модель» тут это размер"),
     ("moonshine_lang", "moonshine", "", "", "", ["asr", "tts"],
@@ -74,6 +78,14 @@ CELLS = [
     ("llama_cell", "llama-server", [], ["llm"],
      "раннер без живого отчёта — работа из таблицы раннеров"),
     ("vllm_cell", "vllm", [], ["llm"], "vLLM — тоже LLM"),
+    ("strata_cell", "strata", [], ["llm"], "Strata — чат-модель (Qwen3.8-Flash-Next), тоже LLM"),
+    ("gr00t_cell", "gr00t", [], ["robot-policy"], "GR00T без живого отчёта — действия робота по таблице раннеров"),
+    ("gr00t_cell_dotted_kind", "gr00t", ["robot-policy", "robot-policy.gr00t"], ["robot-policy"],
+     "живой отчёт ячейки GR00T: голое слово работы и уточнение движком — одна работа"),
+    ("vla_alias", "custom", ["vla"], ["robot-policy"],
+     "«vla» (vision-language-action, как говорит поле) — то же слово, что robot-policy"),
+    ("prism_cell", "prism", [], ["llm"],
+     "defect-history: PrismML — LLM и на сервере: двойник в браузере говорил «llm», а сервер молчал"),
     ("whisper_cell_dotted_kind", "whisper", ["stt.whisper"], ["asr"],
      "positive: «stt.whisper» читается по первому сегменту — движок в слове, а работа всё равно понятна"),
     ("transcribe_cell_bare_kind", "transcribe", ["asr"], ["asr"],
@@ -108,6 +120,7 @@ DECLARED = {
     # model) — both pinned by value in test_engine_cell_server.py; what a
     # reader of the source sees is the common case, llm.
     "engine_cell_server.py": ["llm"],
+    "gr00t_server.py": ["robot-policy", "robot-policy.gr00t"],
     "moonshine_server.py": ["asr", "tts"],
     "seamless_server.py": ["speech-translate"],
     "transcribe_server.py": ["asr"],
@@ -115,6 +128,31 @@ DECLARED = {
     "tts_server.py": ["tts", "tts.*"],
     "whisper_server.py": ["asr", "stt.whisper"],
 }
+
+
+# A cell's record — its settings and what it says of itself — as the board draws its chips
+# (cellJobs) and the controller tells the proxy what a pool's row does (cell_jobs, 1.3.502):
+# (name, settings, what the cell said, expected runner, expected jobs, what the pin is for)
+RECORDS = [
+    ("llama_slot", {"MODEL_FILE": "x.gguf"}, {}, "llama-server", ["llm"],
+     "ячейка с настройками без RUNNER — llama-server, чат"),
+    ("embedding_flag", {"ENABLE_EMBEDDINGS": "1"}, {}, "llama-server", ["embed"],
+     "флаг эмбеддингов — эмбеддинги, хотя раннер llama-server"),
+    ("embedding_flag_off", {"ENABLE_EMBEDDINGS": " Off "}, {}, "llama-server", ["llm"],
+     "negative: флаг выключен словом off — снова чат"),
+    ("command_tts", {"CELL_KIND": "command"}, {"kinds": ["tts.cosyvoice"]}, "custom", ["tts"],
+     "ячейка-команда — раннер custom; голос узнаётся только по её собственным kinds"),
+    ("command_silent", {"CELL_KIND": "command"}, {}, "custom", [],
+     "negative: команда, которая о себе молчит, — работы нет, а не «llm»"),
+    ("no_settings_asr", {}, {"kinds": ["asr"]}, "llama-server", ["asr"],
+     "ячейка, сделанная другим контроллером, — то, что она говорит о себе"),
+    ("no_settings_silent", {}, {}, "llama-server", [],
+     "negative: без настроек и без слов — ничего: раннер по умолчанию был бы догадкой"),
+    ("whisper_upper", {"RUNNER": " Whisper "}, {}, "whisper", ["asr"],
+     "RUNNER читается без регистра и пробелов"),
+    ("seamless_kinds", {"RUNNER": "seamless"}, {"kinds": ["speech-translate"]}, "seamless", ["speech-translate"],
+     "seamless — перевод речи, а не распознавание"),
+]
 
 
 def test_cells_say_what_they_do():
@@ -152,14 +190,23 @@ def main():
         py_cell[name] = got
         check(got == want, f"{msg} (got {got})")
 
+    print("правило на сервере — запись ячейки (настройки и её слова, 1.3.502):")
+    py_rec = {}
+    for name, cfg, meta, runner, want, msg in RECORDS:
+        got = [cell_runner_id(cfg), list(cell_jobs(cell_runner_id(cfg), meta, cfg))]
+        py_rec[name] = got
+        check(got == [runner, want], f"{msg} (got {got})")
+    check(cell_jobs("llama-server", None, None) == () and cell_runner_id(None) == "llama-server",
+          "negative: записи нет вовсе — работы нет, раннер по умолчанию")
+
     check(jobs_from_kinds(None) == () and jobs_from_kinds([]) == (),
           "negative: kinds отсутствуют или пусты — пустой ответ, а не падение")
     check(jobs_from_kinds(["STT.Whisper", " ASR "]) == ("asr",),
           "регистр и пробелы в kinds не мешают: одна работа, одно слово")
     check((jobs_from_kinds(["embedding"]), jobs_from_kinds(["vlm"]), jobs_from_kinds(["llm"])) == (("embed",), ("llm",), ("llm",)),
           "слова движков рядом с ячейками (LM Studio: embedding, vlm, llm) — тот же словарь работ")
-    check(tuple(JOBS) == ("llm", "embed", "asr", "tts", "translate", "speech-translate"),
-          "словарь — ровно шесть работ, и его порядок и есть порядок чипов")
+    check(tuple(JOBS) == ("llm", "embed", "asr", "tts", "translate", "speech-translate", "robot-policy"),
+          "словарь — ровно семь работ (седьмая — действия робота, 2026-10-13), и его порядок и есть порядок чипов")
 
     print("двойник в браузере:")
     node = find_node()
@@ -172,9 +219,11 @@ def main():
         'const m = await import(pathToFileURL(process.env.JS_FILE).href);\n'
         f"const arts = {json.dumps([[n, k, v, a, fam] for n, k, v, a, fam, _w, _m in ARTIFACTS])};\n"
         f"const cells = {json.dumps([[n, r, k] for n, r, k, _w, _m in CELLS])};\n"
-        'const out = { art: {}, cell: {} };\n'
+        f"const records = {json.dumps([[n, c, meta] for n, c, meta, _r, _w, _m in RECORDS])};\n"
+        'const out = { art: {}, cell: {}, rec: {} };\n'
         'for (const [n, k, v, a, fam] of arts) out.art[n] = m.jobsForArtifact(k, v, a, fam);\n'
         'for (const [n, r, k] of cells) out.cell[n] = m.jobsForCell(r, k);\n'
+        'for (const [n, c, meta] of records) out.rec[n] = [m.cellRunnerId(c), m.cellJobs(m.cellRunnerId(c), meta, c)];\n'
         'out.__jobs = m.JOBS;\n'
         'out.__marks = m.JOBS.map((j) => m.JOB_MARKS[j] || "");\n'
         'out.__labels = m.JOBS.map((j) => m.JOB_LABELS[j] || "");\n'
@@ -200,8 +249,11 @@ def main():
         check(js["art"].get(name) == want, f"js: {msg} (got {js['art'].get(name)})")
     for name, _r, _k, want, msg in CELLS:
         check(js["cell"].get(name) == want, f"js: {msg} (got {js['cell'].get(name)})")
+    for name, _c, _meta, runner, want, msg in RECORDS:
+        check(js["rec"].get(name) == [runner, want], f"js: {msg} (got {js['rec'].get(name)})")
     diverged = ([n for n in py_art if js["art"].get(n) != py_art[n]]
-                + [n for n in py_cell if js["cell"].get(n) != py_cell[n]])
+                + [n for n in py_cell if js["cell"].get(n) != py_cell[n]]
+                + [n for n in py_rec if js["rec"].get(n) != py_rec[n]])
     check(not diverged,
           f"обе копии правила отвечают ОДИНАКОВО на всей таблице (разошлись: {diverged})")
     check(js["__jobs"] == list(JOBS), f"словарь совпадает в обеих копиях (got {js['__jobs']})")

@@ -7,12 +7,12 @@ import pathlib
 import re
 import time
 
-from caravan.admin.board_layout import ServerOrder
+from caravan.admin.board_layout import ClientOrder, ServerOrder
+from caravan.admin.board_providers import ProviderDesk
 from caravan.admin.controller_machine import ControllerMachine
-from caravan.admin.proxy_stats import proxy_ports_last_seen
-from caravan.admin import model_catalog
-from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
-from caravan.admin.cloud_pools import CloudPoolDesk
+from caravan.admin.proxy_stats import embeddings_last_called, proxy_ports_last_seen
+from caravan.admin.cloud import cloud_accounts_state, cloud_provider_presets_public
+from caravan.admin.pools import PoolDesk
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.cell_assets import cell_source_state
 from caravan.admin.runners import (cell_artifact_label, cell_model_ref,
@@ -25,9 +25,12 @@ from caravan.admin.models import display_model_name
 from caravan.admin.model_locator import current_locations
 from caravan.admin.monitoring import gpu_state
 from caravan.admin.paths import AGENT_PROXY_STATE_FILE, CONTROLLER_HOST_ID, TOPOLOGY_SERVER_IP, AGENT_PROXY_BASE_PORT, SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
+from caravan.admin.model_schedules import ModelScheduleDesk
+from caravan.admin.model_sets import SetDesk
+from caravan.admin.proxy_entry import AsConsumer, ConsumerAddress, PortDoor
 from caravan.admin.proxies_config import (
+    ProxyRevisions,
     load_agent_proxy_config,
-    next_app_port,
     read_agent_proxy_payload,
     sync_router_outputs,
     write_agent_proxy_payload,
@@ -44,6 +47,7 @@ from caravan.admin.telemetry import (
     _record_tps_history,
     command_cell_health,
     probe_remote_port,
+    remote_cell_about,
     remote_llama_health,
     remote_llama_modalities,
 )
@@ -51,11 +55,16 @@ from caravan.common.errors import AppError
 from caravan.admin.models import MODEL_LIST
 from caravan.domain.driver_outlook import DriverOutlook
 from caravan.domain.engine import GpuOwners
+from caravan.domain.runner import for_config
 from caravan.admin.engine_outputs import EngineOutputs
-from caravan.common.context_window import block_window, effective_window, route_window_inputs
+from caravan.admin.machine_models import MachineOutputs
+from caravan.common.context_window import effective_window, route_window_inputs
+from caravan.common.entry_models import EntryModels
+from caravan.common.key_entry import KeyEntry
 from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
 from caravan.proxy.graph import answer_port_question, port_question_reaches
 from caravan.proxy.output_health import output_health
+from caravan.common.model_kinds import ModelKind
 
 
 _SLOT_MODEL_SIZE_CACHE = {}  # model path → (bytes, checked_at)
@@ -263,8 +272,11 @@ def topology_server(config=None):
         cfg = slot.get("config") or {}
         if not uses_token_context(cfg):
             return None
+        # The runner's own field: vLLM's window is MAX_MODEL_LEN and Strata's
+        # STRATA_CONTEXT — read as CTX_SIZE, their cards showed the window
+        # every config inherits.
         try:
-            return int(cfg.get("CTX_SIZE") or 0) or None
+            return int(cfg.get(for_config(cfg).context_field) or 0) or None
         except (TypeError, ValueError):
             return None
 
@@ -382,6 +394,16 @@ def topology_server(config=None):
         if remote_mods is None:
             remote_mods = _normalize_modalities(ln.get("modalities"))
         _crash = _scout_crash_note(ln.get("crash"))
+        # A cell this controller holds no settings for — made by the controller that ran on the
+        # machine before this one — has no runner on record here: what it runs is what it says
+        # about itself (2026-10-12: a faster-whisper cell stood on the board as ":22005" with no
+        # name, and every such cell wore the chat mark). Asked only while it runs.
+        _about = remote_cell_about(client_ip, remote_port) if running and not _r_cfg else {}
+        model_name = model_name or _about.get("model", "")
+        _meta = _cell_meta(_ch, _r_cfg, slot_is_command)
+        for _said in ("engine", "kinds", "langs", "maxAudioMs", "targetLang"):
+            if _said in _about and _said not in _meta:
+                _meta[_said] = _about[_said]
         _shown_phase = effective_phase if running else (phase or "starting")
         _progress = {"progressNote": _starting_note} if _starting_note else {}
         llama_servers.append({
@@ -396,7 +418,7 @@ def topology_server(config=None):
             "cellLabel": cell_artifact_label(_r_cfg),
             # What the cell says about itself on its health path. Beats the
             # config for anything the config cannot describe — see telemetry.
-            "cellMeta": _cell_meta(_ch, _r_cfg, slot_is_command),
+            "cellMeta": _meta,
             "modelPath": model_path,
             # Which of its launch files a library holds — the card's 📚. By the
             # saved config's paths: what the scout reports is where IT reads them.
@@ -421,6 +443,8 @@ def topology_server(config=None):
             "gpuName": gpu_name,
             "uptimeSec": ln.get("uptimeSec"),
             "pid": ln.get("pid"),
+            # Bound to the card as the cell's too (_bind_servers_to_gpus).
+            "pids": list(ln.get("pids") or []),
             "phase": effective_phase,
             "modelReady": (health == "ok") if running else None,
             "downloadedBytes": _cmd_dl or int(ln.get("downloadedBytes") or 0),
@@ -446,6 +470,9 @@ def topology_server(config=None):
             "isSlot": bool(_r_slot),
             "isController": False,
             "slotConfig": (_r_slot.get("config") or {}) if _r_slot else {},
+            # Whether its scout keeps the model after a stop — the form's
+            # switch opens on the cell's own value, not on its default.
+            "cacheModels": bool((_r_slot or {}).get("cacheModels")),
             "commandHistory": (_r_slot.get("commandHistory") or []) if _r_slot else [],
             # A RUNNING cell carries its saved line too. It did not, and the cell
             # modal — which shows the command for every runner but llama — told
@@ -490,7 +517,7 @@ def topology_server(config=None):
         # ids, which went stale the moment a runner was added — seamless and
         # translate cells, fully configured, rendered as empty "reserved" slots.
         slot_phase = "stopped" if (model_path or (
-            slot_is_command and effective_command(slot_cfg).strip())) else "reserved"
+            slot_is_command and _saved_command(slot, slot_cfg).strip())) else "reserved"
         llama_servers.append({
             "id": f"slot:{host_id}:{port}",
             "name": str(client.get("name") or host_id),
@@ -531,6 +558,7 @@ def topology_server(config=None):
             "vllmStats": None,
             "schedule": slot.get("schedule") or None,
             "slotConfig": slot_cfg,
+            "cacheModels": bool(slot.get("cacheModels")),
             "commandHistory": slot.get("commandHistory") or [],
             # The launch line this cell is saved with. A RUNNING cell carries its
             # line too (above): the cell modal shows the command for every runner
@@ -693,6 +721,10 @@ def topology_nodes(config, server_obj, hosts):
             # scout cannot look — the board then draws no block at all. Each
             # model says whether the operator made it a router output.
             "engines": EngineOutputs().annotate(host),
+            # The machine's models as its entry lists them (scout 2.28+): each with its state, its
+            # places and its copies — the board's word for a pool row's model of the machine. None
+            # when its scout cannot say.
+            "entryModels": host.get("entryModels") if isinstance(host.get("entryModels"), list) else None,
             # The machine this controller runs on: its node carries the
             # controller's own Server stats panel.
             "controllerMachine": own,
@@ -811,18 +843,27 @@ def _served_windows_by_address(server_obj):
     return found
 
 
-def _block_window_resolver(cloud_blocks):
-    """block id → (window, block): the figure a cloud block stands for, by the block's own rule.
+def _router_outputs(proxy_config):
+    """Output id → the routers' output, as the proxy reads them: a cell's address and what its
+    model does (caravan/common/model_kinds.py)."""
+    return {str(out.get("id")): out for router in (proxy_config or {}).get("routers") or []
+            for out in router.get("outputs") or [] if isinstance(out, dict) and out.get("id")}
 
-    The catalogue is consulted only for a block whose switch is on — the same
-    condition under which the proxy reads it (caravan/proxy/cloud_auth.py), so
-    the board and the port derive the block's number from the same sources.
+
+def _pool_window_resolver(pools, outputs=None):
+    """pool id → (window, pool): the figure a pool stands for, by the pool's own rule.
+
+    The catalogues are consulted only for a pool whose switch is on — the same
+    condition under which the proxy reads them (caravan/proxy/cloud_auth.py),
+    and with the same rule (CloudPools.window), so the board and the port
+    derive the pool's number from the same sources: a cell's row counts by the
+    window its router output carries (`outputs`, 1.3.502).
     """
-    blocks = {str(b.get("id")): b for b in (cloud_blocks or []) if isinstance(b, dict)}
+    from caravan.common.cloud_pools import CloudPools
+    by_id = {str(p.get("id")): p for p in (pools or []) if isinstance(p, dict)}
     catalogues = {}
 
-    def reported(block):
-        account_id = str(block.get("accountId") or "")
+    def named(account_id, model):
         if account_id not in catalogues:
             try:
                 from caravan.admin.model_catalog import cached_models_entry
@@ -831,19 +872,51 @@ def _block_window_resolver(cloud_blocks):
                 models = []
             catalogues[account_id] = {m.get("id"): m.get("contextLength")
                                       for m in models if isinstance(m, dict)}
-        return catalogues[account_id].get(block.get("model"))
+        return catalogues[account_id].get(model)
 
-    def resolve(block_id):
-        block = blocks.get(str(block_id or ""))
-        if block is None:
+    def resolve(pool_id):
+        pool = by_id.get(str(pool_id or ""))
+        if pool is None:
             return None, None
-        prefer = bool(block.get("contextAuto"))
-        return block_window(block.get("contextLength"), reported(block) if prefer else None, prefer), block
+        # A step's catalogue is its credential's: a test alias's is its original's.
+        steps = [{**s, "accountId": s.get("usageAccountId") or s["accountId"]} if s.get("kind", "account") == "account"
+                 else s for s in pool.get("steps") or []]
+        local = (lambda output_id: (outputs.get(str(output_id)) or {}).get("contextLength")) if outputs else None
+        return CloudPools.window({**pool, "steps": steps}, named, local), pool
 
     return resolve
 
 
-def _route_window_facts(route, proxy_config, served, resolve_block):
+def annotate_pool_kinds(pools, accounts, outputs):
+    """Every pool with what its rows do together (`kind`, caravan/common/model_kinds.py): the
+    jobs and a chat's inputs the entry tells its clients, `{"mixed": true}` when the rows do
+    different work, None when a row that may serve says nothing of itself. The kanban draws it
+    on the pool and on the sets that hold it, and works none of it out itself."""
+    by_id = {str(a.get("id")): a for a in accounts or [] if isinstance(a, dict)}
+    for pool in pools or []:
+        if isinstance(pool, dict):
+            kind = ModelKind.of_pool(pool, lambda account_id: by_id.get(str(account_id)),
+                                     lambda output_id: (outputs or {}).get(str(output_id)))
+            pool["kind"] = kind.state() if kind is not None else None
+    return pools
+
+
+def annotate_pool_windows(pools, outputs=None):
+    """Every pool with the window it states to its clients (`window`): the
+    figure GET /v1/models gives them, by the pool's own rule — the operator's
+    number, or the smallest its enabled rows' providers name when the switch is
+    on (_pool_window_resolver, CloudPools.window) — and None when it states
+    none. The kanban says it under the pool's settings and works none of it
+    out itself; a board that could not read it has no `window` at all, which
+    is not None."""
+    resolve = _pool_window_resolver(pools, outputs)
+    for pool in pools or []:
+        if isinstance(pool, dict):
+            pool["window"] = resolve(pool.get("id"))[0]
+    return pools
+
+
+def _route_window_facts(route, proxy_config, served, resolve_pool):
     """What the output the port answers /v1/models from serves: (window, source).
 
     The same resolution GET /v1/models goes through — answer_port_question —
@@ -859,15 +932,16 @@ def _route_window_facts(route, proxy_config, served, resolve_block):
     if not upstream_type:
         return None, {"kind": "unrouted", "reason": str(resolved.get("unrouted"))}
     if upstream_type == "cloud":
-        block_id = str(resolved.get("providerId") or "")
-        if not block_id:
+        pool_id = str(resolved.get("providerId") or "")
+        if not pool_id:
             # An account passthrough pins no model, so no single window exists.
             return None, {"kind": "account", "account": str(resolved.get("cloudAccountId") or "")}
-        window, block = resolve_block(block_id)
-        if block is None:
-            return None, {"kind": "unrouted", "reason": "block missing"}
-        return window, {"kind": "block", "name": str(block.get("name") or block.get("model") or ""),
-                        "model": str(block.get("model") or "")}
+        window, pool = resolve_pool(pool_id)
+        if pool is None:
+            return None, {"kind": "unrouted", "reason": "pool missing"}
+        return window, {"kind": "pool", "name": str(pool.get("name") or pool_id),
+                        "models": [s.get("model") or s.get("output") for s in pool.get("steps") or []
+                                   if s.get("enabled", True) and s.get("kind", "account") != "open"]}
     host = str(resolved.get("upstreamHost") or "127.0.0.1")
     port = _positive_int(resolved.get("upstreamPort")) or 0
     if upstream_type == "engine":
@@ -876,6 +950,12 @@ def _route_window_facts(route, proxy_config, served, resolve_block):
         # not as a cell that went silent.
         return None, {"kind": "engine", "model": str(resolved.get("upstreamModel") or ""),
                       "host": host, "port": port}
+    if upstream_type == "machine":
+        # A model of a machine's entry: the smallest window its copies serve, as its output says it
+        # (machine_models.MachineOutputs) — the scout's port serves many models, no one window.
+        out = _router_outputs(proxy_config).get(str(resolved.get("routedOutputId") or "")) or {}
+        return _positive_int(out.get("contextLength")), {"kind": "machine", "model": str(resolved.get("upstreamModel") or ""),
+                                                         "host": host}
     return served.get((host, port)), {"kind": "cell", "host": host, "port": port}
 
 
@@ -889,7 +969,7 @@ def _proxy_output_health():
         return {}
 
 
-def annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks):
+def annotate_route_windows(proxies, proxy_config, server_obj, pools):
     """Three windows on every proxy row: the model's, the operator's, the advertised one.
 
     `modelWindow` is what the output a plain request reaches serves, with
@@ -900,7 +980,7 @@ def annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks):
     `contextAuto`), copied there from the assignment by reconcile_proxy_metadata.
     """
     served = _served_windows_by_address(server_obj)
-    resolve_block = _block_window_resolver(cloud_blocks)
+    resolve_pool = _pool_window_resolver(pools, _router_outputs(proxy_config))
     # The proxy's verdicts first: a backup node whose main is known dead sends
     # the next request down its backup exit, and the window the port really
     # advertises is that exit's — the board must resolve the same way.
@@ -911,7 +991,7 @@ def annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks):
     for proxy in proxies:
         if not isinstance(proxy, dict):
             continue
-        window, source = _route_window_facts(proxy, proxy_config, served, resolve_block)
+        window, source = _route_window_facts(proxy, proxy_config, served, resolve_pool)
         limit, prefer = route_window_inputs(proxy)
         proxy["modelWindow"] = window
         proxy["modelWindowSource"] = source
@@ -922,10 +1002,44 @@ def annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks):
     return proxies
 
 
-def _board_proxy(route, *, holders, last_seen, routers_by_id):
+def annotate_consumer_set(proxies, entry_models):
+    """Every consumer of the entry with the set its cable leads to and the models its key calls
+    (caravan/common/entry_models.py): `set` the set's id and `setName` its name, both "" when no
+    cable reaches the consumer — a set that is gone included — and `models` the names its
+    `GET /v1/models` lists, in order. The board draws the cable and the names from here and never
+    works them out of its own; the fields of an older form (`pool`, `models` as pool ids) are not
+    handed on."""
+    for proxy in proxies or []:
+        if isinstance(proxy, dict) and str(proxy.get("kind") or "") == "consumer":
+            found = entry_models.set_of(proxy)
+            proxy["models"] = [EntryModels.name(pool) for pool in entry_models.models(proxy)]
+            proxy.pop("pool", None)
+            proxy["set"] = found["id"] if found else ""
+            proxy["setName"] = found["name"] if found else ""
+    return proxies
+
+
+def annotate_consumer_misses(proxies, misses=None):
+    """Every client of the entry with what it asked and was answered with an error over the last
+    30 days (`misses`: {items, more}, caravan/admin/client_misses.py): the kanban's client card
+    lists them. A journal that cannot be read leaves the key out — not known is not "none"."""
+    from caravan.admin.client_misses import CLIENT_MISSES
+    reader = misses or CLIENT_MISSES
+    clients = [p for p in proxies or [] if isinstance(p, dict) and str(p.get("kind") or "") == "consumer"]
+    found = reader.of([int(p.get("port") or 0) for p in clients])
+    if found is None:
+        return proxies
+    for proxy in clients:
+        proxy["misses"] = found.get(int(proxy.get("port") or 0), {"items": [], "more": 0})
+    return proxies
+
+
+def _board_proxy(route, *, holders, last_seen, routers_by_id, address=None):
     """One proxy route as the board is handed it: the route's own fields plus
     its id and address, when it last served, where its router actually sends
-    it, and who holds it.
+    it, and who holds it. The address is the consumer's (ConsumerAddress): the
+    entry's once the port is closed. `keyTail` is the key's last four
+    characters — what the board shows of a key.
 
     Its own function so that what a proxy carries can be checked by value —
     topology_state around it reaches twenty collaborators.
@@ -934,10 +1048,17 @@ def _board_proxy(route, *, holders, last_seen, routers_by_id):
     proxy = {
         **route,
         "id": f"skynet:proxy:{route.get('port')}",
-        "endpoint": ProxyRoute.port_url(TOPOLOGY_SERVER_IP, route.get("port") or 0),
+        "endpoint": (address.of(route.get("port") or 0) if address
+                     else ProxyRoute.port_url(TOPOLOGY_SERVER_IP, route.get("port") or 0)),
+        "keyTail": KeyEntry.tail(route.get("apiKey")),
         "upstreamId": f"skynet:llama-server:{route.get('upstreamPort')}",
         "lastRequestAt": int(served) if served else 0,
     }
+    if str(route.get("kind") or "") == "consumer":
+        # A consumer's key is shown once, when it is made (caravan/admin/consumers.py):
+        # the board gets its last four characters, and a save from the page keeps
+        # the stored key (PolicyOwnedFields).
+        proxy.pop("apiKey", None)
     # Who holds the port — the same reading the bind check refuses by, so the
     # port picker can offer only what a bind will accept.
     proxy["holders"] = [{"hostId": h, "agentId": a, "role": r}
@@ -965,7 +1086,11 @@ def topology_state(refresh_hosts=True):
         SCOUT_POLLER.kick()
     config = parse_config()
     store = topology_store()
-    proxy_config = load_agent_proxy_config()
+    # One reading for the lists the board draws and for their versions: a save
+    # made from this answer names the version of exactly what it was shown.
+    proxy_reading = read_agent_proxy_payload()
+    proxy_revisions = ProxyRevisions.of(proxy_reading)
+    proxy_config = load_agent_proxy_config(proxy_reading)
     policy = proxy_config.get("policy") or normalize_agent_proxy_policy({})
     proxies = []
     _routers_by_id = {str(r.get("id")): r for r in (proxy_config.get("routers") or [])}
@@ -973,40 +1098,61 @@ def topology_state(refresh_hosts=True):
     # "confirmed" on it, since most agents never report their own config.
     _last_seen = proxy_ports_last_seen()
     _holders = _port_holders()
+    door = PortDoor().open()
+    address = ConsumerAddress(proxy_config, TOPOLOGY_SERVER_IP, door)
     for route in proxy_config.get("routes", []):
-        proxies.append(_board_proxy(route, holders=_holders, last_seen=_last_seen, routers_by_id=_routers_by_id))
+        proxies.append(_board_proxy(route, holders=_holders, last_seen=_last_seen, routers_by_id=_routers_by_id,
+                                    address=address))
     server_obj = topology_server(config)
     hosts = topology_hosts()
     # Auto-sync router outputs to the available providers: the cells, the
-    # engine models the operator made outputs, the exposed cloud blocks.
+    # engine models the operator made outputs, the models of the machines'
+    # entries (1.3.506), the pools.
     # Persist once when they change so agent-proxies.py routes.
+    desk = PoolDesk()
     try:
         routers = proxy_config.get("routers") or []
-        if sync_router_outputs(routers, server_obj, cloud_accounts_state(), cloud_blocks_state(),
-                               EngineOutputs().outputs(hosts)):
+        if sync_router_outputs(routers, server_obj, desk.state(), EngineOutputs().outputs(hosts),
+                               MachineOutputs().outputs(hosts, server_obj)):
             # Re-read fresh payload before writing to avoid overwriting concurrent
             # label/policy changes that happened since proxy_config was loaded above.
             fresh = read_agent_proxy_payload()
             fresh["routers"] = routers
             write_agent_proxy_payload(fresh)
             proxy_config["routers"] = routers
+            proxy_revisions = ProxyRevisions.of(read_agent_proxy_payload())
     except Exception:
         pass
     clients = topology_clients()
-    # Cloud state + catalog annotation: unlisted marks on blocks, background
+    # Cloud state + catalog annotation: unlisted marks on steps, background
     # model-list refreshes, endpoint-health report. Annotation must never sink
     # the board — degrade to plain state on any failure.
     cloud_accounts = cloud_accounts_state()
-    cloud_blocks = cloud_blocks_state()
+    pools = desk.state()
+    sets = SetDesk().state()
+    entry_models = EntryModels(pools, sets)
+    annotate_consumer_set(proxies, entry_models)
+    try:
+        annotate_consumer_misses(proxies)
+    except Exception:
+        pass
     # The three context windows of every route (model / limit / advertised):
     # a board fact, never a reason for the board to sink.
     try:
-        annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks)
+        annotate_route_windows(proxies, proxy_config, server_obj, pools)
+    except Exception:
+        pass
+    try:
+        annotate_pool_windows(pools, _router_outputs(proxy_config))
+    except Exception:
+        pass
+    try:
+        annotate_pool_kinds(pools, cloud_accounts, _router_outputs(proxy_config))
     except Exception:
         pass
     try:
         from caravan.admin.cloud_api import annotate_cloud_topology
-        cloud_api_health = annotate_cloud_topology(cloud_accounts, cloud_blocks)
+        cloud_api_health = annotate_cloud_topology(cloud_accounts, pools)
     except Exception:
         cloud_api_health = {"endpoints": {}, "codexClientVersion": {}}
     return {
@@ -1023,15 +1169,15 @@ def topology_state(refresh_hosts=True):
         # copies are what went stale when the controller moved off 8090.
         "cellPortRange": {"from": SERVER_CELL_BASE_PORT, "to": SERVER_CELL_UPPER_PORT,
                           "proxyBase": AGENT_PROXY_BASE_PORT},
-        # The port the next bridge will really get (mint_bridge_port's own
-        # rule), so its button does not promise a number of its own guessing.
-        "nextAppPort": next_app_port(proxy_config.get("routes")),
         # The stamp of the models the cell editor offers: when it moves, the
         # board fetches the list again (the caravan's shelf reads it).
         "modelsStamp": MODEL_LIST.stamp(),
         # Routers — the routing layer between proxies and servers.
         # inputs already derived from routes by normalize_routers.
         "routers": proxy_config.get("routers") or [],
+        # The version of `routes` and `routers` this answer was drawn from: a save
+        # sends it back, and a save from an older one is refused (ProxyRevisions).
+        "proxyRevisions": proxy_revisions,
         "proxyPolicy": policy,
         "effectiveSlots": int(policy.get("maxSlots") or 1),
         # Two records under one id, never one merged row: a machine's report
@@ -1042,37 +1188,60 @@ def topology_state(refresh_hosts=True):
         "clients": clients,
         # Each route's address rebuilt from the controller's current one
         # (ProxyRoute.address): the stored copy is the address at bind time.
-        "assignments": _assignments_at_current_address(store.get("assignments", {})),
+        # A closed port's route names the entry (ConsumerAddress).
+        "assignments": _assignments_at_current_address(store.get("assignments", {}), address),
+        # The one address every consumer with a key may use, and its port; none when it is off.
+        "entry": address.entry(),
+        # The tests a client's card sends as the client, from the table that sends them.
+        "clientProbes": AsConsumer.probes(),
+        # Whether other machines reach the ports (PortDoor): False where they
+        # listen on loopback only (a port then has no address of its own), None
+        # while the proxy has said nothing fresh.
+        "portsReachable": door,
+        # When a client last asked for /v1/embeddings (7 days; 0 for not at all): the kanban's
+        # unset embeddings slot is red only then.
+        "embeddingsCalledAt": embeddings_last_called(),
         # User notes on cell slots, keyed "hostId:port" — shown on the board
         # cards and edited in the cell detail modal.
         "cellNotes": {key: str(slot.get("note") or "")
                       for key, slot in (store.get("serverSlots") or {}).items()
                       if isinstance(slot, dict) and str(slot.get("note") or "").strip()},
         "clientAliases": store.get("clientAliases", {}),
-        # The order of the cards under Model servers — machines and cloud
-        # providers in one list — and its revision (board_layout.py), read
+        # The order of the server cards — the pools and the machines in one
+        # list — and its revision (board_layout.py), read
         # from the same document as everything else in this answer.
-        "layout": ServerOrder(section=lambda: store).layout(),
+        "layout": {**ServerOrder(section=lambda: store).layout(), **ClientOrder(section=lambda: store).layout()},
         "cloudAccounts": cloud_accounts,
-        "cloudPoolsRuntime": CloudPoolDesk().runtime(),
-        "cloudProviders": cloud_blocks,
+        # The pools — what an agent's cable goes to — with their steps, and the
+        # proxy's word on which step served each one last (caravan/admin/pools.py).
+        "pools": pools,
+        # The sets of models the entry's clients call (caravan/admin/model_sets.py), the kanban's «Набор».
+        "sets": sets,
+        "poolsRuntime": desk.runtime(),
+        # The levels of every subscription model, in a pool or not: the kanban
+        # draws them on the models of its right column (PoolDesk.model_levels).
+        "modelLevels": desk.model_levels(),
+        # The models that column shows, by account: the ones the operator added
+        # there, not every model an account offers (caravan/admin/added_models.py).
+        "addedModels": desk.added_models(),
+        # When each model is open, and the caravan's zone its hours are written in
+        # (caravan/admin/model_schedules.py): the ⏱ on a model and a pool's row read it.
+        "modelSchedules": ModelScheduleDesk().state(),
+        # The cloud providers on the main board, each with its accounts, in the
+        # operator's order (caravan/admin/board_providers.py).
+        "boardProviders": ProviderDesk().state(),
         # Tripped upstream endpoints + effective codex client_version — the
-        # provider cards render this as the "API issues" panel.
+        # pool cards render this as the "API issues" panel.
         "cloudApiHealth": cloud_api_health,
-        # Blocks the model sync removed within the last day (the provider
-        # dropped the model and nothing pointed at it) — the board says so,
-        # with "↶" to bring one back.
-        "cloudRemoved": [{"accountId": acc, "id": (r.get("block") or {}).get("id"),
-                          "model": (r.get("block") or {}).get("model"), "at": r.get("at")}
-                         for acc, rows in model_catalog.removed_blocks().items() for r in rows],
         "cloudProviderPresets": cloud_provider_presets_public(),
         "time": int(time.time()),
     }
 
-def _assignments_at_current_address(assignments):
+def _assignments_at_current_address(assignments, address=None):
     """The stored assignments as the board is handed them: a copy in which
-    every route names its port at the controller's CURRENT address. The store
-    itself is not touched; a route the class refuses is passed on as stored."""
+    every route names its port at the controller's CURRENT address — or, its
+    port closed, the entry's (ConsumerAddress). The store itself is not
+    touched; a route the class refuses is passed on as stored."""
     out = {}
     for host_id, entry in (assignments or {}).items():
         if not isinstance(entry, dict):
@@ -1084,7 +1253,9 @@ def _assignments_at_current_address(assignments):
                 routes = []
                 for raw in row["routes"]:
                     try:
-                        routes.append({**raw, "endpoint": ProxyRoute.from_raw(raw).address(TOPOLOGY_SERVER_IP)})
+                        route = ProxyRoute.from_raw(raw)
+                        routes.append({**raw, "endpoint": (address.of(route.port) if address and route.port
+                                                           else route.address(TOPOLOGY_SERVER_IP))})
                     except (AppError, TypeError, ValueError):
                         routes.append(raw)
                 row = {**row, "routes": routes}

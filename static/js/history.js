@@ -36,6 +36,7 @@ export function openRequestHistory() {
             <option value="llama">llama</option>
             <option value="cloud">cloud</option>
             <option value="rescued">🛟 ${escapeHtml(t("hsViaRescued"))}</option>
+            <option value="refused">⛔ ${escapeHtml(t("hsViaRefused"))}</option>
           </select>
           <select id="historyStatusSelect" class="history-date-select" aria-label="${escapeHtml(t("a11yFilterByStatus"))}">
             <option value="">${escapeHtml(t("hsStatusAll"))}</option>
@@ -78,12 +79,19 @@ export function closeRequestHistory() {
   if (el) el.setAttribute("hidden", "");
 }
 
+// A request the caravan refused before any model answered it — no key, a wrong one, a paused or
+// unrouted route, a full queue — ends as "blocked", and the Requests tab showed only "finished":
+// a client turned away left no row (2026-10-11). It reads both, and a refused row says so.
+export function historyVia(row) {
+  return row?.event === "blocked" ? "refused" : ((row?.item || {}).upstreamType || "llama");
+}
+
 export async function loadRequestHistory() {
   const wrap = $("historyTableWrap");
   if (!wrap) return;
   wrap.innerHTML = `<div class="history-loading">${escapeHtml(t("historyLoading"))}</div>`;
   try {
-    const params = new URLSearchParams({ limit: 500, event: "finished" });
+    const params = new URLSearchParams({ limit: 500, event: "finished,blocked" });
     if (historyCurrentDate) params.set("date", historyCurrentDate);
     const data = await api(`/api/agent-proxy-logs?${params}`);
     _syncHistoryDateSelect(data);
@@ -146,8 +154,7 @@ export function renderHistoryTable() {
       // one exit before this answer. The via tag still shows where it ENDED.
       if (!(item.rescued && Number(item.rescued.hops) > 0)) return false;
     } else if (historyViaFilter) {
-      const via = item.upstreamType || "llama";
-      if (via !== historyViaFilter) return false;
+      if (historyVia(r) !== historyViaFilter) return false;
     }
     if (historyStatusFilter) {
       const st = item.status || 0;
@@ -185,10 +192,13 @@ export function renderHistoryTable() {
     const model = item.request?.model || "";
     const modelShort = model.length > 24 ? model.slice(0, 22) + "…" : model;
 
-    const upstreamType = item.upstreamType || "llama";
-    const handlerTag = upstreamType === "cloud"
-      ? `<span class="history-tag history-tag-cloud">cloud</span>`
-      : `<span class="history-tag history-tag-llama">llama</span>`;
+    const via = historyVia(r);
+    const refusal = String(item.reason || item.errorKind || item.error || "");
+    const handlerTag = via === "refused"
+      ? `<span class="history-tag history-tag-refused" title="${escapeHtml(refusal)}">⛔ ${escapeHtml(t("hsViaRefused"))}</span>`
+      : via === "cloud"
+        ? `<span class="history-tag history-tag-cloud">cloud</span>`
+        : `<span class="history-tag history-tag-llama">llama</span>`;
     // The via tag names where the request ENDED; the rescue badge confesses the
     // exits it failed on first (trail in the tooltip: "srv:8002 (400) → …").
     const rescued = item.rescued && Number(item.rescued.hops) > 0 ? item.rescued : null;
@@ -196,8 +206,10 @@ export function renderHistoryTable() {
       ? `<span class="history-tag history-tag-rescued" title="${escapeHtml(t("hsRescuedTip") + " " + (rescued.trail || []).map((h) => `${h.from} (${h.status})`).join(" → "))}">🛟 ${escapeHtml(t("hsViaRescued"))}</span>`
       : "";
 
-    const durationMs = item.durationMs || 0;
-    const durationStr = durationMs >= 60000 ? `${(durationMs / 60000).toFixed(1)}m`
+    // A refusal at the door took no time worth a number: "—", not "0ms" as if it had run.
+    const durationMs = Number(item.durationMs || 0);
+    const durationStr = item.durationMs == null ? "—"
+      : durationMs >= 60000 ? `${(durationMs / 60000).toFixed(1)}m`
       : durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s`
       : `${durationMs}ms`;
 
@@ -216,7 +228,7 @@ export function renderHistoryTable() {
     const status = item.status || 0;
     const statusClass = status >= 200 && status < 300 ? "history-status-ok"
       : status >= 400 ? "history-status-err" : "";
-    const error = item.error || item.errorKind || "";
+    const error = item.error || item.errorKind || (via === "refused" ? refusal || "refused" : "");
     const rowClass = error ? " history-row-error" : "";
 
     return `<tr class="history-data-row${rowClass}" data-history-row-idx="${idx}">

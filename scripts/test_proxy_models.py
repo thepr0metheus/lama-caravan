@@ -305,7 +305,9 @@ def test_cloud():
     check(status == 200, f"status is 200 (got {status})")
     entry = (body.get("data") or [{}])[0]
     check(entry.get("id") == "test-cloud-model", f"id is the block's model (got {entry.get('id')!r})")
-    check(entry.get("owned_by") == "anthropic", f"owned_by is the account type (got {entry.get('owned_by')!r})")
+    # A port leads to a pool, whose steps may each be another provider's: the
+    # pool is the caravan's, and no one step's account speaks for it.
+    check(entry.get("owned_by") == "caravan", f"owned_by is the caravan, whose pool it is (got {entry.get('owned_by')!r})")
     check([k for k in CONTEXT_KEYS if k in entry] == [],
           "the cloud bridge advertises NO context — nothing here knows it")
 
@@ -418,7 +420,7 @@ def test_routed_to_cloud():
     check(status == 200, f"status is 200 (got {status})")
     entry = (body.get("data") or [{}])[0]
     check(entry.get("id") == "test-cloud-model", f"id is the block the router chose (got {entry.get('id')!r})")
-    check(entry.get("owned_by") == "anthropic", f"owned_by is that account's type (got {entry.get('owned_by')!r})")
+    check(entry.get("owned_by") == "caravan", f"owned_by is the caravan, whose pool it is (got {entry.get('owned_by')!r})")
 
 
 
@@ -480,8 +482,8 @@ def test_retrieve_model_on_cloud():
         status, body = _req(port, "GET", "/v1/models/test-cloud-model")
         check(status == 200 and body.get("id") == "test-cloud-model" and body.get("object") == "model",
               f"{label}: the id it does serve -> the model object (got {status} {body})")
-        check(body.get("owned_by") == "anthropic",
-              f"{label}: same source as /v1/models — owned_by from the account (got {body.get('owned_by')!r})")
+        check(body.get("owned_by") == "caravan",
+              f"{label}: same source as /v1/models — owned_by the caravan (got {body.get('owned_by')!r})")
 
 
 def test_retrieve_model_decoded_id():

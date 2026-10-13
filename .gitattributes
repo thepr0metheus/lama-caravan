@@ -4,3 +4,8 @@
 # Чтобы обновить snapshot в git, делай коммит вручную через UI или командой:
 #   git add agent-proxies.json && git commit
 agent-proxies.json merge=ours
+
+# git archive writes the archived commit into VERSION (`$Format:%h$`): a copy
+# made by archive — the NAS's way to ship code — names its commit without .git
+# (caravan/common/checkout.py).
+VERSION export-subst

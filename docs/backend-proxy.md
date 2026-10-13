@@ -32,7 +32,7 @@ paths ← runtime ← {config, events, cloud_auth, translate, summarize}
 `graph` sits below `state` because `state.sync_agents_state` calls
 `apply_router` to resolve each route's effective upstream URL.
 `request_clock` and `upstream_pool` are stdlib-only leaves that only `handler`
-imports.
+imports; `request_body` is one too, imported by `handler` and `entry`.
 
 ## Request lifecycle
 
@@ -40,9 +40,12 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
 
 1. **Port listener.** `listeners.py` has already bound a `ThreadingHTTPServer`
    on this route's port, with the route dict stapled to the server object.
+   On the entry for keys (`entry.py`) the request's key names the route
+   instead, and from then on it is that route's request.
    `ProxyHandler.do_POST` dispatches into `ProxyHandler.proxy()`, which runs
    the entire lifecycle on the connection's thread. A request id is minted as
-   `<time_ns>-<thread_ident>`, the body is read, and `request_summary` extracts
+   `<time_ns>-<thread_ident>`, the body is read whole — by its length or its
+   chunks (`request_body.py`) — and `request_summary` extracts
    model, message counts, and a text preview for telemetry. (`GET /v1/models`
    never reaches this path — `_send_models_fast` answers it locally without
    touching the upstream.)
@@ -63,7 +66,9 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
    falls back to legacy `pick_router_output` (bySource pin > schedule window >
    capacity-aware failover chain > default). A proxy that is unassigned, bound
    to a missing router, or resolves to no output is marked `unrouted` and gets
-   an immediate 503 — no queue, no upstream — with a `blocked` event.
+   an immediate 503 — no queue, no upstream — with a `blocked` event. Every
+   `blocked` record carries the status the client got (this one 503, a port's
+   wrong key 401): the history's Requests tab shows a refusal by it.
 
 3. **Intake bookkeeping.** The request is registered with
    `add_active(port, item)` (phase `queued`) and a `received` event is
@@ -133,34 +138,39 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
    - *Llama:* plain `http.client.HTTPConnection(upstreamHost, upstreamPort,
      timeout=600)`. Hop-by-hop headers are stripped; `X-Agent-Proxy`,
      `X-Agent-Proxy-Request-Id` and `X-Forwarded-For` are added; the path is
-     forwarded untouched.
+     forwarded untouched. The client named there and in the journal is the
+     sender (`ProxyHandler._client`, `ClientAddress`): behind the DSM's proxy on
+     the NAS the address it names, not its own 127.0.0.1 (2026-10-11).
    - *Cloud:* the effective provider is resolved — `providerId` (a model
      block: fixed model + `modelMode`) via `load_cloud_provider`, else
      `cloudAccountId` (account passthrough: client's model forwarded) via
      `load_cloud_account` — and `load_provider_secret` returns the auth header
      pair, refreshing an OAuth access token in place when it expires within
-     60s (atomic 0600 write-back of the secrets file). Three shapes follow:
+     60s (written back through `CredentialVault`, the file's one writer). Three shapes follow:
      an **openai-subscription** account (or a `chatgpt.com` baseUrl) gets the
      request translated by `_chat_to_responses_body` and posted to
      `/backend-api/codex/responses` with JWT-derived `chatgpt-account-id`
      headers — unless the client already speaks the Responses API
      (`/v1/responses`, or a body with `input` and no `messages`, as Codex CLI
      sends): then `_responses_passthrough_body` forwards it as written, with
-     only the block's model, `store: false` and `stream: true` imposed; an
+     only the step's model, `store: false` and `stream: true` imposed; an
      **anthropic** provider on `/chat/completions` gets
      `_chat_to_anthropic_body` and the `/messages` path; any other provider
-     gets a base-path rewrite plus `rewrite_model_in_body` when
-     `modelMode == "rewrite"`.
-   - *A subscription's reserve.* A ChatGPT subscription states its limit
-     windows on every answer, a 429 included; `subscription_usage` keeps the
-     last reading per account. Before sending, the account's reserve
-     (`usageReserve`: the share of each window the operator keeps) is checked
-     against that reading (`reserve_gate`). While a window has no more left
-     than the reserve, nothing is sent: a `ReserveRefusal` answers in the
-     provider's place — 429 `usage_limit_reached`, `Retry-After` and
-     `resets_at` up to the window's reset — and takes the way a provider's
-     429 takes: the exit's verdict, a 🛟 backup, the journal row
-     (`errorKind: usage_reserve`).
+     gets a base-path rewrite plus `model_named` when
+     `modelMode == "rewrite"` — the step's model set in the body, added when
+     the client named none (a key of the entry need not name one).
+   - *A pool's step.* A cable's cloud end is a pool (`load_cloud_provider`,
+     `cb:<pool id>`); `pool_steps.resolve` picks the step that serves this
+     request — the first one fit now — and the provider is that step's account
+     with the step's model (`modelMode: rewrite`), its id kept as the pool's.
+     With no step fit, the pool answers itself: a `PoolRefusal` — 429 when
+     every step is held by a limit or the operator's switch, 503 otherwise,
+     with each step's reason and the earliest reset — takes the way a
+     provider's answer takes (the exit's verdict, a 🛟 backup, the journal row,
+     `errorKind: pool_unavailable`) without a connection. A provider that
+     refuses the step for its limit before any output — 429, 402, 401 — rests
+     the step's account (`pool_steps.failed`) and the request goes on to the
+     next step; anything else is not the pool's to handle.
    - *The connection.* A provider's comes from `upstream_pool`: a kept one
      from an earlier request when one is open and quiet, else a new one. A
      cell's is opened for the request. A kept connection the provider closed
@@ -246,7 +256,9 @@ normalizes the policy into clamped integers, keeps only the last 100
 `stopRequests`, and transparently reads the pre-rename `switchboards` /
 `sb:default` / `switchboardId` field names. `normalize_route` defines the
 canonical route shape (label, port, upstream, mode, priority, preemptible,
-`clientTimeoutSeconds`, per-route threshold overrides, `routerId`).
+`clientTimeoutSeconds`, per-route threshold overrides, `routerId`,
+`portClosed`). The config's `entry` (`{port, publicUrl}`, `{}` when off) is
+cleaned by `KeyEntry.clean` and handed out with the rest.
 
 - Owns: config parsing, route normalization, policy clamping, legacy-key
   back-compat.
@@ -298,9 +310,11 @@ spill ref recorded for the handler. `apply_router` overlays the chosen output
 onto the route (marking `unrouted` when unassigned/missing/no-output) after
 short-circuiting audio and embeddings outputs; `apply_router_spill`
 re-resolves from a queue node's spill edge. An output of kind `engine` (a
-model of an engine next to the cells) overlays `upstreamModel`, the model's
-name in the engine; the overlay drops it first, so a route re-resolved onto a
-cell never carries an engine's name. It sits *below* `state` because
+model of an engine next to the cells) or `machine` (a model of a machine's
+entry, its scout — 1.3.506) overlays `upstreamModel`, the model's name there;
+the overlay drops it first, so a route re-resolved onto a cell never carries an
+engine's name. The kinds are one table, `caravan/common/upstream_types.py`
+(`UpstreamType`). It sits *below* `state` because
 `sync_agents_state` calls `apply_router`. Unit-tested by
 `scripts/test_queue_node.py`, which loads `agent-proxies.py` by path and uses
 the launcher's re-exports.
@@ -341,8 +355,18 @@ slot for the finished llama route so the same port wins the next admission
 window.
 
 The file also carries `subscriptionUsage` — each subscription account's last
-reading of its limit windows — which the admin reads for the card's reserve
-banner.
+reading of its limit windows — which the admin judges for the steps' switch
+levels, `pools` — the proxy's last choice per pool, every step's reason and
+the last 50 switches (`pool_steps.snapshot`) — and `listenHost`, where the
+ports listen (the board's `PortDoor`).
+
+The file is rewritten every `ProxyHeartbeat.BEAT_SECONDS` (10 s) whatever
+happened (`queue_admission.heartbeat_pass`, after the beat's probe of the
+cells' slots), and the admin takes a file older than `STALE_SECONDS` (30 s)
+for a proxy that is gone (caravan/common/proxy_heartbeat.py). It used to be
+written on requests and after a probe only: a cloud-only controller probes no
+cells, and its pool card fell back to "Not measured yet" 30 s after each
+request (the NAS, 2026-10-08).
 
 - Owns: the state-file format, active/recent lists (recent capped at 20),
   sticky-slot arming on finish.
@@ -352,65 +376,85 @@ banner.
 ## caravan/proxy/cloud_auth.py
 
 Resolves cloud credentials for proxied requests from two admin-maintained
-files: `cloud-providers.json` (accounts + model blocks) and the 0600
-`provider-secrets.json`. A `providerId` (block) yields a provider dict with a
-fixed model and `modelMode`; a bare account yields passthrough. OAuth tokens
-that expire within 60s are refreshed in place against the account's
-`tokenUrl`, and the updated secrets file is written back atomically with 0600
-perms.
-
-Both shapes carry the account's `accountType` (whether it is a ChatGPT
-subscription is the account's fact, not its address's) and its
-`usageReserve`: every model of an account draws on one pool.
+files: `cloud-providers.json` (accounts + pools) and the 0600
+`provider-secrets.json`. A `providerId` names a pool (`load_cloud_provider`): the
+pool with its steps and the window it stands for, the model left empty until a
+step is chosen; a bare account (`load_cloud_account`) is what a step goes to,
+and what a route naming an account and no pool reaches, with the client's
+model passed through. OAuth tokens that expire within 60s are refreshed in
+place against the account's `tokenUrl` by `CredentialVault`
+(caravan/common/credential_vault.py): a lock per account serializes renewals
+across both processes, and the write re-reads the file under a document lock
+and writes it atomically, 0600. The vault is the file's one writer — the
+admin's key writes and restores go through it too. An account carries its
+`accountType` (whether it is a ChatGPT subscription is the account's fact, not
+its address's) and the account whose limits it shares (`usageAccountId`).
 
 - Owns: `CLOUD_PROVIDER_AUTH` (per-provider auth header/prefix/extra-headers
   table), OAuth refresh.
-- Key functions: `load_cloud_provider`, `load_cloud_account`,
-  `load_provider_secret`.
+- Key functions: `load_cloud_provider`, `load_cloud_account`, `load_cloud_pools`
+  (every pool, what the entry publishes to its consumers), `load_provider_secret`.
 
 ## caravan/proxy/subscription_usage.py
 
-A subscription's limit windows as the proxy last read them, and the answer
-the proxy gives in the provider's place. `SubscriptionUsage.note(account,
+A subscription's limit windows as the proxy last read them. `SubscriptionUsage.note(account,
 headers)` reads the Codex backend's `x-codex-{primary,secondary}-*` headers
 (used percent, window length in minutes, reset time) into `{seconds, usedPct,
 resetAt}` per window. An answer without them leaves the reading as it was:
-absence is not a reading. `ReserveRefusal` is a local response shaped like
-`http.client.HTTPResponse` (status, headers, `read`), so the handler relays it
-on the path a real answer takes. Its body is OpenAI's own
-`usage_limit_reached` error plus `caravan_reserve` (`window_seconds`,
-`remaining_pct`, `reserve_pct`), and its message names the caravan, not the
-provider.
+absence is not a reading. `UsagePage.fetch` reads the account's usage page
+(`GET /backend-api/wham/usage` with its own sign-in, which spends no share of
+any window) for a step whose reading is stale: a step held at its stop level
+gets no traffic, so no answer brings a new reading, and a reset that came
+early — a banked one, or one bought — would stay unseen until the old reset
+time. The page's parser reads the same two windows the headers carry;
+OpenAI's extra `gpt-reserve` window is left out, since it shares the weekly
+length.
 
-The rule is `caravan/common/usage_reserve.py` (`UsageReserve`): a window
-closes while its remaining share is at or below the reserve and its reset is
-still ahead. Without a reset time nothing closes — a door shut with no known
-opening would stay shut. Of several closed windows, the one that reopens last
-is named. The reserve is 1–90% per window; 0 means none. The admin computes
-the card's banner with the same class from the proxy's reading, so the card
-says what the proxy does.
+- Owns: `subscription_usage` (per-account readings under a lock).
+- Key names: `SubscriptionUsage`, `UsagePage`.
 
-`ReserveGate` is the one question the handler and `output_probe.py` both
-ask before sending anything to a subscription: is the door shut now? While
-it is shut nothing is sent, so no answer brings a new reading, and a reset
-that came early (a banked or bought one) would stay unseen until the old
-reset time — up to a week on the weekly window. So while shut, a reading
-older than five minutes is refreshed from the account's usage page
-(`GET /backend-api/wham/usage` with the account's own sign-in), which spends
-no share of any window. A page that does not answer is not asked again for
-five minutes, and the door stays as the last reading says. An open door never
-asks: its reading rides on the answers. The page's parser reads the same two
-windows the headers carry; OpenAI's extra `gpt-reserve` window is left out,
-since it shares the weekly length.
+## caravan/proxy/pool_steps.py
 
-The probe keeps the reserve too: a subscription exit whose window is down to
-it is recorded as the proxy would answer (429 `usage_reserve`) without
-spending the operator's share, and a real probe's headers update the reading.
+Which step of a pool serves a request, chosen at admission; a stream never
+changes its step. `PoolSteps.resolve(source, body, excluded, path)` walks the
+pool's steps in order and answers the first one fit now, or the pool's own
+refusal. Nothing picks a step by hand: the order is the only one (the
+operator, 2026-10-11). A step is not fit while it is switched off, while
+its model is closed by its schedule (reason `closed` with `opensAt`, the
+epoch it opens: `ModelSchedules`, caravan/common/model_schedules.py, read in
+the caravan's zone, `CaravanZone`; no connection is tried), without a sign-in or key, unable to take a Responses request (a key provider
+other than OpenAI's speaks chat only), a subscription asked for anything but a chat (a recording to
+transcribe, a text to embed — `format_unsupported`, 1.3.501; a pool all of whose steps are so is 400
+`unsupported`, the caller's to fix), resting after its provider refused it
+(429 quota, 402 payment, 401 sign-in — for `Retry-After`, else 30 s, five
+minutes for 402 and 401), no longer listed by its provider, or — a
+subscription — with a limit window down to the step's stop level (the rule
+`UsageReserve`, caravan/common/usage_reserve.py, shared with the board), out of
+its limit, or with limits that cannot be read now. Below its switch level a
+step is fit but gives way (reason `switch`): the pool takes the first step fit
+and above its own switch level, and the first one giving way only when there
+is none. Both levels are read by `CloudPools.levels`, the controller's rule. A reading older than five
+minutes is refreshed from the usage page, at most every 30 s; a failed read is
+"limits unknown", never zero usage. The pool always takes the first fit step,
+so it goes back up the chain as soon as an earlier step fits again. A
+Responses request that refers to an earlier response (`previous_response_id`)
+gets a `PoolContextRefusal` (400) before any step when more than one step is
+enabled: the conversation lives with one account. A confirmed saved reset
+(`SubscriptionResetJournal`) clears a quota rest and a stale reading at once.
+Each choice is kept per pool with every step's reason (`snapshot`, into the
+state file), and a change of step is a `pool_switch` event in the journal (the
+last 50 are kept). `OwnAnswer` is the shape of an answer the proxy gives itself
+(status, headers, a body read in pieces). A `PoolRefusal`'s Retry-After is the
+first moment a step is fit again — a limit's reset or a schedule's opening; one
+whose every step is `closed` is `closed`, with `opens_at` and `opens_text` (the
+time in the caravan's zone with its offset), and the entry's dialect tells the
+client so (`OpenAIError.closed`). `PoolRefusal.POOL_KINDS` are the
+kinds a pool's refusal is recorded under, `OWN_KINDS` with the names before
+1.3.462 still in the logs the board reads.
 
-- Owns: `subscription_usage` (per-account readings under a lock),
-  `reserve_gate` (when each account's page was last asked).
-- Key names: `SubscriptionUsage`, `ReserveGate`, `ReserveRefusal`; the rule
-  `UsageReserve`.
+- Owns: `pool_steps` (the choices, rests, tried readings and the switch journal).
+- Key names: `PoolSteps` (`resolve`, `failed`, `snapshot`, `clear`), `OwnAnswer`,
+  `PoolRefusal`, `PoolContextRefusal`.
 
 ## caravan/proxy/translate.py
 
@@ -426,9 +470,14 @@ kinds for events and incidents.
 - Owns: request/response format conversion, the error taxonomy.
 `model_named` puts an engine's own model name into a request (added when the
 client sent none), since one engine serves many models behind one port; any
-body that is not a JSON object goes as the same bytes.
+body that is not a JSON object goes as the same bytes. `ChunkFold` folds chat
+completion chunks into the one chat completion they stream — text, tool calls
+by index with their arguments joined, finish reason, usage — for a client that
+did not ask for a stream; `finished()` says whether the stream reached its last
+word, and a stream cut before it is a failure, not half an answer handed out
+as whole.
 
-- Key functions: `rewrite_model_in_body`, `model_named`, `classify_proxy_error`,
+- Key functions: `model_named`, `classify_proxy_error`,
   `_chat_to_responses_body`, `_iter_responses_as_completions_sse`,
   `is_responses_request`, `_responses_passthrough_body`, `iter_responses_passthrough`,
   `_chat_to_anthropic_body`, `_iter_anthropic_as_completions_sse`,
@@ -473,6 +522,68 @@ every function that rebinds it in this module.
   `unregister_active_control`, `active_control_stop_reason`,
   `stop_requested`, `stop_requested_for_route`, `stop_request_watcher`,
   `keepalive_sse_bytes`, `remove_pending_request`.
+
+## A model of a machine's entry (1.3.506)
+
+An output of kind `machine` is a model of a machine's entry: its scout's
+address (`agentUrl`), where the scout serves every model of the machine by
+OpenAI's API, picking a running copy by the `model` a request names (scout
+2.27). The controller makes one per model the scout lists
+(caravan/admin/machine_models.py); a pool's row names it as `mm:<hash>`.
+
+- The request names the model: the handler puts `upstreamModel` into the body
+  (`model_named`), as for an engine's model.
+- Each model has a queue of its own: `route_group_key` is
+  `host:port/model` — the `upstream` stamped on its requests — where a cell's
+  and an engine's is `host:port`. The scout's port serves every model of its
+  machine, and one queue for all of them would hold a model back behind
+  another's work.
+- Its places are the scout's word (scout 2.29): `capacity.MachinePlaces`
+  asks `GET /v1/models/<name>` of the entry — `caravan.slots`, how many
+  requests its running copies take at once, and `caravan.busy`, how many they
+  work on now — for `upstream_slot_total`, the heartbeat's probe and
+  `llama_processing_count`, as a cell's /slots are read. A number the scout
+  does not say is the policy's. Zero places (no copy runs) is no number to
+  wait for either: the request goes, and the entry answers 503
+  `model_not_running` at once — the pool's next row then, and the output's
+  verdict.
+- `GET /v1/models` on a port routed to such an output is the entry's list
+  narrowed to the one model, as for an engine.
+- The probe (onError exits) asks the one model: alive when its state is
+  `running`, else 503 `model_not_running`; a model the entry does not have is
+  404 (`_probe_machine`).
+
+## caravan/proxy/request_body.py
+
+A request's body, taken off the connection whole before the request goes on:
+by its `Content-Length`, or chunk by chunk when the client sends it so
+(`Transfer-Encoding: chunked` — curl uploading a pipe, a client streaming a
+file it does not measure first). Until 1.3.505 the proxy read the length alone:
+a body in chunks went upstream as none — a cell was asked an empty question, a
+consumer of the entry was told its request was neither JSON nor a form — and
+the chunks were left unread on a connection the answer then closed.
+
+The body goes upstream with its own length: the client's framing stays behind
+(`Transfer-Encoding` and `Trailer` are hop-by-hop, `paths.HOP_HEADERS`), and a
+cell's request carries the length of the body that goes — http.client says it
+for a request that names none — not the client's, which a body in chunks lies
+about or lacks, and which a body the caravan rewrote (`ChatLevers.for_cell`, an
+engine's model) no longer matches. A cloud request always said its own.
+
+No limit on the size: a body by its length never had one, and one for chunks
+alone would make the two ways answer differently. A body that cannot be read as
+the request says it is sent — a chunk size that is not hex, a chunk that does
+not end where its size says, a body that ends early, a `Content-Length` that is
+not a number or is given twice differently, a transfer coding other than
+`chunked` — is `RequestBody.Malformed`: a port answers 400 in its words
+(`{"error": "the request body cannot be read: <why>", "kind": "bad_request"}`),
+the entry 400 in OpenAI's (`OpenAIError.broken_body`); the journal has it as
+`blocked` (`unreadable-body`, `entry:broken-body`), the connection closes with
+the answer, and the upstream is never asked
+(`scripts/test_proxy_body.py`).
+
+- Owns: reading one request's body.
+- Key names: `RequestBody.read`, `RequestBody.Malformed`.
 
 ## caravan/proxy/request_clock.py
 
@@ -586,8 +697,167 @@ every 2s) or a previous bind failed (`_pending_rebind`, rebound here — keep
 its writers in this module). Each pass also calls `sync_agents_state` +
 `write_state`.
 
-- Owns: the `serving` port→server registry, `_pending_rebind`.
-- Key functions: `reconcile_listeners`, `listener_watcher`.
+A route whose port is closed (`portClosed`) is not bound: its agent comes in
+through the entry by its key. `EntryListener` opens, moves or closes the
+entry's listener as the config's `entry` says, in the same pass; an entry on a
+route's port stays closed, the route keeps its port.
+
+- Owns: the `serving` port→server registry, `_pending_rebind`, `entry_listener`.
+- Key functions: `reconcile_listeners`, `listener_watcher`, `EntryListener.reconcile`.
+
+## caravan/proxy/entry.py
+
+The one entry for consumers with keys (visumap `caravan-single-entry`): one port
+behind the DSM proxy, `caravan-api.example.org`, instead of a port per agent.
+`EntryHandler` reads the presented key (`Authorization: Bearer`, else
+`x-api-key`) and finds the route that carries it as `apiKey`
+(`caravan/common/key_entry.py`, the one reading for the proxy and the board).
+No key, or a key no route carries: 401; a key two routes carry (a hand-edited
+file — the board refuses it on save): 401 too, not 409, which an OpenAI client
+retries. Every refusal is in OpenAI's shape (`openai_errors.py`) with an
+`X-Request-Id`, and a `blocked` event with the reason `entry:<why>` under the
+consumer's name once it is known.
+
+Then two kinds of consumer:
+
+- **A consumer of the entry** (a route of kind `"consumer"`, since 1.3.466) is
+  served as a company's gateway serves its clients. Its key calls the pools of
+  the set a cable on the kanban leads it to (`set`, since 1.3.497;
+  `caravan/common/entry_models.py`, `caravan/admin/model_sets.py`) — and no
+  router ever decides for it. `GET /v1/models` lists the set's pools by their
+  names, in the set's order and OpenAI's model shape (each window the pool's
+  against the consumer's own limit, absent when neither is known), or nothing
+  for a key no cable reaches yet. `GET /v1/models/<id>` answers that model, the
+  id compared decoded and spelled as the list spells it. A request's `model`
+  picks the pool, as OpenAI's API picks a model: a request naming none is 400
+  (`you must provide a model parameter`), a name the set has not is 404
+  `model_not_found`, and a key with no model at all is 404 `model_not_found`
+  with the words that the operator connects the key to a set of models. A
+  consumer of the form before 1.3.497 (`pool`, its one pool) calls that pool
+  until the controller rewrites it (`SetDesk.migrate`). A consumer of the form before 1.3.486 (`models`, the pools it might
+  call) calls the first of them until the controller rewrites it
+  (`ConsumerDesk.migrate`). The pool found, the request is the consumer's
+  route overlaid onto the pool's output (`cb:<id>`, the kanban's id for it)
+  and served by `ProxyHandler.proxy` with the consumer's dialect
+  (`dialect.OpenAIDialect`). Only inference paths are routed
+  (`caravan/common/request_kind.py`); any other path is 404
+  `Invalid URL (METHOD /path)`. The `model` is read from a JSON object, or —
+  where OpenAI's API takes a file, a recording to transcribe on
+  `/v1/audio/transcriptions` — from a form's field (`multipart/form-data`,
+  since 1.3.501; `caravan/common/request_fields.py`: its text fields found by
+  the boundary, the file stepped over, never decoded), and the body goes on to
+  the pool's row byte for byte. A body that is neither is 400 `unreadable`, its
+  words naming both. The body comes by its length or in chunks
+  (`request_body.py`, 1.3.505); one that cannot be read as it says it is sent
+  is 400 "The request body cannot be read: <why>." A subscription's row serves a chat alone
+  (`request_kind.is_chat_request`, `PoolSteps`): a recording passes it by for
+  the pool's next row, and a pool none of whose rows does the work is 400
+  `unsupported` — "The model `X` does not serve POST /path" — never a wait.
+  Since 1.3.502 each model of the list says what it does
+  (`cloud_auth.load_pool_kind`, caravan/common/model_kinds.py): OpenRouter's
+  `architecture` and the caravan's `caravan` — `jobs`, an ear's `languages`
+  and `max_audio_ms` — from what every row of its pool that may serve does
+  (a subscription's chat takes pictures; a cell's facts ride on its router
+  output). A pool of known kind refuses a request for other work before
+  sending it, 400 `unsupported`; an unknown or mixed pool leaves it to its
+  rows. A pool's window counts its cells' (`CloudPools.window` with the
+  outputs' `contextLength`).
+  One more question is answered (since 1.3.495): Ollama's `POST /api/show`,
+  which Hermes asks for a model's window — the consumer's pool in Ollama's
+  shape, the window under `model_info` `caravan.context_length` and as
+  `num_ctx` in `parameters`, both absent when the pool states none. The
+  entry's refusals carry the request's method in the journal: the kanban's
+  client card lists a client's errors of the last 30 days from it
+  (`caravan/admin/client_misses.py`). The kanban's own tests of a client
+  carry `X-Caravan-Probe` (`KeyEntry.PROBE_HEADER`); heard from this machine
+  itself, not through the DSM's proxy, such a request is journaled under the
+  client `kanban-probe`, and the client's errors list leaves it out.
+- **An agent of the old kind**, moved here with its port's key (1.3.442), is
+  still its port's: its request goes through its kanban graph as if it had
+  come to the port, because `ProxyHandler` reads the route only through its
+  `route` property. Its `model` chooses nothing.
+
+A streamed answer carries `X-Accel-Buffering: no`
+(`ProxyHandler._send_stream_headers`), so the DSM's nginx passes the tokens on
+as they come instead of in batches.
+
+- Owns: nothing (the route is per request; the dialect is reset per request).
+- Key names: `EntryHandler`, `EntryHandler.REFUSALS`, `EntryHandler.is_consumer`.
+
+## caravan/proxy/dialect.py
+
+How a request is routed and told its failures, chosen once the request is
+known: `PortDialect` (a port's way — its router decides, the upstream's
+status, headers and body pass as they came, the caravan's own failures as
+`{"error", "kind"}`) or `OpenAIDialect` (a consumer of the entry — its pool
+decides; every failure in OpenAI's shape and the caravan's words; of a
+provider's headers only `Content-Type`, `Content-Length` and `Cache-Control`
+pass, plus its own `X-Request-Id`; a client that did not ask for a stream gets
+one JSON chat completion where the provider streams anyway). The handler asks
+the dialect at each such point (`resolve`, `failure`, `stream_failure`,
+`header_ok`, `answer_error`, `extra_headers`, `answers_whole`) instead of
+branching on the kind of request.
+
+- Owns: nothing (`PORT_DIALECT` is the default instance).
+- Key names: `PortDialect`, `OpenAIDialect`, `PORT_DIALECT`.
+
+## caravan/proxy/openai_errors.py
+
+An error as an OpenAI client reads it: the status and `{"error": {message,
+type, param, code}}`, with `type` from OpenAI's table (`invalid_request_error`,
+`rate_limit_error`, `server_error`). A known wait travels as `Retry-After`;
+past the 60 s an OpenAI client still takes from it, `x-should-retry: false`
+too — a pool at its stop level for hours would only be asked again. The words
+name nothing behind a model: a provider refusing the caravan's sign-in (401,
+403) is a 502 to the consumer — a 401 would tell the client its own key is
+wrong — and a provider's 5xx is a 502 without the provider's words; a 4xx
+about the request (too long a context, a bad parameter) keeps them. A 4xx of
+a local row — a cell, or a machine's model — keeps its `error.code` too
+(`unsupported_robot_schema`), so a client branches on it as on OpenAI's own;
+only a word is told (`OpenAIError.clean_code`: letters, digits, `_` `.` `-`,
+64 at most), and a provider's code stays at the provider.
+
+- Owns: nothing.
+- Key names: `OpenAIError` (`no_key`, `wrong_key`, `shared_key`,
+  `unknown_model`, `invalid_url`, `unreadable`, `no_pool`, `paused`,
+  `limit`, `unavailable`, `unsupported`, `closed`, `upstream`, `masked`, `duration`).
+
+## caravan/common/upstream_types.py
+
+The kinds of upstream a router output names, as one table (1.3.506):
+`llama` — a cell, one model on its own port, its places its /slots; `engine` —
+a model of an engine next to the cells (Ollama, LM Studio), many models on the
+engine's port, the request naming its model, its places the policy's;
+`machine` — a model of a machine's entry (its scout), many models on the
+scout's port, the request naming its model, its places the scout's word and a
+queue of its own; `cloud` — a pool or an account, no places counted. A type
+outside the table is read as `llama`, as the file always was. The controller
+writes the type (`router_dsl.normalize_router_output`), and the proxy's
+overlay, capacity and heartbeat read it; the board's twin is
+`OutputCells.NAMED` (static/js/output-cells.js).
+
+- Owns: nothing.
+- Key names: `UpstreamType.of`, `UpstreamType.named`, `NAMED`.
+
+## caravan/common/chat_levers.py
+
+The standard fields of a chat request that steer how a model answers —
+OpenAI's `reasoning_effort`, `verbosity` and an image's `detail` — said to the
+row that serves (1.3.501; the owner, 2026-10-12: a client keeps to OpenAI's
+API). `ChatLevers.for_responses` gives the subscription's translator
+(`translate._chat_to_responses_body`) `reasoning.effort` when the client asked
+for an effort and `text.verbosity` always ("low", as before, when it asked for
+none or a word it does not know); `ChatLevers.detail` an image's `detail`
+("auto" unsaid). `ChatLevers.for_cell` tells a llama.cpp cell "no thinking" —
+`chat_template_kwargs.enable_thinking: false` — when a chat asks for the effort
+"none" or "minimal" and the client has not set `enable_thinking` itself; the
+handler applies it on every cell's leg (an engine's leg names its model
+instead, `model_named`). Anything it does not change goes as the same bytes.
+gemma-4 through the entry spent a short answer's every token on thinking
+before it (2026-10-12).
+
+- Owns: nothing.
+- Key names: `ChatLevers` (`effort`, `verbosity`, `detail`, `for_responses`, `for_cell`).
 
 ## caravan/proxy/main.py
 
@@ -613,8 +883,8 @@ MainPID belongs to a dead process and does not count.
   `agent-proxies.json` (admin-owned; the proxy's sole write is the atomic
   `stopRequests` append in `append_stop_request`), `agent-proxy-state.json`
   and `logs/proxy-events/*.jsonl` (proxy-owned; admin read-only), plus
-  `cloud-providers.json` / `provider-secrets.json` (admin-owned, proxy reads;
-  the OAuth refresh write-back is the exception). Shared helpers go in
+  `cloud-providers.json` (admin-owned, proxy reads) and `provider-secrets.json`,
+  whose one writer in both processes is `CredentialVault`. Shared helpers go in
   `caravan/common/` (the proxy uses `fsio.atomic_write_text`).
 - **`runtime.py` globals are mutated in place, never rebound.** Import the
   objects, don't copy them, don't reassign them. Anything that must be
@@ -624,7 +894,8 @@ MainPID belongs to a dead process and does not count.
   temp name per write (`<name>.<pid>.<tid>.tmp` + `replace`) under
   `state_write_lock`; `agent-proxies.json` mutations go through
   `atomic_write_text` under `config_lock` with the cache mtime reset;
-  provider secrets are rewritten atomically with 0600.
+  provider secrets are written by `CredentialVault` only, under its document
+  lock, atomically with 0600.
 - **Launcher re-exports are load-bearing.** `agent-proxies.py` must keep its
   name/path (systemd `ExecStart`, `scripts/test_queue_node.py` loads it via
   `spec_from_file_location`) and must keep re-exporting `resolve_graph`,

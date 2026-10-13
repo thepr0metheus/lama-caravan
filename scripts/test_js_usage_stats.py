@@ -97,9 +97,11 @@ out.refresh_words = [said !== "usTitleRereadLimits", said !== i18n.t("usTitleRef
 out.compact = [0, 999, 1000, 1500, 359627986, 1e9, 12345678901, null].map(m.compactCount);
 globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { spend: { sub: { windowDays: 30, total: 698.73, requests: 5429,
   promptTokens: 359000000, completionTokens: 627986, byModel: [{ model: "GPT-5.6-TERRA", cost: 547.38 }] } } };
+out.spend_unread = m.proxySpendHtml("x", { zero: true });
 await m.fetchProxySpend();
 out.spend = { api: m.proxySpendHtml("sub"), sub: m.proxySpendHtml("sub", { subscription: true }),
   asked: m.proxySpendHtml("sub", { open: true, subscription: true }), none: m.proxySpendHtml("other"),
+  zero: m.proxySpendHtml("other", { zero: true }), zeroOwn: m.proxySpendHtml("sub", { zero: true }) === m.proxySpendHtml("sub"),
   of: m.proxySpendOf("sub")?.byModel?.[0]?.model || null, ofNone: m.proxySpendOf("other"),
   cost: [{ total: 698.73 }, { total: 0 }, { total: 1234567.4 }, { total: 0.4 }, null, {}, { total: "12.5" }].map(m.spendCost) };
 
@@ -121,53 +123,103 @@ out.stale_mixed = m.staleReadings(C([
 out.stale_empty = m.staleReadings(C([]), NOW);
 out.min_age = MIN;
 out.readings = Object.keys(m.USAGE_READINGS).sort();
-// действие: забыть и спросить заново — то же, что делает кнопка ↻
-m.subscriptionUsageCache.set("gone", { data: { ok: true }, fetchedAt: NOW });
+// действие: спросить заново — то же, что делает кнопка ↻; прежнее чтение остаётся на карточке
+m.subscriptionUsageCache.set("gone", { data: { ok: true, limits: LIM(70) }, fetchedAt: NOW });
+const sentBefore = globalThis.__fetchCalls.length;
 const didRefresh = m.refreshUsageReading("subscription", "gone");
 const after = m.subscriptionUsageCache.get("gone");
-out.refresh_forgets = [didRefresh, after?.data ?? null, !!after?.loading];
+out.refresh_keeps = [didRefresh, after?.data?.ok ?? null, !!after?.loading, globalThis.__fetchCalls.length - sentBefore];
+out.refresh_drawn = [m.subscriptionUsageHtml("gone").startsWith('<div class="sub-usage-panel refreshing" aria-busy="true"'),
+  m.subscriptionUsageHtml("gone").includes("sub-usage-row")];
+// второй щелчок, пока первое чтение в полёте, второго запроса не шлёт
+const sentMid = globalThis.__fetchCalls.length;
+m.refreshUsageReading("subscription", "gone");
+out.refresh_in_flight = globalThis.__fetchCalls.length - sentMid;
+// первое чтение, когда показать ещё нечего: строка со спиннером, а не пустота
+m.subscriptionUsageCache.set("first", { data: null, fetchedAt: 0, loading: true });
+m.subscriptionUsageCache.set("first-failed", { data: null, error: "boom", fetchedAt: 1, loading: true });
+out.first_read = [m.subscriptionUsageHtml("first"), m.subscriptionUsageHtml("first-failed").includes("sub-usage-spinner"),
+  m.subscriptionUsageHtml("r-ok").includes("refreshing"), m.subscriptionUsageHtml("r-ok").includes("aria-busy")];
 out.refresh_unknown_kind = m.refreshUsageReading("sorcery", "gone");
 out.refresh_no_id = m.refreshUsageReading("subscription", "");
-// ── запас оператора на полосках лимитов (2026-09-28) ──
+// ── два порога шага пула на полосках лимитов (2026-09-28, шаги — 2026-10-10, два порога — 2026-10-11) ──
 const LIMR = { label: "5h limit", name: "", remainingPct: 15, resetsAt: "2031-03-15T10:20:00Z", windowSeconds: 18000 };
-out.row_reserve = m.subscriptionLimitRowHtml("acc<1>", LIMR, { reserve: { "18000": 20 }, reserveMax: 90 });
-out.row_off = m.subscriptionLimitRowHtml("acc", LIMR, { reserve: {}, reserveMax: 90 });
-out.row_nolen = m.subscriptionLimitRowHtml("acc", { ...LIMR, windowSeconds: null }, { reserve: { "18000": 20 }, reserveMax: 90 });
-out.row_nomax = m.subscriptionLimitRowHtml("acc", LIMR, { reserve: { "18000": 20 } });
-out.row_over = m.subscriptionLimitRowHtml("acc", LIMR, { reserve: { "18000": 95 }, reserveMax: 90 });
+const STEPR = (switchAt, stopAt, extra = {}) => ({ poolId: "p<1>", stepId: "s<1>", switchAt, stopAt, switchMax: 90, ...extra });
+out.row_two = m.subscriptionLimitRowHtml("acc<1>", LIMR, STEPR({ "18000": 40 }, { "18000": 10 }));
+// The kanban's model (1.3.486): the handles name the model by its account and model, not a pool's row.
+out.row_model = m.subscriptionLimitRowHtml("acc<1>", LIMR, { accountId: "sub<1>", model: "gpt<1>", switchAt: { "18000": 40 }, stopAt: { "18000": 10 }, switchMax: 90 });
+out.row_same = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 20 }, { "18000": 20 }));
+out.row_below = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 5 }, { "18000": 30 }));
+out.row_off = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({}, {}));
+out.row_nolen = m.subscriptionLimitRowHtml("acc", { ...LIMR, windowSeconds: null }, STEPR({ "18000": 20 }, { "18000": 20 }));
+out.row_nomax = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 20 }, { "18000": 20 }, { switchMax: undefined }));
+out.row_nostep = m.subscriptionLimitRowHtml("acc", LIMR);
+out.row_over = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 95 }, { "18000": 95 }));
+// живой показ, пока ручку тянут: стоп толкает переключение вверх, переключение не опускается ниже стопа
+function fakeRow(stop, next) {
+  const mk = (value) => { const cls = new Set(); return { value: String(value), max: "90", style: {}, hidden: false, textContent: "", cls, classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); } } }; };
+  const els = { stop: mk(stop), next: mk(next), zoneStop: mk(0), zoneNext: mk(0), markNext: mk(0), markStop: mk(0) };
+  const by = { ".sub-usage-switch.stop": els.stop, ".sub-usage-switch.switch": els.next, ".sub-usage-zone.stop": els.zoneStop,
+    ".sub-usage-zone.switch": els.zoneNext, '[data-level-mark="switch"]': els.markNext, '[data-level-mark="stop"]': els.markStop };
+  const row = { querySelector: (sel) => by[sel] || null };
+  els.stop.closest = els.next.closest = () => row;
+  return els;
+}
+const look = (e) => [e.stop.value, e.next.value, e.zoneStop.style.width, e.zoneNext.style.left, e.zoneNext.style.width,
+  e.markNext.hidden ? null : e.markNext.textContent, e.markStop.hidden ? null : e.markStop.textContent, [...e.next.cls].join(), [...e.stop.cls].join(),
+  [e.markNext.style.left, e.markNext.style.right], [e.markStop.style.left, e.markStop.style.right]];
+let fr = fakeRow(10, 30); fr.next.value = "45"; m.previewSwitchLevel(fr.next); out.preview_switch = look(fr);
+fr = fakeRow(10, 30); fr.stop.value = "50"; m.previewSwitchLevel(fr.stop); out.preview_stop_pushes = look(fr);
+fr = fakeRow(20, 40); fr.next.value = "5"; m.previewSwitchLevel(fr.next); out.preview_switch_rests = look(fr);
+fr = fakeRow(20, 40); fr.stop.value = "0"; m.previewSwitchLevel(fr.stop); out.preview_no_stop = look(fr);
+fr = fakeRow(10, 30); fr.next.value = "72"; m.previewSwitchLevel(fr.next); out.preview_past_middle = look(fr);
+out.row_past_middle = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 72 }, { "18000": 51 }));
 const KEPT = { windowSeconds: 18000, remainingPct: 15, reservePct: 20, resetAt: Math.floor(Date.parse("2031-03-15T10:20:00Z") / 1000) };
-out.banner_kept = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: false, creditsInfo: {}, reserveKept: KEPT });
-out.banner_kept_blocked = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: null, reserveKept: KEPT });
-out.banner_kept_noreset = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: false, creditsInfo: {}, reserveKept: { ...KEPT, resetAt: 0 } });
-globalThis.__fetchReply["/api/cloud-accounts/usage-reserve"] = { ok: true, reserve: { "18000": 30 }, reserveKept: null, reserveReadAt: 5, reserveMax: 90 };
-m.subscriptionUsageCache.set("accS", { data: { ok: true, limits: [LIMR], reserve: {} }, fetchedAt: 1 });
+out.banner_kept = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: false, creditsInfo: {} }, { switchReached: KEPT });
+out.banner_stopped = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: false, creditsInfo: {} }, { switchReached: KEPT, stopReached: KEPT });
+// что значат ручки — одной строкой под полосками шага, и только там
+m.subscriptionUsageCache.set("legend", { data: { ok: true, limits: [LIMR] }, fetchedAt: 1 });
+out.legend = [m.subscriptionUsageHtml("legend", { step: STEPR({ "18000": 40 }, { "18000": 10 }) }).includes('data-t="pool-levels-legend"'),
+  m.subscriptionUsageHtml("legend").includes("pool-levels-legend")];
+out.signs = Object.fromEntries(Object.entries(m.LEVEL_HANDLES).map(([level, h]) => [level, h.sign]));
+out.legend_html = m.subscriptionUsageHtml("legend", { step: STEPR({ "18000": 40 }, { "18000": 10 }) }).match(/<div class="sub-usage-legend"[^>]*>(.*?)<\/div>/)?.[1] ?? null;
+out.banner_kept_blocked = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: null }, { switchReached: KEPT });
+out.banner_kept_noreset = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: false, creditsInfo: {} }, { switchReached: { ...KEPT, resetAt: 0 } });
+out.banner_no_step = m.subscriptionBannerHtml({ ok: true, limits: [LIMR], credits: null, limitReached: false, creditsInfo: {}, reserveKept: KEPT });
+globalThis.__fetchReply["/api/pools/level"] = { ok: true, switchAt: { "18000": 30 }, stopAt: { "18000": 30 }, topology: { pools: ["after"] } };
+const applied = [];
 const calls0 = globalThis.__fetchCalls.length;
-await m.saveUsageReserve({ value: "30", dataset: { usageReserve: "accS", windowSeconds: "18000" } });
-const sent = globalThis.__fetchCalls.slice(calls0).find((c) => c.path === "/api/cloud-accounts/usage-reserve");
-out.saved = [m.subscriptionUsageCache.get("accS").data.reserve, sent ? JSON.parse(sent.body) : null, sent?.method || null];
-globalThis.__fetchReply["/api/cloud-accounts/usage-reserve"] = { __status: 400, ok: false, error: "pct must be 0..90" };
+await m.saveSwitchLevel({ value: "30", dataset: { poolSwitch: "work", stepId: "sub", windowSeconds: "18000", level: "stop" } }, (top) => applied.push(top));
+const sent = globalThis.__fetchCalls.slice(calls0).find((c) => c.path === "/api/pools/level");
+out.saved = [applied, sent ? JSON.parse(sent.body) : null, sent?.method || null];
+const calls1 = globalThis.__fetchCalls.length;
+await m.saveSwitchLevel({ value: "20", dataset: { levelAccount: "sub", levelModel: "gpt-6-sol", windowSeconds: "604800", level: "switch" } }, () => {});
+const sentModel = globalThis.__fetchCalls.slice(calls1).find((c) => c.path === "/api/pools/level");
+out.saved_model = sentModel ? JSON.parse(sentModel.body) : null;
+globalThis.__fetchReply["/api/pools/level"] = { __status: 400, ok: false, error: "pct must be 0..90" };
 const toastEl = { textContent: "", classList: { add() {}, remove() {} } };
 const keepGet = document.getElementById;
 document.getElementById = (id) => (id === "toast" ? toastEl : keepGet.call(document, id));
+const appliedAfterFail = [];
 try {
-  await m.saveUsageReserve({ value: "95", dataset: { usageReserve: "accS", windowSeconds: "18000" } });
+  await m.saveSwitchLevel({ value: "95", dataset: { poolSwitch: "work", stepId: "sub", windowSeconds: "18000", level: "switch" } }, (top) => appliedAfterFail.push(top));
 } finally {
   document.getElementById = keepGet;
 }
-out.saved_failed = [m.subscriptionUsageCache.get("accS").data.reserve, toastEl.textContent];
+out.saved_failed = [appliedAfterFail, toastEl.textContent];
 // перетаскивание: флаг снимается на ЛЮБОМ отпускании, отложенная перерисовка случается один раз
 const listeners = {};
 globalThis.window.addEventListener = (type, fn) => { (listeners[type] ||= []).push(fn); };
 globalThis.window.removeEventListener = (type, fn) => { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); };
 let redraws = 0;
-m.reserveDrag.begin(() => { redraws += 1; });
-const during = m.reserveDrag.active;
-m.reserveDrag.deferred = true;
+m.switchDrag.begin(() => { redraws += 1; });
+const during = m.switchDrag.active;
+m.switchDrag.deferred = true;
 (listeners.pointerup || []).slice().forEach((fn) => fn());
-out.drag = [during, m.reserveDrag.active, redraws, (listeners.pointerup || []).length, (listeners.pointercancel || []).length];
-m.reserveDrag.begin(() => { redraws += 1; });
+out.drag = [during, m.switchDrag.active, redraws, (listeners.pointerup || []).length, (listeners.pointercancel || []).length];
+m.switchDrag.begin(() => { redraws += 1; });
 (listeners.pointercancel || []).slice().forEach((fn) => fn());
-out.drag_cancel_no_defer = [m.reserveDrag.active, redraws];
+out.drag_cancel_no_defer = [m.switchDrag.active, redraws];
 console.log(JSON.stringify(out));
 """
 
@@ -257,9 +309,18 @@ check(got["stale_empty"] == [], "negative: пустой кэш — пустой 
 check(got["min_age"] == 60000, f"порог — минута (got {got['min_age']})")
 check(got["readings"] == ["apiCosts", "openrouter", "subscription"], 
       f"все три вида чтений в одной таблице — кнопка и возврат зовут одно действие (got {got['readings']})")
-check(got["refresh_forgets"] == [True, None, True],
-      f"обновление СНАЧАЛА забывает прежние данные и уходит в «идёт запрос»: _shouldFetch отказывает, пока лежат хорошие данные, "
-      f"так что без удаления это был бы холостой вызов (got {got['refresh_forgets']})")
+check(got["refresh_keeps"] == [True, True, True, 1],
+      f"обновление идёт мимо отказа _shouldFetch (хорошие данные лежат), одним запросом, и НЕ стирает прежнее чтение: "
+      f"до 1.3.463 шкалы пропадали с карточки до ответа (got {got['refresh_keeps']})")
+check(got["refresh_drawn"] == [True, True],
+      f"пока идёт чтение — те же шкалы, помеченные «читается» (refreshing, aria-busy) (got {got['refresh_drawn']})")
+check(got["refresh_in_flight"] == 0, "negative: щелчок, пока чтение в полёте, второго запроса не шлёт")
+fr = got["first_read"]
+check(fr[0].startswith('<div class="sub-usage-panel sub-usage-loading" aria-busy="true" data-t="sub-usage-loading">')
+      and "sub-usage-spinner" in fr[0] and "loading limits…" in fr[0],
+      f"первое чтение без данных — строка со спиннером «loading limits…», а не пустота (got {fr[0][:120]!r})")
+check(fr[1] is True, "повтор после неудачи, пока он идёт, — тоже строка со спиннером")
+check(fr[2:] == [False, False], "negative: прочитанное и не читающееся — без пометки")
 check(got["refresh_unknown_kind"] is False and got["refresh_no_id"] is False,
       "negative: неизвестный вид чтения или пустой id — ничего не делаем и говорим об этом false")
 check(0 <= got["banner_order"][0] < got["banner_order"][1], f"в панели баннер стоит ВЫШЕ шкал (получено {got['banner_order']})")
@@ -276,34 +337,123 @@ check(rb["panelSame"] is True, "одна кнопка на оба места: п
 check(got["refresh_words"] == [True, True, True, True, False],
       f"подсказка кнопки ↻ говорит, что она только читает («Re-read … changes nothing»), а не «Refresh»: слово переведено, не равно старому, стоит и в title, и в aria-label (получено {got['refresh_words']})")
 
-print("запас оператора на полосках:")
-row = got["row_reserve"]
-check('type="range" min="0" max="90" step="1" value="20"' in row and 'data-window-seconds="18000"' in row
-      and 'data-usage-reserve="acc&lt;1&gt;"' in row and 'data-t="usage-reserve"' in row,
-      "ползунок лежит на полоске: от 0 до потолка сервера, стоит на запасе, знает окно и аккаунт (экранированный)")
-check('class="sub-usage-reserve-zone" style="width:20%"' in row and ">keep 20%<" in row and "is-off" not in row,
-      "запас заштрихован от левого края и подписан у названия окна")
-check('value="20" style="width:90%"' in row and 'style="width:90%"' in got["row_off"],
-      "ползунок занимает долю полоски, равную потолку: ручка на 20 стоит там, где кончается штриховка 20%")
-check('aria-label="Keep for yourself:' in row, "у ползунка есть имя для экранного диктора и подсказка")
+print("два порога шага на полосках (2026-10-11):")
+row = got["row_two"]
+check('class="sub-usage-switch switch" type="range" min="0" max="90" step="1" value="40" style="width:90%"' in row
+      and 'class="sub-usage-switch stop" type="range" min="0" max="90" step="1" value="10" style="width:90%"' in row
+      and row.count('data-pool-switch="p&lt;1&gt;" data-step-id="s&lt;1&gt;" data-window-seconds="18000"') == 2
+      and 'data-level="switch" data-t="pool-switch"' in row and 'data-level="stop" data-t="pool-stop"' in row,
+      "две ручки на полоске: ▼ переключение на 40 и ▲ стоп на 10, от 0 до потолка сервера, каждая знает окно, пул и шаг (экранированные)")
+check('<b class="sub-usage-zone stop" style="width:10%"></b><b class="sub-usage-zone switch" style="left:10%;width:30%"></b>' in row,
+      "под стопом — своя штриховка от левого края, между стопом и переключением — своя")
+check('data-level-mark="switch" style="left:calc(40% + var(--level-thumb) * 0.556 + 3px)">switch at 40%<' in row
+      and 'data-level-mark="stop" style="left:calc(10% + var(--level-thumb) * 0.889 + 3px)">stop at 10%<' in row and "is-off" not in row,
+      "каждый порог подписан справа от своей ручки: ручка идёт по 90% полоски без своей ширины — подпись стоит у её правого края; "
+      "знак — сама ручка, в словах его нет (2026-10-11: подписи стояли отдельной строкой у названия окна)")
+track_at, meta_at = row.index('class="sub-usage-track'), row.index('class="sub-usage-meta"')
+check(row.index('data-level-mark="switch"') > track_at and row.index('data-level-mark="stop"') > track_at
+      and "sub-usage-levels" not in row and row.index('class="sub-usage-pct"') < track_at and meta_at < track_at,
+      "negative: подписей порогов нет у названия окна — они внутри полоски, рядом с ручками")
+check('aria-label="Switch level:' in row and 'aria-label="Stop level:' in row, "у каждой ручки — имя для экранного диктора и подсказка")
+same = got["row_same"]
+check('data-level-mark="switch" style="left:calc(20% + var(--level-thumb) * 0.778 + 3px)" hidden>' in same
+      and 'data-level-mark="stop" style="left:calc(20% + var(--level-thumb) * 0.778 + 3px)">stop at 20%<' in same
+      and 'class="sub-usage-switch switch is-off"' in same and 'style="left:20%;width:0%"' in same,
+      "переключение на стопе ничего не меняет: его подпись скрыта, ручка бледная — но стоит на месте, её можно тянуть")
+check('class="sub-usage-switch switch is-off" type="range" min="0" max="90" step="1" value="30"' in got["row_below"],
+      "переключение ниже стопа рисуется на стопе")
 off = got["row_off"]
-check('value="0"' in off and "is-off" in off and 'style="width:0%"' in off and " hidden>" in off,
-      "запаса нет — ручка бледная в начале полоски, подпись скрыта, штриховки нет")
-check("sub-usage-reserve" not in got["row_nolen"] and "sub-usage-reserve" not in got["row_nomax"],
-      "negative: окно без длины или без потолка сервера — ползунка нет вовсе (настройка, которая ничего не делает, не рисуется)")
-check('value="90"' in got["row_over"] and "width:90%" in got["row_over"],
-      "запас выше потолка рисуется на потолке, а не за полоской")
+check(off.count('value="0"') == 2 and off.count("is-off") == 2 and 'style="width:0%"' in off and off.count(" hidden>") == 2,
+      "порогов нет — обе ручки бледные в начале полоски, подписи скрыты, штриховки нет")
+check(all("sub-usage-switch" not in got[k] for k in ("row_nolen", "row_nomax", "row_nostep")),
+      "negative: окно без длины, без потолка сервера или полоска не шага — ручек нет вовсе (настройка, которая ничего не делает, не рисуется)")
+check(got["row_over"].count('value="90"') == 2, "порог выше потолка рисуется на потолке, а не за полоской")
+check(got["preview_switch"] == ["10", "45", "10%", "10%", "35%", "switch at 45%", "stop at 10%", "", "",
+                                ["calc(45% + var(--level-thumb) * 0.5 + 3px)", ""], ["calc(10% + var(--level-thumb) * 0.889 + 3px)", ""]],
+      f"тянут переключение — сдвигается его штриховка и подпись, подпись едет за ручкой (получено {got['preview_switch']})")
+check(got["preview_stop_pushes"] == ["50", "50", "50%", "50%", "0%", None, "stop at 50%", "is-off", "",
+                                     ["calc(50% + var(--level-thumb) * 0.444 + 3px)", ""], ["calc(50% + var(--level-thumb) * 0.444 + 3px)", ""]],
+      f"стоп выше переключения толкает его вверх; подпись переключения прячется (получено {got['preview_stop_pushes']})")
+check(got["preview_switch_rests"] == ["20", "20", "20%", "20%", "0%", None, "stop at 20%", "is-off", "",
+                                      ["calc(20% + var(--level-thumb) * 0.778 + 3px)", ""], ["calc(20% + var(--level-thumb) * 0.778 + 3px)", ""]],
+      f"переключение ниже стопа встаёт на стоп (получено {got['preview_switch_rests']})")
+check(got["preview_no_stop"] == ["0", "40", "0%", "0%", "40%", "switch at 40%", None, "", "is-off",
+                                 ["calc(40% + var(--level-thumb) * 0.556 + 3px)", ""], ["calc(0% + var(--level-thumb) * 1 + 3px)", ""]],
+      f"стоп на нуле — стопа нет: ручка бледная, подпись скрыта (получено {got['preview_no_stop']})")
+check(got["preview_past_middle"][9] == ["", "calc(28% + var(--level-thumb) * 0.8 + 3px)"]
+      and got["preview_past_middle"][10] == ["calc(10% + var(--level-thumb) * 0.889 + 3px)", ""],
+      f"ручку утянули за середину — подпись переходит налево от неё, а не уезжает за конец полоски на время сброса (получено {got['preview_past_middle'][9:]})")
+past = got["row_past_middle"]
+check('data-level-mark="switch" style="right:calc(28% + var(--level-thumb) * 0.8 + 3px)">switch at 72%<' in past
+      and 'data-level-mark="stop" style="right:calc(49% + var(--level-thumb) * 0.567 + 3px)">stop at 51%<' in past,
+      "за серединой полоски подпись стоит слева от ручки — так рисуется и сразу; negative: на 50% и ниже — справа (пины выше)")
+check(got["legend"] == [True, False], "под полосками шага — строка, что значат ▼ и ▲; у полосок не шага её нет")
+signs = got["signs"]
+check(signs == {"switch": "▼", "stop": "▲"},
+      f"знаки порогов — треугольники: ▼ переключение, ▲ стоп (владелец, 2026-10-12, вместо эмодзи) (получено {signs})")
+check(got["legend_html"] == ('<span class="sub-usage-sign switch" aria-hidden="true">▼</span> switch: from this much left, requests go to '
+                             'the next steps first · <span class="sub-usage-sign stop" aria-hidden="true">▲</span> stop: from this much left, '
+                             'the step does not serve'),
+      f"в строке-пояснении знаки — в цветах своих ручек, слова — языка (получено {got['legend_html']!r})")
+import glob, re, urllib.parse
+legends = {path.split("/")[-1]: re.search(r'^  poolLevelsLegend: "(.*)",$', open(path, encoding="utf-8").read(), re.M).group(1)
+           for path in sorted(glob.glob(str(ROOT / "static/js/i18n/*.js")))}
+check(all(v.startswith(signs["switch"] + " ") and (" " + signs["stop"] + " ") in v for v in legends.values()),
+      "строка-пояснение на всех 20 языках называет пороги теми же знаками, что подписи у шкалы")
+css = urllib.parse.unquote((ROOT / "static/css/modals.css").read_text(encoding="utf-8"))
+thumbs = {level: re.search(r"\.sub-usage-switch\." + level + r"::-webkit-slider-thumb \{[^}]*url\(\"([^\"]+)\"\)", css) for level in signs}
+tokens = dict(re.findall(r"--level-(stop|switch): (#[0-9a-f]{6});", css))
+shapes = {}
+for level, found in thumbs.items():
+    poly = re.search(r"<polygon points='([^']+)' fill='(#[0-9a-f]{6})'", found.group(1)) if found else None
+    pts = [tuple(float(v) for v in xy.split(",")) for xy in poly.group(1).split()] if poly else []
+    apex = min(pts, key=lambda xy: abs(xy[0] - 8)) if pts else None
+    base = [xy[1] for xy in pts if xy != apex]
+    shapes[level] = (poly.group(2) if poly else None,
+                     ("down" if apex[1] > max(base) else "up" if apex[1] < min(base) else "?") if apex and base else None)
+check(tokens == {"stop": "#ef4444", "switch": "#eab308"} and shapes == {"switch": (tokens.get("switch"), "down"), "stop": (tokens.get("stop"), "up")},
+      f"ручка на шкале — треугольник цвета своего порога: ▼ жёлтый над полоской, ▲ красный под ней; его заливка — тот же цвет, "
+      f"что у штриховки, подписи и знака в строке-пояснении (--level-*) (получено {tokens}, {shapes})")
+moz = {level: re.search(r"\.sub-usage-switch\." + level + r"::-moz-range-thumb \{[^}]*url\(\"([^\"]+)\"\)", css) for level in signs}
+check(all(moz[level] and thumbs[level] and moz[level].group(1) == thumbs[level].group(1) for level in signs),
+      "в Firefox ручки — те же картинки")
+thumb_rule = re.search(r"\.sub-usage-switch::-webkit-slider-thumb \{([^}]*)\}", css).group(1)
+check(re.search(r"\.sub-usage-track \{[^}]*--level-thumb: 16px;", css) is not None and "width: var(--level-thumb);" in thumb_rule
+      and "height: var(--level-thumb);" in thumb_rule,
+      "ширина ручки сказана один раз (--level-thumb) — по ней и ручка, и место подписи; negative: числа 16px в правиле ручки нет")
+areas = {name: re.search(r"^\.pool-step \.sub-usage-" + name + r" \{ grid-area: ([^;]+);", css, re.M) for name in ("label", "track", "resets", "pct")}
+check({k: v.group(1) if v else None for k, v in areas.items()} == {"label": "1 / 1", "track": "1 / 2", "resets": "1 / 3", "pct": "1 / 4"},
+      f"полоска шага — одна строка: название слева, полоска, справа сброс и остаток (2026-10-11, компактнее) (получено {areas})")
+panel = re.search(r"^\.pool-step > \.sub-usage-panel \{([^}]*)\}", css, re.M)
+row = re.search(r"^\.pool-step \.sub-usage-row \{([^}]*)\}", css, re.M)
+check(panel is not None and "grid-template-columns: max-content minmax(0, 1fr) max-content max-content;" in panel.group(1)
+      and row is not None and "grid-template-columns: subgrid;" in row.group(1)
+      and re.search(r"^\.pool-step \.sub-usage-resets \{[^}]*justify-self: end;", css, re.M) is not None,
+      "полоски шага — на одной сетке панели: названия в одном столбце, каждая полоска начинается и кончается в одном месте, "
+      "время сброса — у одного края (2026-10-11, аккуратнее); negative: у строки своей сетки нет — иначе длина полоски "
+      "зависела бы от длины названия и времени сброса")
 kept = got["banner_kept"]
-check(kept.startswith('<div class="sub-usage-banner reserve" data-t="sub-usage-banner">🛡 Kept for you — 5h limit: 15% left, you keep 20%. The caravan answers requests to this account with 429 until Mar 15'),
-      f"караван держит запас — своя плашка, названы окно, остаток, запас и срок (получено {kept[:140]!r})")
+check(kept.startswith('<div class="sub-usage-banner reserve" data-t="sub-usage-banner">↓ 5h limit: 15% left, the switch level is 20%. Until Mar 15'),
+      f"шаг ниже переключения — своя плашка: окно, остаток, порог и до какого срока пул шлёт сначала в следующие шаги (получено {kept[:140]!r})")
+stopped = got["banner_stopped"]
+check(stopped.startswith('<div class="sub-usage-banner stop" data-t="sub-usage-banner">■ 5h limit: 15% left, the stop level is 20%. The step does not serve until Mar 15'),
+      f"шаг на стопе — плашка стопа, она важнее плашки переключения (получено {stopped[:140]!r})")
 check(got["banner_kept_blocked"].startswith('<div class="sub-usage-banner blocked"'),
       "OpenAI уже отказывает — главная плашка его, не наша")
 check(got["banner_kept_noreset"] == "", "negative: у вердикта нет срока — плашки нет (не знаем до когда — не пишем)")
-saved, sent_body, method = got["saved"]
-check(saved == {"18000": 30} and sent_body == {"id": "accS", "windowSeconds": 18000, "pct": 30} and method == "POST",
-      f"отпустили — ушёл POST с окном и процентом, в карточке то, что сохранил сервер (получено {got['saved']})")
-check(got["saved_failed"][0] == {"18000": 30} and got["saved_failed"][1].startswith("The share kept for you was not saved: "),
-      f"negative: сохранение не удалось — сказано, и в карточке остаётся сохранённое, а не то, куда уехала ручка (получено {got['saved_failed']})")
+check(got["banner_no_step"] == "", "negative: старое поле учётки (reserveKept) больше ничего не рисует — уровень у шага, а не у учётки")
+check(got["saved_model"] == {"accountId": "sub", "model": "gpt-6-sol", "level": "switch", "windowSeconds": 604800, "pct": 20},
+      f"ручка модели (канбан, 1.3.486) сохраняет уровень модели — аккаунт и модель, без пула и строки (получено {got['saved_model']})")
+rm = got["row_model"]
+check(rm.count('data-level-account="sub&lt;1&gt;" data-level-model="gpt&lt;1&gt;" data-window-seconds="18000"') == 2
+      and "data-pool-switch" not in rm and "data-step-id" not in rm,
+      "две ручки модели называют аккаунт и модель (экранированные); negative: ни пула, ни строки у них нет")
+applied, sent_body, method = got["saved"]
+check(applied == [{"pools": ["after"]}] and sent_body == {"poolId": "work", "stepId": "sub", "level": "stop", "windowSeconds": 18000, "pct": 30}
+      and method == "POST",
+      f"отпустили — ушёл POST с пулом, шагом, порогом ручки, окном и процентом, доска нарисована из ответа сервера (получено {got['saved']})")
+check(got["saved_failed"][0] == [] and got["saved_failed"][1].startswith("The level was not saved: "),
+      f"negative: сохранение не удалось — сказано, ответа нет и доска не подменена (получено {got['saved_failed']})")
 check(got["drag"] == [True, False, 1, 0, 0],
       f"флаг перетаскивания снимается на отпускании, отложенная перерисовка — один раз, слушатели убраны (получено {got['drag']})")
 check(got["drag_cancel_no_defer"] == [False, 1],
@@ -324,6 +474,10 @@ check("The subscription covers this" in sp["sub"] and "The subscription covers t
 check(sp["of"] == "GPT-5.6-TERRA" and sp["ofNone"] is None,
       "строки моделей читают запись аккаунта; negative: трафика не было — null, а не пустая запись")
 check(sp["none"] == "", "negative: трафика не было — строки нет")
+check("0 req · 0 tok" in sp["zero"] and "30 days via the caravan" in sp["zero"] and sp["zeroOwn"] is True,
+      "где строка — всё, что есть (складка аккаунта на канбане), месяц без трафика сказан нулём, когда расход прочитан; "
+      "negative: у аккаунта с трафиком строка та же")
+check(got["spend_unread"] == "", "negative: расход ещё не прочитан — нуля нет: не знаем, а не «ничего»")
 check(sp["cost"] == ["$699", "$0", "$1,234,567", "$0", "$0", "$0", "$13"],
       f"сумма пишется одним способом — доллары без центов, тысячи через запятую; нет записи — $0, не NaN (got {sp['cost']}): "
       "её читают и строка расхода, и голова ступени пула")

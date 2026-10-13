@@ -37,7 +37,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(ROOT))
 from _node import find_node, node_search_paths  # noqa: E402
+from caravan.domain.runner import registry_json  # noqa: E402
 
 _fail = []
 
@@ -60,13 +62,20 @@ st.setState({ config: { KV_OFFLOAD: "0" }, paths: { modelsDir: "/srv/models/", l
 const TR_GPUS = [];
 globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._trCachedModels": new Set(),
   "remote-cells._trClientGpus": TR_GPUS, "remote-cells._trClientCpu": {} };
+// llama-edit is a stub here: its folder-kind rule answers from the server's registry, as the real one does.
+{
+  const reg = JSON.parse(process.env.RUNNERS_JSON);
+  const owner = (arch) => reg.find((r) => (r.stArchs || []).includes(String(arch || ""))) || null;
+  (globalThis.__stubReturns ||= {})["llama-edit.stOwner"] = owner;
+  globalThis.__stubReturns["llama-edit.stKind"] = (arch) => ((owner(arch) || {}).artifacts || ["safetensors"])[0];
+}
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/form.js").href);
 const F = (o) => { globalThis.__fields = o; return m.readConfigForm(""); };
 const base = { PORT: { value: " 22001 " }, MODEL_FILE: { value: "a.gguf" }, MMPROJ_FILE: { value: "mm.gguf" }, SPEC_DRAFT_MODEL_FILE: { value: "d.gguf" },
   ENABLE_FLASH_ATTN: { checked: true }, KV_OFFLOAD: { checked: true }, MMAP: { checked: true }, FIT: { checked: false } };
 const pick = (c) => ({ PORT: c.PORT, MODEL_FILE: c.MODEL_FILE, MMPROJ_FILE: c.MMPROJ_FILE, DRAFT: c.SPEC_DRAFT_MODEL_FILE, RUNNER: c.RUNNER,
   KIND: c.CELL_KIND, DIR: c.LLAMA_MODELS_DIR, FA: c.ENABLE_FLASH_ATTN, KV: c.KV_OFFLOAD, MMAP: c.MMAP, FIT: c.FIT, THREADS: c.THREADS,
-  COMMAND: c.COMMAND, VLLM: c.VLLM_MODEL, n: Object.keys(c).length });
+  COMMAND: c.COMMAND, VLLM: c.VLLM_MODEL, NAME: c.MODEL_NAME, n: Object.keys(c).length });
 const out = {
   exports: Object.keys(m).length,
   rc: {
@@ -79,6 +88,8 @@ const out = {
     moonshine: pick(F({ ...base, RUNNER: { value: "moonshine" } })),
     command: pick(F({ ...base, CELL_KIND: { value: "command" }, COMMAND: { value: " run.sh --x " } })),
     commandRunner: pick(F({ ...base, CELL_KIND: { value: "command" }, RUNNER: { value: "custom-x" } })),
+    named: pick(F({ ...base, MODEL_NAME: { value: " gemma " } })),
+    namedWhisper: pick(F({ ...base, RUNNER: { value: "whisper" }, MODEL_NAME: { value: "ear" } })),
     empty: pick(F({})),
   },
   tc: { undef: m.toggleChecked("KV_OFFLOAD", {}), blank: m.toggleChecked("KV_OFFLOAD", { KV_OFFLOAD: " " }),
@@ -210,7 +221,8 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
     const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
                    querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
     st.setState({ ...st.state, config: {}, models: [], artifacts: [
-      { path: "org/Qwen-ST", name: "Qwen-ST", sizeGb: 16, format: "safetensors", arch: "qwen2" }] });
+      { path: "org/Qwen-ST", name: "Qwen-ST", sizeGb: 16, format: "safetensors", arch: "qwen2" },
+      { path: "seam/FP32", name: "seamless-m4t-v2-large", sizeGb: 9, format: "FP32", arch: "seamless_m4t_v2" }] });
     const other = () => {
       const l = { innerHTML: "", appendChild() {} }, tr = { innerHTML: "", appendChild() {} };
       return { value: "", dataset: {}, innerHTML: "", appendChild() {},
@@ -227,9 +239,46 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
     try { m.renderModelSelects("tr-"); } catch (e) { out.stPickError = String((e && e.message) || e); }
     document.createElement = made;
     delete globalThis.__stubReturns["remote-cells.formOnControllerMachine"];
-    return kids.some((el) => el.dataset.value === "org/Qwen-ST");
+    return [kids.some((el) => el.dataset.value === "org/Qwen-ST"), kids.some((el) => el.dataset.value === "seam/FP32")];
   };
   out.stRows = [pickFor(true), pickFor(false)];
+}
+// A split GGUF is one choice — its first part; Strata's second part sat in the
+// picker as a llama.cpp model of its own (1.3.512).
+{
+  const kids = [];
+  const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+  const trigger = { innerHTML: "", appendChild() {} };
+  const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                 querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+  const other = () => {
+    const l = { innerHTML: "", appendChild() {} }, tr = { innerHTML: "", appendChild() {} };
+    return { value: "", dataset: {}, innerHTML: "", appendChild() {},
+             previousElementSibling: { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                                       querySelector: (q) => (q === ".mc-list" ? l : q === ".mc-trigger" ? tr : null) } };
+  };
+  const saved = st.state;
+  st.setState({ ...st.state, config: {}, artifacts: [], models: [
+    { path: "S/a/IQ2/S-IQ2-00001-of-00002.gguf", kind: "model", sizeGb: 39, ggufMeta: { architecture: "qwen4exp" } },
+    { path: "S/a/IQ2/S-IQ2-00002-of-00002.gguf", kind: "model", sizeGb: 29, ggufMeta: {} },
+    { path: "O/a/Q8/one-00001-of-00001.gguf", kind: "model", sizeGb: 1, ggufMeta: { architecture: "llama" } },
+    { path: "W/a/Q4/whole-Q4.gguf", kind: "model", sizeGb: 4, ggufMeta: { architecture: "llama" } }] });
+  globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: {}, innerHTML: "", appendChild() {}, previousElementSibling: wrap },
+                          "tr-MMPROJ_FILE": other(), "tr-SPEC_DRAFT_MODEL_FILE": other(),
+                          "tr-RUNNER": { value: "llama-server" } };
+  (globalThis.__stubReturns ||= {})["llama-edit.runnerRegistry"] = () => [
+    { id: "llama-server", artifacts: ["llm-gguf"] }, { id: "strata", artifacts: ["strata-gguf"], ggufArchs: ["qwen4exp"] }];
+  globalThis.__stubReturns["llama-edit.ggufKind"] = (meta) => (meta && meta.architecture === "qwen4exp" ? "strata-gguf" : "llm-gguf");
+  const made = document.createElement;
+  document.createElement = () => { const cls = new Set();
+    return { className: "", dataset: {}, style: {}, cls, classList: { add: (c) => cls.add(c), toggle() {} }, setAttribute() {},
+             addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" }; };
+  try { m.renderModelSelects("tr-"); } catch (e) { out.splitError = String((e && e.message) || e); }
+  document.createElement = made;
+  delete globalThis.__stubReturns["llama-edit.ggufKind"];
+  st.setState(saved);
+  out.splitRows = kids.map((el) => [el.dataset.value, !!(el.cls && el.cls.has("mc-dim"))])
+    .filter(([v]) => /^(S|W|O)\//.test(v));
 }
 // The redraw of a form awaiting a pick: the config's model (here gone from the
 // disk, so the list would carry it as a "missing" row) does not come back.
@@ -290,6 +339,101 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   globalThis.__fields = keep;
   st.setState(saved);
 }
+// The estimate bar of a runner that is not llama's, with a model chosen — the
+// live defect: renderModelInsight drew llama's sum for every runner, and a Strata
+// cell read "37.2 GB, won't fit" on the card it runs on. The registry is the
+// server's (its VRAM plan); form and memory are real.
+{
+  const saved = st.state, keep = globalThis.__fields;
+  globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => JSON.parse(process.env.RUNNERS_JSON);
+  const first = "Q/I/IQ2_XS/q-00001-of-00002.gguf";
+  st.setState({ ...st.state, config: {}, models: [{ path: first, sizeGb: 36.53,
+    ggufMeta: { blockCount: 48, embeddingLength: 2048, headCount: 16, headCountKv: 2 } }] });
+  const card = { index: 0, name: "Card", memoryTotalMiB: 32607, memoryFreeMiB: 13926, memoryUsedMiB: 18681 };
+  TR_GPUS.push(card);
+  const box = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] }, aside = { innerHTML: "" };
+  const draw = (runner) => {
+    globalThis.__fields = { "tr-modelInsight": box, "tr-asideVramBar": aside, "tr-RUNNER": { value: runner },
+      "tr-MODEL_FILE": { value: first, dataset: {} }, "tr-MMPROJ_FILE": { value: "" }, "tr-CTX_SIZE": { value: "131072" },
+      "tr-ENV": { value: "" } };
+    aside.innerHTML = "stale";
+    try { m.renderModelInsight("tr-"); } catch (e) { return "threw: " + String((e && e.message) || e); }
+    const h = aside.innerHTML;
+    return { wontFit: h.includes("won't fit"), plan: h.includes('class="aside-vram-plan"'),
+             add: (h.match(/≈ <strong>([^<]+)<\/strong>/) || [])[1] || null };
+  };
+  out.planBar = { strata: draw("strata"), vllm: draw("vllm"), llama: draw("llama-server") };
+  card.memoryFreeMiB = 5632;
+  out.planBar.strataShort = draw("strata");
+  TR_GPUS.length = 0;
+  // The bar's own options: an exact rule overflows at once, an estimate gets 1 GB
+  // of grace; the start's cards alone; its note escaped.
+  TR_GPUS.push({ index: 0, memoryTotalMiB: 32768, memoryFreeMiB: 5632 }, { index: 1, memoryTotalMiB: 16384, memoryFreeMiB: 16384 });
+  const bar = (opts) => {
+    globalThis.__fields = { "tr-asideVramBar": aside };
+    m.renderAsideVramBar("tr-", 6, true, opts);
+    const h = aside.innerHTML;
+    return { wontFit: h.includes("won't fit"), total: (h.match(/free \/ ([^<]+)<\/span>/) || [])[1] || null,
+             note: (h.match(/<div class="aside-vram-plan">([^<]*)<\/div>/) || [])[1] ?? null };
+  };
+  out.barOptions = { hard: bar({ hard: true, cards: [0], vramNote: "<b>x</b>" }), grace: bar({ cards: [0] }), all: bar(undefined) };
+  TR_GPUS.length = 0;
+  delete globalThis.__stubReturns["llama-edit.runnerRegistry"];
+  globalThis.__fields = keep;
+  st.setState(saved);
+}
+// Picking a model writes its draft and the type that draft is for, by the one
+// rule (draft-file.js): a head in the model's mtp/ folder was named draft-simple.
+{
+  const saved = st.state, keep = globalThis.__fields;
+  const pick = (row) => {
+    st.setState({ ...st.state, models: [row], artifacts: [] });
+    globalThis.__fields = { "tr-MODEL_FILE": { value: row.path, dataset: {} }, "tr-SPEC_DRAFT_MODEL_FILE": { value: "old.gguf", dataset: {} },
+                            "tr-SPEC_TYPE": { value: "stale" }, "tr-SPEC_ENABLED": { checked: false, closest: () => null } };
+    // Everything after the draft wants a real page; the draft and its type are written by then.
+    try { m.maybeAutofillModelHelpersPfx("tr-"); } catch (e) { /* the insight panels */ }
+    const f = globalThis.__fields;
+    return [f["tr-SPEC_DRAFT_MODEL_FILE"].value, f["tr-SPEC_TYPE"].value, f["tr-SPEC_ENABLED"].checked];
+  };
+  out.specPick = [
+    pick({ path: "gemma-4-31b-it/q4/m.gguf", suggestedDraft: "gemma-4-31b-it/mtp/gemma-4-31B-it-MTP-Q8_0.gguf", familyDefaults: { SPEC_TYPE: "draft-mtp" } }),
+    pick({ path: "x/q4/m.gguf", suggestedDraft: "x/default/dflash-x.gguf", familyDefaults: { SPEC_TYPE: "draft-mtp" } }),
+    pick({ path: "q/q4/m.gguf", hasMtpBuiltin: true, familyDefaults: { SPEC_TYPE: "draft-eagle3" } }),
+    pick({ path: "p/q4/m.gguf" }),
+  ];
+  globalThis.__fields = keep;
+  st.setState(saved);
+}
+// A pick ends by drawing the previews, after every write: what the draw sees is what the pick
+// filled in. Drawn before the alias is written (the runner switch's draw on a pick,
+// applyConfigToForm's on an opening) a preview names the model it replaced — on the live board
+// (v1.3.515) GR00T's `--name` kept the alias of the first model of the list. llama-edit is a stub
+// here, so the stub IS the draw: it records what the form held at the moment it was called.
+{
+  const saved = st.state, keep = globalThis.__fields, seen = [];
+  globalThis.__stubReturns["llama-edit.renderCellPreviews"] = (pfx) => {
+    const f = globalThis.__fields;
+    seen.push([pfx, f["tr-ALIAS"].value, f["tr-SPEC_DRAFT_MODEL_FILE"].value, f["tr-MODEL_NAME"].value]);
+  };
+  const fill = (opts, alias, auto) => {
+    seen.length = 0;
+    st.setState({ ...st.state, models: [{ path: "x/q4/m.gguf", suggestedDraft: "x/mtp/d.gguf" }], artifacts: [] });
+    globalThis.__fields = { "tr-MODEL_FILE": { value: "x/q4/m.gguf", dataset: {} },
+      "tr-ALIAS": { value: alias, dataset: auto ? { autoAlias: alias } : {} },
+      "tr-SPEC_DRAFT_MODEL_FILE": { value: "old.gguf", dataset: {} }, "tr-MODEL_NAME": { value: "typed" } };
+    try { m.maybeAutofillModelHelpersPfx("tr-", opts); } catch (e) { return "threw: " + String((e && e.message) || e); }
+    return seen.map((s) => s.slice());
+  };
+  out.previewsLast = {
+    pick: fill({ aliasFollow: true }, "old-model", true),
+    pickOverTyped: fill({ aliasFollow: true }, "typed-by-hand", false),
+    openKeepsSaved: fill({}, "saved-alias", false),
+    openFillsEmpty: fill({}, "", false),
+  };
+  delete globalThis.__stubReturns["llama-edit.renderCellPreviews"];
+  globalThis.__fields = keep;
+  st.setState(saved);
+}
 console.log(JSON.stringify(out));
 """
 
@@ -304,6 +448,7 @@ probe_path.write_text(PROBE)
 try:
     env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"),
            "JS_STUBS": "favorites,config-locator,llama-edit,polling,remote-cells,system-panels,cloud,topology-render,charts,dialogs",
+           "RUNNERS_JSON": json.dumps(registry_json()),
            # mcFormatMtime — toLocaleDateString: the value depends on Node's locale and timezone.
            "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
     run = subprocess.run(
@@ -326,7 +471,10 @@ check(got["classicGone"] == [],
 
 print("readConfigForm — поля:")
 rc = got["rc"]
-check(rc["llama"]["n"] == 135 and rc["empty"]["n"] == 135, "конфиг всегда из 135 ключей, даже с пустой формы")
+check(rc["llama"]["n"] == 143 and rc["empty"]["n"] == 143,
+      "конфиг всегда из 143 ключей, даже с пустой формы (1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T)")
+check(rc["named"]["NAME"] == "gemma" and rc["namedWhisper"]["NAME"] == "ear" and rc["llama"]["NAME"] == "",
+      "MODEL_NAME (1.3.507) — имя модели на входе машины, у любого раннера, без пробелов; поля нет — пусто")
 check(rc["llama"]["PORT"] == "22001", "порт обрезан от пробелов")
 check(rc["llama"]["FA"] == "1" and rc["empty"]["FA"] == "0", "чекбокс → \"1\"; отсутствующий чекбокс → \"0\"")
 check(rc["llama"]["THREADS"] == "", "отсутствующее числовое поле → \"\", не undefined")
@@ -415,6 +563,27 @@ check(got["awaitPick"] == [True, "", "1", ["change"], "1", None, "b.gguf", False
       "mcAwaitPick: поле пустое, выбор ждёт, поле узнаёт о смене; выбор «пусто» ожидания не снимает, выбор модели — "
       "снимает; negative: поля нет — false")
 
+pb = got.get("planBar") or {}
+check(pb.get("strata") == {"wontFit": False, "plan": True, "add": "13.6 GB"},
+      "defect-history: форма Strata с выбранной моделью рисует её план — всё свободное на карте (13.6 ГБ) и строку "
+      "«как она берёт память»; было «≈ 37.2 GB ✗ won't fit» по сумме llama на карте, где она работает "
+      f"(живая проверка 2026-10-13) (got {pb.get('strata')})")
+check(pb.get("strataShort") == {"wontFit": True, "plan": True, "add": "6.00 GB"},
+      "на карте свободно 5.5 ГБ из нужных 6 — «won't fit» сразу, без запаса в 1 ГБ: скаут откажет ровно здесь "
+      f"(got {pb.get('strataShort')})")
+check(pb.get("vllm") == {"wontFit": True, "plan": False, "add": "28.7 GB"},
+      "vLLM с моделью — его резерв (0.9 × 31.8 ГБ карты), а не сумма llama по файлу; при 13.6 ГБ свободных — "
+      f"не влезет (got {pb.get('vllm')})")
+check((pb.get("llama") or {}).get("plan") is False and (pb.get("llama") or {}).get("add") not in (None, "13.6 GB"),
+      "negative: llama.cpp с той же моделью — по-прежнему своя цифра (доля VRAM при выгрузке слоёв), "
+      f"без строки плана (got {pb.get('llama')})")
+bo = got.get("barOptions") or {}
+check(bo.get("hard") == {"wontFit": True, "total": "32.0 GB", "note": "&lt;b&gt;x&lt;/b&gt;"},
+      f"точное правило: 6 ГБ на 5.5 свободных — «won't fit»; только её карта (32 ГБ); строка экранирована (got {bo.get('hard')})")
+check(bo.get("grace") == {"wontFit": False, "total": "32.0 GB", "note": None},
+      f"оценка без hard — запас 1 ГБ, как было: 6 на 5.5 ещё «впритык», строки плана нет (got {bo.get('grace')})")
+check(bo.get("all") == {"wontFit": False, "total": "48.0 GB", "note": None},
+      f"без cards — все карты машины, как было (got {bo.get('all')})")
 check(got.get("awaitEstimate") == {"pending": [False, False, True, True, False], "normal": [True, True, False, False, False]},
       "defect-history: пока «＋ Add model» ждёт выбора, оценка пуста, а полоса памяти говорит «выберите модель» — "
       "раньше редактор показывал размер, «не влезет» и подсказку про проектор модели конфига (живая проверка "
@@ -455,9 +624,34 @@ check(pmap == {"model": [["L/a/Q4/lib-Q4.gguf", True], ["L/a/Q4/loc-Q4.gguf", Fa
                "mmproj": [["L/a/Q4/mmproj-lib.gguf", True]], "draft": [["L/a/Q4/mtp-lib.gguf", True]]},
       f"пикер целиком: место файла доходит до всех трёх выборов — модели, проектора и черновика; строка с этого диска "
       f"без 📚 (got {pmap}, {got.get('pickerMapError')})")
-check(got["stRows"] == [True, False] and got.get("stPickError") is None,
+check(got.get("splitRows") == [["S/a/IQ2/S-IQ2-00001-of-00002.gguf", True],
+                               ["O/a/Q8/one-00001-of-00001.gguf", False],
+                               ["W/a/Q4/whole-Q4.gguf", False]] and got.get("splitError") is None,
+      f"разбитый GGUF — один выбор, его первая часть (вторая часть Strata стояла в пикере моделью llama.cpp); "
+      f"модель Strata под llama.cpp приглушена — её вид по архитектуре qwen4exp; boundary: «часть 1 из 1» — "
+      f"обычная модель (got {got.get('splitRows')}, {got.get('splitError')})")
+check(got["stRows"] == [[True, True], [False, True]] and got.get("stPickError") is None,
       f"папка safetensors — в пикере формы, чья машина читает дерево моделей контроллера (машина контроллера); "
-      f"negative: у другой машины скаута её нет (got {got['stRows']}, {got.get('stPickError')})")
+      f"negative: у другой машины скаута папки vLLM нет; defect-history: папку SeamlessM4T другая машина видит — "
+      f"скаут 2.30 приносит её сам (got {got['stRows']}, {got.get('stPickError')})")
+check(got["specPick"] == [["gemma-4-31b-it/mtp/gemma-4-31B-it-MTP-Q8_0.gguf", "draft-mtp", True],
+                          ["x/default/dflash-x.gguf", "draft-dflash", True],
+                          ["", "draft-eagle3", True],
+                          ["", "", False]],
+      f"выбор модели пишет черновик и его тип по одному правилу: голова из папки mtp/ — draft-mtp (было draft-simple); "
+      f"negative: DFlash не получает тип семейства; без файла с MTP внутри — тип семейства; без черновика и без MTP — "
+      f"пусто и выключено (got {got['specPick']})")
+pl = got["previewsLast"]
+check(pl["pick"] == [["tr-", "m", "x/mtp/d.gguf", "typed"]],
+      f"выбор модели рисует превью ОДИН раз и ПОСЛЕ записей: рисунок видит новый алиас и новый черновик (было: старые — "
+      f"превью называло прежнюю модель); negative: имя модели, набранное оператором, алиас не трогает (got {pl['pick']})")
+check(pl["pickOverTyped"] == [["tr-", "m", "x/mtp/d.gguf", "typed"]],
+      f"явный выбор заменяет и алиас, набранный руками, — и превью рисуется уже с новым (got {pl['pickOverTyped']})")
+check(pl["openKeepsSaved"] == [["tr-", "saved-alias", "x/mtp/d.gguf", "typed"]],
+      f"negative: открытие формы не затирает сохранённый алиас, а превью всё равно рисуется после автозаполнения "
+      f"(got {pl['openKeepsSaved']})")
+check(pl["openFillsEmpty"] == [["tr-", "m", "x/mtp/d.gguf", "typed"]],
+      f"positive: открытие формы дописывает пустой алиас — и превью рисуется после этого (got {pl['openFillsEmpty']})")
 
 print()
 if _fail:

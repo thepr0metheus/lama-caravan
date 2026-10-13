@@ -1,9 +1,10 @@
 // SVG cable drawing between board cards.
-import { topologyOutputActivity } from "./routers.js";
+import { BOARD_VIEW } from "./board-view.js";
+import { PoolReach } from "./provider-glances.js";
 import { state, topology } from "./state.js";
-import { topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
+import { topologyItemsActivity, topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
 import { topologyPointerDrag } from "./topology-dnd.js";
-import { topologyBoardAssignmentsForHost, topologyRouteUsage } from "./topology-proxies.js";
+import { isEntryClient, topologyBoardAssignmentsForHost, topologyRouteUsage } from "./topology-proxies.js";
 import { t } from "./i18n.js";
 import { $, escapeHtml } from "./utils.js";
 
@@ -132,6 +133,10 @@ export function drawTopologyCables() {
   svg.innerHTML = "";
   const paths = [];
   cableDrops.length = 0;   // rebuilt every draw; the dedup set outlives it
+  // A machine's own window shows its card alone (board-view.js): no cable has its other end there.
+  // The clients and the kanban's node are in the page, hidden — a cable to them would start at
+  // the corner of the board.
+  if (BOARD_VIEW.isMachine) return;
   // Segment 1: client route handle (the proxy entry point, now on the client card)
   // → router input. The proxy is identified by route.proxyId; its router
   // (proxy.routerId) is the cable target. Muted/inactive roles draw a faint cable.
@@ -171,45 +176,43 @@ export function drawTopologyCables() {
       });
     });
   });
-  // Segment 3: router output → llama server (or cloud). One cable per output;
-  // only the output actually carrying a request animates (per-output activity).
-  (topology.routers || []).forEach((router) => {
-    (router.outputs || []).forEach((out) => {
-      // Per-output handles are gone from the compact board card — all cables
-      // fan out of the router's single shared output anchor.
-      const source = document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"][data-output-id="${CSS.escape(out.id)}"]`)
-        || document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"]`);
-      const isCloud = String(out.upstreamType || "llama") === "cloud";
-      // An engine's model next to the cells: one engine port serves many
-      // models, so its cable lands on the model's row, found by the output.
-      const isEngine = String(out.upstreamType || "") === "engine";
-      // Cloud cable attaches to the PROVIDER (account), not a specific model-block.
-      const target = isCloud
-        ? document.querySelector(`[data-topology-cloud-input][data-account-id="${CSS.escape(String(out.accountId || ""))}"]`)
-        : isEngine
-          ? document.querySelector(`[data-topology-engine-input][data-output-id="${CSS.escape(String(out.id || ""))}"]`)
-          : document.querySelector(`[data-topology-llama-input][data-llama-port="${CSS.escape(String(out.upstreamPort || ""))}"]`);
-      // A cell its machine's eye hides has no handle to land on: its cable is put
-      // away with it — not drawn, and not reported as a cable the board lost.
-      if (!target && !isCloud && !isEngine
-          && document.querySelector(`[data-cell-hidden-port="${CSS.escape(String(out.upstreamPort || ""))}"]`)) return;
-      const activity = topologyOutputActivity(out);
-      const cable = topologySvgPath(
-        topologyPointFor(source, "right"),
-        topologyPointFor(target, "left"),
-        `topology-cable router ${isCloud ? "cloud" : ""} ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)}`,
-      );
-      if (!cable) {
-        noteCableDrop(`router ${router.id} -> ${out.id}`, {
-          routerOutputFound: !!source,
-          upstream: isCloud ? `cloud account ${out.accountId || "(none)"}`
-            : isEngine ? `engine model ${out.upstreamModel || "(none)"}` : `:${out.upstreamPort || "(none)"}`,
-          upstreamInputFound: !!target,
-        });
-      }
-      paths.push(cable);
-    });
+  // Segment 2: a client of the entry (consumers.js) → the kanban, lit by its requests (the owner,
+  // 2026-10-11: a client's activity on the cables, as the agents' was). Its one cable leads to a set
+  // of models (2026-10-12), and the sets and pools stand on the kanban, not on the main board: on the
+  // main board the cable comes into the kanban's card. A client no cable reaches (`set`, the
+  // controller's reading) has none here either. Every request of the client goes down it, whichever
+  // pool and row serve it.
+  const kanban = document.querySelector('[data-topology-router-input][data-router-id="router:default"]');
+  (topology.proxies || []).filter(isEntryClient).forEach((p) => {
+    if (!String(p.set || "")) return;
+    const source = document.querySelector(`[data-topology-proxy-output][data-proxy-id="${CSS.escape(p.id)}"]`);
+    const activity = topologyItemsActivity((it, port) => port === Number(p.port));
+    const cable = topologySvgPath(topologyPointFor(source, "right"), topologyPointFor(kanban, "left"),
+      `topology-cable consumer ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)} ${topologyProxyClass(p.id)}`);
+    if (!cable) noteCableDrop(`client ${p.label || p.id} -> kanban`, { handleFound: !!source, kanbanFound: !!kanban });
+    paths.push(cable);
   });
+  // Segment 3: the kanban's card → the machines and the cloud providers its pools lead to (the owner,
+  // 2026-10-12). The rows themselves are the kanban's (pool-board.js); here a cable says only that
+  // requests can go there — a machine one of whose cells is a pool's row, an account a pool's row
+  // calls (PoolReach) — and it lights while a request runs there: a cell's leg names its output
+  // (`routedOutputId`), a provider's its account (`cloudAccountId`, caravan/proxy/handler.py).
+  const out = document.querySelector('[data-topology-router-output][data-router-id="router:default"]');
+  const reach = PoolReach.of(topology);
+  const towards = (target, activity, what) => {
+    const cable = topologySvgPath(topologyPointFor(out, "right"), topologyPointFor(target, "left"),
+      `topology-cable router ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)}`);
+    if (!cable) noteCableDrop(`kanban -> ${what}`, { kanbanOutputFound: !!out, targetFound: !!target });
+    paths.push(cable);
+  };
+  reach.machines.forEach(({ key, outputs }) => towards(
+    document.querySelector(`.machine-glance[data-node-id="${CSS.escape(key)}"] > .node-head`),
+    topologyItemsActivity((it) => String(it.upstreamType || "") === "llama" && outputs.includes(String(it.routedOutputId || ""))),
+    `machine ${key}`));
+  reach.accounts.forEach((id) => towards(
+    document.querySelector(`[data-board-provider="${CSS.escape(id)}"] > .node-head`),
+    topologyItemsActivity((it) => String(it.cloudAccountId || "") === id),
+    `provider ${id}`));
   svg.innerHTML = paths.filter(Boolean).join("");
 }
 

@@ -36,6 +36,15 @@ const QUANT_IN_NAME_RE = /\b(NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_-][A-Z0-9]+(?:[_-][
 const LOW_BITS = 3;
 //: How bad a copy's standing is: a row of parts shows its worst part.
 const FRESH_ORDER = { size: 3, date: 3, unknown: 2, same: 1 };
+//: What a verify of a checkpoint can find besides a file that matches, worst first, with the
+//: word that counts it. A file the hub gave no hash for ("size-only") matched by size, which is
+//: not a match: it is counted apart and the mark stays a "?".
+const CHECKPOINT_FINDINGS = [["differs", "ckDiffers"], ["wrong-size", "ckWrongSize"], ["missing", "ckMissing"],
+  ["unreadable", "ckUnreadable"], ["size-only", "ckSizeOnly"]];
+//: The findings that say the copy is not what the hub has.
+const CHECKPOINT_WRONG = ["differs", "wrong-size", "missing"];
+//: How many file names a copy's tooltip lists for one finding before it says "…".
+const CHECKPOINT_NAMES = 8;
 
 export class HfQuant {
   // Unknown quants rank above the "low" line: better shown than hidden.
@@ -163,6 +172,30 @@ export class HfRepoView {
     return hfT("freshWordSame");
   }
 
+  // The colour class of a standing: another build is amber, whatever made it so.
+  static freshClass(fresh) {
+    return fresh.state === "size" || fresh.state === "date" ? "is-differs" : `is-${fresh.state}`;
+  }
+
+  // How one copy of a checkpoint stands after a verify, or null while it says nothing yet: a
+  // copy still being read has counts that would read as a whole one. The mark follows the worst
+  // finding, whatever its kind: a file that is missing and a file that differs both mean "not
+  // what HF has". A copy with nothing wrong but something not proved by hash ("size-only",
+  // "unreadable") is a "?", never a "✓".
+  static copyCheck(copy) {
+    const summary = (copy && copy.summary) || {};
+    if (!summary.files || summary.pending) return null;
+    const rows = copy.files || {};
+    const parts = [{ state: "same", text: hfT("ckSame", { n: Number(summary.same) || 0, total: summary.files }), names: [] }];
+    for (const [state, key] of CHECKPOINT_FINDINGS) {
+      if (summary[state] > 0) parts.push({ state, text: hfT(key, { n: summary[state] }), names: Object.keys(rows).filter((path) => rows[path].state === state) });
+    }
+    const wrong = CHECKPOINT_WRONG.some((state) => summary[state] > 0);
+    const unproven = summary.unreadable > 0 || summary["size-only"] > 0;
+    const folder = String(copy.folder || "");
+    return { folder, label: folder.split("/").pop(), state: wrong ? "size" : unproven ? "unknown" : "same", parts };
+  }
+
   // The worst standing among the local parts of one row decides the row.
   static rowFresh(facts, row, verified) {
     let worst = null;
@@ -212,12 +245,12 @@ export class HfRepoView {
     // The full benchmark panel scrolls with the files: in the sticky header a
     // panel of five groups would cover the files it is meant to explain.
     const panel = state.benchOpen ? this.bench.panelHtml(facts.id) : "";
-    return `${head}<div class="hfp-repo-body">${panel}${this.checkpointHtml(facts)}${this.filesHtml(facts, state)}${this.cardsHtml(facts, state)}</div>`;
+    return `${head}<div class="hfp-repo-body">${panel}${this.checkpointHtml(facts, state)}${this.filesHtml(facts, state)}${this.cardsHtml(facts, state)}</div>`;
   }
 
   headHtml(facts, state) {
     const fav = this.catalog.isFavorite(facts.id);
-    const hasLocal = facts.localCount > 0;
+    const hasLocal = facts.verifiable;
     const verifyLabel = state.verify && state.verify.running
       ? (state.verify.pct ? hfT("verifyPct", { pct: state.verify.pct }) : hfT("verifyRunning")) : hfT("verifyBtn");
     const verify = hasLocal
@@ -255,15 +288,28 @@ export class HfRepoView {
   }
 
   // A safetensors checkpoint is one artifact: the whole folder downloads
-  // together into <model>/<author>/<FORMAT>/.
-  checkpointHtml(facts) {
+  // together into <model>/<author>/<FORMAT>/. After a verify, one line per copy
+  // on the disk says how it stands — a count of each finding, not a row per file:
+  // a checkpoint has dozens of small files, and the names go in the tooltip.
+  checkpointHtml(facts, state = {}) {
     const st = facts.meta && facts.meta.safetensors;
     if (!st || !(st.files || []).length) return "";
-    return `<div class="hfp-checkpoint" data-t="hf-checkpoint">`
+    const row = `<div class="hfp-checkpoint" data-t="hf-checkpoint">`
       + `<span class="hfp-badge is-fmt">${escapeHtml(st.format)}</span>`
       + `<span class="hfp-checkpoint-name">${escapeHtml(hfT("stTitle", { n: st.files.length }))}</span>`
       + `<span class="hfp-num">${escapeHtml(HfFormat.bytes(st.totalSize))}</span><span class="grow"></span>`
       + `<button type="button" class="hfp-btn" data-act="checkpoint" data-t="hf-checkpoint-download" aria-label="${escapeHtml(`${hfT("a11yDownloadCheckpoint")}: ${st.format}`)}">⬇ ${escapeHtml(hfT("a11yStartDownload"))}</button></div>`;
+    return row + (state.verifiedCheckpoints || []).map((copy) => this.copyCheckHtml(copy)).join("");
+  }
+
+  copyCheckHtml(copy) {
+    const check = HfRepoView.copyCheck(copy);
+    if (!check) return "";
+    const more = (names) => names.slice(0, CHECKPOINT_NAMES).join(", ") + (names.length > CHECKPOINT_NAMES ? ", …" : "");
+    const title = [check.folder, ...check.parts.filter((part) => part.names.length).map((part) => `${part.text}: ${more(part.names)}`)].join("\n");
+    const mark = `<span class="hfp-fresh ${HfRepoView.freshClass(check)} is-verified">${escapeHtml(freshMark(check))}</span>`;
+    return `<p class="hfp-note" data-t="hf-checkpoint-verified" data-t-id="${escapeHtml(check.folder)}" title="${escapeHtml(title)}">`
+      + `${mark} ${escapeHtml(check.label)} · ${escapeHtml(check.parts.map((part) => part.text).join(" · "))}</p>`;
   }
 
   filesHtml(facts, state) {
@@ -311,7 +357,7 @@ export class HfRepoView {
   // Where we have the file and how it stands against HF: this disk first, then
   // 📚 for a library's copy — with the word only when this disk has none.
   diskCellHtml(fresh, library = null) {
-    const cls = (f) => (f.state === "size" || f.state === "date" ? "is-differs" : `is-${f.state}`);
+    const cls = HfRepoView.freshClass;
     const parts = [];
     if (fresh) {
       parts.push(`<span class="hfp-fresh ${cls(fresh)}${fresh.verified ? " is-verified" : ""}" title="${escapeHtml(HfRepoView.freshTitle(fresh))}">`

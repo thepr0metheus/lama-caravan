@@ -30,7 +30,11 @@ sys.path.insert(0, str(ROOT))
 import caravan.admin.fleet_clients as fc  # noqa: E402
 
 SAMPLE_PATH = ROOT / "scripts" / "fixtures" / "scout-report-sample.json"
-SCOUT_SAMPLE = ROOT.parent / "caravan-scout" / "docs" / "report-sample.json"
+# The scout's clone beside this one: in a folder of its own since 2026-10-04 (caravan/caravan-scout/caravan-scout
+# beside caravan/lama-caravan/lama-caravan), side by side before. The first that exists is read; none — skipped.
+SCOUT_SAMPLES = [ROOT.parent.parent / "caravan-scout" / "caravan-scout" / "docs" / "report-sample.json",
+                 ROOT.parent / "caravan-scout" / "docs" / "report-sample.json"]
+SCOUT_SAMPLE = next((p for p in SCOUT_SAMPLES if p.exists()), SCOUT_SAMPLES[-1])
 
 _fail = []
 
@@ -52,6 +56,17 @@ NOT_READ = {
     "llamaNodes[].ctxSize": "what was asked; the window kept is ctxMax, what the server says it runs",
     "llamaNodes[].cellKind": "a command cell's kind — the controller keeps the cell's config and knows it from RUNNER",
     "llamaNodes[].command": "the command the controller built and sent; the board shows the saved one",
+    # Read, but not into the host record: the controller makes a record of each cell it lacks from them
+    # (server_cells.KeptCells, 1.3.504) and keeps nothing of them on the machine's record.
+    "autostartRequests": "the start requests the scout keeps — records of the cells this controller lacks are made from them",
+    "autostartRequests.22001": "one kept request, by port — read by KeptCells.adopt",
+    "autostartRequests.22001.cacheModels": "the kept cache switch — the made record's cacheModels",
+    "autostartRequests.22001.config": "the kept settings — the made record's config, whole",
+    "autostartRequests.22001.modelPath": "the kept model — the made record's model",
+    # The machine's models as its entry lists them (scout 2.28+): OpenAI's wrapper of each is not kept.
+    "entryModels[].object": "OpenAI's word for a list item, always \"model\" — the record keeps the model's own fields",
+    "entryModels[].created": "when its first copy started — the board reads its cells' own times",
+    "entryModels[].owned_by": "the machine's id — the record is the machine's own",
 }
 
 

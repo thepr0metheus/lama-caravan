@@ -12,6 +12,7 @@ from caravan.admin.proxies_config import read_agent_proxy_payload, write_agent_p
 from caravan.admin.router_dsl import recompute_cloud_fallback_eligibility
 from caravan.admin.routes import Handler
 from caravan.common.container_preflight import ContainerPreflight
+from caravan.admin.data_tree import DataTree
 
 
 class _Server(ThreadingHTTPServer):
@@ -51,15 +52,27 @@ def main():
     validate_port_ranges()
 
     # Single-volume layout (container/dev): make sure the tree exists before
-    # any writer needs it, and supervise the proxy as a child — the image has
-    # no systemd unit to run it (see caravan/admin/proxy_supervisor.py).
+    # any writer needs it — or stop saying why it cannot (DataTree) — and
+    # supervise the proxy as a child: the image has no systemd unit to run it
+    # (see caravan/admin/proxy_supervisor.py).
     if DATA_DIR:
-        for sub in ("state", "config", "logs", "secrets", "models", "server-backups"):
-            (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
+        DataTree(DATA_DIR).prepare("lama-caravan")
     if IS_CONTAINER:
         from caravan.admin import proxy_supervisor
         proxy_supervisor.start()
 
+    # A pool's own port is gone (1.3.487): every client comes in through the
+    # entry with its own key. A file that still has one loses it first, before
+    # any other writer of the routes, and the log names each port closed
+    # (caravan/admin/pool_ports.py); the proxy serves none meanwhile.
+    try:
+        from caravan.admin.pool_ports import PoolPortsRetired
+        _closed = PoolPortsRetired().migrate()
+        if _closed is not None:
+            print("entry: pools' own ports closed, a client comes in through the entry with its key: "
+                  + ", ".join(f":{c['port']} ({c['pool'] or 'no pool'})" for c in _closed), flush=True)
+    except Exception as exc:
+        print(f"entry: closing the pools' own ports skipped ({exc})", flush=True)
     # One-shot: write down the context-window choice blocks used to get by
     # accident (caravan/admin/cloud.py:migrate_context_auto).
     try:
@@ -69,16 +82,65 @@ def main():
             print(f"cloud: contextAuto stamped on {_stamped} blocks that relied on the provider's figure", flush=True)
     except Exception as exc:
         print(f"cloud: contextAuto migration skipped ({exc})", flush=True)
-    # A cloud model is on the kanban while it has a port of its own (2026-09-27):
-    # every model the old flag put there gets one, so no cable loses its model.
+    # Pools of steps (caravan/admin/pools.py): a file of the old form — model
+    # blocks, pools of subscriptions — is rewritten once; the proxy reads both
+    # forms meanwhile, so it does not matter that it started first.
     try:
-        from caravan.admin.cloud_ports import CloudPortDesk
-        _opened = CloudPortDesk().adopt_flags()
-        if _opened:
-            print(f"cloud: ports {_opened} opened for the models already on the kanban", flush=True)
+        from caravan.admin.pools import PoolDesk
+        _pooled = PoolDesk().migrate()
+        if _pooled is not None:
+            print(f"cloud: model blocks became pools: {', '.join(_pooled['pools']) or 'none'}; "
+                  f"dropped, unused: {len(_pooled['dropped'])}", flush=True)
     except Exception as exc:
-        print(f"cloud: kanban ports migration skipped ({exc})", flush=True)
-
+        print(f"cloud: rewriting the model blocks as pools skipped ({exc})", flush=True)
+    # The steps' own levels move onto their models, once (1.3.486): the proxy
+    # reads both places meanwhile (caravan/common/model_levels.py).
+    try:
+        from caravan.admin.pools import PoolDesk
+        _rows = PoolDesk().migrate_rows()
+        if _rows is not None:
+            print(f"cloud: levels of {_rows['steps']} step(s) moved onto {_rows['models']} model(s)", flush=True)
+    except Exception as exc:
+        print(f"cloud: moving the steps' levels onto their models skipped ({exc})", flush=True)
+    # The kanban's right column shows the models added to it (1.3.491): the ones
+    # the pools' rows name are added once, so none in use leaves it.
+    try:
+        from caravan.admin.pools import PoolDesk
+        _added = PoolDesk().migrate_added()
+        if _added is not None:
+            print(f"cloud: {_added['models']} model(s) the pools' rows name added to the kanban", flush=True)
+    except Exception as exc:
+        print(f"cloud: adding the rows' models to the kanban skipped ({exc})", flush=True)
+    # The main board shows each cloud provider as a block of its accounts
+    # (1.3.492): the providers of the accounts are put there once.
+    try:
+        from caravan.admin.board_providers import ProviderDesk
+        _providers = ProviderDesk().migrate()
+        if _providers is not None:
+            print(f"cloud: providers put on the main board: {', '.join(_providers['providers']) or 'none'}", flush=True)
+    except Exception as exc:
+        print(f"cloud: putting the providers on the main board skipped ({exc})", flush=True)
+    # A client of the entry calls one pool (1.3.486): a client of the old form —
+    # the pools it might call — gets the first of them, once, after the pools
+    # above exist; the proxy reads both forms meanwhile (caravan/common/entry_models.py).
+    try:
+        from caravan.admin.consumers import ConsumerDesk
+        _cabled = ConsumerDesk().migrate()
+        if _cabled is not None:
+            print("entry: clients cabled to one pool: "
+                  + ", ".join(f"{c['name']} → {c['pool'] or 'none'}" for c in _cabled), flush=True)
+    except Exception as exc:
+        print(f"entry: cabling the clients to one pool skipped ({exc})", flush=True)
+    # A client of the entry calls a set of models (1.3.497): a client cabled to one
+    # pool is cabled to a set of that pool instead, once, after the move above.
+    try:
+        from caravan.admin.model_sets import SetDesk
+        _sets = SetDesk().migrate()
+        if _sets is not None:
+            print("entry: clients cabled to sets: "
+                  + (", ".join(f"{c['name']} → {c['set'] or 'none'}" for c in _sets["clients"]) or "none"), flush=True)
+    except Exception as exc:
+        print(f"entry: cabling the clients to sets skipped ({exc})", flush=True)
     sampler = threading.Thread(target=monitor_sampler_loop, daemon=True)
     sampler.start()
 

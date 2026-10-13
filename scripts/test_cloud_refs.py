@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Snapshot of CloudModelRefs (caravan/admin/cloud_refs.py): everything that
-points at a cloud model, by value.
+points at a pool (a cloud model block, before pools of steps), by value.
 
-A model the provider stopped offering may leave by itself only when nothing
-points at it, and the delete confirm lists what would break. The list it
-replaced missed a 🛟 backup's roles, the default a router keeps in reserve, an
-agent's own cloud route and its ↑☁ fallback — those are pinned as
-defect-history. One config names every kind of reference to one model, and a
-second model that nothing touches is the negative.
+The delete confirm lists what would break. The list it replaced missed a 🛟
+backup's roles, the default a router keeps in reserve, an agent's own cloud
+route and its ↑☁ fallback — those are pinned as defect-history. One config
+names every kind of reference to one pool, and a second pool that nothing
+touches is the negative. What would stop reaching a pool if it went (`held`)
+and its disconnection (`cut`) are read over the same config.
 
 Run: python3 scripts/test_cloud_refs.py
 """
@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 import copy  # noqa: E402
 
 from caravan.admin.cloud_refs import CloudModelRefs, CloudModelRewire  # noqa: E402
-from caravan.admin.proxies_config import cloud_block_output  # noqa: E402
+from caravan.admin.proxies_config import pool_output  # noqa: E402
 from caravan.admin.router_dsl import normalize_router  # noqa: E402
 
 _fail = []
@@ -34,7 +34,6 @@ def check(cond, msg):
 
 CFG = {
     "routes": [
-        {"port": 23004, "label": "voice app", "kind": "service", "upstreamType": "cloud", "providerId": "sol"},
         {"port": 23009, "label": "old agent", "upstreamType": "cloud", "providerId": "sol"},
         {"port": 23101, "label": "charlie", "cloudFallbackProviderId": "sol"},
         {"port": 23001, "label": "hermes"},
@@ -65,7 +64,7 @@ def main():
     refs = CloudModelRefs(CFG)
     got = refs.of("sol")
     print("всё, что указывает на модель:")
-    check(got["bridges"] == [{"port": 23004, "label": "voice app"}], f"мост (service) — порт и имя (got {got['bridges']})")
+    check("bridges" not in got, "своих портов у пула нет — и группы для них в ответе нет")
     check([e["id"] for e in got["edges"]] == ["e2", "e3"], f"канаты к cb:sol (got {[e['id'] for e in got['edges']]})")
     check(got["queueRoles"] == [{"router": "router:default", "node": "q", "role": "spill"}],
           "роль очереди — перелив, основной выход очереди идёт в ячейку и сюда не попадает")
@@ -91,6 +90,25 @@ def main():
           f"negative: ни одной ссылки — пусто по всем видам, «не в деле» (got {free})")
     check(CloudModelRefs({}).in_use("sol") is False, "negative: пустой конфиг — ничего не в деле")
 
+    print("что держит пул и отсоединение:")
+    two = copy.deepcopy(CFG)
+    two["routers"][0]["rules"]["default"] = "cb:sol"
+    two["routers"].append({"id": "r2", "rules": {"dormantDefault": "cb:luna", "failover": ["cb:sol"]},
+                           "graph": {"edges": [{"id": "x1", "from": "in:a:proxy:23001", "to": "out:cb:sol"}]}})
+    held = CloudModelRefs(two).held("sol")
+    check(held == {"cables": 3, "rules": ["default", "schedule", "failover"]},
+          f"канаты по всем маршрутизаторам и правила, без повторов (got {held})")
+    check(CloudModelRefs(two).held("luna") == {"cables": 1, "rules": []},
+          "negative: запасное «по умолчанию» (dormantDefault) не держит — оно по замыслу ждёт свой выход")
+    check(CloudModelRefs(two).held("terra") == {"cables": 0, "rules": []}, "negative: ничего не держит")
+    n = CloudModelRefs(two).cut("sol")
+    first, second = two["routers"][0]["rules"], two["routers"][1]["rules"]
+    check(n == 8 and CloudModelRefs(two).held("sol") == {"cables": 0, "rules": []}
+          and "default" not in first and "dormantDefault" not in first and first["schedule"] == []
+          and first["failover"] == [] and second["failover"] == [] and second["dormantDefault"] == "cb:luna",
+          "отсоединить: 3 каната и 5 правил (с запасным «по умолчанию») ушли в обоих маршрутизаторах "
+          f"самого конфига; правило другого пула осталось (got {n})")
+
     print("перецепка на новую модель того же провайдера:")
     cfg = copy.deepcopy(CFG)
     moved = CloudModelRewire(cfg).move("sol", "sol2")
@@ -103,21 +121,19 @@ def main():
     check(router["rules"]["dormantDefault"] == "cb:sol2" and router["rules"]["schedule"] == [{"output": "cb:sol2"}]
           and router["rules"]["failover"] == ["cb:sol2"] and router["rules"]["default"] == "srv:22011",
           "правила за моделью: резервное «по умолчанию», расписание, failover; чужое правило не тронуто")
-    check(cfg["routes"][2]["cloudFallbackProviderId"] == "sol2", "↑☁ запасной агента — туда же")
-    check(cfg["routes"][0]["providerId"] == "sol" and cfg["routes"][1]["providerId"] == "sol",
-          "negative: порты приложений и облачный маршрут агента — прикреплённые к модели руками — остаются")
+    check(cfg["routes"][1]["cloudFallbackProviderId"] == "sol2", "↑☁ запасной агента — туда же")
+    check(cfg["routes"][0]["providerId"] == "sol",
+          "negative: облачный маршрут агента — прикреплённый к модели руками — остаётся")
     check(moved == 6 and not CloudModelRefs(cfg).of("sol")["edges"] and not CloudModelRefs(cfg).of("sol")["rules"],
           f"шесть ссылок переехало, у старой модели канатов и правил не осталось (got {moved})")
     check(CloudModelRewire(copy.deepcopy(CFG)).move("terra", "sol2") == 0, "negative: у модели без ссылок переносить нечего")
 
-    print("выход новой модели — до переноса, иначе сохранение выбросит правила:")
-    accounts = [{"id": "acc", "name": "OpenAI"}]
-    out = cloud_block_output(accounts, {"id": "sol2", "accountId": "acc", "model": "gpt-6-sol"})
-    check(out == {"id": "cb:sol2", "label": "☁ gpt-6-sol", "target": "cloud:acc", "upstreamHost": "", "upstreamPort": 0,
-                  "upstreamType": "cloud", "providerId": "sol2", "accountId": "acc"},
-          f"выход модели — тот же, что сделает сверка выходов, даже пока модель скрыта (got {out})")
-    check(cloud_block_output(accounts, {"id": "x", "accountId": "gone", "model": "m"}) is None,
-          "negative: аккаунта нет — выхода нет (None, а не выход в никуда)")
+    print("выход другого пула — до переноса, иначе сохранение выбросит правила:")
+    out = pool_output({"id": "sol2", "name": "gpt-6-sol", "steps": []})
+    check(out == {"id": "cb:sol2", "label": "☁ gpt-6-sol", "target": "pool:sol2", "upstreamHost": "", "upstreamPort": 0,
+                  "upstreamType": "cloud", "providerId": "sol2"},
+          f"выход пула — тот же, что сделает сверка выходов (got {out})")
+    check(pool_output({"id": "x"})["label"] == "☁ x", "пул без имени назван своим id, не пустой строкой")
     base = copy.deepcopy(CFG)
     base["routers"][0]["outputs"] = [{"id": "srv:22011"}, {"id": "srv:22001"}, {"id": "cb:sol"}]
     base["routers"][0]["rules"]["schedule"] = [{"output": "cb:sol", "from": "09:00", "to": "18:00"}]

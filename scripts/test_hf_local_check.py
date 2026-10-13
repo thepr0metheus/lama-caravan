@@ -12,6 +12,13 @@ GGUF files. A library that is not there holds nothing (model_locator.py
 decides that), and a locator that cannot be asked leaves the answer about this
 disk intact with no library files, instead of failing the request.
 
+A safetensors checkpoint is a folder with no name of its own to list, so
+checkpointFolders names the folders under <model>/<author>/ that hold weights
+(any depth below the folder) — that is what lets the page offer the verify for a
+repository that has no GGUF file. A weights file loose in <model>/<author>/, a
+half-fetched ".part", a hidden folder, a GGUF quant folder and another author's
+folder are none of them a checkpoint folder.
+
 Run: python3 scripts/test_hf_local_check.py
 """
 import os
@@ -116,7 +123,26 @@ def main():
         check(broken.get("ok") is True and broken.get("localNames") == ["mtp-gemma-4-31B-it.gguf", "twin.gguf"] and broken.get("libraryFiles") == {},
               "локатор не отвечает — ответ о диске цел, библиотек нет, запрос не падает")
         empty = run("nobody/none-GGUF", disk)
-        check(empty == {"ok": True, "localNames": [], "localFiles": {}, "libraryFiles": {}}, f"ничего нигде — пусто везде (got {empty})")
+        check(empty == {"ok": True, "localNames": [], "localFiles": {}, "libraryFiles": {}, "checkpointFolders": []}, f"ничего нигде — пусто везде (got {empty})")
+
+        print("папки чекпойнтов:")
+        for rel in ("Robot-3B/acme/BF16/model-00001-of-00002.safetensors", "Robot-3B/acme/BF16/model-00002-of-00002.safetensors",
+                    "Robot-3B/acme/FP8/shards/deep/model.safetensors", "Robot-3B/acme/.hidden/model.safetensors",
+                    "Robot-3B/acme/loose.safetensors", "Robot-3B/acme/PART/model.safetensors.part",
+                    "Robot-3B/acme/Q4_K_M/Robot-3B-Q4_K_M.gguf", "Robot-3B/other/NVFP4/model.safetensors"):
+            p = disk / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"x" * 4)
+        robot = run("acme/Robot-3B", disk)
+        check(robot.get("checkpointFolders") == ["BF16", "FP8"],
+              f"папки <модель>/<автор>/ с весами, по имени, любая глубина — одна запись на папку (got {robot.get('checkpointFolders')})")
+        check(robot.get("localNames") == ["Robot-3B-Q4_K_M.gguf"],
+              "negative: GGUF рядом читается как раньше, а его папка квантов — не чекпойнт")
+        check(run("other/Robot-3B", disk).get("checkpointFolders") == ["NVFP4"],
+              "negative: у другого автора — свои папки, не наши")
+        check(got.get("checkpointFolders") == [], "negative: у репозитория только с GGUF папок чекпойнта нет")
+        check(run("acme/Robot-3B-GGUF", disk).get("checkpointFolders") == [],
+              "negative: папка, чьё имя только начинается так же, — не эта модель")
 
     if _fail:
         print(f"FAILED ({len(_fail)}):")

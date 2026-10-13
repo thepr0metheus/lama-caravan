@@ -10,7 +10,7 @@ pin the interpreter).
 | Unit (systemd --user on the controller) | Runs | Notes |
 |---|---|---|
 | `lama-caravan.service` | `.venv/bin/python app.py` (`:7990` by default) | Admin UI + API. Restart after Python changes. |
-| `lama-caravan-proxies.service` | `.venv/bin/python agent-proxies.py` | Per-agent proxy ports. Restart after Python changes; route/config edits do NOT need a restart (2 s mtime watcher). |
+| `lama-caravan-proxies.service` | `.venv/bin/python agent-proxies.py` | The entry for keys and the proxy ports of agents of the older kind. Restart after Python changes; route/config edits do NOT need a restart (2 s mtime watcher). |
 | `llamacpp-current.service` | `~/llama.cpp/start-server.sh` (`:8080`) | Legacy single managed server. |
 
 ```sh
@@ -76,7 +76,7 @@ Post-deploy smoke:
 for p in /board /api/state /api/topology /api/models /js/main.js /css/base.css /kanban /hf; do   # / answers 302 -> /board
   printf '%-16s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:7990$p)"
 done
-curl -s -o /dev/null -w '%{http_code}\n' localhost:8101/v1/models   # any live route port
+curl -s -o /dev/null -w '%{http_code}\n' localhost:<entry port>/v1/models   # the entry: 401 without a key is the healthy answer
 ```
 
 ## Rollback
@@ -181,6 +181,23 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
   silently — and `LLAMA_TOPOLOGY_SERVER_IP`, the address agents and scouts
   reach it at. `docker-compose.yml` asks for both; the image carries the zone
   data (`tzdata`).
+- Behind a reverse proxy, with the controller listening on loopback only (a NAS),
+  `LLAMA_TOPOLOGY_SERVER_URL` names the controller as the fleet reaches it, e.g.
+  `https://caravan.example.org`: "Add scout" hands every scout that name instead
+  of the address and port, which answer nobody else there. The scout's machine must
+  trust the certificate (on the home network, visumap `lan-root-ca`).
+- To find the scouts of the network without typing addresses, press 🔍 Find on the Add
+  scout row: it scans the networks typed there (`10.0.30.0/24`; empty — the
+  controller's own /24) for caravan-scout on its port and lists each one: free (with
+  Connect), already on the board, or held by another caravan. A container on the host
+  network (`network_mode: host`, the NAS) reaches the other networks of the house as the
+  machine does; a scout's machine must let the port in through its firewall.
+- A locked-down container runs as is: `security_opt: [no-new-privileges:true]`,
+  `cap_drop: [ALL]`, `read_only: true` with `tmpfs: [/tmp]`. The controller writes only
+  under `/data`, each file through a temp file beside it (`caravan/common/fsio.py`), and
+  binds ports above 1024, so it needs no capability. The NAS compose runs it so: then a
+  setuid program inside (`su`, `passwd`, `mount`) gives no rights, and nothing can be
+  planted outside `/data`.
 - No systemd: the proxy is a **supervised child** of the admin
   (`caravan/admin/proxy_supervisor.py`) — respawned by a watchdog on crash,
   respawned in place when a routes/cabling save asks for a restart. Its output
@@ -192,7 +209,7 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
   powering the controller's machine, its GPU driver and its update, the list
   of its cards, the monitor's GPU and busiest processes, the nvidia-smi and
   btop snapshots — the same way as on the machine. Put a scout on the Docker
-  host (Model servers → Add scout); without one each of these says "there is
+  host (Machines → Add scout); without one each of these says "there is
   no scout on the controller's machine" (409 for an action) instead of failing
   inside or reporting nothing as if it were a fact. The journal tail, the
   controller's own, points at `docker logs`.
@@ -211,6 +228,112 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
 - The image carries the cell servers (`cells/`): the controller hands them to
   the scouts (`/api/cell-assets`). `scripts/check_image_contents.py` keeps every
   folder the running code reads in the image's COPY list.
+
+## One entry with keys: the OpenAI API for clients
+
+Clients reach the caravan the way they reach OpenAI or any company's model gateway:
+one address and a key each (visumap `caravan-single-entry`). A client's key calls one
+pool — the one a cable on the kanban leads it to (since 1.3.486) — and every request of
+the key goes there, whatever `model` it names. The client sees the pool by its name and
+never the providers, accounts or cells behind it.
+
+1. Open the entry on a free port: on the board, "Set up the entry" at the top of the
+   clients column asks the public address, then the port; by API —
+   `POST /api/agent-proxy-entry {"port": 23999, "publicUrl": "https://caravan-api.example.org/v1"}`.
+   On a machine with a firewall, pick a port the firewall already lets in. The proxy
+   starts listening within seconds; `GET /api/agent-proxy-entry` says `listening: true`.
+2. Give the name: a DNS record for `caravan-api.<your domain>` and a reverse proxy
+   rule to the entry's port (on the home network: visumap `lan-app-name`). Long
+   model answers pass through it: set the rule's read timeout well above the
+   longest answer. Streams already ask the proxy in front not to buffer them
+   (`X-Accel-Buffering: no`).
+3. Make a client: ＋ in the clients column — its name. The window shows the address and
+   the key once; copy them. Afterwards the card shows the key's last four characters;
+   "New key" replaces a lost key (the old one stops working at once). By API:
+   `POST /api/consumers/create {"name": "Hermes"}`, `POST /api/consumers/key {"port": …}`.
+4. Give the client its models: on the kanban (`/kanban`), make a set (＋ New set) and drag
+   from the dot at its foot onto each pool it should offer — a chat pool, a speech pool, an
+   embeddings pool; then drag from the dot on the client's card onto the set. Until then its
+   requests are refused (404 `model_not_found`). A click on a cable takes it away. By API:
+   `POST /api/sets/create {"name": "Chat"}`, `POST /api/sets/add-pool {"id": "<set id>", "pool": "<pool id>"}`,
+   `POST /api/consumers/set {"port": …, "set": "<set id>"}`; `"set": ""` takes the cable away.
+5. Configure the client as for OpenAI: base URL `https://caravan-api.<your domain>/v1`,
+   API key — its key, model — a pool's name of its set as the board shows it. For example:
+
+   ```python
+   from openai import OpenAI
+   client = OpenAI(base_url="https://caravan-api.example.org/v1", api_key="lcv1_…")
+   print([m.id for m in client.models.list()])          # the pools of this key's set
+   client.chat.completions.create(model="Standart", messages=[{"role": "user", "content": "hi"}])
+   ```
+
+   The home network's HTTPS needs the home root certificate on the client's machine
+   (visumap `lan-root-ca`); for Python, `SSL_CERT_FILE`, for Node, `NODE_EXTRA_CA_CERTS`.
+
+A pool is listed by its name; two pools cannot share a name (the board refuses it). A
+request without `stream` gets one JSON answer, with `stream: true` a stream of chunks,
+whatever the provider behind the pool does. What a client is told:
+
+| Status | `error.code` | When |
+|---|---|---|
+| 401 | `invalid_api_key` (or none, without a key) | no key, a key no client has, a key two clients share |
+| 400 | — | the body is not a JSON object (or a form, where OpenAI's API takes a file); the body cannot be read as the request says it is sent — its length or its chunks ("The request body cannot be read: …", 1.3.505) |
+| 404 | `model_not_found` | the key has no pool yet (no cable); `GET /v1/models/<id>` of another name |
+| 404 | — | a path the entry does not serve: `Invalid URL (POST /v1/files)` |
+| 429 | `rate_limit_exceeded` | every step of the pool is held by its limit; `Retry-After` says until when, and past 60 s `x-should-retry: false` stops the OpenAI client's own retries |
+| 503 | `model_unavailable` | the pool has no step that can serve now for another reason (no sign-in, no step) |
+| 502 | `upstream_auth`, `upstream_error` | the provider refused the caravan's sign-in, or failed; the client's key is fine |
+
+The journal keeps the full reason of each refusal under the client's name.
+
+### The kanban: clients, pools, models
+
+The kanban (`/kanban`) is four columns joined by cables: the clients of the entry, their sets of
+models, the pools, and the models — the subscriptions with their models and the machines with their
+cells. Under them a strip says the details of the card the pointer is on or a click pinned (and is
+hidden while there is none): see [docs/pools.md](pools.md#on-the-kanban).
+
+1. "＋ New pool" makes an empty pool; its name stands in the field, chosen: type the
+   name the clients will see in `/v1/models`.
+2. "＋ row" (in the pool's strip: point at the pool, or pin it by a click) adds a row to the pool;
+   drag from the row's dot onto a model on the right — a subscription's model or a machine's
+   cell. One pool may mix both.
+3. Order the rows by their ⠿: the pool tries them from the top. The next row takes the
+   request when a row is at its limit (its ▲ stop level, or 429/402/401 from the provider),
+   unavailable (a cell that is off or missing, a busy cell while a later row is free) or
+   fails before the first byte (a connect error, a 5xx). A stream that has started is
+   never switched, and a client's own error (4xx) is not tried again elsewhere.
+4. Drag from a client's dot onto a set, and from the set's "＋ model" row onto the pool.
+
+A subscription model's ▲ stop and ▼ switch levels stand on the model — in its strip, on the account's two
+bars — and hold in every pool that names it: ▲ keeps that share of the window back, ▼ sends requests
+to the next rows first from that share on. A click on any cable cuts it after one
+question; ✕ on a row removes the row, ✕ on a pool deletes the pool.
+
+### A client and its set
+
+A client has one set, or none while no cable reaches it (the owner, 2026-10-12: "only one
+cable goes on from a client", and a set between it and the pools). The set's pools are the
+client's models: `GET /v1/models` lists them, a request's `model` picks one, a name the set
+has not is 404 and a request with no model is 400, as OpenAI answers them. One set may serve
+several clients. No router decides for a client: a pool's rows do — a subscription's model or
+a cell, in their order — and `route-policy` with `routerId` is refused for it. A client cabled
+to one pool (1.3.486–1.3.496) is cabled to a set of that pool once at start, shared by the
+clients of that pool, and the controller says so in its log (`entry: clients cabled to sets: …`);
+a client made before 1.3.486 first gets the first pool it might call (`entry: clients cabled to
+one pool: …`).
+
+### Agents of the old kind
+
+An agent with a port of its own (made before 1.3.466 on the kanban) can reach the
+entry with its port's key; its request then goes through its port's kanban graph, as
+before, and its `model` chooses nothing. To move one: on the kanban's clients panel,
+"Give a key" on its row (the key is made and the port closes in the same step), then
+set the agent's base URL to the entry and its API key to the key. An agent whose port
+had a key already shows "Close port" instead; ↺ reopens a closed port (it still demands
+the key). By API: `POST /api/agent-proxies/route-key {"port": …}` and
+`POST /api/agent-proxies/route-policy {"port": …, "portClosed": true}` — both refused
+while the entry is off.
 
 ## Request-log diagnostics (API)
 
@@ -234,8 +357,9 @@ curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?summary=1&port=8117'
 
 Params: `date` (`YYYY-MM-DD`, default — the latest log), `limit` (≤2000,
 applied after the filters), `event`
-(`received | queued | admitted | upstream_started | upstream_response | finished | blocked`),
-`port` (proxy route port — the stable per-agent identifier), `route`
+(`received | queued | admitted | upstream_started | upstream_response | finished | blocked`;
+several, comma-separated: `finished,blocked` is every request that ended, refusals included),
+`port` (the route's number — a port of the older kind, or a client of the entry's record, which never listens), `route`
 (case-insensitive substring of the route label), `client` (exact IP),
 `errors=1` (only rows carrying an error), `slim=1` (drops the per-row
 `active`/`queue`/`policy` fleet snapshots; the request's own `item` is kept),

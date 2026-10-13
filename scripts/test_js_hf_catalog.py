@@ -163,6 +163,15 @@ PINS = [
      '[[0,[],[]],[2,["lama-caravan-models","second-shelf"],["lama-caravan-models","second-shelf"],[],1],[0,[]]]',
      "копии в библиотеках: по имени файла, счёт — файлов, библиотеки — каждая один раз; файл только на этом диске в библиотеке не числится; новый ответ без библиотек их стирает"),
 
+    ("checkpoint_folders_on_disk", "",
+     r"""(() => { const f = new C.HfRepoFacts("nvidia/GR00T-N1.7-3B"); const before = [f.checkpointFolders, f.verifiable];
+        f.setLocal({ localNames: [], localFiles: {}, checkpointFolders: ["BF16"] }); const folder = [f.checkpointFolders, f.localCount, f.verifiable];
+        f.setLocal({ localNames: ["a.gguf"], localFiles: {} }); const gguf = [f.checkpointFolders, f.localCount, f.verifiable];
+        f.setLocal({ localNames: [], localFiles: {} });
+        return [before, folder, gguf, [f.checkpointFolders, f.verifiable]]; })()""",
+     '[[[],false],[["BF16"],0,true],[[],1,true],[[],false]]',
+     "чекпойнт на диске: папка называется в ответе, счёт файлов на диске остаётся GGUF-ным, а проверить можно и то и другое; новый ответ без папок их стирает; ответ старого сервера — нет папок, а не ошибка"),
+
     ("tabs_and_everything_to_load", "",
      r"""(() => { const c = catalog(); c.setFavorites([{ id: "bob/Big-120B-heretic-GGUF" }, { id: "old/fav" }]);
         const before = new C.HfCatalog(bench).searched;

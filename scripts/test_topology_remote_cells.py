@@ -48,6 +48,10 @@ SLOTS = {
                     "config": {"RUNNER": "vllm", "VLLM_MODEL": "org/model", "HEALTH_PATH": "/v1/models"}},
 }
 WHISPER_HEALTH = {"status": "ok", "meta": {"source": "d1g3st"}, "targetLang": "en"}
+# What a cell with no settings on record says of itself on its /health (telemetry.remote_cell_about).
+ABOUT = {22031: {"engine": "faster-whisper", "model": "large-v3-turbo", "kinds": ["asr", "stt.whisper"],
+                 "langs": ["ru", "en"], "maxAudioMs": 30000}}
+ASKED = []
 
 
 def served(nodes, parked=(), health="ok", slots=None, libraries=(), fresh=None, **host_fields):
@@ -64,6 +68,7 @@ def served(nodes, parked=(), health="ok", slots=None, libraries=(), fresh=None, 
                                                    if v["port"] in reported}},
         "command_cell_health": lambda _ip, port, _path: dict(WHISPER_HEALTH) if port == 22024 else None,
         "remote_llama_health": lambda *_a: health,
+        "remote_cell_about": lambda _ip, port: ASKED.append(port) or dict(ABOUT.get(port, {})),
         "remote_llama_modalities": lambda *_a: None,
         "probe_remote_port": lambda *_a: True,
         "current_locations": lambda: Locations(list(libraries)),
@@ -113,6 +118,27 @@ def test_no_neighbour_meta():
         check(ok and got[22024][0] == "running"
               and meta_of(got[22024][1]) == {"source": "d1g3st", "targetLang": "en"},
               f"negative ({order}): у command-ячейки её собственные версия и язык остаются")
+
+
+def test_cell_with_no_settings():
+    print("ячейка, настроек которой у контроллера нет, — с её собственных слов:")
+    ASKED.clear()
+    answer = served([dict(WHISPER, port=22031), dict(LLAMA, port=22032, modelPath="")], parked=())
+    rows = {s["port"]: s for s in answer["llamaServers"] if s.get("isRemote")}
+    whisper, bare = rows.get(22031, {}), rows.get(22032, {})
+    check(whisper.get("model") == "large-v3-turbo" and whisper.get("cellMeta", {}).get("kinds") == ["asr", "stt.whisper"]
+          and whisper.get("cellMeta", {}).get("engine") == "faster-whisper",
+          f"2026-10-12: faster-whisper cell stood as \":22005\" — now its model and its kinds are what it says on /health "
+          f"(got {whisper.get('model')!r}, {whisper.get('cellMeta')!r})")
+    check(whisper.get("cellMeta", {}).get("langs") == ["ru", "en"] and whisper.get("cellMeta", {}).get("maxAudioMs") == 30000,
+          f"1.3.502: its languages and longest recording too — the entry tells its clients of an ear from them "
+          f"(got {whisper.get('cellMeta')!r})")
+    check(bare.get("model") == "" and bare.get("cellMeta") == {},
+          f"negative: a cell that says nothing of itself (llama-server's /health) gets no name and no kinds — not a guess "
+          f"(got {bare.get('model')!r}, {bare.get('cellMeta')!r})")
+    ASKED.clear()
+    served([LLAMA, WHISPER])
+    check(ASKED == [], f"negative: a cell with settings on record is not asked — its settings say what it runs (asked {ASKED})")
 
 
 def test_silent_command_cell():
@@ -365,11 +391,60 @@ def test_the_model_name_rule():
           "negative: абсолютный путь не читается с начала — там дерево машины, а не модель")
 
 
+def test_strata_on_the_card():
+    print("ячейка Strata на карточке (1.3.512): окно из своего поля, видеопамять её движка, кэш:")
+    first = "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf"
+    slots = {"box-a:22009": {"id": "box-a:22009", "hostId": "box-a", "port": 22009, "model": first, "cacheModels": True,
+                             "config": {"RUNNER": "strata", "MODEL_FILE": first, "STRATA_CONTEXT": "131072",
+                                        "CTX_SIZE": "4096"}},
+             "box-a:22013": {"id": "box-a:22013", "hostId": "box-a", "port": 22013,
+                             "config": {"RUNNER": "vllm", "VLLM_MODEL": "org/m", "CTX_SIZE": "4096",
+                                        "HEALTH_PATH": "/v1/models"}}}
+    strata = {"port": 22009, "running": True, "phase": "running", "pid": 4343, "pids": [4345]}
+    vllm = {"port": 22013, "running": True, "phase": "running", "pid": 5353}
+
+    class Slots:
+        """The slot store as the window's fallback reads it (topo.slot); the rest is the real one."""
+
+        def __init__(self, real):
+            self.real = real
+
+        def slot(self, host_id, port):
+            return dict(slots.get(f"{host_id}:{port}") or {})
+
+        def __getattr__(self, name):
+            return getattr(self.real, name)
+
+    keep = T.topo
+    T.topo = Slots(keep)
+    try:
+        answer = served([strata, vllm], slots=slots)
+    finally:
+        T.topo = keep
+    card = {s["port"]: s for s in answer["llamaServers"] if s.get("isRemote")}
+    s9, s13 = card.get(22009, {}), card.get(22013, {})
+    gpus = [{"index": 0, "uuid": "GPU-a", "name": "G"}]
+    apps = [{"gpuUuid": "GPU-a", "pid": 4345, "usedMiB": 31000, "name": "strata"}]
+    bound, _gpus = T._bind_servers_to_gpus(gpus, apps, [dict(s9), dict(s13)])
+    s9 = {**s9, "gpuIndexes": bound[0]["gpuIndexes"], "gpuMem": bound[0]["gpuMem"]}
+    s13 = {**s13, "gpuIndexes": bound[1]["gpuIndexes"]}
+    check((s9.get("ctxMax"), s13.get("ctxMax")) == (131072, None),
+          f"defect-history: окно без отчёта машины — из поля раннера: у Strata STRATA_CONTEXT, а не CTX_SIZE 4096; "
+          f"negative: у vLLM без MAX_MODEL_LEN окна нет, а не чужие 4096 (got {s9.get('ctxMax')}, {s13.get('ctxMax')})")
+    check((s9.get("pids"), s9.get("gpuIndexes"), s9.get("gpuMem")) == ([4345], [0], {"0": 31000}),
+          f"видеопамять дочернего процесса — память ячейки: движок Strata под её сервером, карта 0, 31 ГБ; "
+          f"до 1.3.512 карточка писала «CPU» (got {s9.get('pids')}, {s9.get('gpuIndexes')}, {s9.get('gpuMem')})")
+    check((s13.get("pids"), s13.get("gpuIndexes")) == ([], []),
+          f"negative: процессы, которых скаут не назвал, не придумываются (got {s13.get('pids')}, {s13.get('gpuIndexes')})")
+    check((s9.get("cacheModels"), s13.get("cacheModels")) == (True, False),
+          "карточка несёт галочку кэша ячейки — окно ячейки открывается с ней, а не с галочкой по умолчанию")
+
+
 if __name__ == "__main__":
     for fn in (test_the_controller_names_its_computer, test_the_launch_on_the_card, test_a_checkpoint_cell_is_named_by_its_model, test_the_model_name_rule,
                test_library_on_the_card, test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
                test_crash_on_the_card, test_retry_on_the_card, test_vllm_stats_on_the_card,
-               test_starting_on_its_machine):
+               test_starting_on_its_machine, test_cell_with_no_settings, test_strata_on_the_card):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

@@ -5,7 +5,8 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 
-from caravan.proxy.config import load_enabled_routes
+from caravan.proxy.config import current_config, load_enabled_routes
+from caravan.proxy.entry import EntryHandler
 from caravan.proxy.handler import ProxyHandler
 from caravan.proxy.paths import CONFIG_FILE, HOST
 from caravan.proxy.state import sync_agents_state, write_state
@@ -66,13 +67,53 @@ def _stop_listener(server, port):
         pass
     print(f"agent-proxy: stopped listener on {HOST}:{port}", flush=True)
 
+class EntryListener:
+    """The entry's listener (caravan/proxy/entry.py): started, moved or stopped
+    as the config's `entry` says — the board sets it, nothing restarts."""
+
+    def __init__(self):
+        self.server = None
+        self.port = 0
+
+    def reconcile(self, entry, route_ports):
+        """Bring the listener in line with `entry` ({} = off). False when its
+        port could not be bound, so the watcher tries again on its next tick."""
+        port = int((entry or {}).get("port") or 0)
+        if port and port in route_ports:
+            # The board refuses this; the file can be edited by hand. A route
+            # that listens there keeps its port, and the entry waits.
+            print(f"agent-proxy: entry port {port} is a route's port — the entry stays closed", flush=True)
+            port = 0
+        if port == self.port and (self.server is not None or not port):
+            return True
+        if self.server is not None:
+            threading.Thread(target=_stop_listener, args=(self.server, self.port), daemon=True).start()
+            self.server, self.port = None, 0
+        if not port:
+            return True
+        try:
+            server = _RouteServer((HOST, port), EntryHandler)
+        except OSError as exc:
+            print(f"agent-proxy: cannot bind the entry on {HOST}:{port}: {exc}", flush=True)
+            return False
+        server.route = None
+        threading.Thread(target=server.serve_forever, name="proxy-entry", daemon=True).start()
+        self.server, self.port = server, port
+        print(f"agent-proxy: entry listening on {HOST}:{port} — a key names the route", flush=True)
+        return True
+
+
+entry_listener = EntryListener()
+
+
 def reconcile_listeners():
     """Open/close listen sockets to match the enabled routes, so the Kanban graph
     can add or remove a client without restarting the proxy. Routing changes for a
-    port that stays are already picked up live via live_route_for_port()."""
+    port that stays are already picked up live via live_route_for_port(). A route
+    whose port is closed is served by the entry only, by its key."""
     global _pending_rebind
     routes = load_enabled_routes()
-    desired = {route["port"]: route for route in routes}
+    desired = {route["port"]: route for route in routes if not route.get("portClosed")}
     failed = False
     with serving_lock:
         for port in list(serving):
@@ -89,7 +130,8 @@ def reconcile_listeners():
                     serving[port] = server
             else:
                 server.route = route  # refresh the fallback route object
-    _pending_rebind = failed
+    entry_ok = entry_listener.reconcile(current_config().get("entry"), set(desired))
+    _pending_rebind = failed or not entry_ok
     sync_agents_state(routes)
     write_state()
 

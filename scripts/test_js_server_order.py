@@ -110,7 +110,8 @@ function page(keys) {
     const button = (dir) => { const b = { dataset: { serverStep: dir }, disabled: false, closest: (sel) => (sel === "[data-server-step]" ? b : sel === "[data-server-card]" ? card : null), getBoundingClientRect: () => ({ top: shownAt(card) * 100 + 8, height: 20 }) }; return b; };
     card.up = button("up");
     card.down = button("down");
-    card.querySelector = (sel) => (sel === '[data-server-step="up"]' ? card.up : sel === '[data-server-step="down"]' ? card.down : null);
+    card.box = { hidden: false };
+    card.querySelector = (sel) => (sel === '[data-server-step="up"]' ? card.up : sel === '[data-server-step="down"]' ? card.down : sel === ".server-order" ? card.box : null);
     card.closest = (sel) => (sel === "[data-server-card]" ? card : null);
     return card;
   });
@@ -138,6 +139,12 @@ assert.deepEqual(ends(), ["node:a:↑↓", "node:b:↑↓", "cloud:p:-↓", "clo
 a.read({ layout: { serverOrder: ["cloud:q", "node:a", "node:b", "cloud:p"], serverOrderRev: 2 } });
 a.apply(p.root);
 assert.deepEqual(ends(), ["node:a:↑↓", "node:b:↑↓", "cloud:p:↑-", "cloud:q:-↓"], "a new order moves the ends with it — a card that was last gets its ↓ back");
+assert.deepEqual(p.root.cards.map((c) => c.box.hidden), [false, false, false, false], "negative: several cards — every card keeps its ↑ ↓");
+{
+  const one = page(["cloud:pool"]);
+  new ServerOrder().apply(one.root);
+  assert.equal(one.card("cloud:pool").box.hidden, true, "a card alone has nowhere to go: its ↑ ↓ are not drawn — two dead arrows read as a broken control (the NAS pool card, 2026-10-08)");
+}
 
 // ── a save: shown at once, sent, and what the controller answers is kept ──
 {
@@ -239,6 +246,29 @@ assert.deepEqual(ends(), ["node:a:↑↓", "node:b:↑↓", "cloud:p:↑-", "clo
     const count = scrolled.length;
     assert.equal(await stay.step({ target: one.card("node:a").down, currentTarget: one.root, stopPropagation() {} }), true);
     assert.equal(scrolled.length, count, "negative: nothing moved — the page does not scroll");
+  } finally {
+    globalThis.document = realDocument;
+  }
+}
+
+// ── a list that shows some of the cards (2026-10-11: the main board shows its pools in a list, its machines apart) ──
+assert.deepEqual(ServerOrder.merged(["cloud:a", "node:x", "cloud:b"], ["cloud:b", "cloud:a"]), ["cloud:b", "node:x", "cloud:a"],
+  "the pools change places among their own; the machine keeps its place between them");
+assert.deepEqual(ServerOrder.merged([], ["cloud:b", "cloud:a"]), ["cloud:b", "cloud:a"], "nothing stored: the list as shown");
+assert.deepEqual(ServerOrder.merged(["node:x"], ["cloud:a", "cloud:b"]), ["node:x", "cloud:a", "cloud:b"], "cards the order does not name go after it");
+{
+  const q = page(["cloud:p", "cloud:q"]);
+  const k = new ServerOrder({ scroll: () => {} });
+  k.read({ layout: { serverOrder: ["node:a", "cloud:p", "node:b", "cloud:q"], serverOrderRev: 1 } });
+  k.apply(q.root);
+  const saves = [];
+  k.post = async (order) => { saves.push(order); return { order, rev: 2 }; };
+  const realDocument = globalThis.document;
+  globalThis.document = q.root;
+  try {
+    await k.step({ target: q.card("cloud:p").down, currentTarget: q.root, stopPropagation() {} });
+    assert.deepEqual(saves.at(-1), ["node:a", "cloud:q", "node:b", "cloud:p"],
+      "↓ on a pool under Pools: the pools swap, and the machines keep their places in the order the kanban reads (negative: they are not dropped)");
   } finally {
     globalThis.document = realDocument;
   }

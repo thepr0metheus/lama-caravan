@@ -183,6 +183,7 @@ class FakeHandler:
         self.headers = headers or {}
         self.session = session
         self.sent = []
+        self.location = None
         self.close_connection = False
 
     def send_json(self, payload, status=200):
@@ -191,8 +192,9 @@ class FakeHandler:
     def send_response(self, code):
         self.sent.append((code, None))
 
-    def send_header(self, *args):
-        pass
+    def send_header(self, name, value):
+        if name == "Location":
+            self.location = value
 
     def end_headers(self):
         pass
@@ -203,18 +205,23 @@ def test_access():
     kinds = {(m, p): ROUTE_ACCESS.kind(m, p) for m, p in (
         ("GET", "/openapi.json"), ("GET", "/health"), ("POST", "/api/auth/login"), ("GET", "/api/cell-assets"),
         ("POST", "/api/topology/client-heartbeat"), ("GET", "/api/topology/client-heartbeat"),
-        ("GET", "/metrics"), ("GET", "/api/topology"), ("POST", "/api/cloud-blocks/save"))}
+        ("GET", "/metrics"), ("GET", "/api/topology"), ("POST", "/api/pools/save"))}
     check(kinds == {("GET", "/openapi.json"): "public", ("GET", "/health"): "public",
                     ("POST", "/api/auth/login"): "public", ("GET", "/api/cell-assets"): "machine",
                     ("POST", "/api/topology/client-heartbeat"): "machine",
                     ("GET", "/api/topology/client-heartbeat"): "session",
                     ("GET", "/metrics"): "metrics", ("GET", "/api/topology"): "session",
-                    ("POST", "/api/cloud-blocks/save"): "session"},
+                    ("POST", "/api/pools/save"): "session"},
           f"виды доступа; negative: GET по пути машинного POST — уже сессия (got {kinds})")
     check(ROUTE_ACCESS.viewer_may("GET", "/api/topology") and ROUTE_ACCESS.viewer_may("POST", "/api/auth/logout")
-          and not ROUTE_ACCESS.viewer_may("POST", "/api/cloud-blocks/save"),
+          and not ROUTE_ACCESS.viewer_may("POST", "/api/pools/save"),
           "viewer: любой GET и выход; negative: любая правка — нет")
-    check(ROUTE_ACCESS.security("POST", "/api/cloud-blocks/save") == {"security": [{"session": []}], "x-caravan-roles": ["admin"]}
+    check(not ROUTE_ACCESS.viewer_may("GET", "/api/agent-proxies/raw")
+          and ROUTE_ACCESS.security("GET", "/api/agent-proxies/raw").get("x-caravan-roles") == ["admin"]
+          and ROUTE_ACCESS.security("GET", "/api/agent-proxies").get("x-caravan-roles") == ["admin", "viewer"],
+          "negative: сырой файл маршрутов (в нём ключи всех клиентов) зрителю не отдаётся, и описание API так и говорит — "
+          "только admin (2026-10-11); прочие GET зрителю открыты")
+    check(ROUTE_ACCESS.security("POST", "/api/pools/save") == {"security": [{"session": []}], "x-caravan-roles": ["admin"]}
           and ROUTE_ACCESS.security("GET", "/api/topology")["x-caravan-roles"] == ["admin", "viewer"]
           and ROUTE_ACCESS.security("GET", "/health") == {"security": []}
           and ROUTE_ACCESS.security("GET", "/metrics")["security"] == [{"fleetToken": []}, {"fleetBearer": []}, {"session": []}],
@@ -229,10 +236,16 @@ def test_access():
             h = FakeHandler(**kw)
             return routes._auth_guard(h, path, method), h.sent
 
+        def where(method, path, **kw):
+            h = FakeHandler(**kw)
+            routes._auth_guard(h, path, method)
+            return h.location
+
         check(guard("GET", "/openapi.json") == (True, []), "/openapi.json открыт без входа")
         check(guard("GET", "/api/topology") == (False, [(401, "authentication required")]),
               "negative: API без сессии — 401")
-        check(guard("GET", "/board") == (False, [(302, None)]), "страница без сессии — на форму входа")
+        check(guard("GET", "/board") == (False, [(302, None)]) and where("GET", "/board") == "/login",
+              "страница без сессии — на форму входа")
         check(guard("GET", "/api/cell-assets") == (False, [(401, "fleet token required (X-Caravan-Token)")])
               and guard("GET", "/api/cell-assets", headers={"X-Caravan-Token": "T"}) == (True, []),
               "машинный путь: без токена флота — 401, с токеном — пускает")
@@ -241,15 +254,26 @@ def test_access():
         check(guard("GET", "/metrics") == (False, [(302, None)]),
               "as-is: /metrics без токена и сессии уходит на форму входа (302), а не 401")
         viewer = {"user": "v", "role": "viewer"}
-        check(guard("POST", "/api/cloud-blocks/save", session=viewer) == (False, [(403, "read-only account")]),
+        check(guard("POST", "/api/pools/save", session=viewer) == (False, [(403, "read-only account")]),
               "negative: viewer не правит — 403")
         check(guard("POST", "/api/auth/logout", session=viewer) == (True, [])
               and guard("GET", "/api/topology", session=viewer) == (True, []),
               "viewer читает и выходит")
-        check(guard("POST", "/api/cloud-blocks/save", session={"user": "a", "role": "admin"}) == (True, []),
+        check(guard("POST", "/api/pools/save", session={"user": "a", "role": "admin"}) == (True, []),
               "admin правит")
         routes.auth_mod.auth_enabled = lambda: False
-        check(guard("POST", "/api/cloud-blocks/save") == (True, []), "учёток ещё нет — открыто всё")
+        check(guard("GET", "/board") == (False, [(302, None)]) and where("GET", "/board") == "/setup"
+              and where("GET", "/") == "/setup",
+              "учёток ещё нет — любая страница ведёт на создание первой (с 2026-10-07; до того было открыто всё)")
+        check(guard("POST", "/api/pools/save") == (False, [(401, "no account yet: create the first one at /setup")])
+              and guard("GET", "/api/topology") == (False, [(401, "no account yet: create the first one at /setup")]),
+              "negative: учёток нет — API не открыт, 401 называет /setup")
+        check(all(guard(m, p) == (True, []) for m, p in (
+                ("GET", "/setup"), ("POST", "/api/auth/setup"), ("GET", "/api/auth/me"), ("GET", "/health"),
+                ("GET", "/healthz"), ("GET", "/openapi.json"), ("GET", "/api/packages"), ("GET", "/login"))),
+              "до первой учётки отвечают только открытые: мастер, его POST, кто я, здоровье, описание API, пакеты")
+        check(guard("GET", "/api/cell-assets") == (False, [(401, "fleet token required (X-Caravan-Token)")]),
+              "negative: машинный путь и до первой учётки — только с токеном флота")
     finally:
         routes.auth_mod.auth_enabled, routes.auth_mod.fleet_token_verify, routes.auth_mod.session_from_handler = saved
 
@@ -268,18 +292,33 @@ def test_document():
     refusal = '`{"ok": false, "error": "…"}`'
     check(refusal in doc["info"]["description"] and refusal in doc["components"]["responses"]["Error"]["description"],
           "сказано, что часть отказов приходит 200 с ok: false — описание не обещает только статусы ошибок")
-    check(doc["openapi"] == "3.1.0" and doc["info"]["version"] == __version__ and isinstance(doc["info"]["x-commit"], str),
-          f"OpenAPI 3.1, версия каравана, коммит строкой (got {doc['openapi']}, {doc['info']['version']})")
+    check(doc["openapi"] == "3.1.0" and doc["info"]["version"] == (routes._running_commit() or "unknown")
+          and doc["info"]["x-release"] == __version__ and "x-commit" not in doc["info"],
+          f"OpenAPI 3.1: версия — коммит, как в /healthz, номер выпуска — x-release "
+          f"(got {doc['openapi']}, {doc['info']['version']}, {doc['info'].get('x-release')})")
+    spec, keep = routes.API_SPEC, routes.API_SPEC.commit
+    try:
+        spec.commit = lambda: "abc1234"
+        named = spec.build()["info"]["version"]
+        spec.commit = lambda: ""
+        unnamed = spec.build()["info"]["version"]
+    finally:
+        spec.commit = keep
+    check(named == "abc1234" and unnamed == "unknown",
+          f"версия описания — коммит; коммита нет — «unknown», а не номер выпуска (got {named}, {unnamed})")
+    check(keep is routes._running_commit,
+          "negative: описание читает коммит той же функцией, что /healthz, — не своей копией")
     empty = [f"{m} {p}" for p, methods in doc["paths"].items() for m, op in methods.items() if not op["summary"]]
     check(empty == [], f"у каждой операции есть summary — из докстроки обработчика (без: {empty[:5]})")
     own = doc["paths"]["/openapi.json"]["get"]
     check(own["security"] == [] and "application/json" in own["responses"]["200"]["content"],
           "сам /openapi.json открыт и отдаёт JSON")
-    usage = doc["paths"]["/api/cloud-accounts/usage-reserve"]["post"]
+    usage = doc["paths"]["/api/pools/level"]["post"]
     schema = usage["requestBody"]["content"]["application/json"]["schema"]
-    check(list(schema["properties"]) == ["id", "windowSeconds", "pct"] and "x-caravan-fields-complete" not in schema
-          and usage["x-caravan-roles"] == ["admin"],
-          f"тело запаса: id, windowSeconds, pct — и это все; только admin (got {list(schema['properties'])})")
+    check(list(schema["properties"]) == ["accountId", "model", "poolId", "stepId", "windowSeconds", "pct", "level"]
+          and "x-caravan-fields-complete" not in schema and usage["x-caravan-roles"] == ["admin"],
+          f"тело порога модели: accountId, model (или старые poolId, stepId), windowSeconds, pct, level — и это все; "
+          f"только admin (got {list(schema['properties'])})")
     check("requestBody" not in doc["paths"]["/api/auth/logout"]["post"],
           "negative: выход тела не читает — тела у операции нет")
     download = doc["paths"]["/api/models/download"]["get"]
@@ -309,12 +348,13 @@ def test_reference():
     ref = ApiReference(doc)
     labels = {path: ref.access_label(doc["paths"][path][m]) for path, m in (
         ("/openapi.json", "get"), ("/api/cell-assets", "get"), ("/metrics", "get"),
-        ("/api/topology", "get"), ("/api/cloud-blocks/save", "post"))}
+        ("/api/topology", "get"), ("/api/pools/save", "post"))}
     check(labels == {"/openapi.json": "open", "/api/cell-assets": "fleet token", "/metrics": "fleet token or session",
-                     "/api/topology": "any account", "/api/cloud-blocks/save": "admin"},
+                     "/api/topology": "any account", "/api/pools/save": "admin"},
           f"столбец доступа (got {labels})")
     check(ref.inputs(doc["paths"]["/api/models/download"]["get"]).endswith("…")
-          and ref.inputs(doc["paths"]["/api/cloud-accounts/usage-reserve"]["post"]) == "body: `id`, `windowSeconds`, `pct`",
+          and ref.inputs(doc["paths"]["/api/pools/level"]["post"])
+          == "body: `accountId`, `model`, `poolId`, `stepId`, `windowSeconds`, `pct`, `level`",
           "столбец входов: «…» там, где обработчик может читать больше")
     check(ApiReference.cell("a | b\n c") == "a \\| b c", "ячейка: одна строка, черта экранирована")
     page = "top\n" + ApiReference.START + "\nSTALE-ROW-7f3\n" + ApiReference.END + "\nbottom\n"

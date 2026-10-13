@@ -86,7 +86,21 @@ export class AgentRow {
     this.key = String(f.key || "");
     this.name = String(f.name || "");
     this.kind = String(f.kind || "");
+    this.seen = Number(f.seen) || 0;
     this.routes = (f.routes || []).filter((r) => r && r.port);
+  }
+
+  // The dot before an agent's name says whether a request came through its ports: lit, with
+  // the time of the last one; hollow while none has. It was lit for every agent, and a client
+  // made by hand a minute ago looked as alive as one that served all day (2026-10-08).
+  static dot(seen, cls = "ar-dot", now = Date.now()) {
+    const sec = Number(seen) || 0;
+    if (!sec) return `<span class="${cls} unseen" title="${escapeHtml(t("agentDotUnseen"))}"></span>`;
+    const when = new Date(sec * 1000);
+    const text = when.toDateString() === new Date(now).toDateString()
+      ? when.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : when.toLocaleDateString([], { day: "numeric", month: "short" });
+    return `<span class="${cls}" title="${escapeHtml(t("agentDotSeen", { time: text }))}"></span>`;
   }
 
   route(r) {
@@ -104,7 +118,7 @@ export class AgentRow {
 
   html() {
     return `<div class="fold-row agent-row" role="button" tabindex="0" data-t="agent-row"`
-      + ` data-t-id="${escapeHtml(this.key)}"><div class="ar-head"><span class="ar-dot" aria-hidden="true"></span>`
+      + ` data-t-id="${escapeHtml(this.key)}"><div class="ar-head">${AgentRow.dot(this.seen)}`
       + `<strong>${escapeHtml(this.name)}</strong><span class="ar-kind">${escapeHtml(this.kind)}</span></div>`
       + `${this.routes.map((r) => this.route(r)).join("")}</div>`;
   }

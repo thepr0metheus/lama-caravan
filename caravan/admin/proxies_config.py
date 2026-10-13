@@ -1,9 +1,10 @@
 """agent-proxies.json I/O and mutation: routes, routers, policy. Every write
 funnels through write_agent_proxy_payload (with the kanban-graph autobackup)."""
+import hashlib
 import json
 import secrets
+import threading
 
-from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
 from caravan.admin.state import topology as topo
 from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID, PROXY_PORTS
 from caravan.admin.output_refs import RouterOutputRefs
@@ -19,11 +20,13 @@ from caravan.admin.systemd_ctl import ensure_agent_proxy_running
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
 from caravan.store.proxies import ProxyStore
+from caravan.common.key_entry import KeyEntry
+from caravan.common.model_kinds import ModelKind
 
 
 # What a caravan with no proxy config has: nothing. It used to have four —
 # named after agents that were retired long ago, on ports that now belong to
-# other things (8083 is a bridge). They appeared whenever the file was missing
+# other things (8083 was a bridge). They appeared whenever the file was missing
 # OR unreadable, so a corrupt config came up looking like a working four-route
 # configuration, and the first write replaced the file that could have been
 # recovered. An empty list is the only honest answer to "we could not read it".
@@ -61,8 +64,67 @@ def write_agent_proxy_payload(payload):
     _store.write(_store.protect_graph(payload, _store.stamp()))
 
 
-def load_agent_proxy_config():
-    payload = read_agent_proxy_payload()
+class StaleCopy(AppError):
+    """A save made from an older version of a list than the stored one: refused, nothing written."""
+
+    def __init__(self, name):
+        super().__init__(f"the {name} changed since this page read them: nothing was saved — "
+                         "the page makes its change again on the current version", 409)
+        self.name = name
+
+
+class ProxyRevisions:
+    """Which version of the proxy document a page was shown, list by list — and the refusal
+    of a save made from an older one.
+
+    A page saves whole lists built from its own copy of the topology: the kanban its routers
+    with every cable, the port form every route. A tab left open since the morning wrote its
+    copy over the afternoon's with its first click: on the NAS (2026-10-08, 09:04) such a tab
+    put back the cable of a deleted port, and a port given that number later took it over.
+    So the topology names the version of each list it hands out — a digest of the list as
+    stored — a page sends it back with a save, and a save made from an older version is
+    refused (StaleCopy, 409); the page makes its change again on the current topology. A save
+    that names no version goes through as before: a script that knows nothing of versions.
+
+    The check and the write run under one lock, so two saves of one version cannot both pass.
+    Background writers do not take it: what they change, a page either never sends or sees
+    on its next reading — the save after it is refused once and made again.
+    """
+
+    LISTS = ("routes", "routers")
+    LOCK = threading.RLock()
+
+    def __init__(self, read=None):
+        self._read = read
+
+    @staticmethod
+    def digest(value):
+        text = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+    @classmethod
+    def of(cls, payload):
+        """The version of each list in a reading of the document, as stored."""
+        payload = payload if isinstance(payload, dict) else {}
+        return {name: cls.digest(payload.get(name)) for name in cls.LISTS}
+
+    def current(self):
+        return self.of((self._read or read_agent_proxy_payload)())
+
+    def check(self, name, seen):
+        """Refuse a save of list `name` made from version `seen`, unless it is the stored one.
+        No version given — a script's save — passes. Call it holding LOCK, with the write."""
+        if seen and str(seen) != self.current()[name]:
+            raise StaleCopy(name)
+
+
+PROXY_REVISIONS = ProxyRevisions()
+
+
+def load_agent_proxy_config(payload=None):
+    """The document, normalised. `payload` is a reading already made (read_agent_proxy_payload),
+    so a caller that names the version of what it shows names the version of THIS reading."""
+    payload = read_agent_proxy_payload() if payload is None else payload
     routes = payload.get("routes") if isinstance(payload.get("routes"), list) else DEFAULT_AGENT_PROXY_ROUTES
     cleaned = []
     seen = set()
@@ -81,6 +143,9 @@ def load_agent_proxy_config():
         "policy": normalize_agent_proxy_policy(payload.get("policy")),
         "routers": routers,
         "stopRequests": (payload.get("stopRequests") if isinstance(payload.get("stopRequests"), list) else [])[-100:],
+        # The one entry for keys (caravan/common/key_entry.py). Every writer
+        # that starts from this dict writes it back, so it is named here.
+        "entry": KeyEntry.clean(payload.get("entry")),
     }
 
 def _router_local_outputs(server_obj):
@@ -117,100 +182,38 @@ def _router_local_outputs(server_obj):
             "upstreamPort": int(port),
             "upstreamType": "llama",
             "providerId": "",
+            # What the cell's model does, for the entry's model list and a pool's window
+            # (caravan/common/model_kinds.py, 1.3.502).
+            **ModelKind.cell_facts(s),
         })
     return outs
 
-def cloud_block_output(accounts, block):
-    """The router output of one cloud model, as the next sync of outputs will
-    make it; None when its account is gone."""
-    outs = _router_cloud_outputs(accounts, [{**block, "exposed": True}])
-    return outs[0] if outs else None
+def pool_output(pool):
+    """The router output of one pool: `cb:<pool id>` — the id the model block
+    it was made from had, so the cables, rules and ports that named the model
+    name the pool — labelled with the pool's name. A pool has no account of
+    its own: its steps do, and the proxy picks one per request."""
+    return {
+        "id": f"cb:{pool['id']}",
+        "label": f"☁ {pool.get('name') or pool['id']}",
+        "target": f"pool:{pool['id']}",
+        "upstreamHost": "",
+        "upstreamPort": 0,
+        "upstreamType": "cloud",
+        "providerId": pool["id"],
+    }
 
-def _router_cloud_outputs(accounts, blocks):
-    """One AUTO-output per EXPOSED cloud model-block (ticked in the router Outputs
-    panel). Stable id `cb:<blockId>`; the model = the block's `model`, the account
-    is the provider. Cloud = unlimited concurrency. A provider with no exposed blocks
-    contributes no outputs (it still shows as a collapsible header in the UI)."""
-    acc_by_id = {a.get("id"): a for a in (accounts or []) if a.get("id")}
-    outs = []
-    for b in (blocks or []):
-        if not b.get("exposed"):
-            continue
-        acc_id = b.get("accountId")
-        if acc_id not in acc_by_id:
-            continue
-        bid = b.get("id")
-        model = str(b.get("model") or b.get("name") or bid)
-        outs.append({
-            "id": f"cb:{bid}",
-            "label": f"☁ {model}",
-            "target": f"cloud:{acc_id}",
-            "upstreamHost": "",
-            "upstreamPort": 0,
-            "upstreamType": "cloud",
-            "providerId": bid,
-            "accountId": acc_id,
-        })
-    return outs
-
-def migrate_legacy_cloud_outputs(routers, account_ids):
-    """One-time upgrade: the OLD model was one output `cloud:<accountId>` whose chosen
-    model lived in providerId. The NEW model is one output `cb:<blockId>` per EXPOSED
-    block. So: expose the previously-chosen block(s) and remap every reference from the
-    legacy id → `cb:<blockId>` so nothing routing-related is lost:
-      every place a router names an output (RouterOutputRefs: rules, rule
-      lists, failover, graph edges `out:cloud:<accId>`)
-    Idempotent (legacy ids vanish after the first sync). Returns True if cloud data
-    (block exposure) changed."""
-    legacy_ids = {f"cloud:{a}" for a in (account_ids or [])}
-    expose = set()
-    # Build per-router old-output-id → new-output-id maps from the legacy cloud outputs.
-    remaps = []
-    for router in routers:
-        if not isinstance(router, dict):
-            continue
-        id_map = {}
-        for out in router.get("outputs") or []:
-            if out.get("id") in legacy_ids and str(out.get("upstreamType") or "") == "cloud":
-                pid = str(out.get("providerId") or "").strip()
-                if pid:
-                    id_map[out["id"]] = f"cb:{pid}"
-                    expose.add(pid)
-        if id_map:
-            remaps.append((router, id_map))
-    if not remaps:
-        return False
-    for router, id_map in remaps:
-        router["rules"] = router.get("rules") or {}
-        RouterOutputRefs(router).rewrite(lambda v: id_map.get(v, v))
-        if not router["rules"].get("failover"):
-            router["rules"].pop("failover", None)
-    data = load_cloud_data()
-    changed = False
-    for b in data["blocks"]:
-        if b.get("id") in expose and not b.get("exposed"):
-            b["exposed"] = True
-            changed = True
-    if changed:
-        save_cloud_data(data)
-    return changed
-
-def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=None, engine_outputs=None):
+def sync_router_outputs(routers, server_obj, pools=None, engine_outputs=None, machine_outputs=None):
     """Outputs are AUTO-derived from the available providers: one per local llama
     server + one per model of an engine next to the cells the operator made an
-    output (`engine_outputs`, EngineOutputs.outputs) + one per EXPOSED cloud
-    model-block. Replace each router's outputs with the desired set; keep
-    rules.default valid. Returns True if changed."""
-    account_ids = [a.get("id") for a in (cloud_accounts or []) if a.get("id")]
-    if migrate_legacy_cloud_outputs(routers, account_ids):
-        # The upgraded models go on the kanban the way every model does now:
-        # with a port of their own (cloud_ports.py).
-        from caravan.admin.cloud_ports import CloudPortDesk
-        CloudPortDesk().adopt_flags()
-        cloud_blocks = cloud_blocks_state()   # re-read: they are on the kanban now
+    output (`engine_outputs`, EngineOutputs.outputs) + one per model of a machine's
+    entry (`machine_outputs`, MachineOutputs.outputs, 1.3.506) + one per pool.
+    Replace each router's outputs with the desired set; keep rules.default valid.
+    Returns True if changed."""
     local = _router_local_outputs(server_obj)
-    cloud = _router_cloud_outputs(cloud_accounts, cloud_blocks)
-    desired = [normalize_router_output(o) for o in (local + list(engine_outputs or []) + cloud)]
+    cloud = [pool_output(p) for p in (pools or [])]
+    desired = [normalize_router_output(o)
+               for o in (local + list(engine_outputs or []) + list(machine_outputs or []) + cloud)]
     changed = False
     for router in routers:
         if not isinstance(router, dict):
@@ -231,14 +234,67 @@ def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=N
         # Default prefers a local server (cloud is overflow, not the primary).
         if rules.get("default") not in ids:
             old_default = str(rules.get("default") or "")
-            # Stash a stable-keyed default (srv:/cb:) so it survives the rewrite
-            # and auto-restores when its output reappears.
-            if old_default.startswith(("srv:", "cb:", "eng:")) and not rules.get("dormantDefault"):
+            # Stash a stable-keyed default (srv:/cb:/eng:/mm:) so it survives the
+            # rewrite and auto-restores when its output reappears.
+            if old_default.startswith(("srv:", "cb:", "eng:", "mm:")) and not rules.get("dormantDefault"):
                 rules["dormantDefault"] = old_default
             local_ids = [o["id"] for o in desired if o["upstreamType"] != "cloud"]
             rules["default"] = (local_ids or [o["id"] for o in desired] or [""])[0]
             changed = True
     return changed
+
+class PortInputs:
+    """The client ports a graph may start from: one input per proxy route.
+
+    The graph names a client port by its number (`in:skynet:proxy:<port>`), so
+    whatever it holds for a port — the cable out of it, its wait budget —
+    outlives the port unless something takes it away. Nothing did on a save:
+    a page holding an old copy of the graph saved it on the NAS (2026-10-08,
+    09:04) and wrote back the cable of a port deleted a quarter of an hour
+    earlier. The next port given that number took the cable over, and its new
+    client went to a model nobody chose; only the kanban showed it. So every
+    read and every write forgets what a graph holds for a port no route has.
+
+    A port that exists keeps its cables, also while no router has it: the board
+    promises that unassigning a port deletes nothing (dlgUnassignRouter).
+    """
+
+    #: What the graph calls a client port: the proxy's id of the route.
+    PREFIX = "skynet:proxy:"
+
+    def __init__(self, routes):
+        self.routes = [r for r in (routes or []) if isinstance(r, dict)]
+        self.known = {self.of(r) for r in self.routes}
+
+    @classmethod
+    def of(cls, route):
+        return f"{cls.PREFIX}{route.get('port')}"
+
+    def of_router(self, router_id):
+        """The inputs of one router: the routes that carry its id. An unassigned
+        route ("") feeds none — no router's id is empty."""
+        return [self.of(r) for r in self.routes if r.get("routerId") == router_id]
+
+    def holds(self, ref):
+        ref = str(ref or "")
+        return not ref.startswith("in:") or ref[3:] in self.known
+
+    def forget_absent(self, router):
+        """`router` without the cables and wait budgets of ports no route has —
+        a copy. Anything malformed passes as it is: normalize_router drops it.
+        Before the graph is normalised, so a model's queue is reconciled
+        against the cables that stay."""
+        graph = router.get("graph") if isinstance(router, dict) else None
+        if not isinstance(graph, dict):
+            return router
+        kept = dict(graph)
+        if isinstance(graph.get("edges"), list):
+            kept["edges"] = [e for e in graph["edges"]
+                             if not isinstance(e, dict) or (self.holds(e.get("from")) and self.holds(e.get("to")))]
+        if isinstance(graph.get("inputs"), dict):
+            kept["inputs"] = {pid: cfg for pid, cfg in graph["inputs"].items() if str(pid) in self.known}
+        return {**router, "graph": kept}
+
 
 def normalize_routers(raw, routes):
     """Normalize the router list and keep it consistent with the proxy routes.
@@ -246,8 +302,12 @@ def normalize_routers(raw, routes):
     Guarantees: the default router always exists; every route's routerId
     points at a real router (orphans fall back to default); each router's
     `inputs` is derived fresh from the routes that carry its id (single source of
-    truth — never trusted from disk)."""
-    routers = [normalize_router(s) for s in (raw if isinstance(raw, list) else [])]
+    truth — never trusted from disk); a graph holds nothing for a port no route
+    has (PortInputs). Without the routes (None) nothing is forgotten: not knowing
+    the ports is not knowing there are none."""
+    ports = PortInputs(routes) if isinstance(routes, list) else None
+    routers = [normalize_router(ports.forget_absent(s) if ports else s)
+               for s in (raw if isinstance(raw, list) else [])]
     by_id = {}
     for router in routers:
         by_id.setdefault(router["id"], router)
@@ -256,22 +316,21 @@ def normalize_routers(raw, routes):
         by_id[DEFAULT_ROUTER_ID] = default_router
     # Re-point routes whose router no longer exists at the default — EXCEPT the
     # intentional "unassigned" state ("" empty), which is left free (runtime → 503).
+    # A client of the entry is never on a router, whatever a raw route says: its
+    # cable leads to a set of models.
     for route in (routes or []):
+        if route.get("kind") == "consumer":
+            route["routerId"] = ""
         router_id = route.get("routerId")
         if router_id == "":
             continue
         if router_id not in by_id:
             route["routerId"] = DEFAULT_ROUTER_ID
-    # Derive inputs from the routes (skip unassigned "" — they feed no router).
-    inputs_by_router = {}
-    for route in (routes or []):
-        router_id = route.get("routerId")
-        if not router_id:
-            continue
-        inputs_by_router.setdefault(router_id, []).append(f"skynet:proxy:{route.get('port')}")
+    # Inputs from the routes, after the re-pointing above (unassigned "" feeds no router).
+    derived = ports or PortInputs([])
     ordered = [by_id[DEFAULT_ROUTER_ID]] + [router for sid, router in by_id.items() if sid != DEFAULT_ROUTER_ID]
     for router in ordered:
-        router["inputs"] = inputs_by_router.get(router["id"], [])
+        router["inputs"] = derived.of_router(router["id"])
     return ordered
 
 def remap_router_output_refs(old_id, new_id):
@@ -333,16 +392,65 @@ def swap_router_output_refs(id_a, id_b):
         save_agent_proxy_config(payload.get("routes") or [], routers)
     return changed
 
-def save_agent_proxy_config(routes, routers=None):
+class PolicyOwnedFields:
+    """The fields of a route only their own doors set: whether its port is
+    closed and its own queue thresholds (set_agent_proxy_route_policy), and a
+    consumer's key and its set (caravan/admin/consumers.py) — or its pool, on a
+    route of the form before 1.3.497 not yet rewritten. The board's
+    full-list save rebuilds every route from what its page holds, and the page
+    never carried the first ones: any ✎ save reopened every closed port and
+    reset every threshold, without a word (found 2026-10-07, before the first
+    agent's port was closed). A consumer's key never reaches the page at all —
+    it is shown once, when it is made. A posted route that leaves such a field
+    out keeps the stored value; one that names it — false, null or "" — says
+    what it wants, as the doors do."""
+
+    FIELDS = ("portClosed", "cloudFallbackPct", "priorityPreemptPct", "queueAbortPct", "apiKey", "set", "pool")
+
+    def __init__(self, stored_routes):
+        self.by_port = {}
+        for route in stored_routes or []:
+            try:
+                self.by_port[int(route.get("port") or 0)] = route
+            except (AttributeError, TypeError, ValueError):
+                continue
+
+    def kept(self, route):
+        """The posted route with the stored values of the fields it left out."""
+        if not isinstance(route, dict):
+            return route
+        try:
+            stored = self.by_port.get(int(route.get("port") or 0))
+        except (TypeError, ValueError):
+            return route
+        missing = {k: stored[k] for k in self.FIELDS if stored and k in stored and k not in route}
+        return {**route, **missing} if missing else route
+
+def save_agent_proxy_config(routes, routers=None, revision=None):
+    """Save the whole list of routes. `revision` is the version of the routes the caller's
+    list was built from (ProxyRevisions): an older one is refused before anything is written."""
+    with ProxyRevisions.LOCK:
+        PROXY_REVISIONS.check("routes", revision)
+        payload = _write_routes(routes, routers)
+    # The running proxy picks the file up by itself; the save only makes sure
+    # there is one running (see ensure_agent_proxy_running).
+    result = ensure_agent_proxy_running(timeout=30)
+    if not result["ok"]:
+        raise AppError(result["stderr"] or "failed to start agent proxy service", 500)
+    return payload
+
+
+def _write_routes(routes, routers):
+    current = load_agent_proxy_config()
+    keep = PolicyOwnedFields(current.get("routes") or [])
     cleaned = []
     seen = set()
     for route in routes:
-        row = normalize_agent_proxy_route(route)
+        row = normalize_agent_proxy_route(keep.kept(route))
         if row["port"] in seen:
             raise AppError(f"duplicate proxy port {row['port']}", 400)
         seen.add(row["port"])
         cleaned.append(row)
-    current = load_agent_proxy_config()
     before = set()
     for r in current.get("routes") or []:
         try:
@@ -361,6 +469,7 @@ def save_agent_proxy_config(routes, routers=None):
         raise AppError(
             f"port {', '.join(str(port) for port in outside)} is outside the proxy range "
             f"{PROXY_PORTS}, the one the firewall lets in — pick a port inside it", 400)
+    KeyAudit(cleaned).enforce()
     # Routers: caller-provided list (Stage 4 UI) or keep the existing one;
     # either way re-normalize against the cleaned routes so inputs stay in sync.
     router_source = routers if routers is not None else current.get("routers")
@@ -369,20 +478,43 @@ def save_agent_proxy_config(routes, routers=None):
         "policy": current.get("policy") or normalize_agent_proxy_policy({}),
         "routers": normalize_routers(router_source, cleaned),
         "stopRequests": current.get("stopRequests") or [],
+        "entry": current.get("entry") or {},
     }
     write_agent_proxy_payload(payload)
-    # The running proxy picks the file up by itself; the save only makes sure
-    # there is one running (see ensure_agent_proxy_running).
-    result = ensure_agent_proxy_running(timeout=30)
-    if not result["ok"]:
-        raise AppError(result["stderr"] or "failed to start agent proxy service", 500)
     return payload
 
-# ── Bridge ports (kind="service") ────────────────────────────────────────────
-# An OpenAI-compatible entry point for an EXTERNAL consumer (a voice app etc.):
-# route-level cloud upstream pinned to one model block, routerId explicitly ""
-# so it feeds no router and never shows up in the kanban graph; the agent
-# machinery (↑☁ eligibility, assignments) skips kind="service".
+class KeyAudit:
+    """The keys of the routes, as the entry needs them (caravan/common/key_entry.py).
+
+    The entry finds an agent by its key, so a key two routes carry would find
+    neither; and a closed port without a key leaves its agent no way in at
+    all. Both are refused where the routes are saved, before anything is
+    written — the proxy refuses the first one again at request time, for a
+    file edited by hand.
+    """
+
+    def __init__(self, routes):
+        self.routes = [route for route in routes or [] if isinstance(route, dict)]
+
+    def problems(self):
+        found = []
+        for key, ports in KeyEntry.shared_keys(self.routes).items():
+            found.append(f"ports {', '.join(str(port) for port in ports)} share one key (…{key[-4:]}) — "
+                         f"the entry could not tell their agents apart; give each its own")
+        for route in self.routes:
+            if route.get("portClosed") and not str(route.get("apiKey") or "").strip():
+                found.append(f"port {route.get('port')} is closed and has no key — its agent would have "
+                             f"no way in; give it a key first")
+        return found
+
+    def enforce(self):
+        found = self.problems()
+        if found:
+            raise AppError("; ".join(found), 400)
+
+
+# ── The proxy's port numbers ─────────────────────────────────────────────────
+# Which numbers are taken, and the next free one for a consumer or an agent.
 
 def _all_taken_ports(routes=None):
     """Every number the fleet must not hand out, from ALL of its own registers.
@@ -406,6 +538,11 @@ def _all_taken_ports(routes=None):
                 used.add(int(r.get("port") or 0))
             except (TypeError, ValueError):
                 continue
+    # The entry's port is the fleet's too: no route may be minted onto it.
+    try:
+        used.add(int((load_agent_proxy_config().get("entry") or {}).get("port") or 0))
+    except Exception:  # noqa: BLE001 — an unreadable config names no entry
+        pass
     used.discard(0)
     return used
 
@@ -452,21 +589,8 @@ def _next_agent_port(used_ports):
     return candidate
 
 
-def next_app_port(routes):
-    """The port the next bridge will get — the number its button promises.
-
-    None when it cannot be worked out: the button then promises no number
-    rather than a wrong one. It used to show the next CELL port (22xxx) while
-    the bridge landed at 23xxx.
-    """
-    try:
-        return next_free_proxy_port(routes or [])
-    except Exception:
-        return None
-
-
 def next_free_proxy_port(routes):
-    """Smallest free port in the PROXY range for a bridge or app port.
+    """Smallest free port in the PROXY range — a consumer's number.
 
     These used to count from SERVER_CELL_BASE_PORT: with one flat range that was
     simply "the next free number", but 1.3.188 split the ranges — cells at
@@ -484,74 +608,6 @@ def next_free_proxy_port(routes):
         if port > PROXY_PORTS.upper:
             raise AppError(f"no free proxy port left in the proxy range {PROXY_PORTS}", 500)
     return port
-
-def bridge_route(block, port, label=""):
-    """A cloud model's own port: a route of kind "service" straight to the
-    model, no router behind it. Its existence is what puts the model on the
-    kanban (cloud_ports.py)."""
-    block_id = str(block.get("id") or "")
-    model = str(block.get("model") or block.get("name") or block_id)
-    return {
-        "label": (str(label or "").strip() or f"bridge {model}")[:80],
-        "port": int(port),
-        "kind": "service",
-        "upstreamType": "cloud",
-        "providerId": block_id,
-        "routerId": "",   # explicit: unassigned — absent would auto-bind router:default
-        "mode": "open",
-    }
-
-def mint_bridge_port(block_id, label=""):
-    """Create a bridge port for a cloud model block and return the saved route."""
-    block_id = str(block_id or "").strip()
-    if not block_id:
-        raise AppError("blockId is required", 400)
-    data = load_cloud_data()
-    block = next((b for b in (data.get("blocks") or [])
-                  if isinstance(b, dict) and b.get("id") == block_id), None)
-    if not block:
-        raise AppError(f"unknown cloud model block: {block_id}", 404)
-    if not any(isinstance(a, dict) and a.get("id") == block.get("accountId")
-               for a in (data.get("accounts") or [])):
-        raise AppError("model block has no account", 400)
-    payload = load_agent_proxy_config()
-    routes = payload.get("routes") or []
-    port = next_free_proxy_port(routes)
-    route = bridge_route(block, port, label)
-    routes.append(route)
-    saved = save_agent_proxy_config(routes, payload.get("routers"))
-    return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
-
-def mint_app_port(name):
-    """Create a router-routed entry port for an EXTERNAL APP (a UI, a voice
-    tool, …): traffic flows through the default router's graph/queue exactly
-    like agent traffic, but the port carries its own data-plane API key — no
-    app ever needs to borrow an agent's key again. Returns the saved route
-    INCLUDING the generated key (the UI shows/copies it once; it stays
-    readable later in the route form's Advanced section)."""
-    name = str(name or "").strip()[:80]
-    if not name:
-        raise AppError("name is required", 400)
-    payload = load_agent_proxy_config()
-    routes = payload.get("routes") or []
-    port = next_free_proxy_port(routes)
-    api_key = "lcv1_" + secrets.token_hex(16)
-    route = {
-        "label": name,
-        "port": port,
-        # Legacy placeholder — the router graph owns the real upstream choice.
-        "upstreamHost": "127.0.0.1",
-        "upstreamPort": 8080,
-        "enabled": True,
-        "routerId": DEFAULT_ROUTER_ID,
-        "apiKey": api_key,
-        "clientTimeoutSeconds": 1800,
-        "mode": "open",
-    }
-    routes.append(route)
-    saved = save_agent_proxy_config(routes, payload.get("routers"))
-    out = next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
-    return {**out, "apiKey": api_key}
 
 def mint_agent_port(client_id, agent_id, label="", port=None):
     """Create an AGENT entry port deliberately, with a name the operator chose.
@@ -574,7 +630,7 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
     routes = payload.get("routes") or []
     if port in (None, "", 0):
         # From the AGENT base, not the cell base: handing one out at 22026 would
-        # put a proxy inside the range the cell picker draws from. (Bridges count
+        # put a proxy inside the range the cell picker draws from. (Consumers count
         # from the same base, one by one; agent ports take a pair.)
         port = _next_agent_port({int(r.get("port") or 0) for r in routes if isinstance(r, dict)})
     else:
@@ -644,15 +700,10 @@ def delete_proxy_route(port, force=False):
                 f"port {port} is still assigned to {', '.join(bound)} — "
                 f"point the agent elsewhere first", 409)
 
-    # Drop the router wiring too. Leaving it turns into an orphan edge, which is
-    # invisible on the board and outlives the thing it described.
-    routers = payload.get("routers") or []
-    for router in routers:
-        graph = router.get("graph") or {}
-        if isinstance(graph.get("edges"), list):
-            graph["edges"] = [e for e in graph["edges"]
-                              if str((e or {}).get("from") or "") != f"in:skynet:proxy:{port}"]
-    save_agent_proxy_config([r for r in routes if r is not target], routers)
+    # The router wiring goes with the port: the save forgets whatever a graph
+    # holds for a port no route has (PortInputs). Left behind, it was an orphan
+    # edge, invisible on the board, waiting for the next port given this number.
+    save_agent_proxy_config([r for r in routes if r is not target], payload.get("routers") or [])
     return {"deleted": port, "label": str(target.get("label") or "")}
 
 
@@ -661,6 +712,50 @@ def set_agent_proxy_policy(policy):
     payload["policy"] = normalize_agent_proxy_policy({**payload["policy"], **policy})
     write_agent_proxy_payload(payload)
     return payload
+
+class RouteKeys:
+    """A consumer's key, given where none was: the board's "Give a key".
+
+    The key is what finds the consumer at the entry (caravan/common/key_entry.py),
+    and from that moment the entry is its only way in: the port closes in the
+    same write. No window in which the old port still answers without a key —
+    the operator's word (2026-10-07): a consumer that has not moved yet gets no
+    answer until it calls the entry with its key. So the entry must be on, or
+    the consumer would have no way in at all. A route that has a key keeps it:
+    replacing one is its own act (the consumer must be told), not a click on a
+    free one.
+    """
+
+    PREFIX = "lcv1_"
+
+    def __init__(self, token=None):
+        self._token = token or (lambda: secrets.token_hex(24))
+
+    def new(self):
+        """A fresh key: the prefix, then 48 hex characters from the system's randomness."""
+        return self.PREFIX + self._token()
+
+    def issue(self, port):
+        try:
+            target = int(port)
+        except (TypeError, ValueError):
+            raise AppError("port must be a number", 400)
+        payload = load_agent_proxy_config()
+        route = next((r for r in payload["routes"] if int(r.get("port") or 0) == target), None)
+        if not route:
+            raise AppError("proxy route not found", 404)
+        if str(route.get("kind") or "") == "consumer":
+            raise AppError("a consumer of the entry has its key — replace it on its card", 409)
+        if str(route.get("apiKey") or "").strip():
+            raise AppError(f"port {target} already has a key", 409)
+        if not int((payload.get("entry") or {}).get("port") or 0):
+            raise AppError("the entry is off — open it before giving a key: the consumer's only way in "
+                           "is the entry", 409)
+        route["apiKey"] = self.new()
+        route["portClosed"] = True
+        KeyAudit(payload["routes"]).enforce()
+        write_agent_proxy_payload(payload)
+        return {"port": target, "key": route["apiKey"]}
 
 def set_agent_proxy_route_policy(port, patch):
     payload = load_agent_proxy_config()
@@ -672,6 +767,11 @@ def set_agent_proxy_route_policy(port, patch):
         found = True
         if "label" in patch:
             lbl = str(patch.get("label") or "").strip()[:80]
+            if lbl and str(route.get("kind") or "") == "consumer":
+                # A client of the entry is named by the one rule its creation follows (consumers.py
+                # imports this module: the rule is fetched here, when a client is renamed).
+                from caravan.admin.consumers import ConsumerDesk
+                lbl = ConsumerDesk.clean_name(lbl, payload["routes"], own_port=target_port)
             if lbl:
                 route["label"] = lbl
         if "mode" in patch:
@@ -683,6 +783,15 @@ def set_agent_proxy_route_policy(port, patch):
             route["priority"] = max(0, min(100, int(patch.get("priority") or 0)))
         if "preemptible" in patch:
             route["preemptible"] = bool(patch.get("preemptible"))
+        if "portClosed" in patch:
+            # Closing the port moves the agent to the entry for good: only its key finds it there.
+            if patch.get("portClosed"):
+                if not int((payload.get("entry") or {}).get("port") or 0):
+                    raise AppError("the entry is off — open it before closing a port, or the agent "
+                                   "has no way in", 409)
+                route["portClosed"] = True
+            else:
+                route.pop("portClosed", None)
         if "upstreamType" in patch:
             utype = str(patch.get("upstreamType") or "llama").strip().lower()
             if utype not in ("llama", "cloud"):
@@ -704,6 +813,10 @@ def set_agent_proxy_route_policy(port, patch):
         if "routerId" in patch:
             # Re-bind this proxy to another router, or "" to UNASSIGN it (free →
             # runtime 503). No restart — agent-proxies.py re-reads routerId live.
+            # A client of the entry has no router: its cable leads to a set of models.
+            if str(route.get("kind") or "") == "consumer":
+                raise AppError("a client of the entry goes to its set of models, not to a router: "
+                               "cable it to a set on the kanban", 400)
             router_id = str(patch.get("routerId") or "").strip()
             if router_id and router_id not in {s.get("id") for s in (payload.get("routers") or [])}:
                 raise AppError("unknown router", 400)
@@ -718,14 +831,19 @@ def set_agent_proxy_route_policy(port, patch):
                     route[pct_key] = max(0, min(100, int(v)))
     if not found:
         raise AppError("proxy route not found", 404)
+    KeyAudit(payload["routes"]).enforce()
     write_agent_proxy_payload(payload)
     return payload
 
-def set_routers(routers):
+def set_routers(routers, revision=None):
     """Replace the router list (the UI sends the full array). No service restart:
     agent-proxies.py re-reads routers from the file by mtime on the next request.
-    normalize_routers (via write) keeps inputs/default/orphans consistent."""
-    payload = load_agent_proxy_config()
-    payload["routers"] = normalize_routers(routers, payload.get("routes"))
-    write_agent_proxy_payload(payload)
+    normalize_routers (via write) keeps inputs/default/orphans consistent. `revision` is
+    the version of the routers the array was built from: an older one is refused
+    (ProxyRevisions) before anything is written."""
+    with ProxyRevisions.LOCK:
+        PROXY_REVISIONS.check("routers", revision)
+        payload = load_agent_proxy_config()
+        payload["routers"] = normalize_routers(routers, payload.get("routes"))
+        write_agent_proxy_payload(payload)
     return payload

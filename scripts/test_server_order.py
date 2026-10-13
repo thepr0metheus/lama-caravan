@@ -153,9 +153,72 @@ finally:
 check(routes.ROUTE_ACCESS.security("POST", "/api/topology/server-order").get("x-caravan-roles") == ["admin"],
       "only an admin account saves an order: a viewer reads the board and cannot rearrange it")
 
+print("the clients' order (1.3.503: a client card carried on the kanban):")
+from caravan.admin.board_layout import ClientOrder  # noqa: E402
+
+
+class ClientDoc(Doc):
+    def order(self):
+        return ClientOrder(section=lambda: self.topo, save=self.save)
+
+
+fresh = ClientDoc()
+check((fresh.order().ports(), fresh.order().revision(), fresh.order().layout()) == ([], 0, {"clientOrder": [], "clientOrderRev": 0}),
+      "a fresh document holds no clients' order and no revision")
+check(fresh.order().save([23002, 23001]) == {"ok": True, "order": [23002, 23001], "rev": 1} and fresh.saves == 1
+      and fresh.topo["layout"] == {"clientOrder": [23002, 23001], "clientOrderRev": 1},
+      f"a save stores the ports as sent, its revision 1, in the layout section (got {fresh.topo})")
+fresh.order().save([])
+check((fresh.order().ports(), fresh.order().revision()) == ([], 2), "an empty list returns the clients to their order by name; the revision still grows")
+for bad, why in (("23001", "not a list"), ([23001, "23002"], "a port as text"), ([23001, True], "a truth value"),
+                 ([0], "port 0"), ([65536], "a port past 65535"), ([23001, 23001], "a port twice"),
+                 (list(range(1, ClientOrder.LIMIT + 2)), "a list longer than the limit")):
+    doc = ClientDoc({"clientOrder": [23003], "clientOrderRev": 5})
+    try:
+        doc.order().save(bad)
+        status = None
+    except AppError as err:
+        status = err.status
+    check(status == 400 and doc.saves == 0 and doc.order().ports() == [23003] and doc.order().revision() == 5,
+          f"negative: {why} — refused 400 whole; nothing stored, the revision kept (got {status})")
+hand = ClientDoc({"clientOrder": [23002, "x", 23002, None, 70000, 23001], "clientOrderRev": "7"})
+check((hand.order().ports(), hand.order().revision()) == ([23002, 23001], 0),
+      "a hand-edited document: what is no port and a port twice are not read; a revision that is no number is none")
+check(ClientDoc({"clientOrder": "23001"}).order().ports() == [] and ClientDoc().order().layout()["clientOrder"] == [],
+      "negative: a value that is no list reads as no order")
+both = Doc({"serverOrder": ["node:a"], "serverOrderRev": 3})
+ClientOrder(section=lambda: both.topo, save=both.save).save([23001])
+check(both.topo["layout"] == {"serverOrder": ["node:a"], "serverOrderRev": 3, "clientOrder": [23001], "clientOrderRev": 1},
+      "the clients' order is kept beside the server cards' order, which it leaves as it was")
+
+handler = routes.POST_ROUTES.get("/api/consumers/order")
+check(handler is not None, "POST /api/consumers/order is a route")
+doc = ClientDoc()
+saved_state = routes.topology_state
+import caravan.admin.board_layout as board_layout  # noqa: E402
+saved_module_order = board_layout.CLIENT_ORDER
+board_layout.CLIENT_ORDER = doc.order()
+routes.topology_state = lambda **kw: {"drawn": True}
+try:
+    reply = Reply()
+    handler(reply, None, {"order": [23002, 23001]})
+    check(reply.sent == [(200, {"ok": True, "order": [23002, 23001], "rev": 1, "topology": {"drawn": True}})],
+          f"the route answers what the order answers, and the board drawn again (got {reply.sent})")
+    try:
+        handler(Reply(), None, {"order": ["23001"]})
+        outcome = "answered"
+    except AppError as err:
+        outcome = err.status
+    check(outcome == 400 and doc.saves == 1, "negative: a port as text is refused with 400; nothing more is stored")
+finally:
+    board_layout.CLIENT_ORDER = saved_module_order
+    routes.topology_state = saved_state
+check(routes.ROUTE_ACCESS.security("POST", "/api/consumers/order").get("x-caravan-roles") == ["admin"],
+      "only an admin account saves the clients' order")
+
 if _fail:
     print(f"\nFAILED ({len(_fail)}):")
     for message in _fail:
         print("  -", message)
     sys.exit(1)
-print("\nserver order OK: a save stores the list whole and refuses it whole, a hand-edited document reads as no order")
+print("\nserver order OK: a save stores the list whole and refuses it whole, a hand-edited document reads as no order; the clients' order beside it")

@@ -33,11 +33,11 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-STORED = {"id": "acc", "type": "openai", "name": "Old name", "baseUrl": "https://api.openai.com/v1",
-          "authMode": "oauth", "accountType": "openai-api",
-          "oauthConfig": {"authorizeUrl": "https://sso.example/authorize", "tokenUrl": "https://sso.example/token",
-                          "clientId": "custom-cid", "scope": "openid", "redirectPort": 1600,
-                          "redirectPath": "/cb"}}
+# One of the first subscriptions: made as type `openai`, it signs in by code
+# through its plan (accountType), with an OAuth setup of its own.
+STORED = {"id": "acc", "type": "openai", "name": "Old name", "baseUrl": "https://chatgpt.com/backend-api",
+          "authMode": "oauth", "accountType": "openai-subscription",
+          "oauthConfig": {"tokenUrl": "https://sso.example/token", "clientId": "custom-cid"}}
 
 
 def stored():
@@ -49,15 +49,20 @@ def main():
     cloud.save_cloud_data({"accounts": [], "blocks": []})
     new = cloud.upsert_cloud_account({"id": "fresh", "type": "openai", "name": "Fresh",
                                       "baseUrl": "https://api.openai.com/v1", "authMode": "apiKey"})
-    check(new["accountType"] == "openai-api" and new["oauthConfig"]["redirectPort"] == 1455,
-          "поля, которых нет в запросе, берутся из пресета — у нового аккаунта хранить нечего")
+    check(new["accountType"] == "openai-api" and new["authMode"] == "apiKey" and "oauthConfig" not in new,
+          "поля, которых нет в запросе, берутся из пресета; у ключа API нет настроек входа")
+    oauth_api = cloud.upsert_cloud_account({"id": "api-oauth", "type": "openai", "name": "Api",
+                                            "baseUrl": "https://api.openai.com/v1", "authMode": "oauth"})
+    check(oauth_api["authMode"] == "apiKey" and "oauthConfig" not in oauth_api,
+          "negative: OAuth у ключа API был возвратом на localhost, которого нет — учётка остаётся на ключе")
 
     print("правка существующего:")
     cloud.save_cloud_data({"accounts": [dict(STORED)], "blocks": []})
     edited = cloud.upsert_cloud_account({"id": "acc", "type": "openai", "name": "New name",
-                                         "baseUrl": "https://api.openai.com/v1", "authMode": "oauth"})
+                                         "baseUrl": "https://chatgpt.com/backend-api", "authMode": "oauth"})
     check(edited["name"] == "New name" and stored()["name"] == "New name", "новое имя сохранено")
-    check(stored()["oauthConfig"] == STORED["oauthConfig"] and stored()["accountType"] == "openai-api",
+    check(stored()["oauthConfig"] == STORED["oauthConfig"] and stored()["accountType"] == "openai-subscription"
+          and stored()["authMode"] == "oauth",
           "defect-history: то, чего правка не прислала (свой вход OAuth, тип тарифа), осталось как было — "
           f"без слияния нормализация вернула бы значения пресета (got {stored()['oauthConfig'].get('clientId')})")
     replaced = cloud.upsert_cloud_account({"id": "acc", "type": "openai", "oauthConfig": {"clientId": "other"}})

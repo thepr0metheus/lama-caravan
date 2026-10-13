@@ -1,4 +1,5 @@
 // Router node canvas: nodes, connectors, pan/zoom, schedule grid painting.
+import { CONSUMER_ACCESS } from "./consumer-access.js";
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
@@ -25,9 +26,10 @@ import {
 } from "./topology-activity.js";
 import {
   _cvProxyIsTombstoned,
-  editTopologyProxy,
-  topologyProxyOwner,
   canvasBoardClients,
+  editTopologyProxy,
+  isEntryClient,
+  topologyProxyOwner,
 } from "./topology-proxies.js";
 import { refreshTopology, renderTopology, topologyStructureFingerprint } from "./topology-render.js";
 import { $, copyText, escapeHtml, toast } from "./utils.js";
@@ -770,9 +772,10 @@ export class QueueNode extends RuleNode {
     ${histOpen ? `<div class="cv-q-hist-body">${History.queueHtml(nid)}</div>` : ""}
   </div>`;
   }
-  // Dead-target warning for one cable: it exists, but its output vanished (block
-  // deleted — edge preserved for auto-restore) or the block's model is no longer
-  // listed by the provider (requests will 400 upstream). "" when the cable is fine.
+  // Dead-target warning for one cable: it exists, but its output vanished (the
+  // pool deleted — edge preserved for auto-restore), the pool has no step it may
+  // use (a request is refused), or a step's model is no longer listed by its
+  // provider (requests to that step will 400 upstream). "" when the cable is fine.
   targetIssue(edge) {
     const to = String(edge?.to || "");
     if (!to.startsWith("out:")) return "";
@@ -780,8 +783,10 @@ export class QueueNode extends RuleNode {
     const out = (this.router.outputs || []).find((o) => o.id === outId);
     if (!out) return t("cvQTargetMissing");
     if (outId.startsWith("cb:")) {
-      const blk = (topology?.cloudProviders || []).find((b) => b.id === String(out.providerId || outId.slice(3)));
-      if (blk?.unlisted) return t("cloudModelUnlisted");
+      const pool = (topology?.pools || []).find((p) => p.id === String(out.providerId || outId.slice(3)));
+      const live = (pool?.steps || []).filter((s) => s.enabled !== false);
+      if (pool && !live.length) return t("rtPoolNoStep");
+      if (live.some((s) => s.unlisted)) return t("cloudModelUnlisted");
     }
     return "";
   }
@@ -1232,6 +1237,8 @@ export class InputsBlock {
     const p = Number(port);
     if (!p) return opts.short ? ":??" : ":????"  ;
     const proxy = (topology?.proxies || []).find((q) => Number(q.port) === p);
+    // A client of the entry is its name: its number is a record's, never a port it called (2026-10-11).
+    if (proxy && isEntryClient(proxy)) return String(proxy.label || `:${p}`);
     const owner = proxy ? topologyProxyOwner(proxy.id) : null;
     // title = agent name or host name for openclaw agents
     const name = owner?.title && owner.title !== String(proxy?.id) ? owner.title : "";
@@ -1256,12 +1263,13 @@ export class InputsBlock {
   }
   // A port row of a client. Port dots are NOT inline — syncPortDots() creates them as
   // direct children of the block so they straddle the RIGHT border correctly even
-  // when the body is scrolled.
+  // when the body is scrolled. The row says how the consumer gets in — its key, the
+  // entry or its own port, the action it lacks (consumer-access.js), not the port's number.
   portRow(role, p, wired) {
     return p ? `
     <div class="cv-in-row ${role}${wired ? "" : " unwired"}" data-cv-in-row="in:${escapeHtml(p.id)}">
       <span class="cv-in-role">${role === "primary" ? "P" : "F"}</span>
-      <span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>
+      ${CONSUMER_ACCESS.lineHtml(p)}
       ${role === "fallback" && !wired ? `<span class="cv-in-follow">↳ ${escapeHtml(t("cvInFollows"))}</span>` : ""}
       <button class="cv-in-edit" type="button" data-cv-port-edit="${escapeHtml(p.id)}" title="${escapeHtml(t("cvPortEditTitle"))}">✎</button>
     </div>` : "";
@@ -1284,23 +1292,32 @@ export class InputsBlock {
     const fb = c.proxies.find((p) => InputsBlock.roleOf(p) === "fallback" && p !== prim);
     const anyWired = c.proxies.some((p) => wired.has(p.id));
     const cls = anyWired ? "routed" : "unrouted";
+    // The wait budget on the name's line, at its end: after the port row it took a line of its
+    // own (2026-10-08) — the port row with its key and action fills the panel's width.
     return `<div class="cv-inputs-client ${cls}">`
-      + `<span class="cv-in-name">${escapeHtml(InputsBlock.clientName(c.proxies[0]))}</span>`
-      // Two lines, not three: name, P port and wait budget on the first, the
-      // fallback on the second (it has its own port dot, which needs its own height).
+      + `<div class="cv-in-head"><span class="cv-in-name">${escapeHtml(InputsBlock.clientName(c.proxies[0]))}</span>${this.waitRow(prim)}</div>`
       + this.portRow("primary", prim, wired.has(prim.id))
-      + this.waitRow(prim)
       + this.portRow("fallback", fb, fb && wired.has(fb.id))
       + `</div>`;
   }
   // The grouped rows — one block for all clients — plus the ports nobody claims.
+  // A port nobody claims (its agent deleted, its port left free) is a row like any other: its
+  // dot draws the cable it still has — the proxy keeps routing by it — and ✎ opens its window,
+  // where it is deleted. It used to be a bare number: its cable went on routing unseen, and
+  // the delete the agent's dialog promised was nowhere (2026-10-08).
+  unclaimedRow(p) {
+    return `<div class="cv-in-row unclaimed${this.wiredProxyIds.has(p.id) ? "" : " unwired"}" data-cv-in-row="in:${escapeHtml(p.id)}">`
+      + `<span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>`
+      + (p.label ? `<span class="cv-in-label">${escapeHtml(p.label)}</span>` : "")
+      + `<button class="cv-in-edit" type="button" data-cv-port-edit="${escapeHtml(p.id)}" title="${escapeHtml(t("cvPortEditTitle"))}">✎</button></div>`;
+  }
   bodyHtml() {
     const byClient = new Map(this.board.rows.map((r) => [r.key, r]));
     const unclaimed = this.board.unclaimed;
     return [...byClient.values()].map((c) => this.clientRow(c)).join("")
       + (unclaimed.length ? `<div class="cv-inputs-client unclaimed" data-t="kanban-unclaimed">`
         + `<span class="cv-in-name">${escapeHtml(t("cvInputsUnclaimed", { count: String(unclaimed.length) }))}</span>`
-        + unclaimed.map((p) => `<div class="cv-in-row"><span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span></div>`).join("")
+        + unclaimed.map((p) => this.unclaimedRow(p)).join("")
         + `</div>` : "");
   }
   // Embeddings slot — one global target for EVERY client's /v1/embeddings (Variant 1).
@@ -1311,7 +1328,15 @@ export class InputsBlock {
     const embedOut = localLlamaOuts.find((o) => o.id === embedOutId);
     const embedOpts = localLlamaOuts.map((o) =>
       `<option value="${escapeHtml(o.id)}"${o.id === embedOutId ? " selected" : ""}>${escapeHtml(topologyRouterOutputLabel(o))}</option>`).join("");
-    return `<div class="cv-embed-slot ${embedOut ? "assigned" : "unassigned"}">`
+    // Unset, it is red only when a client asked for embeddings in the last 7 days (the
+    // controller's journal, topology.embeddingsCalledAt): an unset slot nobody calls is no
+    // failure, and its standing red read as one on a cloud-only board (2026-10-08).
+    const called = Number(topology?.embeddingsCalledAt || 0);
+    const quiet = !embedOut && !called;
+    const tip = embedOut ? "" : called
+      ? t("cvEmbedCalledTitle", { time: new Date(called * 1000).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) })
+      : t("cvEmbedQuietTitle");
+    return `<div class="cv-embed-slot ${embedOut ? "assigned" : "unassigned"}${quiet ? " quiet" : ""}"${tip ? ` title="${escapeHtml(tip)}"` : ""}>`
       + `<div class="cv-embed-head">🧬 embeddings ${helpTip("cvTipEmbeddings")}</div>`
       + `<select class="cv-embed-select" data-cv-embed-out aria-label="${escapeHtml(t("a11yEmbeddingsTarget"))}"><option value="">— ${escapeHtml(t("cvNotAssigned"))} —</option>${embedOpts}</select>`
       + `<div class="cv-embed-note">${embedOut ? escapeHtml(t("cvEmbedAllTo", { name: topologyRouterOutputLabel(embedOut) })) : t("cvEmbedNotSet")}</div>`
@@ -1334,7 +1359,7 @@ export class InputsBlock {
     // palette, the rows and the slot beside the canvas.
     return `<aside class="rw-side rw-clients" data-t="kanban-node" data-t-id="inputs:block" data-cv-panel="clients">`
       + `<div class="rw-side-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div>`
-      + `<div class="rw-side-main"><div class="rw-side-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>`
+      + `<div class="rw-side-main">${CONSUMER_ACCESS.entryHtml(topology?.entry)}<div class="rw-side-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>`
       + `<div class="rw-side-foot">${this.embedSlotHtml()}</div></div></aside>`;
   }
   // The client ports' dots: one per row, on the panel's right border, cables leaving to the right.
@@ -1678,7 +1703,7 @@ export class Board {
   constructor() {
     this.view = _cvView;                 // world transform {tx, ty, scale}
     this.pos = _cvPos;                   // nodeId → {x, y} for the open router
-    this._drag = null;                   // active node / pan / connect / rewire / panelwire drag
+    this._drag = null;                   // active node / pan / connect / rewire drag
     // Edge under the mouse (edgeKey) — while set, all OTHER cables dim so the hovered
     // path stands out. Lives here because drawConnectors() rewrites svg.innerHTML on
     // every tick and would otherwise drop the classes.
@@ -1900,7 +1925,35 @@ export class Board {
   return {
     d: `M ${a.x} ${a.y} C ${c1} ${a.y}, ${c2} ${b.y}, ${b.x} ${b.y}`,
     mid: { x: (a.x + 3 * c1 + 3 * c2 + b.x) / 8, y: (a.y + 3 * a.y + 3 * b.y + b.y) / 8 },
+    controls: [a, { x: c1, y: a.y }, { x: c2, y: b.y }, b],
   };
+  }
+  // The stretches of the cable a→b that run under `box` ({x, y, w, h}, world units), as
+  // polylines: the cubic sampled `steps` times, a point inside the box (shrunk by `inset`,
+  // so a cable that only grazes an edge does not count) joins the stretch. The cables are
+  // drawn under the nodes, and one that passed beneath a rule node it does not touch came
+  // out at that node's exit, as if it were the node's (the backup node on the NAS kanban,
+  // 2026-10-08): the stretch is drawn again above the node, dashed (drawConnectors).
+  static underRuns(a, b, box, { steps = 48, inset = 4 } = {}) {
+  const [p0, p1, p2, p3] = Board.curve(a, b).controls;
+  const left = box.x + inset, right = box.x + box.w - inset, top = box.y + inset, bottom = box.y + box.h - inset;
+  const runs = [];
+  let run = null;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, u = 1 - t;
+    const x = u * u * u * p0.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * p3.x;
+    const y = u * u * u * p0.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * p3.y;
+    const inside = x > left && x < right && y > top && y < bottom;
+    if (inside) (run ||= []).push({ x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 });
+    else if (run) { if (run.length > 1) runs.push(run); run = null; }
+  }
+  if (run && run.length > 1) runs.push(run);
+  return runs;
+  }
+  // A node's box in world units: where worldPoint measures from.
+  static box(el) {
+  const left = Board.worldPoint(el, "left");
+  return { x: left.x, y: left.y - el.offsetHeight / 2, w: el.offsetWidth, h: el.offsetHeight };
   }
   static pathD(a, b) { return Board.curve(a, b).d; }
   // `sync: false` for a move of the VIEW only (pan, zoom): the panels did not move, so their
@@ -2002,6 +2055,19 @@ export class Board {
     paths.push(`<path d="${Board.pathD(this.drag.from, this.drag.cur)}" class="cv-cable connecting" fill="none"></path>`);
   }
   svg.innerHTML = paths.filter(Boolean).join("");
+  // The stretches of cables under nodes they do not touch, drawn again above the nodes.
+  const over = document.querySelector("[data-cv-over]");
+  if (over) {
+    const boxes = [...world.querySelectorAll("[data-cv-node]")].map((el) => ({ ref: el.dataset.cvNode, ...Board.box(el) }));
+    const under = [];
+    cables.forEach((c) => boxes.forEach((box) => {
+      if (box.ref === c.from || box.ref === c.to) return;
+      for (const run of Board.underRuns(c.a, c.b, box)) {
+        under.push(`<path class="cv-cable-under" d="M ${run.map((p) => `${p.x} ${p.y}`).join(" L ")}" fill="none"></path>`);
+      }
+    }));
+    over.innerHTML = under.join("");
+  }
   if (this.hoverEdge) {
     const grp = svg.querySelector(`[data-cv-edge-del="${CSS.escape(this.hoverEdge)}"]`)?.closest(".cv-edge-grp");
     svg.classList.toggle("edge-focus", !!grp);
@@ -2050,20 +2116,8 @@ export class Board {
     document.querySelectorAll(".cv-drop-ok").forEach((n) => { if (n !== over) n.classList.remove("cv-drop-ok"); });
     if (over && /^(rule:|out:)/.test(over.dataset.cvNode || "")) over.classList.add("cv-drop-ok");
     this.drawConnectors();
-  } else if (this.drag.kind === "panelwire") {
-    this.showGhost(e.clientX, e.clientY, this.drag.label);
-    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-cv-node]");
-    document.querySelectorAll(".cv-drop-ok").forEach((n) => { if (n !== over) n.classList.remove("cv-drop-ok"); });
-    if (over && /^(rule:|out:)/.test(over.dataset.cvNode || "")) over.classList.add("cv-drop-ok");
   }
   }
-  showGhost(x, y, label) {
-  let g = document.getElementById("cvGhost");
-  if (!g) { g = document.createElement("div"); g.id = "cvGhost"; g.className = "cv-ghost"; document.body.appendChild(g); }
-  g.textContent = `⠿ ${label}`;
-  g.style.left = `${x}px`; g.style.top = `${y}px`;
-  }
-  hideGhost() { document.getElementById("cvGhost")?.remove(); }
   // Push a just-dropped node out of any overlaps AND enforce a minimum spacing
   // (smallest-axis translation, cascades until clean or the iteration cap).
   // Only the dragged node moves — neighbours stay where the user put them.
@@ -2132,13 +2186,6 @@ export class Board {
     this.drag = null;
     this.drawConnectors();
     return;
-  } else if (this.drag.kind === "panelwire") {
-    this.hideGhost();
-    document.querySelectorAll(".cv-node.cv-drop-ok").forEach((n) => n.classList.remove("cv-drop-ok"));
-    const tgt = e && document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-cv-node]");
-    if (tgt && /^(rule:|out:)/.test(tgt.dataset.cvNode || "")) this.addEdge(this.drag.ref, tgt.dataset.cvNode);
-    this.drag = null;
-    return;
   }
   document.querySelector("[data-cv-viewport]")?.classList.remove("panning");
   this.drag = null;
@@ -2176,15 +2223,6 @@ export class Board {
     if (!lane) return;
     ModelQueueNode.toggle(lane);
     this.drawConnectors();
-  });
-  // Stage D: drag a proxy from the left panel onto a canvas node to route it.
-  document.querySelectorAll(".rw-proxy-drag").forEach((h) => {
-    h.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      e.preventDefault(); e.stopPropagation();
-      this.drag = { kind: "panelwire", ref: h.dataset.wireRef, label: h.dataset.wireLabel || h.dataset.wireRef };
-      this.showGhost(e.clientX, e.clientY, this.drag.label);
-    });
   });
   // Stage C graph editing: palette add, node delete, port-drag connect, edge delete.
   // These buttons live in the standalone page's static header — they survive world
@@ -2523,6 +2561,7 @@ export function drawCanvasConnectors() { board.drawConnectors(); }
 export function bindCanvasInteractions() { board.bind(); }
 export function _cvWorldPoint(el, side) { return Board.worldPoint(el, side); }
 export function _cvPathD(a, b) { return Board.pathD(a, b); }
+export function _cvUnderRuns(a, b, box, opts) { return Board.underRuns(a, b, box, opts); }
 export function _cvClientToWorld(cx, cy) { return board.clientToWorld(cx, cy); }
 export function _cvResolveOverlap(node) { return board.resolveOverlap(node); }
 export function _cvSchedSaveGrid(nid, grid) { board.saveGrid(nid, grid); }
@@ -2599,6 +2638,22 @@ document.addEventListener("click", (e) => {
   if (!btn) return;
   e.stopPropagation();
   editTopologyProxy(btn.dataset.cvPortEdit);
+});
+// A consumer's row: the key it lacks, its port to close or reopen; the entry: its address
+// to copy, to set up, to turn off (consumer-access.js). One listener for the panel the render rebuilds.
+document.addEventListener("click", (e) => {
+  const hit = (sel) => e.target.closest && e.target.closest(sel);
+  const give = hit("[data-cv-port-key]"), close = hit("[data-cv-port-close]");
+  const reopen = hit("[data-cv-port-reopen]"), entry = hit("[data-cv-entry-copy]");
+  const setup = hit("[data-cv-entry-setup]"), off = hit("[data-cv-entry-off]");
+  if (!give && !close && !reopen && !entry && !setup && !off) return;
+  e.stopPropagation();
+  if (setup) CONSUMER_ACCESS.setupEntry();
+  else if (off) CONSUMER_ACCESS.turnOffEntry();
+  else if (give) CONSUMER_ACCESS.giveKey(give.dataset.cvPortKey);
+  else if (close) CONSUMER_ACCESS.closePort(close.dataset.cvPortClose);
+  else if (reopen) CONSUMER_ACCESS.reopenPort(reopen.dataset.cvPortReopen);
+  else CONSUMER_ACCESS.copyEntry();
 });
 // ── Function faces: the old names, kept for the callers and the snapshot ───────
 export function _cvQHistFmt(ms) { return History.fmt(ms); }

@@ -24,7 +24,7 @@ class MachineScout:
     Per path, because an older scout lacks some paths and answers the others.
     """
 
-    NO_SCOUT = ("there is no scout on the controller's machine — add one (Model servers → Add scout) "
+    NO_SCOUT = ("there is no scout on the controller's machine — add one (Machines → Add scout) "
                 "to read and act on this machine from the board")
     FAIL_PAUSE = 10.0
 

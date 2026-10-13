@@ -15,8 +15,6 @@ export const ui = {
   topologyRouterDetailId: "",
   topologyCanvasRouterId: "",
   topologyRouterNodeCfgId: "",
-  topologyRouterInputsExpanded: false,
-  topologyRouterInputSearch: "",
   topologyProxyFormOpen: false,
   topologyProxyEditingId: "",
   topologyCloudModalOpen: false,

@@ -57,6 +57,14 @@ export class HfDownloads {
     return `${repoId.split("/").pop()}/${author}/${format}`;
   }
 
+  // Where one file of a checkpoint lands: its folder in the repository kept under the
+  // checkpoint's folder. Every file went into that one folder, and a runtime that reads
+  // `experiment_cfg/conf.yaml` (nvidia/GR00T-N1.7-3B, 2026-10-12) found no such folder.
+  static checkpointFileDir(destDir, path) {
+    const parts = String(path || "").split("/").slice(0, -1).filter((p) => p && p !== "." && p !== "..");
+    return parts.length ? `${destDir}/${parts.join("/")}` : destDir;
+  }
+
   changed() {
     this.onChange();
   }
@@ -158,7 +166,8 @@ export class HfDownloads {
     if (!(await this.askRoom(Number(st.totalSize) || 0))) return;
     // The size in the units the checkpoint row shows it in.
     if (!(await this.confirm(`⬇ ${st.format} · ${HfFormat.bytes(st.totalSize)}`, `${repoId} → ${destDir}/`, hfT("a11yStartDownload"), false))) return;
-    await this.launch(repoId, st.files.map((f) => ({ path: f.path, name: f.name, size: f.size, destDir })), false);
+    await this.launch(repoId, st.files.map((f) => ({ path: f.path, name: f.name, size: f.size,
+                                                     destDir: HfDownloads.checkpointFileDir(destDir, f.path) })), false);
   }
 
   async launch(repoId, payload, fromSelection = true) {

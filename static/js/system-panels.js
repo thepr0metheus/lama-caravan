@@ -34,6 +34,7 @@ export function renderSectionTips() {
     nvidiaMonitorTip: "nvidiaMonitorHelp",
     nvidiaIntervalTip: "monitorIntervalHelp",
     topologyLlamaServersTip: "topologyLlamaServersHelp",
+    topologyMachinesTip: "topologyMachinesHelp",
     topologyClientsTip: "topologyClientsHelp",
   };
   Object.entries(targets).forEach(([id, key]) => {
@@ -111,8 +112,7 @@ export function bindModelGc() {
 
 export function refreshSecurity() {
   api("/api/auth/overview").then(renderSecurity).catch(() => {
-    // Auth off → overview is still reachable; a failure here means no session
-    // on an auth-enabled instance, which the 401 handler already redirects.
+    // A failure here means no session, which the 401 handler already redirects.
   });
 }
 
@@ -124,27 +124,12 @@ export function renderSecurity(sec) {
   const el = $("securityInfo");
   if (!el || !sec) return;
   $("authLogoutBtn").hidden = !sec.user;
+  // No account means no board since 1.3.453: every page of a fresh controller
+  // leads to /setup, so this panel never meets `enabled: false`. Should an
+  // answer say it anyway, the panel draws nothing rather than a second
+  // first-account form — /setup is the one place that makes it.
   if (!sec.enabled) {
-    el.innerHTML = `
-      <p class="muted">${escapeHtml(t("authOffHint"))}</p>
-      <form id="authSetupForm" class="auth-form">
-        <input id="authSetupUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off" aria-label="${escapeHtml(t("a11yUsername"))}">
-        <input id="authSetupPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password" aria-label="${escapeHtml(t("a11yPassword"))}">
-        <button type="submit">${escapeHtml(t("authEnable"))}</button>
-      </form>
-      <p id="authSetupMsg" class="muted"></p>`;
-    $("authSetupForm").addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      try {
-        const res = await api("/api/auth/setup", { method: "POST", body: JSON.stringify({
-          username: $("authSetupUser").value.trim(), password: $("authSetupPass").value }) });
-        $("authSetupMsg").innerHTML = `${escapeHtml(t("authFleetTokenIntro"))}<br>` +
-          `<code class="auth-token">${escapeHtml(res.fleetToken)}</code><br>` +
-          `<span class="muted">${escapeHtml(t("authFleetTokenHint"))}</span>`;
-        toast(t("authEnabled"));
-        refreshSecurity();
-      } catch (err) { toast(err.message); }
-    });
+    el.innerHTML = "";
     return;
   }
   const users = (sec.users || []).map((u) => {
@@ -267,7 +252,7 @@ export function renderControllerInfo(info) {
     chips.push(`<div class="llama-chip ${good ? "good" : "warn"}"><span>${escapeHtml(svc.unit || "")}</span><strong>${escapeHtml(activeTxt)}${svc.pid && svc.pid !== "0" ? ` · PID ${escapeHtml(svc.pid)}` : ""}${escapeHtml(since)}</strong></div>`);
   }
   const git = info.projectGit || {};
-  chips.push(`<div class="llama-chip ${git.dirtyCount ? "warn" : "good"}"><span>${t("ctrlAppGit")}</span><strong>${escapeHtml(git.branch || "n/a")}${git.head ? " @ " + escapeHtml(git.head) : ""}${git.dirtyCount ? ` +${git.dirtyCount}` : ""}</strong></div>`);
+  chips.push(`<div class="llama-chip ${git.dirtyCount ? "warn" : "good"}"><span>${t("ctrlAppGit")}</span><strong>${escapeHtml(git.baked ? t("gitBaked") : (git.branch || "n/a"))}${git.head ? " @ " + escapeHtml(git.head) : ""}${git.dirtyCount ? ` +${git.dirtyCount}` : ""}</strong></div>`);
   chips.push(`<div class="llama-chip"><span>Python</span><strong>${escapeHtml(info.python || "n/a")}</strong></div>`);
   const disk = info.disk || {};
   if (disk.error) {
@@ -659,9 +644,17 @@ export function renderProjectGitBranch() {
   const el = $("projectGitBranch");
   if (!el) return;
   const git = state.projectGit || {};
+  el.dataset.fromState = "1";
   const branch = git.branch || "n/a";
   const dirty = Number(git.dirtyCount || 0);
   const ver = state.appVersion ? `v${state.appVersion} · ` : "";
+  // An image build has no checkout: the chip names its commit (the one /healthz names).
+  if (git.baked) {
+    el.textContent = `${ver}${git.head || "n/a"}`;
+    el.title = t("gitBakedTitle", { head: git.head || "n/a" });
+    el.classList.remove("dirty");
+    return;
+  }
   const label = `${ver}git: ${branch}${dirty ? ` +${dirty}` : ""}`;
   el.textContent = label;
   el.title = git.ok === false

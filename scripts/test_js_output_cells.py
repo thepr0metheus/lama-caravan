@@ -24,6 +24,16 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
 
+sys.path.insert(0, str(ROOT))
+from caravan.proxy.capacity import route_group_key  # noqa: E402
+
+# One table for the proxy's queue name and the board's (1.3.506): the twins must agree.
+UPSTREAMS = [{"upstreamHost": "10.0.0.9", "upstreamPort": 22001, "upstreamType": "llama"},
+             {"upstreamHost": "10.0.0.9", "upstreamPort": 11434, "upstreamType": "engine", "upstreamModel": "qwen3:8b"},
+             {"upstreamHost": "10.0.0.9", "upstreamPort": 8092, "upstreamType": "machine", "upstreamModel": "gemma"},
+             {"upstreamHost": "10.0.0.9", "upstreamPort": 8092, "upstreamType": "machine", "upstreamModel": "org/m:q4"},
+             {"upstreamHost": "10.0.0.9", "upstreamPort": 22001}]
+
 STUBS = ("topology-render,topology-modals,cables,routers,cloud,history,dialogs,favorites,config-locator,system-panels,"
          "onboarding,topology-dnd,canvas,usage-stats,dialog-llamas,models-page,system-page,onboarding-tours")
 
@@ -92,6 +102,15 @@ PINS = [
      "значки — работы ячейки, тот же список, что фишки на карточке (cellJobs): LLM, эмбеддинги по ENABLE_EMBEDDINGS, "
      "moonshine — распознавание и речь, команда — по живому kinds; negative: работу не назвать (команда без kinds) или "
      "ячейки нет — без значка"),
+    ("a_cell_with_no_settings_on_record",
+     '',
+     '(() => { const c = cells([CTL([{ port: 22005, model: "large-v3-turbo", cellMeta: { engine: "faster-whisper", kinds: ["asr", "stt.whisper"] } },'
+     ' { port: 22001, model: "Qwen3-Embedding-0.6B-Q8_0.gguf" }, { port: 22007, model: "gemma-4-12B-it-Q8_0.gguf", slotConfig: {} }])]);'
+     ' return [c.name(OUT(22005)), c.marks(OUT(22005)), c.marks(OUT(22001)), c.marks(OUT(22007))]; })()',
+     '["large-v3-turbo","🎧","",""]',
+     "ячейка, настроек которой у контроллера нет (её сделал контроллер, что жил на машине раньше): имя и работа — "
+     "с её слов (/health: модель и kinds); negative: она ничего о себе не сказала — без значка, а не «💬» по умолчанию "
+     "(2026-10-12: распознаватель и эмбеддинги носили значок чата)"),
     # ── what is reached ──
     ("reached_outputs",
      '',
@@ -134,6 +153,29 @@ PINS = [
      "две ячейки одной модели на машине говорят, чем отличаются: каждая — своё значение («eng» рядом с «rus»); одинаковые "
      "во всём, кроме порта, — чья это копия; настройка, где может быть секрет, — только именем, значения нет нигде; "
      "negative: у близнеца нет настроек — молчат оба (сравнить не с чем — не «одинаковы»); без близнеца — ничего"),
+    # ── a model of a machine's entry (1.3.506) ──
+    ("machine_model_from_its_machine",
+     '',
+     '(() => { const models = [{ id: "gemma", state: "running", copies: [{ port: 22001 }, { port: 22002 }] },'
+     ' { id: "ear", state: "stopped", copies: [{ port: 22005 }] }, { id: "odd", state: "melting", copies: [] }];'
+     ' const c = cells([BOX([{ port: 22001, phase: "stopped" }], { entryModels: models }), CTL([])]);'
+     ' const mm = (model, hostId = "b", extra = {}) => ({ id: `mm:${model}`, upstreamType: "machine", hostId, upstreamModel: model,'
+     ' upstreamHost: "10.0.0.9", upstreamPort: 8092, ...extra });'
+     ' const g = mm("gemma", "b", { jobs: ["llm", "embed"] });'
+     ' return [[c.state(g), c.name(g), c.marks(g), c.copies(g), c.cellOf(g)],'
+     ' [c.state(mm("ear")), c.copies(mm("ear"))], c.state(mm("odd")), c.state(mm("nope")), c.state(mm("gemma", "zz")),'
+     ' cells([BOX([])]).state(mm("gemma")), c.name(mm("", "b", { label: "fallback" })), OutputCells.named(g),'
+     ' OutputCells.named({ upstreamType: "engine" }), OutputCells.named({ upstreamType: "llama" })]; })()',
+     '[["running","gemma","💬🧬",2,null],["stopped",1],"unknown","unknown","unknown","unknown","fallback",true,true,false]',
+     "модель входа машины — по слову скаута о ней (entryModels её машины, по hostId): состояние, имя модели, значки — из "
+     "сведений выхода (копий), число копий; одной ячейки за ней нет; negative: незнакомое слово, модели нет в списке, "
+     "чужая машина, старый скаут без списка — unknown, а не stopped"),
+    ("queue_name_is_the_proxys",
+     '',
+     f'{json.dumps(UPSTREAMS)}.map((o) => OutputCells.upstream(o))',
+     json.dumps([route_group_key(o) for o in UPSTREAMS]),
+     "имя очереди выхода на доске — то же, что прокси ставит на запрос (route_group_key): ячейка и движок — "
+     "«адрес:порт», модель машины — «адрес:порт/модель»; одна таблица для обоих двойников"),
     ("every_state_word_is_a_string",
      '',
      'Object.values(OutputCells.WORDS).map((k) => typeof en[k] === "string" && en[k].length > 0)',

@@ -1,19 +1,35 @@
-"""Cloud provider data layer: accounts/blocks (cloud-providers.json) and
+"""Cloud provider data layer: accounts and pools (cloud-providers.json) and
 credentials (~/.config/llamacpp-easy-admin/provider-secrets.json, 0600).
 
 Pure data — no OAuth flows and no router logic; those live above this layer.
+A pool's chain of steps is caravan/common/cloud_pools.py, and its desk
+caravan/admin/pools.py.
 """
 import json
-import os
 import re
 
+from caravan.admin.board_providers import BoardProviders
 from caravan.admin.paths import CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
-from caravan.common.usage_reserve import UsageReserve
+from caravan.common.cloud_file_keys import CloudFileKeys
 from caravan.common.cloud_sources import CloudSources
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
 from caravan.store.cloud import CachedJsonStore
 
+
+#: OpenAI's sign-in by a one-time code for the Codex app — what `codex login
+#: --device-auth` does (openai/codex, codex-rs/login/src/device_code_auth.rs).
+#: The board shows `verifyUrl` and a code; the controller asks `pollUrl`
+#: whether the code was accepted and trades what it gets for tokens at the
+#: account's tokenUrl with `redirectUri`. Nothing returns to localhost:1455,
+#: so a controller on another machine than the browser — a NAS, a container —
+#: finishes it by itself (caravan/admin/oauth.py, DeviceLogin).
+OPENAI_DEVICE_LOGIN = {
+    "userCodeUrl": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+    "pollUrl": "https://auth.openai.com/api/accounts/deviceauth/token",
+    "verifyUrl": "https://auth.openai.com/codex/device",
+    "redirectUri": "https://auth.openai.com/deviceauth/callback",
+}
 
 CLOUD_PROVIDER_PRESETS = {
     "openai-subscription": {
@@ -22,28 +38,23 @@ CLOUD_PROVIDER_PRESETS = {
         "authHeader": "Authorization", "authPrefix": "Bearer ",
         "extraHeaders": {}, "authModes": ["oauth"],
         "accountType": "openai-subscription",
+        # What the sign-in by code trades its answer at, what renews it, and
+        # where a deleted account's sign-in is ended (oauth.SignOut).
         "oauth": {
-            "authorizeUrl": "https://auth.openai.com/oauth/authorize",
             "tokenUrl": "https://auth.openai.com/oauth/token",
             "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
-            "scope": "openid profile email offline_access",
-            "redirectPort": 1455,
-            "redirectPath": "/auth/callback",
+            "revokeUrl": "https://auth.openai.com/oauth/revoke",
         },
+        "deviceLogin": OPENAI_DEVICE_LOGIN,
     },
     "openai": {
         "name": "OpenAI (API Credits)", "baseUrl": "https://api.openai.com/v1", "model": "gpt-4o-mini",
         "testPath": "/models", "authHeader": "Authorization", "authPrefix": "Bearer ",
-        "extraHeaders": {}, "authModes": ["apiKey", "oauth"],
+        # A key only: its OAuth was the return to localhost, which is gone. The
+        # first subscriptions were made as this type, and they keep OAuth by
+        # their plan (normalize_cloud_account, device_login_spec).
+        "extraHeaders": {}, "authModes": ["apiKey"],
         "accountType": "openai-api",
-        "oauth": {
-            "authorizeUrl": "https://auth.openai.com/oauth/authorize",
-            "tokenUrl": "https://auth.openai.com/oauth/token",
-            "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
-            "scope": "openid profile email offline_access",
-            "redirectPort": 1455,
-            "redirectPath": "/auth/callback",
-        },
     },
     "ollama": {
         "name": "Ollama", "baseUrl": "https://ollama.com/v1", "model": "llama3.3",
@@ -77,25 +88,40 @@ _CLOUD_DATA_CACHE = _providers._cache
 _SECRETS_CACHE = _secrets._cache
 
 
+#: What the old form kept beside accounts and pools: its model blocks and the
+#: models the operator deleted from them. They ride along until the controller
+#: rewrites the file as pools of steps (caravan/admin/pools.py, PoolDesk.migrate).
+LEGACY_KEYS = ("blocks", "deletedModels")
+
+
 def _parse_cloud_data(parsed):
-    """Accounts and blocks, in either the paired schema or the flat legacy one."""
-    data = {"accounts": [], "blocks": [], "pools": [], "migrations": []}
-    if isinstance(parsed, dict) and ("accounts" in parsed or "blocks" in parsed):
+    """Accounts, pools, the subscription models' levels, the models added to
+    the kanban and the providers on the main board — and, in a file of the old
+    form, its model blocks."""
+    data = {"accounts": [], "pools": [], "migrations": []}
+    if isinstance(parsed, dict) and ("accounts" in parsed or "blocks" in parsed or "pools" in parsed):
         data["pools"] = [p for p in (parsed.get("pools") or []) if isinstance(p, dict) and p.get("id")]
+        # The models' levels, the kanban's added models, the board's providers, the sets and the
+        # schedules: one table names them for every reader and writer (CloudFileKeys).
+        data.update(CloudFileKeys.read(parsed))
         done = parsed.get("migrations")
         data["migrations"] = [str(m) for m in done if isinstance(m, str)] if isinstance(done, list) else []
         accounts = parsed.get("accounts") if isinstance(parsed.get("accounts"), list) else []
-        blocks = parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else []
-        # An entry with no id cannot be pointed at by a route or a block, so it
+        # An entry with no id cannot be pointed at by a step or a route, so it
         # is dropped rather than carried half-loaded into the board.
         data["accounts"] = [a for a in accounts if isinstance(a, dict) and a.get("id")]
-        data["blocks"] = [b for b in blocks if isinstance(b, dict) and b.get("id")]
+        blocks = parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else []
+        if blocks:
+            data["blocks"] = [b for b in blocks if isinstance(b, dict) and b.get("id")]
+        if isinstance(parsed.get("deletedModels"), dict) and parsed["deletedModels"]:
+            data["deletedModels"] = parsed["deletedModels"]
         return data
     # legacy flat {"providers":[...]} (or bare list) → migrate to account+block
     # pairs. The BLOCK keeps the original id: proxy routes already point at it,
     # and re-minting it would orphan every one of them.
     legacy = parsed.get("providers") if isinstance(parsed, dict) else parsed
     if isinstance(legacy, list):
+        data["blocks"] = []
         for p in legacy:
             if not isinstance(p, dict) or not p.get("id"):
                 continue
@@ -112,7 +138,7 @@ def _parse_cloud_data(parsed):
 
 
 def load_cloud_data():
-    """Accounts and blocks, cached on the file's own (mtime, size).
+    """Accounts and pools, cached on the file's own (mtime, size).
 
     See caravan/store/cloud.py for why the cache is not an optimisation detail
     and why its key is the file generation rather than a timer.
@@ -120,15 +146,20 @@ def load_cloud_data():
     # A fresh dict per call: this one is handed to callers that sort and filter
     # it, and a shared empty would be theirs to corrupt for everyone else.
     got = _providers.read(_parse_cloud_data)
-    return got if got is not None else {"accounts": [], "blocks": []}
+    return got if got is not None else {"accounts": [], "pools": [], "migrations": []}
 
 
 def save_cloud_data(data):
     # `migrations` travels with the file: a one-off that leaves no trace is not
-    # a one-off, it is a job that runs at every start.
-    _providers.write({"accounts": data.get("accounts", []), "blocks": data.get("blocks", []),
-                      "pools": data.get("pools", []),
-                      "migrations": sorted(set(data.get("migrations") or []))})
+    # a one-off, it is a job that runs at every start. The old form's keys are
+    # written back while they hold anything — a save before the migration must
+    # not drop the blocks it is about to turn into pools.
+    # The kept keys (caravan/common/cloud_file_keys.py) travel while they hold anything:
+    # a key not written here is dropped from the file by the next save of anything.
+    _providers.write({"accounts": data.get("accounts", []), "pools": data.get("pools", []),
+                      "migrations": sorted(set(data.get("migrations") or [])),
+                      **CloudFileKeys.written(data),
+                      **{key: data[key] for key in LEGACY_KEYS if data.get(key)}})
 
 
 #: Name of the completed migration, stamped into the cloud data file itself.
@@ -185,20 +216,13 @@ def migrate_context_auto():
 
 def load_provider_secrets():
     """The keys, cached the same way. Rotating one changes the file, so the next
-    call reparses — a stale cache here would authenticate with a revoked key."""
+    call reparses — a stale cache here would authenticate with a revoked key.
+
+    Read-only on purpose. Writes go through CredentialVault: it re-reads the
+    file under the lock a token renewal takes, and a copy read here and written
+    back would put a spent refresh token over the renewed one."""
     got = _secrets.read(lambda raw: raw if isinstance(raw, dict) else {})
     return got if isinstance(got, dict) else {}
-
-
-def save_provider_secrets(secrets):
-    _secrets.write(secrets, chmod=0o600)
-    try:
-        os.chmod(PROVIDER_SECRETS_FILE, 0o600)
-    except Exception:  # noqa: BLE001
-        # Belt and braces: atomic_write_text creates the file with the mode, but
-        # an EXISTING file keeps whatever it had, and a secrets file that is
-        # world-readable is worth a second syscall to prevent.
-        pass
 
 
 def account_secret_entry(account_id):
@@ -220,94 +244,33 @@ def normalize_cloud_account(account):
     base_url = str(account.get("baseUrl") or preset.get("baseUrl") or "").strip().rstrip("/")
     if not base_url.startswith("http"):
         raise AppError("account.baseUrl must be http(s)", 400)
-    auth_modes = preset.get("authModes", ["apiKey"])
+    account_type = str(account.get("accountType") or preset.get("accountType") or "").strip()
+    auth_modes = list(preset.get("authModes", ["apiKey"]))
+    # OAuth is the sign-in by code now, so a plan that signs in by code keeps
+    # it whatever the account's type says: the first subscriptions were made
+    # as type `openai`, and a save must not turn them into key accounts.
+    by_code = device_login_preset(account_type)
+    if by_code and "oauth" not in auth_modes:
+        auth_modes.append("oauth")
     auth_mode = str(account.get("authMode") or auth_modes[0]).strip()
     if auth_mode not in auth_modes:
         auth_mode = auth_modes[0]
-    account_type = str(account.get("accountType") or preset.get("accountType") or "").strip()
     result = {"id": aid, "type": atype, "name": name, "baseUrl": base_url, "authMode": auth_mode}
     if account_type:
         result["accountType"] = account_type
-    # The share of each limit window the operator keeps for themselves
-    # (caravan/common/usage_reserve.py). Rebuilt here like every other field:
-    # a field this normalizer does not name is gone on the account's next save.
-    reserve = UsageReserve.normalize(account.get("usageReserve"))
-    if reserve:
-        result["usageReserve"] = reserve
     if "oauth" in auth_modes:
-        defaults = preset.get("oauth", {})
+        defaults = preset.get("oauth") or by_code.get("oauth") or {}
         supplied = account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {}
         result["oauthConfig"] = {
-            "authorizeUrl": str(supplied.get("authorizeUrl") or defaults.get("authorizeUrl") or "").strip(),
             "tokenUrl": str(supplied.get("tokenUrl") or defaults.get("tokenUrl") or "").strip(),
             "clientId": str(supplied.get("clientId") or defaults.get("clientId") or "").strip(),
-            "scope": str(supplied.get("scope") or defaults.get("scope") or "").strip(),
-            "redirectPort": int(supplied.get("redirectPort") or defaults.get("redirectPort") or 1455),
-            "redirectPath": str(supplied.get("redirectPath") or defaults.get("redirectPath") or "/auth/callback").strip(),
         }
     if account.get("testAliasOf"):
         result["testAliasOf"] = str(account["testAliasOf"])
     return result
 
-def normalize_cloud_block(block, account_ids):
-    if not isinstance(block, dict):
-        raise AppError("block must be an object", 400)
-    bid = str(block.get("id") or "").strip()
-    if not bid or not re.match(r"^[A-Za-z0-9_-]{1,48}$", bid):
-        raise AppError("block.id must be 1-48 chars [A-Za-z0-9_-]", 400)
-    account_id = str(block.get("accountId") or "").strip()
-    if account_id not in account_ids:
-        raise AppError("block.accountId must reference an existing account", 400)
-    name = str(block.get("name") or bid).strip()
-    model = str(block.get("model") or "").strip()
-    model_mode = "passthrough" if str(block.get("modelMode") or "rewrite") == "passthrough" else "rewrite"
-    # Whether the model is on the kanban is not stored here: it is on the
-    # kanban while it has a port of its own (cloud_ports.py, 2026-09-27).
-    # A context window the OPERATOR states for this model. Needed because some
-    # providers publish none at all — api.openai.com answers with exactly the
-    # five fields the spec defines — and a stated number is knowledge, while a
-    # guessed one is the defect this codebase keeps returning to. Absent unless
-    # set: never 0, which a client would read as a real limit.
-    declared = block.get("contextLength")
-    try:
-        declared = int(declared) if declared not in (None, "") else None
-    except (TypeError, ValueError):
-        declared = None
-    if declared is not None and declared <= 0:
-        declared = None
-    # Whether the number the PROVIDER reports may be published instead. Off by
-    # default and stored explicitly: it used to be a silent fallback, so a
-    # block that stated nothing published the catalogue's number without
-    # anybody having chosen it — and a number nobody chose is the same trap as
-    # a guessed one (docs/why.md). The operator's own figure stays the rule;
-    # this switch is how they hand that decision to the provider on purpose.
-    out = {"id": bid, "accountId": account_id, "name": name, "model": model,
-           "modelMode": model_mode, "contextAuto": bool(block.get("contextAuto", False))}
-    if declared is not None:
-        out["contextLength"] = declared
-    # What the model sync keeps on a block (cloud_sync.py): when it appeared in
-    # the provider's list, how many lists in a row have lacked it, and whether
-    # the operator added it by hand — which the sync never removes.
-    for key in ("newSince", "goneCount"):
-        try:
-            value = int(block.get(key) or 0)
-        except (TypeError, ValueError):
-            value = 0
-        if value > 0:
-            out[key] = value
-    if block.get("usageOriginAccountId"):
-        out["usageOriginAccountId"] = str(block["usageOriginAccountId"])
-    if block.get("manual"):
-        out["manual"] = True
-    # The "new model" window was answered for this one (it asks once).
-    if block.get("announced"):
-        out["announced"] = True
-    return out
-
 def upsert_cloud_account(account):
     data = load_cloud_data()
-    if isinstance(account, dict) and account.get("id") in CloudSources(data).pools:
-        raise AppError("this id belongs to a subscription pool", 400)
     # An edit sends only what it changes — the name, the address, how it signs
     # in. What it leaves out (a custom OAuth setup, the plan type) stays as it
     # is stored: normalizing the bare edit would put the preset's defaults back.
@@ -320,60 +283,30 @@ def upsert_cloud_account(account):
             raise AppError("invalid test alias owner", 400)
     data["accounts"] = [a for a in data["accounts"] if a.get("id") != norm["id"]]
     data["accounts"].append(norm)
+    # An account stands in no pool by itself: the row that names it is the
+    # operator's (the kanban, caravan/admin/pools.py). It stands under its
+    # provider on the main board, which is put there if it is missing
+    # (caravan/admin/board_providers.py).
+    providers = BoardProviders(data)
+    if providers.add(BoardProviders.kind(norm)):
+        data["boardProviders"] = providers.stored()
     save_cloud_data(data)
     return norm
 
 def delete_cloud_account(account_id):
-    from caravan.admin.cloud_pools import CloudPoolDesk
-    CloudPoolDesk().remove_account(account_id)
-
-def upsert_cloud_block(block):
-    data = load_cloud_data()
-    account_ids = {a["id"] for a in CloudSources(data).all()}
-    # Preserve a prior stated context window and the sync's marks across a
-    # re-fetch unless the caller set them. A caller that omits a field
-    # is not asking for it to be cleared — only the editor, which always sends
-    # both, can do that (it sends contextLength blank to remove it).
-    bid = str(block.get("id") or "").strip() if isinstance(block, dict) else ""
-    prev = next((b for b in data["blocks"] if b.get("id") == bid), None) if bid else None
-    if prev is None and isinstance(block, dict):
-        # A block that did not exist is one the operator adds by hand (the sync
-        # writes its own): the sync must never take it away.
-        block = {**block, "manual": True}
-    if prev is not None:
-        for key in ("newSince", "goneCount", "manual", "announced"):
-            if key not in block and prev.get(key):
-                block = {**block, key: prev[key]}
-        if "contextLength" not in block and prev.get("contextLength") is not None:
-            block = {**block, "contextLength": prev.get("contextLength")}
-        if "contextAuto" not in block:
-            block = {**block, "contextAuto": bool(prev.get("contextAuto", False))}
-    norm = normalize_cloud_block(block, account_ids)
-    data["blocks"] = [b for b in data["blocks"] if b.get("id") != norm["id"]]
-    data["blocks"].append(norm)
-    save_cloud_data(data)
-    return norm
-
-def delete_cloud_block(block_id):
-    block_id = str(block_id or "").strip()
-    data = load_cloud_data()
-    data["blocks"] = [b for b in data["blocks"] if b.get("id") != block_id]
-    save_cloud_data(data)
-
-def mark_cloud_blocks_announced(block_ids):
-    """The "new model" window was answered for these: it will not ask again.
-    (Putting one on the kanban — "just add it" — is opening its port:
-    cloud_ports.CloudPortDesk.open.)"""
-    ids = {str(i) for i in (block_ids or [])}
-    data = load_cloud_data()
-    changed = False
-    for b in data["blocks"]:
-        if b.get("id") in ids and not b.get("announced"):
-            b["announced"] = True
-            changed = True
-    if changed:
-        save_cloud_data(data)
-    return changed
+    """Delete an account and the steps that name it, then end its sign-in at
+    the provider. Answers how that went — {ok, error} — or None when the
+    account had no sign-in of its own to end (a key, a test alias)."""
+    from caravan.admin.pools import PoolDesk
+    # oauth.py reads this module, so it is imported here.
+    from caravan.admin.oauth import SignOut, end_pending_logins
+    aid = str(account_id or "").strip()
+    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == aid), None)
+    removed = PoolDesk().remove_account(aid)
+    # Its sign-in in progress goes with it.
+    end_pending_logins(aid)
+    leaving = SignOut.of(account, removed)
+    return leaving.send() if leaving else None
 
 def account_auth_headers(account, secret):
     preset = CLOUD_PROVIDER_PRESETS.get(account.get("type"), {})
@@ -392,15 +325,34 @@ def delete_account_credential(account_id):
     from caravan.common.credential_vault import CredentialVault
     CredentialVault(PROVIDER_SECRETS_FILE).delete(str(account_id or "").strip())
 
+def device_login_preset(account_type):
+    """The preset whose plan signs in by a one-time code — {} for a plan that
+    does not (or for no plan at all)."""
+    kind = str(account_type or "")
+    if not kind:
+        return {}
+    return next((p for p in CLOUD_PROVIDER_PRESETS.values()
+                 if p.get("accountType") == kind and p.get("deviceLogin")), {})
+
+
+def device_login_spec(account):
+    """How an account signs in by a one-time code — its provider's device
+    login (OPENAI_DEVICE_LOGIN) — or {} when it has none.
+
+    Read through accountType, not type: the first subscription accounts were
+    made as type `openai` with accountType `openai-subscription`, and they sign
+    in with ChatGPT all the same. A test alias signs in through its original.
+    """
+    account = account or {}
+    if account.get("testAliasOf"):
+        return {}
+    return dict(device_login_preset(account.get("accountType")).get("deviceLogin") or {})
+
 def account_credential_summary(account_id):
     account_id = str(account_id or "").strip()
     account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == account_id), None)
     if account and str(account.get("authMode") or "").strip() == "noKey":
         return {"hasCredential": True, "kind": "noKey", "last4": "", "oauthEmail": ""}
-    source = CloudSources(load_cloud_data()).source(account_id)
-    if source and source.get("isPool"):
-        present = any(account_credential_summary(m["accountId"])["hasCredential"] for m in source["pool"]["members"] if m.get("enabled", True))
-        return {"hasCredential": present, "kind": "pool", "last4": "", "oauthEmail": ""}
     entry = account_secret_entry(account_id)
     api_key = entry.get("apiKey") if isinstance(entry, dict) else ""
     oauth = entry.get("oauth") if isinstance(entry, dict) else None
@@ -411,67 +363,38 @@ def account_credential_summary(account_id):
     return {"hasCredential": False, "kind": "", "last4": "", "oauthEmail": ""}
 
 def cloud_accounts_state():
+    """Every account as the board shows it: its sign-in in summary (never the
+    key), and the steps of the pools that name it — what its deletion takes."""
+    # oauth.py reads this module, so it is imported here.
+    from caravan.admin.oauth import SignOut
+    from caravan.common.cloud_pools import CloudPools
     result = []
-    for a in CloudSources(load_cloud_data()).all():
+    own = load_provider_secrets()
+    data = load_cloud_data()
+    used = {}
+    for pool in CloudPools(data).all():
+        for step in pool["steps"]:
+            if step["kind"] == "account":
+                used.setdefault(step["accountId"], []).append({"poolId": pool["id"], "poolName": pool["name"], "stepId": step["id"]})
+    for a in CloudSources(data).accounts.values():
         summary = account_credential_summary(a["id"])
         result.append({
             "id": a["id"], "type": a.get("type"), "name": a.get("name"),
             "baseUrl": a.get("baseUrl"), "authMode": a.get("authMode") or "apiKey",
             "accountType": a.get("accountType") or "",
+            "subscription": CloudSources.is_subscription(a),
             "oauthConfig": a.get("oauthConfig") or {},
             "hasCredential": summary["hasCredential"],
             "credentialKind": summary["kind"],
             "keyLast4": summary["last4"],
             "oauthEmail": summary["oauthEmail"],
-            **({"pool": a["pool"], "isPool": True} if a.get("isPool") else {}),
+            "deviceLogin": bool(device_login_spec(a)),
+            # Whether deleting it ends a sign-in at the provider: the delete
+            # confirmation says so only when the delete will (SignOut.of).
+            "signOutOnDelete": SignOut.of(a, own.get(a["id"])) is not None,
+            "usedIn": used.get(a["id"], []),
             **({"testAliasOf": a["testAliasOf"]} if a.get("testAliasOf") else {}),
         })
-    return result
-
-def cloud_blocks_state():
-    # Imported here, not at the top: the ports live in agent-proxies.json, and
-    # the module that reads it imports this one.
-    from caravan.admin.cloud_ports import CloudModelPorts
-    from caravan.admin.proxies_config import load_agent_proxy_config
-    data = load_cloud_data()
-    accounts = {a["id"]: a for a in CloudSources(data).all()}
-    on_kanban = CloudModelPorts(load_agent_proxy_config()).on_kanban()
-    result = []
-    # The credential summary is a property of the ACCOUNT, and there are four of
-    # them against five hundred blocks — so it is resolved once per account, not
-    # once per row. The caches underneath make the repeat cheap now; doing the
-    # lookup five hundred times to get four answers was never the intent.
-    summaries = {}
-    for b in data["blocks"]:
-        account = accounts.get(b.get("accountId")) or {}
-        acct_id = b.get("accountId")
-        if acct_id not in summaries:
-            summaries[acct_id] = account_credential_summary(acct_id)
-        summary = summaries[acct_id]
-        row = {
-            "id": b["id"], "accountId": b.get("accountId"), "name": b.get("name"),
-            "model": b.get("model"), "modelMode": b.get("modelMode") or "rewrite",
-            # On the kanban = a port of its own leads to it (cloud_ports.py).
-            "exposed": b["id"] in on_kanban,
-            # The editor opens on these and always saves them back, so a row
-            # without them made every edit of a block wipe its stated window
-            # and switch off "use the number the model reports".
-            "contextAuto": bool(b.get("contextAuto", False)),
-            # The sync's marks: a model the provider added since the operator
-            # last looked, and one the operator added by hand.
-            "newSince": int(b.get("newSince") or 0) or None,
-            "manual": bool(b.get("manual", False)),
-            "announced": bool(b.get("announced", False)),
-            "accountName": account.get("name") or b.get("accountId"),
-            "type": account.get("type"), "baseUrl": account.get("baseUrl"),
-            "accountType": account.get("accountType") or "",
-            "authMode": account.get("authMode") or "apiKey",
-            "hasKey": summary["hasCredential"], "credentialKind": summary["kind"],
-            "keyLast4": summary["last4"],
-        }
-        if b.get("contextLength") is not None:
-            row["contextLength"] = b["contextLength"]   # absent when unstated, never 0
-        result.append(row)
     return result
 
 def cloud_provider_presets_public():
@@ -479,6 +402,7 @@ def cloud_provider_presets_public():
         {"type": ptype, "name": cfg.get("name"), "baseUrl": cfg.get("baseUrl"),
          "model": cfg.get("model"), "authModes": cfg.get("authModes", ["apiKey"]),
          "accountType": cfg.get("accountType") or "",
+         "deviceLogin": bool(cfg.get("deviceLogin")),
          "oauth": {k: v for k, v in (cfg.get("oauth") or {}).items()}}
         for ptype, cfg in CLOUD_PROVIDER_PRESETS.items()
     ]

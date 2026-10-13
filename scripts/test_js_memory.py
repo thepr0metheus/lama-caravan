@@ -19,7 +19,36 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(ROOT))
 from _node import find_node, node_search_paths  # noqa: E402
+from caravan.domain.runner import get as runner_get, registry_json  # noqa: E402
+
+# Which card a Strata start lands on and what it needs free there: ONE table, run
+# through the server's rule (runner.py vram_reservation) here and through the
+# form's (memory.js FreeVramStart) in node — the two copies cannot drift apart
+# without this going red.
+CARD_GPUS = [{"index": 0, "memoryTotalMiB": 32607, "memoryFreeMiB": 13926},
+             {"index": 1, "memoryTotalMiB": 24576, "memoryFreeMiB": 20000}]
+CARD_CASES = [("", ""), ("CUDA_VISIBLE_DEVICES=1", ""), ("CUDA_VISIBLE_DEVICES=1\nCUDA_VISIBLE_DEVICES=0", ""),
+              ('CUDA_VISIBLE_DEVICES="1"', ""), (" CUDA_VISIBLE_DEVICES = 1 ", ""), ("CUDA_VISIBLE_DEVICES=", ""),
+              ("CUDA_VISIBLE_DEVICES=0,1", ""), ("X=CUDA_VISIBLE_DEVICES=1", ""), ("CUDA_VISIBLE_DEVICES=5", ""),
+              ("CUDA_VISIBLE_DEVICES=GPU-3f2a", ""), ("CUDA_VISIBLE_DEVICES=00", ""), ("# CUDA_VISIBLE_DEVICES=1", ""),
+              ("", "4096"), ("", " 512 "), ("", "2G")]
+
+
+def server_card(env, reserve):
+    r = runner_get("strata").vram_reservation({"ENV": env, "STRATA_VRAM_RESERVE_MIB": reserve}, CARD_GPUS)
+    return None if r is None else [r["device"], r["reserveMiB"]]
+
+
+def english(key, **kw):
+    """A string of en.js, as the page shows it — read from the file, not copied."""
+    import re
+    raw = re.search(r'^  ' + key + r': (".*"),$', (ROOT / "static/js/i18n/en.js").read_text(encoding="utf-8"), re.M)
+    text = json.loads(raw.group(1))
+    for k, v in kw.items():
+        text = text.replace("{" + k + "}", str(v))
+    return text
 
 _fail = []
 
@@ -33,13 +62,17 @@ def check(cond, msg):
 PROBE = r"""
 import "./_js_globals.mjs";
 (globalThis.__stubReturns ||= {})["llama-edit.usesLlamaConfig"] = (id) => id === "llama-server" || id === "prism";
+// The registry as the server sends it (runner.py registry_json) — the VRAM plan is read off it.
+const REGISTRY = JSON.parse(process.env.RUNNERS_JSON);
+globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => REGISTRY;
 import { pathToFileURL } from "node:url";
 // The machine the cell form targets: its cards and its RAM, as its scout
 // reported them. Exported by remote-cells, which is a stub here — the values
 // must exist before the import, and the object is mutated between runs.
 const TR_CPU = { ram: { totalGb: 64, usedGb: 60 } };
+const TR_GPUS = [{ index: 0, memoryTotalMiB: 8192, memoryFreeMiB: 8192, memoryUsedMiB: 0 }];
 globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._trClientCpu": TR_CPU,
-  "remote-cells._trClientGpus": [{ index: 0, memoryTotalMiB: 8192, memoryFreeMiB: 8192, memoryUsedMiB: 0 }] };
+  "remote-cells._trClientGpus": TR_GPUS };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/memory.js").href);
 // form.js is a stub: its model lookups answer as the real ones do with no model
 // listed and none chosen, until a block below says otherwise.
@@ -64,7 +97,18 @@ const out = {
     freeNotTotal: m._vramFitFrom([g(24576, 4096, 20480)], 10),
     twoCards: m._vramFitFrom([g(12288, 12288, 0), g(12288, 12288, 0)], 20),
   },
-  caps: Object.fromEntries(["vllm","whisper","moonshine","transcribe","seamless","translate","custom","llama-server","nonsense"].map((r) => [r, m.runnerDeviceCaps(r)])),
+  caps: Object.fromEntries(["vllm","whisper","moonshine","strata","gr00t","transcribe","seamless","translate","custom","llama-server","nonsense"].map((r) => [r, m.runnerDeviceCaps(r)])),
+  // The device a one-device runner reports, whatever its ENV pins (llama-edit's
+  // ENV reader is a stub here, made to read "cpu").
+  mode: (() => {
+    globalThis.__stubReturns["llama-edit._envDeviceState"] = () => "cpu";
+    const got = Object.fromEntries(["vllm","whisper","moonshine","strata","gr00t","transcribe"].map((r) => {
+      globalThis.__fields = { "tr-RUNNER": { value: r }, "tr-ENV": { value: "TTS_DEVICE=cpu\nCUDA_VISIBLE_DEVICES=" } };
+      return [r, m.currentComputeMode("tr-")];
+    }));
+    delete globalThis.__stubReturns["llama-edit._envDeviceState"];
+    return got;
+  })(),
   // What the GPU tile WRITES. The split mode is decided in split-mode.js and
   // pinned there by value; what this pins is the wiring — that picking cards
   // is what applies it, and that one card leaves the flag unsaid.
@@ -148,7 +192,52 @@ const out = {
   };
   out.aside = { llamaNone: aside("llama-server", ""), llamaModel: aside("llama-server", "m.gguf"),
                 moonshine: aside("moonshine", ""), moonshineGb: cst.moonshineModelGb };
+  // llama's own figure, handed in by renderModelInsight; Strata's from its plan,
+  // on the 8 GB card of the machine; a pin to a card the machine has not.
+  const drawn = (fields, llamaGb) => {
+    calls.length = 0;
+    choose("m.gguf");
+    globalThis.__fields = fields;
+    m.refreshAsidePanels("tr-", llamaGb);
+    return calls.map((c) => c.slice());
+  };
+  out.aside.llamaFigure = drawn({ "tr-RUNNER": { value: "llama-server" } }, 37.2);
+  out.aside.strata = drawn({ "tr-RUNNER": { value: "strata" }, "tr-ENV": { value: "" } }, 37.2);
+  out.aside.strataNoCard = drawn({ "tr-RUNNER": { value: "strata" }, "tr-ENV": { value: "CUDA_VISIBLE_DEVICES=3" } }, 37.2);
+  // GR00T's plan is the figure its policy was measured at, whatever llama's sum is.
+  out.aside.gr00t = drawn({ "tr-RUNNER": { value: "gr00t" }, "tr-ENV": { value: "" } }, 37.2);
+  out.fitGb = Object.fromEntries(["gr00t", "seamless"].map((r) => {
+    globalThis.__fields = { "tr-RUNNER": { value: r } };
+    return [r, m.computeFitRuntimeGb("tr-")];
+  }));
 }
+// A start that takes its card's free VRAM: which card and how much it needs, for
+// the cases the server's own rule is run on (runner.py vram_reservation) …
+{
+  const plan = REGISTRY.find((r) => r.id === "strata").vramPlan;
+  const { gpus, cases } = JSON.parse(process.env.CARD_CASES);
+  out.cards = cases.map(([env, reserve]) => {
+    const s = m.FreeVramStart.of(plan, { env, reserve, gpus });
+    return s ? [Number(s.card.index), s.needMiB] : null;
+  });
+  // … and where the scout lets it start (starts.py: free >= reserved), to the MiB.
+  const at = (freeMiB, reserve) => {
+    const s = m.FreeVramStart.of(plan, { env: "", reserve, gpus: [{ index: 0, memoryTotalMiB: 32607, memoryFreeMiB: freeMiB }] });
+    return [s.fits, Math.round(s.addGb * 100) / 100];
+  };
+  out.freeStart = { roomy: at(13926, ""), roomyReserve: at(13926, "4096"), exact: at(6144, ""), short: at(6143, ""),
+                    shortReserve: at(9000, "4096") };
+  out.freeStartBar = m.FreeVramStart.of(plan, { env: "CUDA_VISIBLE_DEVICES=1", reserve: "4096",
+    gpus: [{ index: 0, memoryFreeMiB: 1 }, { index: 1, memoryFreeMiB: 20000 }] }).bar();
+}
+// The CPU tile of a GPU-only runner is drawn and cannot be pressed.
+out.cpuTileOff = Object.fromEntries(["strata", "gr00t", "vllm", "transcribe"].map((r) => {
+  const box = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+  globalThis.__fields = { "tr-computeTarget": box, "tr-RUNNER": { value: r }, "tr-ENV": { value: "" } };
+  m.refreshComputeTarget("tr-");
+  const cpu = (box.innerHTML.match(/<button[^>]*data-compute="cpu"[^>]*>/) || [""])[0];
+  return [r, cpu ? /\sdisabled[\s"]/.test(cpu) : null];
+}));
 out.prismPlacement = ["0", "10"].map((layers) => {
   globalThis.__fields = {"tr-RUNNER": {value: "prism"}, "tr-N_GPU_LAYERS": {value: layers}};
   return m.currentComputeMode("tr-");
@@ -165,7 +254,9 @@ probe.write_text(PROBE, encoding="utf-8")
 try:
     hook = f"data:text/javascript,import {{ register }} from 'node:module'; register('file://{ROOT}/scripts/_js_harness.mjs');"
     env = {"JS_ROOT": str(ROOT / "static" / "js"), "PATH": "/usr/bin:/bin",
-           "JS_STUBS": "command-preview,favorites,llama-edit,form,remote-cells,cloud,topology-render,polling"}
+           "JS_STUBS": "command-preview,favorites,llama-edit,form,remote-cells,cloud,topology-render,polling",
+           "RUNNERS_JSON": json.dumps(registry_json()),
+           "CARD_CASES": json.dumps({"gpus": CARD_GPUS, "cases": CARD_CASES})}
     proc = subprocess.run([node, "--import", hook, str(probe)], capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
 finally:
     probe.unlink(missing_ok=True)
@@ -208,6 +299,16 @@ check(all(caps[r] == {"cpu": True, "gpu": True, "auto": False} for r in ("transc
 check(caps["custom"] == {"cpu": True, "gpu": True, "auto": True}, "custom — единственный с auto")
 check(caps["llama-server"] == caps["nonsense"] == {"cpu": True, "gpu": True, "auto": False},
       "llama-server и неизвестный раннер — умолчание: оба, без auto")
+check(caps["strata"] == {"cpu": False, "gpu": True, "auto": False},
+      "defect-history: Strata — только GPU; раньше ей доставалось умолчание llama, и плитка CPU писала в ENV "
+      "CUDA_VISIBLE_DEVICES=, а лаунчер такую ячейку отклоняет (1.3.512)")
+check(caps["gr00t"] == {"cpu": False, "gpu": True, "auto": False},
+      "GR00T — только GPU: Isaac-GR00T держит политику на CUDA")
+check(got["mode"] == {"vllm": "gpu", "whisper": "gpu", "moonshine": "cpu", "strata": "gpu", "gr00t": "gpu", "transcribe": "cpu"},
+      "раннер с одним устройством называет его, что бы ни писал ENV; transcribe (оба) читает ENV — negative "
+      f"(получено {got['mode']})")
+check(got["cpuTileOff"] == {"strata": True, "gr00t": True, "vllm": True, "transcribe": False},
+      f"плитка CPU у Strata, GR00T и vLLM не нажимается, у transcribe — нажимается (получено {got['cpuTileOff']})")
 
 print("applyComputeTarget — что плитка пишет в поля:")
 ap = got["applied"]
@@ -248,6 +349,38 @@ check(aside["llamaModel"] == [],
       "negative: llama с моделью — полосу рисует renderModelInsight (разбивка по файлам), здесь её не трогают")
 check(aside["moonshine"] == [["tr-", aside["moonshineGb"], True]] and aside["moonshineGb"] > 0,
       "другие раннеры — полоса отсюда, с картиной машины и без модели (allowEmpty)")
+check(aside["llamaFigure"] == [["tr-", 37.2]],
+      f"llama с моделью — цифра, которую передал renderModelInsight (получено {aside['llamaFigure']})")
+note6 = english("vramTakesFree", gb="6.00 GB")
+check(aside["strata"] == [["tr-", 8, True, {"hard": True, "cards": [0], "vramNote": note6}]],
+      "defect-history: Strata — по своему плану, а не по сумме llama, которую ей передали: свободное на её карте "
+      "(8 ГБ), точное сравнение, одна карта, строка «как она берёт память»; было «37.2 GB, won't fit» "
+      f"(живая проверка 2026-10-13) (получено {aside['strata']})")
+check(aside["strataNoCard"] == [["tr-", 0, True]],
+      "negative: ENV называет карту, которой у машины нет, — сервер ничего не резервирует, и полоса не выдумывает "
+      f"цифру: только картина машины (получено {aside['strataNoCard']})")
+
+check(aside["gr00t"] == [["tr-", 7.5, True]] and got["fitGb"]["gr00t"] == 7.5,
+      "GR00T — по своему плану: 7.5 ГБ, замер политики на RTX 5090 с запасом, а не сумма llama, которую ей передали "
+      f"(получено {aside['gr00t']}, {got['fitGb']})")
+check(got["fitGb"]["seamless"] != 7.5,
+      f"negative: раннер без цифры в плане её не получает (получено {got['fitGb']['seamless']})")
+
+print("старт, который берёт свободную VRAM карты (Strata):")
+srv = [server_card(e, r) for e, r in CARD_CASES]
+check(srv.count(None) >= 4 and [1, 6144] in srv and [0, 10240] in srv and [0, 6656] in srv,
+      f"таблица случаев задевает обе стороны: карта 0 и 1, резерв, отказы (сервер: {srv})")
+check(got["cards"] == srv,
+      "форма выбирает ту же карту и ту же нужную память, что сервер (vram_reservation): последний "
+      "CUDA_VISIBLE_DEVICES в ENV, иначе карта 0; кавычки и пробелы срезаны; пустой, чужой, «00» и «GPU-…» — "
+      f"нет карты; резерв не числом — нет резерва (форма: {got['cards']})")
+check(got["freeStart"] == {"roomy": [True, 13.6], "roomyReserve": [True, 9.6], "exact": [True, 6.0],
+                           "short": [False, 6.0], "shortReserve": [False, 10.0]},
+      "свободно 13.6 ГБ — берёт всё, с резервом 4 ГБ — 9.6; ровно 6 ГБ — стартует, на 1 МиБ меньше — нет "
+      "(правило скаута starts.py: свободно >= нужно); не стартует — полоса рисует нужное "
+      f"(получено {got['freeStart']})")
+check(got["freeStartBar"] == {"hard": True, "cards": [1], "vramNote": english("vramTakesFree", gb="10.0 GB")},
+      f"полоса — на её карте (1), без запаса в 1 ГБ, с нужным: 6 ГБ + резерв 4 (получено {got['freeStartBar']})")
 
 print()
 if _fail:

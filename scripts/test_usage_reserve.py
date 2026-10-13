@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Value snapshot: the operator's reserve on a subscription's limits.
+"""Value snapshot: a step's switch levels on a subscription's limit windows.
 
 2026-09-28: the five-hour window of the ChatGPT subscription ran out under the
-caravan's traffic, and with it the operator's own chats. The operator keeps a
-share of each window for themselves; once a window is down to it, the proxy
-answers the account's requests itself with the provider's own 429.
+caravan's traffic, and with it the operator's own chats. Since then a share of
+each window is left untouched; since pools of steps (2026-10-10) it is each
+step's own "switch at N%": the pool goes on to the next step there, and with no
+step left, the proxy answers 429 itself.
 
 Pinned by value, positive and negative for every claim:
-- the rule (caravan/common/usage_reserve.py) — what closes the account, what
-  does not, and what a stored reserve looks like;
+- the rule (caravan/common/usage_reserve.py) — what closes a step, what does
+  not, and what stored levels look like;
 - the reading the proxy takes off the Codex backend's headers and off the
-  account's usage page, the gate that refreshes a shut door's reading (an
-  early reset), and the refusal it gives (caravan/proxy/subscription_usage.py);
-- the controller's desk: setting a window's reserve, and the verdict the card
-  shows, computed from the proxy's state file with the same rule;
+  account's usage page (caravan/proxy/subscription_usage.py), and the answer
+  the proxy gives itself (caravan/proxy/pool_steps.py, OwnAnswer);
 - the usage page's windows carry their length, and the board's error panel
-  counts the caravan's own refusal apart from the provider's 429.
+  counts the caravan's own refusal apart from the provider's 429;
+- an account keeps no levels of its own any more: they are its steps'.
 
 Run: python3 scripts/test_usage_reserve.py
 """
@@ -35,9 +35,9 @@ os.environ["MODEL_CATALOG_FILE"] = str(TMP / "model-catalog.json")
 os.environ["PROVIDER_SECRETS_FILE"] = str(TMP / "provider-secrets.json")
 sys.path.insert(0, str(ROOT))
 
-from caravan.common.errors import AppError  # noqa: E402
 from caravan.common.usage_reserve import UsageReserve  # noqa: E402
-from caravan.proxy.subscription_usage import ReserveGate, ReserveRefusal, SubscriptionUsage  # noqa: E402
+from caravan.proxy.pool_steps import PoolRefusal  # noqa: E402
+from caravan.proxy.subscription_usage import SubscriptionUsage  # noqa: E402
 
 _fail = []
 
@@ -90,8 +90,8 @@ def test_the_rule():
           f"запас всего окна закрыл бы аккаунт навсегда — не больше {UsageReserve.MAX_PCT}%")
     check(UsageReserve.normalize({"x": 20, "0": 20, "18000": "a", "604800": True}) == {} and UsageReserve.normalize("x") == {},
           "negative: мусор выпадает, а не становится числом")
-    check(UsageReserve.of({"usageReserve": {"18000": 20}}).by_seconds == {FIVE_H: 20} and UsageReserve.of(None).by_seconds == {},
-          "запас читается с аккаунта или провайдера; без аккаунта — пусто")
+    check(UsageReserve.NEW_STEP == {"18000": 10, "604800": 10},
+          "новый шаг подписки — 10% пятичасового окна и 10% недельного (оператор, 2026-10-08)")
 
 
 def test_the_reading_and_the_refusal():
@@ -117,24 +117,24 @@ def test_the_reading_and_the_refusal():
     usage.windows("acc")[0]["usedPct"] = 1
     check(usage.windows("acc")[0]["usedPct"] == 85, "снаружи отдаётся копия — чужая правка показание не портит")
 
-    print("отказ каравана:")
-    refusal = ReserveRefusal({"windowSeconds": FIVE_H, "remainingPct": 15, "reservePct": 20, "resetAt": NOW + 3600}, now=NOW)
+    print("собственный ответ прокси (пул без подходящего шага):")
+    pool = {"id": "p", "name": "Main"}
+    steps = [{"stepId": "a", "reason": "reserve", "resetAt": NOW + 3600}, {"stepId": "b", "reason": "quota", "resetAt": NOW + 600}]
+    refusal = PoolRefusal(pool, steps, NOW)
     body = json.loads(refusal.read())
-    check(refusal.status == 429 and body["error"]["type"] == "usage_limit_reached",
-          "форма провайдера: 429 и usage_limit_reached")
-    check(body["error"]["resets_at"] == NOW + 3600 and body["error"]["resets_in_seconds"] == 3600
-          and refusal.getheader("retry-after") == "3600", "когда окно сбросится — в теле и в Retry-After")
-    check(body["error"]["caravan_reserve"] == {"window_seconds": FIVE_H, "remaining_pct": 15, "reserve_pct": 20},
-          "числа запаса в ответе")
-    check(body["error"]["message"].startswith("The caravan keeps your reserve: the 5-hour window has 15% left"),
-          "слова называют караван и окно")
+    check(refusal.status == 429 and body["error"]["type"] == "pool_unavailable" and refusal.KIND == "pool_unavailable",
+          "все шаги держит лимит — 429 и тип отказа пула")
+    check(body["error"]["resets_at"] == NOW + 600 and refusal.getheader("retry-after") == "600",
+          "Retry-After — до ближайшего сброса")
+    check(body["error"]["message"] == "Pool Main has no step that fits now: a (reserve); b (quota)",
+          "слова называют пул и причину каждого шага")
     check(refusal.read() == b"" and int(refusal.getheader("Content-Length")) == len(refusal.body),
           "тело читается один раз, длина в заголовке — длина тела")
-    again = ReserveRefusal({"windowSeconds": WEEK, "remainingPct": 5, "reservePct": 10, "resetAt": NOW - 10}, now=NOW)
-    check(again.retry_after == 1 and "weekly" in again.message, "сброс уже прошёл — Retry-After не меньше 1; недельное окно названо")
-    check(ReserveRefusal.window_name(7200) == "2-hour" and ReserveRefusal.window_name(90) == "90-second",
-          "имя окна по длине")
-    line = ReserveRefusal({"windowSeconds": FIVE_H, "remainingPct": 1, "reservePct": 2, "resetAt": NOW + 9}, now=NOW)
+    gone = PoolRefusal(pool, [{"stepId": "a", "reason": "reserve", "resetAt": NOW - 10}], NOW)
+    check(gone.retry_after == 30, "сброс уже прошёл — Retry-After 30 с, не ноль и не прошлое")
+    check(PoolRefusal(pool, [{"stepId": "a", "reason": "credential_missing"}], NOW).status == 503,
+          "negative: шаг без входа — не лимит: 503")
+    line = PoolRefusal(pool, [], NOW)
     check(line.readline(10) == line.body[:10] and line.read() == line.body[10:], "readline и read читают подряд")
 
 
@@ -169,117 +169,6 @@ def test_the_usage_page():
     check(only == [{"seconds": FIVE_H, "usedPct": 7, "resetAt": None}], "без времени сброса — None, а не ноль")
 
 
-def test_the_gate():
-    """While the door is shut nothing is sent, so no answer brings a reading: an
-    early reset (a banked or bought one) stayed unseen until the old reset time."""
-    print("закрытая дверь и досрочный сброс:")
-    clock = [float(NOW)]
-    asked = []
-    page = {"value": None}
-
-    def fetch(provider):
-        asked.append(provider["accountId"])
-        if isinstance(page["value"], Exception):
-            raise page["value"]
-        return page["value"]
-
-    provider = {"accountId": "acc", "usageReserve": {"18000": 20}}
-    shut = [{"seconds": FIVE_H, "usedPct": 85, "resetAt": NOW + 3600}]
-    usage = SubscriptionUsage()
-    gate = ReserveGate(usage, fetch=fetch, clock=lambda: clock[0])
-    usage.keep("acc", shut, now=NOW)
-    check((gate.verdict(provider) or {}).get("remainingPct") == 15 and asked == [],
-          "свежие показания — дверь закрыта, страницу не спрашиваем")
-    clock[0] = NOW + 299
-    check(gate.verdict(provider) is not None and asked == [], "negative: через 299 секунд показания ещё свежие")
-    clock[0] = NOW + 300
-    page["value"] = {"rate_limit": {"primary_window": {"used_percent": 0, "limit_window_seconds": 18000, "reset_at": NOW + 18300}}}
-    check(gate.verdict(provider) is None and asked == ["acc"],
-          "positive: через пять минут спрашиваем страницу; сброс пришёл раньше срока — дверь открыта")
-    check(usage.windows("acc") == [{"seconds": FIVE_H, "usedPct": 0, "resetAt": NOW + 18300}] and usage.read_at("acc") == NOW + 300,
-          "показание со страницы заменило старое, со своим временем")
-
-    usage = SubscriptionUsage()
-    gate = ReserveGate(usage, fetch=fetch, clock=lambda: clock[0])
-    asked.clear()
-    clock[0] = NOW + 1000
-    usage.keep("acc", shut, now=NOW)
-    page["value"] = RuntimeError("page down")
-    check((gate.verdict(provider) or {}).get("remainingPct") == 15 and asked == ["acc"],
-          "страница не ответила — дверь закрыта по последним показаниям")
-    clock[0] = NOW + 1200
-    check(gate.verdict(provider) is not None and asked == ["acc"],
-          "negative: после неудачи страницу не спрашивают снова раньше пяти минут")
-    clock[0] = NOW + 1300
-    page["value"] = {"detail": "Unauthorized"}
-    check(gate.verdict(provider) is not None and asked == ["acc", "acc"] and usage.windows("acc") == shut,
-          "через пять минут спрашивают снова; ответ без окон показаний не стирает")
-    clock[0] = NOW + 1600
-    page["value"] = {"rate_limit": {"primary_window": {"used_percent": 90, "limit_window_seconds": 18000, "reset_at": NOW + 3600}}}
-    check((gate.verdict(provider) or {}).get("remainingPct") == 10 and asked == ["acc"] * 3,
-          "страница подтвердила — дверь закрыта со свежими числами")
-
-    usage = SubscriptionUsage()
-    gate = ReserveGate(usage, fetch=fetch, clock=lambda: clock[0])
-    asked.clear()
-    usage.keep("acc", [{"seconds": FIVE_H, "usedPct": 50, "resetAt": NOW + 3600}], now=NOW - 100000)
-    check(gate.verdict(provider) is None and asked == [],
-          "negative: дверь открыта — страницу не спрашиваем даже по старым показаниям (показания едут на ответах)")
-    usage.keep("acc", shut, now=NOW - 100000)
-    check(gate.verdict({"accountId": "acc"}) is None and asked == [], "negative: запаса нет — не спрашиваем")
-
-
-def test_the_desk():
-    print("стол запаса у контроллера:")
-    from caravan.admin.cloud import load_cloud_data, save_cloud_data
-    from caravan.admin.usage_reserve_desk import UsageReserveDesk
-    save_cloud_data({"accounts": [{"id": "sub", "type": "openai", "accountType": "openai-subscription",
-                                   "name": "Plus", "baseUrl": "https://chatgpt.com", "authMode": "oauth"},
-                                  {"id": "api", "type": "openai", "name": "API", "baseUrl": "https://api.openai.com/v1"}],
-                     "blocks": []})
-    state = TMP / "agent-proxy-state.json"
-    desk = UsageReserveDesk(state_file=state, clock=lambda: NOW)
-    check(desk.set("sub", FIVE_H, 20) == {"18000": 20} and desk.set("sub", WEEK, "10") == {"18000": 20, "604800": 10},
-          "запас окна ставится на аккаунт, окна независимы")
-    stored = next(a for a in load_cloud_data()["accounts"] if a["id"] == "sub")
-    check(stored.get("usageReserve") == {"18000": 20, "604800": 10}, "и лежит в файле аккаунтов")
-    check(desk.set("sub", WEEK, 0) == {"18000": 20}, "0 снимает запас окна")
-    desk.set("sub", FIVE_H, 0)
-    stored = next(a for a in load_cloud_data()["accounts"] if a["id"] == "sub")
-    check("usageReserve" not in stored, "снят последний — поля нет вовсе, а не пустой словарь")
-    for args, code, why in ((("nope", FIVE_H, 20), 404, "нет аккаунта"),
-                            (("api", FIVE_H, 20), 400, "не подписка: окон нет, запас ничего бы не делал"),
-                            (("sub", FIVE_H, UsageReserve.MAX_PCT + 1), 400, "больше потолка"),
-                            (("sub", FIVE_H, -1), 400, "отрицательный"),
-                            (("sub", 0, 20), 400, "окно без длины"),
-                            (("sub", "x", 20), 400, "не число")):
-        try:
-            desk.set(*args)
-            check(False, f"negative: {why} — отказ {code}")
-        except AppError as err:
-            check(err.status == code, f"negative: {why} — отказ {code} (got {err.status})")
-
-    desk.set("sub", FIVE_H, 20)
-    from caravan.admin.cloud import upsert_cloud_account
-    upsert_cloud_account({"id": "sub", "name": "Plus, renamed"})
-    stored = next(a for a in load_cloud_data()["accounts"] if a["id"] == "sub")
-    check(stored.get("usageReserve") == {"18000": 20} and stored.get("name") == "Plus, renamed",
-          "правка аккаунта (переименование) запас не стирает: нормализатор пересобирает запись и знает это поле")
-    check(desk.view("sub") == {"reserve": {"18000": 20}, "reserveKept": None, "reserveMax": UsageReserve.MAX_PCT,
-                               "reserveReadAt": None},
-          "state-файла нет — показаний нет, вердикта нет, а не выдуманный")
-    state.write_text(json.dumps({"subscriptionUsage": {"sub": {"windows": [win(FIVE_H, 85, 3600), win(WEEK, 10, 90000)],
-                                                               "readAt": NOW - 30}}}), encoding="utf-8")
-    view = desk.view("sub")
-    check(view["reserveKept"] == {"windowSeconds": FIVE_H, "remainingPct": 15, "reservePct": 20, "resetAt": NOW + 3600}
-          and view["reserveReadAt"] == NOW - 30,
-          "positive: карточка видит то же, что прокси: тем же правилом по его показаниям")
-    desk.set("sub", FIVE_H, 10)
-    check(desk.view("sub")["reserveKept"] is None, "negative: запас ниже остатка — дверь открыта")
-    state.write_text("not json", encoding="utf-8")
-    check(desk.view("sub")["reserveKept"] is None and desk.reading("sub") is None, "negative: битый state-файл — показаний нет")
-
-
 def test_the_board_sides():
     print("окна страницы использования и панель ошибок:")
     from caravan.admin import cloud_api
@@ -295,26 +184,48 @@ def test_the_board_sides():
     from caravan.admin.cloud import save_cloud_data
     save_cloud_data({"accounts": [{"id": "sub", "type": "openai", "accountType": "openai-subscription", "name": "Plus",
                                    "baseUrl": "https://chatgpt.com", "authMode": "oauth"}],
-                     "blocks": [{"id": "sol", "accountId": "sub", "model": "gpt-6-sol"}]})
+                     "pools": [{"id": "sol", "name": "gpt-6-sol", "steps": [{"id": "sub", "accountId": "sub", "model": "gpt-6-sol"}]}]})
     now = int(time.time())
     rows = [{"event": "finished", "item": {"upstreamType": "cloud", "providerId": "sol", "status": 429,
                                            "errorKind": "usage_reserve", "error": "The caravan keeps your reserve", "finishedAt": now}},
+            {"event": "finished", "item": {"upstreamType": "cloud", "providerId": "sol", "status": 429, "cloudAccountId": "sub",
+                                           "errorKind": "pool_unavailable", "error": "Pool gpt-6-sol has no step", "finishedAt": now}},
             {"event": "finished", "item": {"upstreamType": "cloud", "providerId": "sol", "status": 429,
-                                           "errorKind": "", "error": "", "finishedAt": now}}]
+                                           "errorKind": "", "error": "", "finishedAt": now}},
+            # The pool refused before asking any step: the record names no account.
+            {"event": "finished", "item": {"upstreamType": "cloud", "providerId": "sol", "status": 503,
+                                           "errorKind": "pool_unavailable", "error": "Pool gpt-6-sol has no step that fits now",
+                                           "finishedAt": now}}]
     (log_dir / f"{time.strftime('%Y-%m-%d')}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     old = cloud_api.AGENT_PROXY_LOG_DIR
     cloud_api.AGENT_PROXY_LOG_DIR = log_dir
     try:
         got = cloud_api.cloud_upstream_errors()["byAccount"].get("sub") or []
+        spend = cloud_api.cloud_spend_summary(days=1).get("sub", {})
     finally:
         cloud_api.AGENT_PROXY_LOG_DIR = old
     codes = sorted(r["code"] for r in got)
-    check(codes == ["HTTP 429", "usage_reserve"],
-          f"отказ каравана — своя строка, 429 провайдера — своя (got {codes})")
+    check(codes == ["HTTP 429", "pool_unavailable", "usage_reserve"],
+          f"отказ каравана — своя строка (и под старым именем из журнала до 1.3.462), 429 провайдера — своя (got {codes})")
+    check(next(r["count"] for r in got if r["code"] == "pool_unavailable") == 1,
+          "negative: отказ пула, который не спросил ни одного шага, не приписан первому шагу (до 2026-10-11 приписывался)")
+    check(spend.get("requests") == 3,
+          f"расход: три записи, назвавшие учётку или старого вида, — запросы; отказ пула без учётки — ничей (got {spend.get('requests')})")
+    check({r["model"] for r in got} == {"gpt-6-sol"}, "модель строки — модель шага пула, а не то, что назвал клиент")
 
 
-for fn in (test_the_rule, test_the_reading_and_the_refusal, test_the_usage_page, test_the_gate, test_the_desk,
-           test_the_board_sides):
+def test_an_account_keeps_no_levels():
+    print("у аккаунта своих порогов нет — они у шагов:")
+    from caravan.admin.cloud import load_cloud_data, save_cloud_data, upsert_cloud_account
+    save_cloud_data({"accounts": [], "pools": []})
+    upsert_cloud_account({"id": "sub", "type": "openai-subscription", "name": "Plus", "usageReserve": {"18000": 30}})
+    stored = next(a for a in load_cloud_data()["accounts"] if a["id"] == "sub")
+    check("usageReserve" not in stored, "запрос назвал запас аккаунту — он не хранится: уровни живут у шагов пулов")
+    check(load_cloud_data()["pools"] == [], "negative: новая подписка сама ни в какой пул не встаёт — шаг ставит оператор")
+
+
+for fn in (test_the_rule, test_the_reading_and_the_refusal, test_the_usage_page, test_the_board_sides,
+           test_an_account_keeps_no_levels):
     fn()
 
 print()
@@ -323,4 +234,4 @@ if _fail:
     for m in _fail:
         print("  - " + m)
     sys.exit(1)
-print("usage reserve OK: правило, показания, отказ, стол контроллера и панель — значениями")
+print("usage reserve OK: правило порогов, показания, ответ прокси и панель — значениями")

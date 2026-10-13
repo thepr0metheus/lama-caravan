@@ -1,23 +1,15 @@
 // Language + theme: t(), applyLanguage/applyTheme, the language dropdown.
 import { option } from "./form.js";
-import { LANGS, loadLanguage, messages } from "./i18n-data.js";
+import { LANG_KEY, LANGS, loadLanguage, messages, storedLanguage, translate } from "./i18n-data.js";
 import { $, escapeHtml } from "./utils.js";
 
 // Language options for the dropdown. `emoji` is a country-flavoured glyph
 // (not a flag) — swap these freely; add a new entry to support more languages.
 // Strings without a translation in `messages` fall back to English (see t()).
 // Order: the 20 most-spoken languages worldwide.
-export let lang = localStorage.getItem("llamacppAdminLang") || "en";
+export let lang = storedLanguage();
 export let theme = localStorage.getItem("llamacppAdminTheme") || "dark";
-export function t(key, vars = {}) {
-  let text = messages[lang]?.[key] || messages.en[key] || key;
-  Object.entries(vars).forEach(([name, value]) => {
-    // replaceAll: a placeholder may legitimately appear twice in one string
-    // (e.g. topologyCloudModelChangeWarn uses {to} in both clauses).
-    text = text.replaceAll(`{${name}}`, value);
-  });
-  return text;
-}
+export function t(key, vars = {}) { return translate(lang, key, vars); }
 
 // What a page wants repainted after its language changes, beyond the
 // attribute pass that applyLanguage() does everywhere.
@@ -44,7 +36,7 @@ export function onLangChange(fn) { repaintAfterLangChange = fn; }
 export async function setLang(code) {
   if (!code || code === lang || !LANGS.some((l) => l.code === code)) return;
   lang = await loadLanguage(code);
-  localStorage.setItem("llamacppAdminLang", lang);
+  localStorage.setItem(LANG_KEY, lang);
   applyLanguage();
   repaintAfterLangChange?.();
 }

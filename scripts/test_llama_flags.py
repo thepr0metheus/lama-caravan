@@ -159,6 +159,13 @@ def main():
     finally:
         models_mod.read_gguf_metadata_cached, models_mod.extract_runtime_meta = real_read, real_extract
 
+    print("MODEL_NAME (1.3.507) — имя модели на входе машины, не флаг:")
+    named = args(MODEL_NAME="gemma-chat")
+    check("gemma-chat" not in named and named == args(),
+          "поле не становится флагом llama-server: скаут читает его из запроса запуска, сервер его не видит")
+    check("MODEL_NAME" in CONFIG_FIELDS and len(FIELD_HELP.get("MODEL_NAME", "")) > 40,
+          "поле — в общем списке полей (его хранят и копии настроек), с подсказкой")
+
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

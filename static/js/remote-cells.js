@@ -1,7 +1,7 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
 import { CARD_FOLD } from "./card-fold.js";
 import { appConfirm, appPrompt } from "./dialogs.js";
-import { renderCommandPreview } from "./command-preview.js";
+import { DraftFile } from "./draft-file.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
   badge,
@@ -22,6 +22,7 @@ import { t } from "./i18n.js";
 import { saveRouters } from "./routers.js";
 import {
   applyConfigToForm,
+  renderCellPreviews,
   runnerRegistry,
   usesLlamaConfig,
   setEditCurrentCommand,
@@ -30,7 +31,7 @@ import {
 } from "./llama-edit.js";
 import { refreshComputeTarget } from "./memory.js";
 import { startMonitor } from "./polling.js";
-import { setTopology, state, topology } from "./state.js";
+import { setTopology, state, topology, ui } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
 import {
   engineSizeText, hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
@@ -142,8 +143,8 @@ export function openCaravanModelEditor(hostId) {
 }
 
 // ── Port picker: move a parked cell to another free port ─────────────────────
-// Grid of the fleet-wide port pool (cells on every host + agent/bridge proxy
-// ports share the numbering). Occupied tiles are colored by owner kind and
+// Grid of the fleet-wide port pool (cells on every host + proxy ports share
+// the numbering). Occupied tiles are colored by owner kind and
 // carry the owner in the tooltip; a click on a free tile confirms and calls
 // the reassign endpoint — cables and rules follow the cell server-side.
 // Ports the operator (or a scan) marked as belonging to something else on the
@@ -182,12 +183,12 @@ export function openPortPicker(hostId, port) {
   (topology?.proxies || []).forEach((pr) => {
     const p = Number(pr.port || 0);
     if (!p) return;
-    used.set(p, { kind: pr.kind === "service" ? "bridge" : "proxy", label: pr.label || "" });
+    used.set(p, { kind: "proxy", label: pr.label || "" });
   });
   const cur = Number(port);
   // The grid covers the fleet's configured range (the firewall-friendly window)
   // and stretches further if something already sits above it. Anything OCCUPIED
-  // below the base — legacy proxies, bridges, exclusions, a not-yet-migrated
+  // below the base — legacy proxies, exclusions, a not-yet-migrated
   // cell — is shown as a compact strip above a divider: those numbers must stay
   // visible (and swappable/releasable), but the thousands of FREE ports between
   // them and the base are not on offer any more, so they are not drawn. A first
@@ -226,7 +227,7 @@ export function openPortPicker(hostId, port) {
   if (legacyPorts.length) tiles += `<span class="port-grid-divider" aria-hidden="true"></span>`;
   for (let p = range.from; p <= upper; p++) drawTile(p);
   const legend = [["free", t("portPickerLegendFree")], ["busy cell", t("portPickerLegendCell")],
-                  ["busy proxy", t("portPickerLegendProxy")], ["busy bridge", t("portPickerLegendBridge")],
+                  ["busy proxy", t("portPickerLegendProxy")],
                   ["busy excluded", t("portPickerLegendExcluded")],
                   ["current", t("portPickerLegendCurrent")]]
     .map(([cls, lbl]) => `<span class="port-picker-key"><span class="port-tile mini ${cls}"></span>${escapeHtml(lbl)}</span>`).join("");
@@ -345,7 +346,7 @@ export function nextTopologyCellPort() {
     const port = Number(s.port || 0);
     if (port) used.add(port);
   }));
-  // Proxy routes (agent + bridge ports) share the fleet-wide numbering — a
+  // Proxy routes share the fleet-wide numbering — a
   // cell must never take a port the proxy already listens on (the backend
   // used_server_cell_ports applies the same union).
   (topology?.proxies || []).forEach((p) => {
@@ -597,20 +598,6 @@ async function saveRouteModel({ hostId, agentId, role, modelName, auto }) {
   } catch (e) { toast(String(e)); }
 }
 
-// Create a client by hand. It's under no obligation to answer: the record
-// means "exists and is configured", not "is reachable". It appears on the
-// board right away as silent, with an unknown age, and that's the truth, not
-// an unfinished state.
-export async function addTopologyClient() {
-  const name = await appPrompt(t("dlgAddClient"), { confirmLabel: t("topologyClientAdd") });
-  const hostId = String(name || "").trim();
-  if (!hostId) return;
-  try {
-    await api("/api/topology/client/create", { method: "POST", body: { hostId } });
-    refreshTopology().catch(() => {});
-  } catch (e) { toast(String(e)); }
-}
-
 // Let go of a machine: when its scout answers, it forgets this controller and
 // stops reporting; either way the machine's record goes. The dialog says which
 // of the two will happen — a silent scout can only be forgotten here, and
@@ -645,10 +632,10 @@ export async function deleteTopologyClientAgent(clientId, agentId) {
   const agent = (client?.agents || []).find((a) => a.id === agentId);
   const name = agent?.name || agentId;
   const ports = savedAgentPorts(clientId, agentId);
-  const question = ports.length
+  const question = ports.length > 1
     ? t("dlgDeleteAgentPorts", { name, ports: ports.map((p) => ":" + p).join(" ") })
-    : t("dlgDeleteAgent", { name });
-  if (!(await appConfirm(question, { confirmLabel: t("deleteAction") }))) return;
+    : ports.length ? t("dlgDeleteAgentPort", { name, port: ":" + ports[0] }) : t("dlgDeleteAgent", { name });
+  if (!(await appConfirm(question, { title: t("dlgDeleteAgentTitle"), confirmLabel: t("deleteAction") }))) return;
   try {
     const res = await api("/api/topology/client/agent/delete", {
       method: "POST",
@@ -934,29 +921,32 @@ export function surviving_nvidiaSmiSource(sources, current) {
   return (sources || []).some((s) => s.id === current) ? current : "local";
 }
 
-export function renderNvidiaSmiSourceButtons() {
-  const container = $("nvidiaSmiSources");
-  if (!container) return;
-
-  // Build list: the controller's own machine first (it runs nvidia-smi
-  // itself), then the other machines whose scouts answer and report a GPU. The
-  // controller's machine is named as the board names it, by its node
-  // (machineAt) — not by the controller's old display name — and its scout is
-  // not listed again: the same machine, twice, under two names.
-  const sources = [
-    { id: "local", label: machineAt("127.0.0.1").name },
-  ];
-  for (const host of (topology?.hosts || [])) {
+// The machines whose GPUs the drawer can watch: the controller's own machine first (it runs
+// nvidia-smi itself), then the other machines whose scouts answer and report a GPU. The
+// controller's machine is named as the board names it, by its node (machineAt) — not by the
+// controller's old display name — and its scout is not listed again: the same machine, twice,
+// under two names. The controller's machine is a source only while it can read its GPU: in a
+// container with no scout of its machine (the NAS) its reading says it cannot, and a drawer
+// with nothing to watch stood on the board's edge over the cards (2026-10-08). No reading
+// yet — it stays, as it was.
+export function nvidiaSmiSources(top, monitor, localName = () => machineAt("127.0.0.1").name) {
+  const sources = monitor?.latest?.gpu?.ok === false ? [] : [{ id: "local", label: localName() }];
+  for (const host of (top?.hosts || [])) {
     if (host.state !== "online") continue;
     if (!(host.gpus || []).length) continue;
     if (isControllerMachine(host.id)) continue;
     const gpu = host.gpus[0] || {};
-    sources.push({
-      id: host.id,
-      label: host.name || host.id,
-      gpu: gpu.name || "",
-    });
+    sources.push({ id: host.id, label: host.name || host.id, gpu: gpu.name || "" });
   }
+  return sources;
+}
+
+export function renderNvidiaSmiSourceButtons() {
+  const container = $("nvidiaSmiSources");
+  if (!container) return;
+  const sources = nvidiaSmiSources(topology, ui.latestSystemMonitor);
+  const drawer = document.querySelector?.(".monitor-drawer");
+  if (drawer) drawer.hidden = !sources.length;
 
   // Repair the selection BEFORE the early return below. This used to come
   // after it, so when the selected client was the one that vanished (leaving
@@ -1167,6 +1157,16 @@ export function findSlotEntry(hostId, port) {
     .find((sv) => String(sv.port) === String(port) && (sv.clientId || "") === hostId);
 }
 
+// The form's title says which cell it sets up — a new one, or the one already
+// configured on that port — and not which engine: the runner is a choice made
+// inside the form. It said "Add llama server" for every cell, a Strata cell
+// already configured included (live check, 2026-10-13). A form opened with no
+// port (none of today's doors does) is a new cell's, and draws no empty ":".
+export function cellFormTitle(host, port, existing) {
+  if (!port) return t("remoteNewCellTitleNoPort", { host });
+  return t(existing ? "remoteCellTitle" : "remoteNewCellTitle", { port, host });
+}
+
 export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", { pickModel = false } = {}) {
   _trHostId = hostId;
   _trClientGpus = Array.isArray(clientGpus) ? clientGpus : [];
@@ -1192,7 +1192,11 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     $("tr-SPEC_ENABLED")?.addEventListener("change", (e) => {
       const selected = modelsByPath().get($("tr-MODEL_FILE")?.value || "");
       const specTypeEl = $("tr-SPEC_TYPE");
-      if (specTypeEl) specTypeEl.value = e.target.checked ? (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp") : "";
+      // On: the type the draft file is for, as picking the model writes it. The
+      // family's type alone went over a DFlash sidecar, which then starts as an
+      // MTP head and drafts nothing.
+      if (specTypeEl) specTypeEl.value = e.target.checked
+        ? DraftFile.cellType($("tr-SPEC_DRAFT_MODEL_FILE")?.value || "", selected?.familyDefaults?.SPEC_TYPE) : "";
       syncToggleLabel(e.target);
       syncCompanionMuting("tr-");
     });
@@ -1202,11 +1206,15 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
       const bareId = (e.target?.id || "").replace(/^tr-/, "");
       if (["N_GPU_LAYERS", "DEVICE", "THREADS"].includes(bareId)) refreshComputeTarget("tr-");
       renderModelInsight("tr-");
-      renderCommandPreview("tr-");
+      renderCellPreviews("tr-");
       renderChatTemplateHint("tr-");
     });
+    // Every edit of every field draws every preview (renderCellPreviews): this listener is the one
+    // place that does not have to know which runner's command reads which field. A fixed list of
+    // fields in llama-edit.js did know, and had no ALIAS (GR00T's --name, vLLM's served name), no
+    // draft file, no language field and no port: typing there left "New command" on the old text.
     $("llamaRemoteEditForm")?.addEventListener("input", () => {
-      renderCommandPreview("tr-");
+      renderCellPreviews("tr-");
     });
     _trFormReady = true;
   }
@@ -1254,6 +1262,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   // This is the single source of truth (serverSlots on the controller); we no
   // longer keep a per-host localStorage copy that could drift from it.
   let _trSlotHasConfig = false;
+  let _trSlotCache = false;
   if (_trCellPort) {
     const slot = (topology?.nodes || [])
       .flatMap((n) => n.servers || [])
@@ -1262,9 +1271,16 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     if (slot?.slotConfig && Object.keys(slot.slotConfig).length) {
       Object.assign(remoteDefaults, slot.slotConfig);
       _trSlotHasConfig = true;
+      _trSlotCache = slot.cacheModels === true;
     }
   }
   if (_trCellPort) remoteDefaults.PORT = _trCellPort;
+  // The cache switch shows the cell's own value. It opened checked for every
+  // cell, a saved "off" included, and the next Apply turned the cache back on:
+  // the form's default presented as the cell's setting. A new cell keeps the
+  // models (the owner, 2026-10-13: written once, not at every start).
+  const cacheEl = $("tr-cacheModels");
+  if (cacheEl) cacheEl.checked = _trSlotHasConfig ? !!_trSlotCache : true;
 
   applyConfigToForm(remoteDefaults, "tr-");
   const trPortEl = $("tr-PORT");
@@ -1287,10 +1303,15 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   // Current command + New-command diff baseline (mirrors the controller modal):
   // an existing remote cell shows its own current command; a brand-new add has none.
-  setEditCurrentCommand("tr-", (_trCellPort && _trSlotHasConfig) ? "cell" : "new");
+  const existingCell = !!(_trCellPort && _trSlotHasConfig);
+  setEditCurrentCommand("tr-", existingCell ? "cell" : "new");
   renderModelInsight("tr-");
   renderChatTemplateHint("tr-");
   refreshFavoritesPanel("tr-");  // reflect the latest global favorites order/set
+
+  // The result of the last purge belongs to the host it was run on: not to the form that opens next.
+  const purgeStatus = $("tr-purgeCacheStatus");
+  if (purgeStatus) purgeStatus.textContent = "";
 
   // 5: fetch cached model list from remote host asynchronously
   const cacheListEl = $("tr-cacheList");
@@ -1316,7 +1337,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
                 <span class="tr-cache-size">${gb} GB</span>
               </div>`;
             }).join("")
-          }<div class="tr-cache-total">${models.length} file(s) · ${totalGb.toFixed(2)} GB total</div></div>`;
+          }<div class="tr-cache-total">${escapeHtml(t("cacheTotal", { n: models.length, gb: totalGb.toFixed(2) }))}</div></div>`;
         }
       }
     })
@@ -1326,7 +1347,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   const remTitleEl = $("llamaRemoteEditTitle");
   if (remTitleEl) {
-    remTitleEl.textContent = t("remoteAddTitle", { host: `${hostId}${gpuName ? " · " + gpuName : ""}` });
+    remTitleEl.textContent = cellFormTitle(`${hostId}${gpuName ? " · " + gpuName : ""}`, _trCellPort, existingCell);
     if (!remTitleEl.parentElement.querySelector(".topo-edit-mode-badge")) {
       const b = document.createElement("span");
       b.className = "topo-edit-mode-badge remote";
@@ -1432,6 +1453,22 @@ export async function submitRemoteLlamaStart() {
   btn.textContent = t("topologyClientGpuStarting");
   btn.disabled = true;
   btn.classList.add("btn-busy");
+  // The machine as both answers below name it, and its "loading" record. One place: the two
+  // answers each kept their own copy, and the duplicate's copy named a `client` that does not
+  // exist here — the notice threw, and the form closed with no word.
+  const machine = () => topologyHost(_trHostId) || {};
+  const machineName = () => machine().name || _trHostId;
+  const markLoading = () => {
+    const host = machine();
+    registerPendingRemoteStart({
+      hostId: _trHostId,
+      hostName: machineName(),
+      modelName: modelPath.split("/").pop(),
+      port,
+      clientIp: host.ip || "",
+      gpuName: (host.gpus && host.gpus[0] && host.gpus[0].name) || "",
+    });
+  };
   try {
     const result = await api("/api/topology/client-llama/start", {
       method: "POST",
@@ -1442,17 +1479,9 @@ export async function submitRemoteLlamaStart() {
     if (result?.ok) {
       // Config is persisted server-side in the cell's slot (single source of
       // truth); no per-host localStorage copy needed for the next form open.
-      const host = topologyHost(_trHostId) || {};
-      registerPendingRemoteStart({
-        hostId: _trHostId,
-        hostName: host.name || _trHostId,
-        modelName: modelPath.split("/").pop(),
-        port,
-        clientIp: host.ip || "",
-        gpuName: (host.gpus && host.gpus[0] && host.gpus[0].name) || "",
-      });
+      markLoading();
       $("llamaRemoteEditOverlay").hidden = true;
-      toast(t("topologyRemoteStartSent", { host: host.name || _trHostId }));
+      toast(t("topologyRemoteStartSent", { host: machineName() }));
       renderTopology();
     } else {
       toast(result?.result?.error || result?.error || "Error starting remote server");
@@ -1462,19 +1491,9 @@ export async function submitRemoteLlamaStart() {
     // "startup already in progress" means we sent a duplicate — treat as success:
     // close the dialog and show a friendly notice instead of an error.
     if (msg.toLowerCase().includes("already in progress") || msg.toLowerCase().includes("already starting")) {
-      const host = topologyHost(_trHostId) || {};
-      if (!_pendingRemoteStarts.has(_trHostId)) {
-        registerPendingRemoteStart({
-          hostId: _trHostId,
-          hostName: host.name || _trHostId,
-          modelName: modelPath.split("/").pop(),
-          port,
-          clientIp: host.ip || "",
-          gpuName: (host.gpus && host.gpus[0] && host.gpus[0].name) || "",
-        });
-      }
+      if (!_pendingRemoteStarts.has(_trHostId)) markLoading();
       $("llamaRemoteEditOverlay").hidden = true;
-      toast(t("topologyRemoteStartAlreadyInProgress", { host: client.name || _trHostId }));
+      toast(t("topologyRemoteStartAlreadyInProgress", { host: machineName() }));
       renderTopology();
     } else {
       toast(msg);
@@ -1490,7 +1509,7 @@ export async function purgeRemoteModelCache() {
   if (!_trHostId) return;
   if (!(await appConfirm(t("topologyPurgeCacheConfirm", { host: _trHostId })))) return;
   const btn = $("tr-purgeCache");
-  const info = $("tr-purgeCacheInfo");
+  const info = $("tr-purgeCacheStatus");
   const startBtn = $("llamaRemoteEditStart");
 
   // Block Start button and show indeterminate progress while purging
@@ -1506,7 +1525,7 @@ export async function purgeRemoteModelCache() {
     });
     const r = res?.result || {};
     const freedGb = (Number(r.freedBytes || 0) / 1e9).toFixed(2);
-    const msg = `✓ ${t("topologyPurgeCacheDone")}: ${r.removed || 0} file(s), ${freedGb} GB freed`;
+    const msg = `✓ ${t("topologyPurgeCacheDone")}: ${t("topologyPurgeCacheResult", { n: r.removed || 0, gb: freedGb })}`;
     if (info) info.textContent = msg;
     toast(msg);
     // Refresh cache list to show it's now empty

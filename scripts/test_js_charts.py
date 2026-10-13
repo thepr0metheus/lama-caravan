@@ -66,6 +66,11 @@ const PROXIES = () => [
 const ROUTERS = () => [{ id: "router:a", outputs: [{ id: "srv:22011", upstreamHost: "10.0.0.5", upstreamPort: 22011 }] }];
 const TOPO = (extra = {}) => ({ proxies: PROXIES(), clients: [], routers: ROUTERS(), assignments: {}, nodes: NODES(), ...extra });
 const S = (time, corr) => ({ time, correlatedActivity: corr });
+const CV = () => { const texts = [], fills = [];
+  const ctx = new Proxy({ fillText(v) { texts.push(String(v)); }, fillRect() { fills.push(String(this.fillStyle)); } },
+    { get(target, key) { return key in target ? target[key] : () => {}; }, set(target, key, v) { target[key] = v; return true; } });
+  return { width: 320, height: 74, offsetWidth: 320, style: {}, title: "", texts, fills, getContext: () => ctx,
+    getBoundingClientRect() { return { width: 320, height: parseFloat(this.style.height) || 74 }; }, addEventListener: () => {} }; };
 const reset = () => { st.setState({ config: {} }); st.setTopology(TOPO()); st.ui.latestSystemMonitor = null;
   globalThis.__fields = { topologyIncidents: el(), topologyIncidentsMeta: el() };
   globalThis.__stubReturns = { "polling.formatTps": (v) => `${v} t/s` }; };
@@ -99,6 +104,14 @@ PINS = [
     # ── nodes ──
     ("endpoint_set_controller_adds_loopback", '', '[[...m.nodeEndpointSet(NODES()[0])].sort(), [...m.nodeEndpointSet({ id: "controller", role: "controller", ip: "10.0.0.1", servers: [{ port: 22001 }] })]]', '[["10.0.0.1:22001","10.0.0.1:22002","127.0.0.1:22001","127.0.0.1:22002"],["10.0.0.1:22001"]]',
      "машина контроллера (controllerMachine узла): каждый порт и по IP, и по 127.0.0.1 — прокси на ней ходит к её ячейкам по loopback; negative: узел с ролью «controller» (такого нет с шага 6.9) loopback больше не получает"),
+    ("endpoint_set_machine_models",
+     'st.setTopology({ ...TOPO(), routers: [{ id: "router:default", outputs: ['
+     ' { id: "mm:a", upstreamType: "machine", hostId: NODES()[1].id, upstreamHost: "10.0.0.5", upstreamPort: 8092, upstreamModel: "gemma" },'
+     ' { id: "mm:b", upstreamType: "machine", hostId: "elsewhere", upstreamHost: "10.0.0.7", upstreamPort: 8092, upstreamModel: "ear" }] }] });',
+     '[...m.nodeEndpointSet(NODES()[1])].sort()',
+     '["10.0.0.5:22011","10.0.0.5:8092/gemma"]',
+     "машина со входом (1.3.506): её модели — свои очереди «адрес:порт/модель», запрос к модели — её; negative: модель другой "
+     "машины — не её"),
     ("endpoint_set_client_and_empty", '', '[[...m.nodeEndpointSet(NODES()[1])], [...m.nodeEndpointSet(NODES()[2])], [...m.nodeEndpointSet(null)]]', '[["10.0.0.5:22011"],[],[]]', "клиент: только свой IP; без серверов — пусто; null — пусто"),
     ("activity_filter", '', '[Object.keys(m.nodeActivityFilter("box-a")), [...m.nodeActivityFilter("box-a").endpoints], [...m.nodeActivityFilter("box-c").endpoints].length, m.nodeActivityFilter("ghost")]',
      '[["endpoints"],["10.0.0.5:22011"],4,null]', "фильтр узла — только концы его ячеек (у машины контроллера и loopback); неизвестный узел — null"),
@@ -125,6 +138,80 @@ PINS = [
      'm.orderedRouteLabels(st.topology.proxies)',
      '["port of zzz","port of aaa"]',
      "порядок берёт ПОКАЗАННОЕ имя агента, а не его id: агент zzz подписан «beta» и идёт раньше агента aaa, подписанного «zeta» — по id вышло бы наоборот, и лейн с полосой снова разошлись бы, теперь на псевдонимах"),
+    # ── the clients' activity strip (2026-10-11, the owner: "the chart where the clients' recent activity was seen") ──
+    ("client_activity_rows",
+     'st.setTopology({ ...TOPO(), proxies: [{ id: "skynet:proxy:23010", port: 23010, kind: "consumer", label: "Zed" },'
+     ' { id: "skynet:proxy:23011", port: 23011, kind: "consumer", label: "hermes" },'
+     ' { id: "skynet:proxy:23003", port: 23003, label: "alpha" }] });',
+     'm.clientActivityLabels()',
+     '["hermes","Zed","alpha"]',
+     "строки графика клиентов: клиенты входа по имени, как стоят их карточки, затем порты старых клиентов"),
+    # ── each client's row on its own card (2026-10-12, the owner: the strip under the clients moved onto them) ──
+    ("client_activity_needs_a_card_and_names_no_data",
+     '',
+     '(() => { const c = CV(); c.dataset = { consumerActivity: "Zed" };'
+     ' const none = m.drawClientActivity({ querySelectorAll: () => [] }); const one = m.drawClientActivity({ querySelectorAll: () => [c] });'
+     ' return [none, one, c.style.height, c.texts, c.fills.includes("#050607")]; })()',
+     '[0,1,"16px",["no data"],true]',
+     "строка на карточке клиента: карточек нет — рисовать нечего; одна — одна строка ровно в свою высоту, на тёмном фоне, "
+     "как была полоса (владелец, 2026-10-12: серая полоса на фоне карточки ничего не говорила); negative: монитор ещё не "
+     "ответил — сказано «no data», а не пустая строка, которая читалась бы как тихий клиент"),
+    ("client_activity_row_lights_a_cloud_request",
+     'st.setTopology({ ...TOPO(), proxies: [{ id: "skynet:proxy:23010", port: 23010, kind: "consumer", label: "Zed" },'
+     ' { id: "skynet:proxy:23011", port: 23011, kind: "consumer", label: "hermes" }] });'
+     ' st.ui.latestSystemMonitor = { samples: [S(1, { activeRequests: [{ label: "Zed", isCloud: true, phase: "streaming" }] })] };',
+     '(() => { const zed = CV(), her = CV(); zed.dataset = { consumerActivity: "Zed" }; her.dataset = { consumerActivity: "hermes" };'
+     ' const n = m.drawClientActivity({ querySelectorAll: () => [zed, her] }); const lit = m.topologyRouteActivityColor("Zed", "cloud_active");'
+     ' return [n, zed.texts, her.texts, zed.fills.filter((f) => f === lit).length, her.fills.filter((f) => f === lit).length,'
+     ' zed.title === her.title && zed.title.length > 0]; })()',
+     '[2,[],["no requests in 1 min"],1,0,true]',
+     "запрос клиента входа к пулу (облако) виден на строке его карточки палочкой — машины его не показывали: их график "
+     "только о своих ячейках; имени на строке нет — оно в шапке карточки, а подсказка говорит, что откроет щелчок; "
+     "negative: у тихого клиента заливки нет, и строка говорит словами, что запросов не было и за какое окно"),
+    ("client_activity_idle_names_its_window",
+     'st.ui.latestSystemMonitor = { samples: [S(1000, {}), S(1300, {}), S(1600, {})] };',
+     '(() => { const c = CV(); c.dataset = { consumerActivity: "Zed" }; m.drawClientActivity({ querySelectorAll: () => [c] }); return c.texts; })()',
+     '["no requests in 10 min"]',
+     "тихий клиент: строка говорит, за какое окно запросов не было — длина окна из отсчётов монитора (600 с — 10 мин)"),
+    ("quiet_strip_without_idle_words_says_nothing_more",
+     '',
+     '(() => { const c = CV(); m.drawTopologyRouteHistory([S(1, {})], [[S(1, {})]], 4, c, { routes: ["a"] }); return c.texts; })()',
+     '["a"]',
+     "negative: полоса без своих слов для тишины (машины, окно активности) пишет только имена строк — слова «нет "
+     "запросов» есть лишь у строки на карточке клиента"),
+    ("client_activity_drawn_on_every_sample",
+     'st.setTopology({ ...TOPO(), nodes: [], proxies: [{ id: "skynet:proxy:23010", port: 23010, kind: "consumer", label: "Zed" }] });'
+     ' st.ui.latestSystemMonitor = { samples: [S(1, {})] };',
+     '(() => { const c = CV(); c.dataset = { consumerActivity: "Zed" }; const keep = document.querySelectorAll;'
+     ' document.querySelectorAll = (sel) => (sel === "canvas[data-consumer-activity]" ? [c] : (keep ? keep.call(document, sel) : []));'
+     ' try { m.drawTopologyGpuHistory(); } finally { document.querySelectorAll = keep; } return [c.style.height, c.fills.length > 0]; })()',
+     '["16px",true]',
+     "строки клиентов на карточках перерисовываются с каждым отсчётом монитора, вместе с остальными графиками доски"),
+    ("route_strip_drawn_at_its_own_height",
+     '',
+     '(() => { globalThis.devicePixelRatio = 2; try { const c = CV(); m.drawTopologyRouteHistory([S(1, {})], [[S(1, {})]], 4, c, { routes: ["a", "b"] });'
+     ' const other = { width: 0, height: 0, getBoundingClientRect: () => ({ width: 160, height: 43 }) };'
+     ' return [c.style.height, c.height, m.chartSize(other).height]; } finally { delete globalThis.devicePixelRatio; } })()',
+     '["43px",86,120]',
+     "полоса строк рисуется ровно в свою высоту на странице (43 px × dpr 2 = 86): раньше рисунок был не ниже 120 и сжимался "
+     "в 43 — строки и имена сплющены; negative: остальные графики сохраняют пол 120"),
+    ("route_window_hover_reads_its_own_rows",
+     'st.ui.latestSystemMonitor = { samples: [S(1, {})] };',
+     '(() => { const samples = m.systemSamples(st.ui.latestSystemMonitor); const before = m._routeActivityDrawState;'
+     ' m.drawTopologyRouteHistory(samples, [samples], 4, CV(), { routes: ["a"] }); const afterStrip = m._routeActivityDrawState;'
+     ' m.drawTopologyRouteHistory(samples, [samples], 4, CV(), { routes: ["a", "b"], hover: true });'
+     ' return [afterStrip === before, m._routeActivityDrawState.routes]; })()',
+     '[true,["a","b"]]',
+     "подсказка окна читает геометрию только своего рисунка: полоса (машины, клиентов), нарисованная после окна, её больше "
+     "не перехватывает — раньше подсказка окна называла строки чужого графика"),
+    ("client_window_whole_lists_the_strips_rows",
+     'st.setTopology({ ...TOPO(), proxies: [{ id: "skynet:proxy:23010", port: 23010, kind: "consumer", label: "Zed" },'
+     ' { id: "skynet:proxy:23003", port: 23003, label: "alpha" }] }); st.ui.latestSystemMonitor = { samples: [S(1, {})] };',
+     '(() => { const title = { textContent: "" }; globalThis.__fields.routeActivityOverlay = { hidden: true, querySelector: () => title };'
+     ' globalThis.__fields.routeActivityModalCanvas = CV(); globalThis.__fields.routeActivityLegend = { innerHTML: "" };'
+     ' m.openRouteActivityModal(null); return [title.textContent, m._routeActivityDrawState.routes, m.clientActivityLabels()]; })()',
+     '["Client activity",["Zed","alpha"],["Zed","alpha"]]',
+     "окно целиком (⤢ у полосы клиентов) — «Client activity» с теми же строками, что у полосы: один список на оба"),
     # ── route activity from a sample ──
     ("activity_priority", '', '["failed","client_disconnected","preempting","degraded","active","cloud_active","slow","recent","cloud_recent","queued","",null].map(m.topologyRouteActivityPriority)',
      '[8,7,6,5,4,4,3,2,2,1,0,0]', "приоритет состояний сверху вниз; неизвестное — 0"),
@@ -183,6 +270,11 @@ PINS = [
     ("node_telemetry_nothing", '', 'm.nodeTelemetryRowsHtml({ id: "box-b" })', '""', "negative: ни GPU, ни сервера, ни маршрутов — пусто"),
     ("node_telemetry_blocks", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes(\'data-open-chart="node:box-a:tokens"\'), h.includes(\'data-node-route-canvas="box-a"\'), h.includes("GPU history")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ port: 22011 }] }))',
      '[4,true,true,true]', "GPU + сервер + маршруты: четыре метрики и блок активности маршрутов"),
+    ("node_telemetry_row_says_its_descriptor_on_hover", '',
+     '(h => [...h.matchAll(/<div class="gpu-metric" title="([^"]*)">/g)].map((x) => x[1]))(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ port: 22011 }] }))',
+     '["GPU history · Util","Token speed · prompt / gen","VRAM · used / total","Power · GPU power draw"]',
+     "каждая строка графика говорит при наведении, что она меряет: на главной доске строка — имя, значение и мини-график, "
+     "а подпись («Util», «used / total») ушла в подсказку (владелец, 2026-10-12: компактно и красиво, всё на месте)"),
     ("node_telemetry_routes_only", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes("data-open-route-activity")])(m.nodeTelemetryRowsHtml({ id: "box-a" }))', '[0,true]', "узел без GPU, но с маршрутами через граф — только блок маршрутов"),
     ("node_pseudo_samples", '', '[m._nodeGpuSamples({ gpus: [{ memoryTotalMiB: 1000, history: [[0, 250, 50, 120]] }] }), m._nodeTokenSamples({ servers: [{ tpsHistory: [] }, { tpsHistory: [[0, 30, 70]] }] }), m._nodeGpuSamples({})]',
      '[[{"gpu":{"utilPct":50,"memoryUsedMiB":250,"memoryTotalMiB":1000,"memoryPct":25,"powerW":120}}],[{"time":0,"tokens":{"promptTokensPerSecond":30,"predictedTokensPerSecond":70}}],[]]',

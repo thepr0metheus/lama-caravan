@@ -27,6 +27,7 @@ hooks on every control.
 
 Run: python3 scripts/test_js_hf_repo_view.py
 """
+import json
 import sys
 from pathlib import Path
 
@@ -186,6 +187,55 @@ PINS = [
                 empty.includes("No GGUF files found"), empty.includes("hf-checkpoint")]; })()""",
      '[true,true,true,false,true,false]',
      "safetensors — одна строка с форматом, числом файлов, размером и кнопкой; при нём «GGUF нет» не пишется; нет ничего — «GGUF-файлов не найдено»"),
+
+    ("verify_button_for_a_checkpoint_on_disk", "",
+     r"""(() => { const st = { format: "BF16", totalSize: 100, files: [{ name: "m.safetensors", path: "m.safetensors", size: 100 }] };
+        const html = (local, over = {}) => view.html(repo({ files: [], st, local: { localNames: [], localFiles: {}, ...local } }), state(over));
+        return [html({ checkpointFolders: [] }).includes('data-t="hf-verify"'), html({ checkpointFolders: ["BF16"] }).includes('data-t="hf-verify"'),
+                html({}).includes('data-t="hf-verify"'), html({ checkpointFolders: ["BF16"] }, { verify: { running: true, pct: 5 } }).includes("Verifying… 5%")]; })()""",
+     '[false,true,false,true]',
+     "кнопка проверки у репозитория с одним чекпойнтом: без папки на диске её нет, с папкой есть (раньше была только при GGUF-файлах), ответ без поля — как без папок; идёт проверка — процент"),
+
+    ("a_checkpoint_copy_after_a_verify", "",
+     r"""(() => { const copy = (summary, files = {}) => ({ folder: "Cosmos-Reason2-2B/nvidia/BF16", files,
+          summary: { files: 10, pending: 0, same: 0, differs: 0, "wrong-size": 0, missing: 0, "size-only": 0, unreadable: 0, ...summary } });
+        const show = (c) => { const k = V.HfRepoView.copyCheck(c); return k && [k.label, k.state, k.parts.map((p) => p.text)]; };
+        return [show(copy({ same: 10 })), show(copy({ same: 9, "size-only": 1 })), show(copy({ same: 7, missing: 2, "wrong-size": 1 })),
+                show(copy({ same: 8, unreadable: 2 })), show(copy({ same: 9, differs: 1 })), show(copy({ same: 3, pending: 7 })), show(copy({ files: 0 })), show(null),
+                show(copy({ same: 9, "size-only": 1, missing: 0 }, {})), show(copy({ same: 9, missing: 1 })), show(copy({ same: 9, "wrong-size": 1 }))]; })()""",
+     json.dumps([
+         ["BF16", "same", ["10 of 10 files verified by hash"]],
+         ["BF16", "unknown", ["9 of 10 files verified by hash", "1 by size only — HF gives no hash"]],
+         ["BF16", "size", ["7 of 10 files verified by hash", "1 of the wrong size", "2 missing"]],
+         ["BF16", "unknown", ["8 of 10 files verified by hash", "2 unreadable"]],
+         ["BF16", "size", ["9 of 10 files verified by hash", "1 differ from HF"]],
+         None, None, None,
+         ["BF16", "unknown", ["9 of 10 files verified by hash", "1 by size only — HF gives no hash"]],
+         ["BF16", "size", ["9 of 10 files verified by hash", "1 missing"]],
+         ["BF16", "size", ["9 of 10 files verified by hash", "1 of the wrong size"]],
+     ], ensure_ascii=False),
+     "итог по копии чекпойнта: всё сошлось по хешу — ✓; не то, что у HF (другие байты, размер, нет файла) — ⇪ и счёт каждого; сверка только по размеру или нечитаемое — «?», а не ✓ (размер совпал — это не совпадение); копия ещё читается, ничего не запланировано или нет ответа — ничего не говорим"),
+
+    ("a_checkpoint_line_after_a_verify", "",
+     r"""(() => { const st = { format: "SAFETENSORS", totalSize: 100, files: [{ name: "m.safetensors", path: "m.safetensors", size: 100 }] };
+        const sum = (over) => ({ files: 10, pending: 0, same: 0, differs: 0, "wrong-size": 0, missing: 0, "size-only": 0, unreadable: 0, ...over });
+        const gated = { folder: "Cosmos-Reason2-2B/nvidia/BF16", files: { "model.safetensors": { state: "size-only", hash: "hidden" } }, summary: sum({ same: 9, "size-only": 1 }) };
+        const shards = {}; for (let i = 0; i < 30; i++) shards[`shard-${String(i).padStart(2, "0")}.safetensors`] = { state: "missing" };
+        const broken = { folder: "Big-70B/acme/FP8", files: shards, summary: sum({ files: 40, same: 10, missing: 30 }) };
+        const half = { folder: "Half-1B/acme/BF16", files: {}, summary: sum({ same: 3, pending: 7 }) };
+        const f = repo({ files: [], st });
+        const line = (copies) => { const h = view.html(f, state({ verifiedCheckpoints: copies })); return (h.match(/<p class="hfp-note" data-t="hf-checkpoint-verified"[^>]*>.*?<\/p>/g) || []); };
+        const one = line([gated]); const big = line([broken]); const title = (big[0].match(/title="([^"]*)"/) || [])[1];
+        return [one, big.length, big[0].length < 700, title.split("\n").length, (title.match(/shard-/g) || []).length, title.endsWith(", …"),
+                line([gated, broken]).length, line([half]), line([]), view.html(f, state()).includes("hf-checkpoint-verified"), view.html(f, state()).includes('data-t="hf-checkpoint"'),
+                view.html(f, state({ verifiedCheckpoints: [gated] })).includes('data-act="checkpoint"')]; })()""",
+     json.dumps([
+         ['<p class="hfp-note" data-t="hf-checkpoint-verified" data-t-id="Cosmos-Reason2-2B/nvidia/BF16" '
+          'title="Cosmos-Reason2-2B/nvidia/BF16\n1 by size only — HF gives no hash: model.safetensors">'
+          '<span class="hfp-fresh is-unknown is-verified">?</span> BF16 · 9 of 10 files verified by hash · 1 by size only — HF gives no hash</p>'],
+         1, True, 2, 8, True, 2, [], [], False, True, True,
+     ], ensure_ascii=False),
+     "строка после проверки: одна на копию, не строка на файл — метка, название папки, счёты через «·»; имена файлов в подсказке (до восьми и «…»), а не на странице; копия, которая ещё читается, строки не даёт; без проверки строки нет, а сама строка чекпойнта и её кнопка остаются"),
 
     ("tree_and_other_files_cards", "",
      r"""(() => { const tree = { base: "google/gemma-4-12B-it", quantizations: [{ id: "x/q1", format: "GGUF", downloads: 73, likes: 0 }], siblings: [{ id: "y/s1", format: "NVFP4", downloads: 1635415, likes: 566 }] };

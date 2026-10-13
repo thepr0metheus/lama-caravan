@@ -8,7 +8,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from caravan.proxy.subscription_usage import ReserveRefusal
+from caravan.proxy.pool_steps import PoolRefusal
 from caravan.common.context_window import declared_window
 from caravan.common.cloud_sources import CloudSources
 from caravan.common.credential_vault import CredentialVault
@@ -18,12 +18,9 @@ from caravan.admin.cloud import (
     account_auth_headers,
     account_secret_entry,
     load_cloud_data,
-    load_provider_secrets,
-    save_cloud_data,
-    save_provider_secrets,
 )
 from caravan.admin import model_catalog
-from caravan.admin.cloud_sync import CloudModelSync
+from caravan.common.cloud_pools import CloudPools
 from caravan.admin.oauth import refresh_oauth_token
 from caravan.admin.paths import AGENT_PROXY_LOG_DIR
 from caravan.admin.pricing import fetch_model_pricing
@@ -59,11 +56,10 @@ def set_account_key(account_id, key):
     result = test_account_key(account, key)
     if not result.get("ok"):
         return {"ok": False, "test": result}
-    secrets = load_provider_secrets()
-    entry = secrets.get(account_id) if isinstance(secrets.get(account_id), dict) else {}
-    entry["apiKey"] = key
-    secrets[account_id] = entry
-    save_provider_secrets(secrets)
+    # Through the vault, under its lock: a read here and a write back of the
+    # whole file put a spent refresh token back when the proxy renewed a
+    # subscription in between (caravan/common/credential_vault.py).
+    CredentialVault(PROVIDER_SECRETS_FILE).put_api_key(account_id, key)
     return {"ok": True, "test": result, "last4": key[-4:]}
 
 def _catalogue_entry(model_id, name, raw):
@@ -220,13 +216,46 @@ def fetch_openrouter_limits(account_id):
         "rateLimit": {"requests": rl.get("requests"), "interval": rl.get("interval")} if rl else None,
     }
 
+class CloudLeg:
+    """Which account and which model a finished cloud request went to, read
+    off its record in the proxy's event log.
+
+    Since pools of steps (1.3.462) the record names the step's account
+    (cloudAccountId) and the model sent (cloudModel). An older record names
+    the account and the client's model only; its providerId is the pool the
+    model block became, and the pool's step of that account knows the model.
+
+    A pool's own refusal that names no account went to none: no step was
+    asked. It is no one's request — the pool's first step took it as its own
+    until 2026-10-11, and a refused request read as "1 req" to a model nobody
+    called."""
+
+    def __init__(self, data):
+        self.pools = CloudPools(data).pools
+
+    def of(self, item):
+        """(account id, model) — empty strings for what the record does not say."""
+        account = str(item.get("cloudAccountId") or "")
+        model = str(item.get("cloudModel") or "")
+        if not account and str(item.get("errorKind") or "") in PoolRefusal.POOL_KINDS:
+            return "", ""
+        if not model:
+            pool = self.pools.get(str(item.get("providerId") or "")) or {}
+            # Of a pool's rows only an account's names a provider's model.
+            rows = [s for s in pool.get("steps") or [] if s.get("kind", "account") == "account"]
+            step = next((s for s in rows if s["accountId"] == account), None) \
+                or ((rows or [None])[0] if not account else None)
+            if step:
+                account, model = account or step["accountId"], step["model"]
+        return account, model or str(item.get("model") or "")
+
+
 def cloud_spend_summary(days=30):
     """Local spend-meter: aggregate $ spent through the proxy from the event logs
     (cloud `finished` events: tokens × per-model pricing), per cloud account + model,
     over the last `days`. Independent of any provider billing API."""
     pricing = fetch_model_pricing() or {}
-    data = load_cloud_data()
-    blocks_by_id = {b.get("id"): b for b in data.get("blocks", [])}
+    legs = CloudLeg(load_cloud_data())
     summary = {}
     for i in range(int(days)):
         dstr = datetime.fromtimestamp(time.time() - i * 86400).strftime("%Y-%m-%d")
@@ -246,11 +275,10 @@ def cloud_spend_summary(days=30):
                 continue
             if str(it.get("upstreamType")) != "cloud":
                 continue
-            blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
-            acct = str(it.get("cloudAccountId") or blk.get("usageOriginAccountId") or blk.get("accountId") or "")
+            acct, model = legs.of(it)
             if not acct:
                 continue
-            model = blk.get("model") or it.get("model") or "?"
+            model = model or "?"
             u = it.get("usage") or {}
             pt, ct = int(u.get("prompt") or 0), int(u.get("completion") or 0)
             pr = pricing.get(model) or {}
@@ -283,7 +311,7 @@ def usage_stats(days=30):
     pricing = fetch_model_pricing() or {}
     overrides = admin_state.get("apiPricing") or {}
     data = load_cloud_data()
-    blocks_by_id = {b.get("id"): b for b in data.get("blocks", [])}
+    legs = CloudLeg(data)
     rate = admin_state.get("localPricing") or {}
     rate_in = float(rate.get("inputPer1M") or 0)
     rate_out = float(rate.get("outputPer1M") or 0)
@@ -326,11 +354,10 @@ def usage_stats(days=30):
             u = it.get("usage") or {}
             pt, ct = int(u.get("prompt") or 0), int(u.get("completion") or 0)
             if utype == "cloud":
-                blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
-                acct = str(it.get("cloudAccountId") or blk.get("usageOriginAccountId") or blk.get("accountId") or "")
+                acct, model = legs.of(it)
                 if not acct:
                     continue
-                model = blk.get("model") or it.get("model") or "?"
+                model = model or "?"
                 p_in, p_out, has_price = model_price(model)
                 cost = pt / 1e6 * p_in + ct / 1e6 * p_out
                 a = cloud_acct.setdefault(acct, {"total": 0.0, "requests": 0, "promptTokens": 0,
@@ -413,7 +440,7 @@ def cloud_upstream_errors(hours=24):
     completion, which otherwise is only visible in per-route logs."""
     cutoff = time.time() - int(hours) * 3600
     data = load_cloud_data()
-    blocks_by_id = {b.get("id"): b for b in data.get("blocks", [])}
+    legs = CloudLeg(data)
     account_ids = {a.get("id") for a in data.get("accounts", [])}
     by_account = {}
     for i in range(2):  # today + yesterday cover any 24h window
@@ -441,14 +468,14 @@ def cloud_upstream_errors(hours=24):
             ts = int(it.get("finishedAt") or 0)
             if ts < cutoff:
                 continue
-            blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
-            acct = str(it.get("cloudAccountId") or blk.get("usageOriginAccountId") or blk.get("accountId") or "")
+            acct, model = legs.of(it)
             if acct not in account_ids:
                 continue
-            model = blk.get("model") or it.get("model") or "?"
-            # The caravan's own refusal (the operator's reserve) is its own row:
-            # counted as "HTTP 429" it read as the provider refusing.
-            code = kind if kind == ReserveRefusal.KIND else (f"HTTP {status}" if status >= 400 else kind)
+            model = model or "?"
+            # The caravan's own refusal (no step fits: every one at its switch
+            # level, say) is its own row: counted as "HTTP 429" it read as the
+            # provider refusing.
+            code = kind if kind in PoolRefusal.OWN_KINDS else (f"HTTP {status}" if status >= 400 else kind)
             rows = by_account.setdefault(acct, {})
             row = rows.setdefault((model, code), {"model": model, "code": code, "count": 0,
                                                   "firstAt": 0, "lastAt": 0, "error": "", "kind": ""})
@@ -526,25 +553,12 @@ def fetch_subscription_models(account_id):
     account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
-    if account.get("pool"):
-        lists, seen = [], set()
-        sources = CloudSources(load_cloud_data())
-        for member in account["pool"]["members"]:
-            if not member.get("enabled", True):
-                continue
-            owner = sources.canonical(member["accountId"])
-            if owner["id"] not in seen:
-                models = fetch_subscription_models(owner["id"])
-                model_catalog.store_models(owner["id"], models)
-                lists.append(models)
-                seen.add(owner["id"])
-        return CloudSources.common_models(lists)
     token, account_id_header = _subscription_auth_headers(account)
     # chatgpt.com gates the list by client_version (a codex-CLI version string) and
     # gating may reference versions ABOVE the published CLI — the effective version
     # is env override → max(npm latest, floor); see model_catalog. Retired models
-    # (gpt-5.2, gpt-5.3-codex) are absent at EVERY version — the UI paints blocks
-    # whose model left this list as "not listed by provider".
+    # (gpt-5.2, gpt-5.3-codex) are absent at EVERY version — the board paints a
+    # step whose model left this list as "not listed by provider".
     version, _src = model_catalog.effective_codex_client_version()
     req = urllib.request.Request(
         f"https://chatgpt.com/backend-api/codex/models?client_version={urllib.parse.quote(version)}",
@@ -579,70 +593,55 @@ def fetch_subscription_models(account_id):
     ]
     return models
 
-# One sync for the process: both refresh paths (the background one and "↻")
-# apply their list through it, and "↻" reads back what its own list did.
-CLOUD_SYNC = CloudModelSync()
+def refresh_account_models_cache(account_id, account=None):
+    """Blocking model-list fetch for the catalogue (breaker-guarded inside the
+    fetchers): what "+ Add step" offers and what a step's model is checked
+    against. Used by the background refresher; raises on failure."""
+    data = load_cloud_data()
+    account = account or CloudSources(data).source(account_id)
+    if not account:
+        raise AppError("unknown account", 404)
+    return fetch_subscription_models(account_id) if CloudSources.is_subscription(account) else fetch_account_models(account_id)
 
 
-def auto_create_blocks(account_id):
-    """"↻ Check now": fetch the account's list and apply it to its blocks right
-    away (CloudModelSync) — the same thing the background refresh does every
-    ten minutes while the board is open."""
+def check_account_models(account_id):
+    """"↻ Check now": fetch the account's list into the catalogue at once and
+    say how many chat models it has, and how many other models it left out."""
     account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     models = refresh_account_models_cache(account_id, account)
     model_catalog.store_models(account_id, models)
-    report = CLOUD_SYNC.last(account_id)
-    return {"created": len(report["created"]), "total": report["total"], "skipped": report["skipped"],
-            "gone": len(report["gone"]), "removed": len(report["removed"])}
+    chat = model_catalog.ChatModels.of(models)
+    return {"total": len(chat), "skipped": len(models) - len(chat)}
 
 
-def refresh_account_models_cache(account_id, account=None):
-    """Blocking model-list refresh into the catalog (breaker-guarded inside the
-    fetchers). Used by the background refresher; raises on failure."""
-    data = load_cloud_data()
-    account = account or CloudSources(data).source(account_id)
-    if not account:
-        raise AppError("unknown account", 404)
-    is_subscription = ((account.get("accountType") or "") == "openai-subscription"
-                       or "chatgpt.com" in str(account.get("baseUrl") or ""))
-    models = fetch_subscription_models(account_id) if is_subscription else fetch_account_models(account_id)
-    # A list that arrived is applied to the account's blocks: new models added,
-    # dropped ones counted and — with nothing pointing at them — removed.
-    member_only = any(m.get("accountId") == account_id for p in data.get("pools", []) for m in p.get("members", [])) and not any(
-        b.get("accountId") == account_id for b in data["blocks"])
-    if not member_only:
-        CLOUD_SYNC.apply(account_id, models)
-    return models
-
-
-def annotate_cloud_topology(accounts_state, blocks_state):
-    """Topology glue: mark blocks whose model the provider no longer lists
+def annotate_cloud_topology(accounts_state, pools_state):
+    """Topology glue: mark the steps whose model the provider no longer lists
     (`unlisted: true`, only when a fetched list exists — no list, no verdict),
     kick stale per-account refreshes in the background, and return the
     cloudApiHealth panel payload (tripped endpoints + effective codex version)."""
     creds_by_id = {a.get("id"): bool(a.get("hasCredential")) for a in (accounts_state or [])}
-    data = load_cloud_data()
-    member_ids = {m["accountId"] for p in data.get("pools", []) for m in p.get("members", [])}
-    standalone = {b.get("accountId") for b in data["blocks"]}
+    sources = CloudSources(load_cloud_data())
     for account in (accounts_state or []):
         acc_id = account.get("id")
-        # When the account's list was last checked — the card says so where
-        # the "Fetch models" button used to be. Absent: never checked.
+        # When the account's list was last checked — the step dialog says so.
+        # Absent: never checked.
         entry = model_catalog.cached_models_entry(acc_id) if acc_id else None
         if entry and entry.get("fetchedAt"):
             account["modelsCheckedAt"] = int(entry["fetchedAt"])
-        if not acc_id or not creds_by_id.get(acc_id):
-            continue
-        if acc_id in member_ids and acc_id not in standalone:
-            continue  # the pool refresh owns these members' catalogues
+        if not acc_id or not creds_by_id.get(acc_id) or account.get("testAliasOf"):
+            continue   # an alias's list is its original's
         if model_catalog.models_stale(acc_id) and not model_catalog.endpoint_blocked(f"{acc_id}:models"):
             model_catalog.kick_refresh(acc_id, lambda aid=acc_id: refresh_account_models_cache(aid))
-    for block in (blocks_state or []):
-        ids = model_catalog.cached_model_ids(block.get("accountId"))
-        if ids is not None and block.get("model") and block["model"] not in ids:
-            block["unlisted"] = True
+    for pool in (pools_state or []):
+        for step in pool.get("steps") or []:
+            if step.get("kind", "account") != "account":
+                continue   # a local model or an open row names no provider's list
+            owner = sources.canonical(step.get("accountId"))
+            ids = model_catalog.cached_model_ids(owner["id"] if owner else step.get("accountId"))
+            if ids is not None and step.get("model") and step["model"] not in ids:
+                step["unlisted"] = True
     version, source = model_catalog.effective_codex_client_version()
     return {
         "endpoints": model_catalog.endpoints_report(),

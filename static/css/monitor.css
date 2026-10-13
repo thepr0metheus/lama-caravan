@@ -228,9 +228,17 @@
   font-size: 11px;
 }
 
-/* Description text: hidden in edit form — info is in the ? tooltips */
-.topo-edit-form .field p {
+/* Description text: hidden in edit form — info is in the ? tooltips. A field-note is not a
+   description but a note its panel means to be read (the compact style above is for it), so it
+   stays. It was hidden with the descriptions from 2026-05-31 to 1.3.518: the notes of the command
+   cell, of every runner's panel and Strata's were written as <p class="field-note"> and never seen. */
+.topo-edit-form .field p:not(.field-note) {
   display: none;
+}
+/* `.field p` (cards.css) gives every paragraph the 78px of a description row; a note takes its own height. */
+.topo-edit-form .field p.field-note {
+  min-height: 0;
+  margin: 4px 0 0;
 }
 
 /* Tighter grid: less row gap, less top margin */

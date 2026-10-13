@@ -58,10 +58,20 @@ NO_TAB = {
     "TRANSLATE_MODEL": "translate runner panel",
     "TRANSLATE_SRC_LANG": "translate runner panel",
     "TRANSLATE_TGT_LANG": "translate runner panel",
+    "STRATA_CONTEXT": "Strata runner panel",
+    "STRATA_KV": "Strata runner panel",
+    "STRATA_DRAFT_VOCAB": "Strata runner panel",
+    "STRATA_VRAM_RESERVE_MIB": "Strata runner panel",
+    "GR00T_BACKBONE": "GR00T runner panel",
+    "GR00T_EMBODIMENT": "GR00T runner panel",
+    "GR00T_DENOISING_STEPS": "GR00T runner panel",
     # Engine cells are made on the reserve step, choosing the engine and its
     # model; the editor has no tab for them (Runner.editor_tab is False).
     "ENGINE_MODEL": "reserve step of an engine cell, not the editor",
     "ENGINE_PORT": "reserve step of an engine cell (the engine's own port), not the editor",
+    # The model's name at the machine's entry (1.3.507): every runner has it, so it stands
+    # under the runner tabs, outside any one runner's panel or tab.
+    "MODEL_NAME": "the cell editor's own row under the runner, for every runner",
 }
 
 CONSTANTS = ROOT / "static/js/constants.js"
@@ -102,7 +112,7 @@ EDIT_JS = ROOT / "static/js/llama-edit.js"
 # Panels the editor populates from the saved config, by field id. Anything a
 # runner renders must sit inside one of them or it never gets its saved value.
 PANEL_IDS = ["commandFields", "vllmFields", "whisperFields", "moonshineFields",
-             "seamlessFields", "translateFields"]
+             "seamlessFields", "translateFields", "strataFields", "gr00tFields"]
 
 
 def check_runner_panel_fields():

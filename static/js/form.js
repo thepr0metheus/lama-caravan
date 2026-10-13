@@ -20,7 +20,7 @@ import {
 } from "./favorites.js";
 import { bindCommandLocator, renderConfigSearch } from "./config-locator.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { _commandCellSlot, gpuComputeCap, renderCommandCellPreview, runnerRegistry } from "./llama-edit.js";
+import { _commandCellSlot, ggufKind, gpuComputeCap, renderCellPreviews, runnerRegistry, stKind, stOwner } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -44,7 +44,8 @@ import { JOB_LABELS, JOB_MARKS, jobsForArtifact } from "./model-jobs.js";
 import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
 import { _trCachedModels, _trClientCpu, formOnControllerMachine } from "./remote-cells.js";
 import { state, topology } from "./state.js";
-import { $, api, escapeHtml, formatBool, formatCtxTokens, inferSpecType, toast } from "./utils.js";
+import { $, api, escapeHtml, formatBool, formatCtxTokens, toast } from "./utils.js";
+import { DraftFile } from "./draft-file.js";
 
 export function syncToggleLabel(input) {
   const span = input?.closest(".check-row")?.querySelector("span");
@@ -249,7 +250,8 @@ export function badge(text, kind) {
 //: reader can locate in the source.
 const JOB_HOOKS = { llm: "model-job-llm", embed: "model-job-embed", asr: "model-job-asr", tts: "model-job-tts",
                     translate: "model-job-translate",
-                    "speech-translate": "model-job-speech-translate" };
+                    "speech-translate": "model-job-speech-translate",
+                    "robot-policy": "model-job-robot-policy" };
 
 // What the model DOES, said in words at the head of its row.
 //
@@ -519,13 +521,13 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       // gguf → llama.cpp (native) + vLLM (experimental, dimmed); safetensors →
       // vLLM, dimmed when NO fleet GPU meets the format's compute requirement.
       let runnerIcons = "";
-      if (item.kind === "st" && String(item.stArch || "").startsWith("seamless_m4t")) {
+      const stRunner = item.kind === "st" ? stOwner(item.stArch) : null;
+      if (stRunner) {
         // This branch exists because the one below assumes safetensors means
-        // vLLM — true when ST arrived, and now wrong for at least one family.
-        // vLLM does not load this architecture, so the ⚡ was not merely
-        // confusing next to a 🌐 runner tab: it named an engine that cannot
-        // start the thing, which is worse than naming none.
-        runnerIcons = `<span class="mc-runners" title="seamless (speech → translated text)">🌐</span>`;
+        // vLLM — true when ST arrived, and now wrong for two families. vLLM
+        // loads neither SeamlessM4T nor GR00T, so a ⚡ named an engine that
+        // cannot start the thing, which is worse than naming none.
+        runnerIcons = `<span class="mc-runners" title="${escapeHtml(t(stRunner.labelKey))}">${stRunner.icon}</span>`;
       } else if (item.kind === "st") {
         const reqs = (state.runners || []).find((r) => r.id === "vllm")?.formatRequirements || {};
         const need = reqs[String(item.stFormat || "").toLowerCase()];
@@ -650,8 +652,15 @@ export function renderModelSelects(pfx = "") {
   if (draftEl) makeModelCombobox(draftEl);
 
   // Model items
+  // A later part of a split GGUF is not a choice: an engine loads the first
+  // part and opens the rest beside it, and a scout brings them with it. Listed,
+  // Strata's second part sat in the picker as a llama.cpp model of its own.
+  const laterPart = (path) => {
+    const m = /-(\d{5})-of-\d{5}\.gguf$/i.exec(String(path || ""));
+    return !!m && Number(m[1]) > 1;
+  };
   const modelItems = models
-    .filter((row) => row.kind === "model")
+    .filter((row) => row.kind === "model" && !laterPart(row.path))
     .map((row) => ({
       value: row.path,
       sizeGb: row.sizeGb,
@@ -667,6 +676,8 @@ export function renderModelSelects(pfx = "") {
       // thing that separates the recognizer from forty chat models that look
       // exactly like it in a list of filenames.
       sttVariant: (row.ggufMeta || {}).sttVariant || "",
+      // The file's architecture: a runner may claim it (ggufKind) — Strata's.
+      ggufArch: (row.ggufMeta || {}).architecture || "",
       langs: (row.ggufMeta || {}).languages || [],
       cached: pfx === "tr-" && _trCachedModels.has(row.path),
       // A file only a library holds: offered like any other — the cell can
@@ -675,18 +686,24 @@ export function renderModelSelects(pfx = "") {
       store: row.store || null,
     }));
   // Safetensors artifacts (vLLM launches them). Only where the target reads the
-  // controller's models tree (formOnControllerMachine): other scout machines
-  // don't have it, and their scout syncs gguf only.
-  if (formOnControllerMachine(pfx)) {
-    (state.artifacts || []).forEach((row) => modelItems.push({
-      value: row.path,
-      sizeGb: row.sizeGb,
-      mtime: row.mtime,
-      kind: "st",
-      stName: row.name,
-      stFormat: row.format,
-      stArch: row.arch || "",
-    }));
+  // controller's models tree (formOnControllerMachine): a vLLM cell elsewhere
+  // reads its folder by a path its machine does not have. A SeamlessM4T folder
+  // is the exception since scout 2.30: the scout brings a seamless cell's
+  // folder through the controller (GET /api/models/folder), and with the
+  // controller on the NAS no form is on its machine — the folder was never
+  // offered anywhere.
+  {
+    const everywhere = formOnControllerMachine(pfx);
+    (state.artifacts || []).filter((row) => everywhere || stOwner(row.arch))
+      .forEach((row) => modelItems.push({
+        value: row.path,
+        sizeGb: row.sizeGb,
+        mtime: row.mtime,
+        kind: "st",
+        stName: row.name,
+        stFormat: row.format,
+        stArch: row.arch || "",
+      }));
   }
   // Whisper models join the same picker (🎙) on EVERY form: the "model" is a
   // size name and faster-whisper downloads it on the target host itself.
@@ -778,9 +795,8 @@ export function renderModelSelects(pfx = "") {
         // A SeamlessM4T folder is its own kind, so a generic ST runner does not
         // claim it and it does not claim every other ST folder in return.
         const kind = it.kind === "model"
-          ? (it.sttVariant ? "asr-gguf" : "llm-gguf")
-          : (it.kind === "st" && String(it.stArch || "").startsWith("seamless_m4t")
-             ? "seamless-st" : ROW_KIND[it.kind]);
+          ? ggufKind({ sttVariant: it.sttVariant, architecture: it.ggufArch })
+          : (it.kind === "st" ? stKind(it.stArch) : ROW_KIND[it.kind]);
         if (kind) it.wrongRunner = !accepts.includes(kind);
       });
     }
@@ -888,7 +904,10 @@ export function renderChatTemplateHint(pfx = "") {
 
 // allowEmpty: draw the pool bar even with nothing to estimate (a custom command
 // is an opaque process — its host still has a use/free picture worth seeing).
-export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
+// hard, cards, vramNote: a start with an exact rule (memory.js FreeVramStart) —
+// it overflows at the first MiB short, not past the 1 GB grace an estimate gets;
+// it lands on these cards alone; and the VRAM pool says how it takes memory.
+export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false, { hard = false, cards = null, vramNote = "" } = {}) {
   const el = $(pfx + "asideVramBar");
   if (!el) return;
   if (!runtimeSizeGb && !allowEmpty) {
@@ -907,7 +926,7 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   const ramFree = pfx === "tr-" ? Math.max(0, ramTotal - Number(clientRam.usedGb || 0))
     : Number(state.memory?.availableMiB || 0) / 1024;
   const allGpus = computeTargetGpus(pfx);
-  const selIdx = computeSelectedGpuIdx(pfx);
+  const selIdx = cards || computeSelectedGpuIdx(pfx);
   const gs = (selIdx && selIdx.length) ? allGpus.filter((g) => selIdx.includes(Number(g.index))) : allGpus;
   const vramTotal = gs.reduce((sum, g) => sum + Number(g.memoryTotalMiB || 0) / 1024, 0);
   const vramFree = gs.reduce((sum, g) => sum + gpuFreeMiB(g) / 1024, 0);
@@ -919,13 +938,13 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   //   running → "this cell IS COSTING x" — its share is ALREADY inside the used
   //             figure, so it gets carved out of that block and highlighted
   //             rather than added; appending it would count the cell twice.
-  const pool = (icon, label, totalGb, freeGb, addGb, ownGb, note = "") => {
+  const pool = (icon, label, totalGb, freeGb, addGb, ownGb, note = "", { exact = false, plan = "" } = {}) => {
     if (!totalGb) return "";
     const usedGb = Math.max(0, totalGb - freeGb);
     const mine = Math.min(ownGb, usedGb);            // never wider than the used block
     const othersPct = Math.min(100, ((usedGb - mine) / totalGb) * 100);
     const minePct = Math.min(100 - othersPct, (mine / totalGb) * 100);
-    const overflow = addGb > freeGb + 1;
+    const overflow = addGb > freeGb + (exact ? 0 : 1);
     const addPct = Math.min(100 - othersPct - minePct, (addGb / totalGb) * 100);
     const kind = overflow ? "bad" : (freeGb - addGb < 1 ? "warn" : "good");
     const head = mine
@@ -945,6 +964,7 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
         <div class="aside-vram-label">
           <span>${usedGb > 0.05 ? `${formatSizeGb(usedGb)} used · ` : ""}${formatSizeGb(freeGb)} free / ${formatSizeGb(totalGb)}</span>
         </div>
+        ${plan ? `<div class="aside-vram-plan">${escapeHtml(plan)}</div>` : ""}
       </div>`;
   };
   // Name the card on the VRAM row — the standalone GPU panel is gone, and this
@@ -959,7 +979,8 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   const live = !!slot && ["running", "warming"].includes(String(slot.phase || ""));
   const ownVram = live ? Object.values(slot.gpuMem || {}).reduce((a, v) => a + Number(v || 0), 0) / 1024 : 0;
   el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, (onCpu && !live) ? runtimeSizeGb : 0, (onCpu && live) ? runtimeSizeGb : 0)
-    + pool("🎮", "VRAM", vramTotal, vramFree, (!onCpu && !live) ? runtimeSizeGb : 0, ownVram, cardNote);
+    + pool("🎮", "VRAM", vramTotal, vramFree, (!onCpu && !live) ? runtimeSizeGb : 0, ownVram, cardNote,
+           { exact: hard, plan: vramNote });
 }
 
 // Returns family default fields that differ from current form / saved config values.
@@ -1121,7 +1142,8 @@ export function renderModelInsight(pfx = "") {
       ${warnLine}
       ${familyBoxCompact}
     `;
-    renderAsideVramBar(pfx, split.known && !cpuMode ? split.vramGb : runtimeSize);
+    // llama's figure; whether the bar is llama's to draw is refreshAsidePanels' call.
+    refreshAsidePanels(pfx, split.known && !cpuMode ? split.vramGb : runtimeSize);
   } else {
     // Full tile layout
     box.innerHTML = `
@@ -1296,8 +1318,10 @@ export function renderField(field, pfx = "") {
 
 /**
  * Prefixed version — works for any form prefix (e.g. "tr-" for remote modal).
- * Always rewrites all companion fields to match the selected model.
- * Called on MODEL_FILE change and on form open.
+ * Always rewrites all companion fields to match the selected model, then draws
+ * the previews from them (renderCellPreviews) — writing the fields and drawing
+ * from them are one call, so neither can be reordered away from the other.
+ * Called on MODEL_FILE change, on form open and on a backup load.
  */
 export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   const modelVal = $(pfx + "MODEL_FILE")?.value || "";
@@ -1366,9 +1390,7 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
       // DFlash sidecar launched as draft-mtp starts happily and drafts nothing,
       // which is how a cell ends up at a third of its throughput while the panel
       // looks correct. Family defaults only get to speak for a built-in MTP head.
-      const wantedSpec = !hasMtp ? ""
-        : wantedDraft ? inferSpecType(wantedDraft)
-        : (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp");
+      const wantedSpec = hasMtp ? DraftFile.cellType(wantedDraft, selected?.familyDefaults?.SPEC_TYPE) : "";
       if (specTypeEl.value !== wantedSpec) specTypeEl.value = wantedSpec;
       const specEnabledEl = $(pfx + "SPEC_ENABLED");
       if (specEnabledEl) { specEnabledEl.checked = !!hasMtp; syncToggleLabel(specEnabledEl); }
@@ -1414,11 +1436,12 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   renderChatTemplateHint(pfx);
   syncFavoriteMirrors(pfx);
   renderModelInsight(pfx);
-  renderCommandPreview(pfx);
-  // transcribe is the one command-path runner whose exec line is built FROM
-  // MODEL_FILE, so picking a model has to repaint the command preview too —
-  // otherwise the box keeps naming the file you just replaced.
-  if ((($(pfx + "RUNNER")?.value || "").trim()) === "transcribe") renderCommandCellPreview(pfx);
+  // The previews come LAST, after every write above: each runner's command is
+  // built from fields this function has just rewritten (ALIAS, the draft, and
+  // the pick's own MODEL_FILE). Drawn earlier — by the runner switch that runs
+  // before this on a pick, or by applyConfigToForm on an opening — a preview
+  // names what these writes replaced. Whichever runner the form is on.
+  renderCellPreviews(pfx);
 }
 
 // Auto-parse EXTRA_ARGS: pull any flag that has a dedicated form field out of the
@@ -1683,9 +1706,13 @@ export function readConfigForm(pfx = "") {
   config.HEALTH_PATH = ($(pfx + "HEALTH_PATH")?.value || "").trim();
   config.ENV = $(pfx + "ENV")?.value || "";
   config.WORKDIR = ($(pfx + "WORKDIR")?.value || "").trim();
+  // The model's name at the machine's entry (1.3.507): every runner's, not a flag of any.
+  config.MODEL_NAME = ($(pfx + "MODEL_NAME")?.value || "").trim();
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
    "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
-   "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG"].forEach((k) => {
+   "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
+   "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
+   "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });
   if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine") {

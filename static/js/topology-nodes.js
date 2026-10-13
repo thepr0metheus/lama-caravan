@@ -1,5 +1,6 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
+import { BoardView } from "./board-view.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { CellEye, CellFilter, CellRow, CellWindow, EngineStrip, FoldSlot, ShelfLine } from "./card-rows.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
@@ -35,8 +36,11 @@ import {
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
-import { JOB_LABELS, JOB_MARKS, jobsForCell, jobsFromKinds } from "./model-jobs.js";
-import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
+import { JOB_LABELS, JOB_MARKS, cellJobs, cellRunnerId, jobsFromKinds } from "./model-jobs.js";
+// The record rule lives beside the vocabulary (model-jobs.js); the card's modules import it from here.
+export { cellJobs, cellRunnerId };
+import { $, api, copyText, escapeHtml, toast } from "./utils.js";
+import { DraftFile } from "./draft-file.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
 // Known safetensors format folder names (mirror of _ST_FORMAT_HINTS in
@@ -50,6 +54,13 @@ const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
 
 // Runner identity chip shown IN the model-name row of every cell card —
 // replaces the generic "chip" svg so the engine is readable at a glance.
+// The config field that holds a cell's context window: the runner's own
+// (vLLM's MAX_MODEL_LEN, Strata's STRATA_CONTEXT), from the server's runner
+// classes. Read as CTX_SIZE, their cards drew the window every config inherits.
+function cellContextField(runnerId) {
+  return runnerRegistry().find((r) => r.id === runnerId)?.contextField || "CTX_SIZE";
+}
+
 function runnerChipHtml(runnerId) {
   const known = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
                   "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
@@ -68,33 +79,8 @@ function runnerChipHtml(runnerId) {
 //: Spelled out, not composed — see the same table in form.js.
 const JOB_HOOKS = { llm: "cell-job-llm", embed: "cell-job-embed", asr: "cell-job-asr", tts: "cell-job-tts",
                     translate: "cell-job-translate",
-                    "speech-translate": "cell-job-speech-translate" };
-
-// The runner that launches a cell: its RUNNER, a command cell's "custom", or
-// llama-server. One rule for the cell card, its detail window and the kanban's
-// rows — the card and the window each held a copy, written differently.
-export function cellRunnerId(cfg) {
-  const c = cfg || {};
-  return String(c.RUNNER || "").trim().toLowerCase()
-    || (String(c.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server");
-}
-
-// What a cell DOES, from its record — the card's job chips and the kanban's
-// row marks read this one list.
-//
-// The live `kinds` outrank the runner table, which is the only way a TTS cell
-// can be named as one: voice cloning runs as a typed command, so its runner is
-// "custom" and the table knows nothing about it. A cell whose job cannot be
-// named has none rather than a guessed one.
-export function cellJobs(runnerId, cellMeta, cfg) {
-  // An embedding server answers /v1/embeddings and returns vectors; llama.cpp
-  // cannot serve chat from the same instance. The runner is still llama-server,
-  // so the runner table alone called it a chat model — and a live
-  // Qwen3-Embedding cell wore "💬 LLM" on the board until this branch existed.
-  const embeds = String((cfg || {}).ENABLE_EMBEDDINGS || "").trim().toLowerCase();
-  if (embeds && !["", "0", "no", "false", "off"].includes(embeds)) return ["embed"];
-  return jobsForCell(runnerId, (cellMeta || {}).kinds || []);
-}
+                    "speech-translate": "cell-job-speech-translate",
+                    "robot-policy": "cell-job-robot-policy" };
 
 // What the cell DOES, beside the chip that says what RUNS it.
 function jobChipsHtml(runnerId, cellMeta, cfg) {
@@ -264,6 +250,14 @@ export function gpuOutsideBar(g) {
   return [html, `${total}|${Number(g?.fleetUsedMiB || 0)}|${owners.map((o) => `${o.name}:${o.engine}:${o.mib}`).join(",")}`];
 }
 
+// A card's name with its maker's words apart ("NVIDIA GeForce" | "RTX 5090"): the main board's glance
+// shows the model alone (topology-board.css), the machine's window the whole name.
+export function gpuNameHtml(name) {
+  const full = String(name || "GPU");
+  const maker = (full.match(/^(NVIDIA(?:\s+GeForce)?|AMD(?:\s+Radeon)?|Intel(?:\s+Arc)?)\s+(?=\S)/i) || [""])[0];
+  return maker ? `<span class="node-gpu-maker">${escapeHtml(maker)}</span>${escapeHtml(full.slice(maker.length))}` : escapeHtml(full);
+}
+
 export function nodeGpuRowHtml(node, g) {
   const used = Number(g.memoryUsedMiB || 0), total = Number(g.memoryTotalMiB || 0);
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
@@ -274,7 +268,7 @@ export function nodeGpuRowHtml(node, g) {
     <div class="node-gpu-row" data-gpu-row="${escapeHtml(`${node.id}:${g.index}`)}">
       <div class="node-gpu-head">
         <strong>GPU ${escapeHtml(String(g.index ?? "?"))}</strong>
-        <span class="node-gpu-name">${escapeHtml(g.name || "GPU")}</span>
+        <span class="node-gpu-name">${gpuNameHtml(g.name)}</span>
         <span class="node-gpu-util" data-live-gpuutil>${escapeHtml(String(util))}% · ${escapeHtml(String(temp))}°C · ${escapeHtml(String(power))}W</span>
       </div>
       <div class="node-vram-bar" data-live-gpuvrambar data-vram-total="${escapeHtml(String(total))}"
@@ -1021,8 +1015,9 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const trainedChip = (_isTokenCell && !_isSpeechCell && Number(s.ctxTrained) > 0)
     ? mbadge("trained", `🎓 ${escapeHtml(formatCtxTokens(Number(s.ctxTrained)))}`, t("trainedCtxChipTitle"))
     : "";
-  const slotCtxChip = (_isTokenCell && !_isSpeechCell && !s.ctxMax && _scfg.CTX_SIZE)
-    ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "";
+  const _slotCtx = _scfg[cellContextField(_runner)];
+  const slotCtxChip = (_isTokenCell && !_isSpeechCell && !s.ctxMax && _slotCtx)
+    ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_slotCtx)))}`) : "";
   const _benchKey = s.model ? (_modelBenchKey(s.model) || "") : "";
   const _bdata = _benchKey ? serverBenchCache.get(_benchKey) : null;
   const _aaScore = _bdata?.scores?.aa_intelligence;
@@ -1174,8 +1169,9 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // models have no GPU build), so it deliberately stays OUT of
   // runnerDefaultsGpu AND counts as a CPU cell even without a TTS_DEVICE=cpu
   // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
+  // Strata has no CPU mode at all: its engine streams experts to a card.
   const runnerDefaultsGpu = usesLlamaConfig(_runner) || _runner === "vllm" || _runner === "whisper"
-    || _runner === "transcribe";
+    || _runner === "transcribe" || _runner === "strata" || _runner === "gr00t";
   const runnerCpuOnly = _runner === "moonshine";
   const isCpuCell = !engineRunner && ((running && !devGpuTxt && !cfgSaysGpu)
     || (!running && (cfgSaysCpu || runnerCpuOnly) && !isReserved)
@@ -1525,7 +1521,8 @@ export function openNodeServerDetail(nodeId, port) {
   const nsdCtxChip = !_hasCtx ? ""
     : s.ctxMax
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
-    : (_scfg.CTX_SIZE ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "");
+    : (_scfg[cellContextField(_runnerId)]
+        ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg[cellContextField(_runnerId)])))}`) : "");
   const addr = `${s.clientIp || node.ip || ""}:${s.port}`;
   const gpuLines = (s.gpuIndexes || []).map((i) => {
     const mib = (s.gpuMem || {})[String(i)];
@@ -1623,7 +1620,7 @@ export function openNodeServerDetail(nodeId, port) {
     if (specType.startsWith("ngram-")) {
       add("--spec-type", specType);            // drafts from the prompt; takes no draft model
     } else if (draftFile) {
-      add("--spec-type", specType || inferSpecType(draftFile));
+      add("--spec-type", specType || new DraftFile(draftFile).launchType);
       add("--model-draft", [cfg.LLAMA_MODELS_DIR, draftFile].filter(Boolean).join("/"));
       add("--gpu-layers-draft", cfg.SPEC_DRAFT_N_GPU_LAYERS);
       add("--spec-draft-n-max", cfg.SPEC_DRAFT_N_MAX);
@@ -1798,17 +1795,120 @@ export function hostPowerTextKey(hostId, what) {
 }
 
 // Returns the node-grouped HTML for the Llama Servers lane.
-export function nodesLaneHtml() {
+// A machine's Compute panel: the CPU and its RAM, each GPU, the history charts. One drawing for the
+// machine's own window (nodesLaneHtml) and its glance on the main board (machinesLaneHtml); the live
+// patch (topology-render.js, syncTopologyLive) finds its hooks in either.
+export function nodeComputeHtml(n) {
+  const cpu = n.cpu || {}, ram = cpu.ram || {};
+  const servers = n.servers || [];
+  // Cells that run on this host WITHOUT touching a GPU (n-gpu-layers 0,
+  // command cells): they never appear in a GPU row's ▶ ports, so give
+  // them their own CPU line — otherwise a running CPU cell looks missing.
+  const cpuPorts = servers.filter((srv) => {
+    const ph = srv.phase || (srv.status && srv.status.phase) || "";
+    // Same rule as the card's chip: a GPU-pinned cell is never a CPU cell,
+    // even in the window where it holds no VRAM yet.
+    // Nor is a cell in an engine: its own process holds no model.
+    return ph === "running" && !(srv.gpuIndexes || []).length && !cellPinnedToGpu(srv) && !engineRunnerOf(srv);
+  }).map((srv) => srv.port).filter(Boolean);
+  // The CPU block mirrors a GPU row now: live load% in the head, RAM
+  // used/total where a GPU shows VRAM — those two moved out of the node
+  // header (which kept only the platform). The "cells on CPU" ports are a
+  // sub-line when any exist. Always rendered, so a host's CPU/RAM is visible
+  // even with no CPU cell running.
+  const cpuLoadTxt = cpu.loadPct != null ? `${cpu.loadPct}%` : "";
+  const ramUsedGb = Number(ram.usedGb || 0), ramTotalGb = Number(ram.totalGb || 0);
+  const ramPct = ramTotalGb > 0 ? Math.min(100, Math.round((ramUsedGb / ramTotalGb) * 100)) : 0;
+  const cpuRamTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB`
+    : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
+  // Mirrors a GPU row: a used/total RAM bar where the GPU has its VRAM bar
+  // (no per-cell slices — just the whole-host RAM), and the CPU-cell blue
+  // accent so the block matches the cells that run on it.
+  const cpuRowHtml = `
+        <div class="node-gpu-row node-cpu-row" title="${escapeHtml(t("topologyCpuCellsHint"))}">
+          <div class="node-gpu-head">
+            <strong>CPU</strong>
+            <span class="node-gpu-util" data-live-cpuload>${escapeHtml(cpuLoadTxt)}</span>
+          </div>
+          <div class="node-ram-bar" data-live-cpurambar title="${ramUsedGb.toFixed(1)} / ${ramTotalGb.toFixed(1)} GB"><span style="width:${ramPct}%"></span></div>
+          <div class="node-gpu-meta">
+            <span data-live-cpuram>${escapeHtml(cpuRamTxt)}</span>
+            ${cpuPorts.length ? `<span class="node-gpu-ports">▶ ${cpuPorts.map((pp) => escapeHtml(String(pp))).join(", ")}</span>` : ""}
+          </div>
+        </div>`;
+  // CPU first, then the GPUs (swapped on request — the CPU/RAM summary now
+  // lives here, so it leads).
+  const gpusHtml = cpuRowHtml + ((n.gpus || []).length
+    ? n.gpus.map((g) => nodeGpuRowHtml(n, g)).join("")
+    // The reason outranks a dash: "no cards" and "can't ask a card" are
+    // different messages, and the second one names what to fix (after a
+    // driver update, that's "needs a reboot", while the card is right
+    // there).
+    : `<div class="topology-muted" style="font-size:12px"${n.gpuError ? ` title="${escapeHtml(n.gpuError)}"` : ""}>${escapeHtml(n.gpuError || t("topologyNoGpu"))}</div>`);
+  return `<div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${nodeDriverWarningsHtml(n)}${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>`;
+}
+
+// What a machine is, in its head and for a screen reader: the role word (translated), its own
+// name, and its address — one reading for the machine's card and its glance.
+export function nodeRoleWord(n) {
+  return n.role === "host" ? t("nodeRoleHost") : String(n.role || "");
+}
+export function nodeGroupName(n) {
+  const role = nodeRoleWord(n);
+  return `${role.charAt(0).toUpperCase()}${role.slice(1)} ${n.name || n.id}` + (n.ip ? ` · ${n.ip}` : "");
+}
+
+// A machine's window that has no machine to show: the board does not have this one (forgotten,
+// never added), or the window names none. Said, with the way back — an empty window read as
+// "still loading".
+export function machineMissingHtml(id) {
+  const said = String(id || "") ? t("machineNotOnBoard", { id: String(id) }) : t("machineNotNamed");
+  return `<div class="machine-missing" data-t="machine-missing">${escapeHtml(said)}`
+    + ` <a href="/board" data-t="machine-missing-back">${escapeHtml(t("machineBackToBoard"))}</a></div>`;
+}
+
+// The main board's machines (the owner, 2026-10-11): each one as its load at a glance — its head and
+// its Compute panel. A click on the card opens the machine's own window (main.js; the owner,
+// 2026-10-12: no "↗ Open" button, the card itself opens), which holds the rest: its servers,
+// engines, models and cells, the card the main board used to show whole, the machine's system (in a
+// column of the board's one width the head had no room for it) and the scout's ✕ — letting a machine
+// go is done in its window, not on its glance. The machine's name is the card's link, for the
+// keyboard and a click with a modifier.
+export function machinesLaneHtml() {
+  if (!topology) return "";
+  return (topology.nodes || []).map((n) => {
+    const name = String(n.name || n.id);
+    const id = escapeHtml(String(n.id));
+    const opens = escapeHtml(t("machineOpenTitle", { name }));
+    return `
+      <section class="node-card machine-glance ${n.online ? "online" : "offline"}" data-node-id="${id}" data-t="machine-glance" data-t-id="${id}"
+               role="group" aria-label="${escapeHtml(nodeGroupName(n))}" title="${opens}">
+        <header class="node-head">
+          <span class="node-dot ${n.online ? "on" : "off"}"></span>
+          <a class="machine-name" href="${escapeHtml(BoardView.url(n.id))}" target="${escapeHtml(BoardView.windowName(n.id))}"
+             data-machine-open="${id}" data-t="machine-open" data-t-id="${id}">${escapeHtml(name)}</a>
+          <span class="node-role">${escapeHtml(nodeRoleWord(n))}</span>
+          ${n.ip ? `<span class="topology-muted">${escapeHtml(n.ip)}</span>` : ""}
+          ${scoutOldChipHtml(n)}
+        </header>
+        ${hostSilenceHtml(n)}
+        <div class="node-body">${nodeComputeHtml(n)}</div>
+      </section>`;
+  }).join("");
+}
+
+export function nodesLaneHtml(only = null) {
   if (!topology) return "";
   // Every machine with a scout, GPU or not. A GPU-less host used to be left to
   // the clients column, where the scout's card showed it; that card is gone
   // with the scout's word about clients (docs/scout-split.md), and a machine
   // this lane skipped would be on no screen at all — nor could its first cell
-  // be reserved, the ＋ lives here.
-  const nodes = topology.nodes || [];
+  // be reserved, the ＋ lives here. `only`: the one machine of its own window
+  // (board-view.js) — a window for a machine the board does not have says so.
+  const nodes = (topology.nodes || []).filter((n) => only === null || String(n.id) === String(only));
+  if (only !== null && !nodes.length) return machineMissingHtml(only);
 
   const sections = nodes.map((n) => {
-    const cpu = n.cpu || {}, ram = cpu.ram || {};
     // Power-cycle this host. Some faults are not fixable in software — a host
     // drops a RAM stick on some boots and comes back with half its memory, which
     // starves cells until the machine is rebooted. Reboot only, never shutdown:
@@ -1849,50 +1949,6 @@ export function nodesLaneHtml() {
       const serversHtml = servers.length
         ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: filter.chosen })).join("")
         : "";
-      // Cells that run on this host WITHOUT touching a GPU (n-gpu-layers 0,
-      // command cells): they never appear in a GPU row's ▶ ports, so give
-      // them their own CPU line — otherwise a running CPU cell looks missing.
-      const cpuPorts = servers.filter((srv) => {
-        const ph = srv.phase || (srv.status && srv.status.phase) || "";
-        // Same rule as the card's chip: a GPU-pinned cell is never a CPU cell,
-        // even in the window where it holds no VRAM yet.
-        // Nor is a cell in an engine: its own process holds no model.
-        return ph === "running" && !(srv.gpuIndexes || []).length && !cellPinnedToGpu(srv) && !engineRunnerOf(srv);
-      }).map((srv) => srv.port).filter(Boolean);
-      // The CPU block mirrors a GPU row now: live load% in the head, RAM
-      // used/total where a GPU shows VRAM — those two moved out of the node
-      // header (which kept only the platform). The "cells on CPU" ports are a
-      // sub-line when any exist. Always rendered, so a host's CPU/RAM is visible
-      // even with no CPU cell running.
-      const cpuLoadTxt = cpu.loadPct != null ? `${cpu.loadPct}%` : "";
-      const ramUsedGb = Number(ram.usedGb || 0), ramTotalGb = Number(ram.totalGb || 0);
-      const ramPct = ramTotalGb > 0 ? Math.min(100, Math.round((ramUsedGb / ramTotalGb) * 100)) : 0;
-      const cpuRamTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB`
-        : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
-      // Mirrors a GPU row: a used/total RAM bar where the GPU has its VRAM bar
-      // (no per-cell slices — just the whole-host RAM), and the CPU-cell blue
-      // accent so the block matches the cells that run on it.
-      const cpuRowHtml = `
-        <div class="node-gpu-row node-cpu-row" title="${escapeHtml(t("topologyCpuCellsHint"))}">
-          <div class="node-gpu-head">
-            <strong>CPU</strong>
-            <span class="node-gpu-util" data-live-cpuload>${escapeHtml(cpuLoadTxt)}</span>
-          </div>
-          <div class="node-ram-bar" data-live-cpurambar title="${ramUsedGb.toFixed(1)} / ${ramTotalGb.toFixed(1)} GB"><span style="width:${ramPct}%"></span></div>
-          <div class="node-gpu-meta">
-            <span data-live-cpuram>${escapeHtml(cpuRamTxt)}</span>
-            ${cpuPorts.length ? `<span class="node-gpu-ports">▶ ${cpuPorts.map((pp) => escapeHtml(String(pp))).join(", ")}</span>` : ""}
-          </div>
-        </div>`;
-      // CPU first, then the GPUs (swapped on request — the CPU/RAM summary now
-      // lives here, so it leads).
-      const gpusHtml = cpuRowHtml + ((n.gpus || []).length
-        ? n.gpus.map((g) => nodeGpuRowHtml(n, g)).join("")
-        // The reason outranks a dash: "no cards" and "can't ask a card" are
-        // different messages, and the second one names what to fix (after a
-        // driver update, that's "needs a reboot", while the card is right
-        // there).
-        : `<div class="topology-muted" style="font-size:12px"${n.gpuError ? ` title="${escapeHtml(n.gpuError)}"` : ""}>${escapeHtml(n.gpuError || t("topologyNoGpu"))}</div>`);
       // The machine this controller runs on carries its Server stats (CPU,
       // RAM, network, disk, processes — the controller's own monitor, mounted,
       // not rebuilt) under a "Servers" toggle.
@@ -1914,7 +1970,7 @@ export function nodesLaneHtml() {
       const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${divider}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
           <div class="node-servers">${serversHead}${serversHtml}${startingCard}${serverStatsSlot}</div>
-          <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${nodeDriverWarningsHtml(n)}${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
+          ${nodeComputeHtml(n)}
         </div>`;
     }
     // A machine card is a real grouping of controls that belong together, and
@@ -1927,11 +1983,10 @@ export function nodesLaneHtml() {
     // The name is assembled from what the header already shows: the role word
     // (translated), the machine's own name, and its address. Capitalised
     // because it opens a phrase; harmless where a script has no case.
-    const _roleWord = n.role === "host" ? t("nodeRoleHost") : String(n.role || "");
-    const _groupName = `${_roleWord.charAt(0).toUpperCase()}${_roleWord.slice(1)} ${n.name || n.id}`
-      + (n.ip ? ` · ${n.ip}` : "");
-    // One card of the list under Model servers, among the cloud's: its place is the
-    // operator's (server-order.js), and the controls that move it lead its head.
+    const _roleWord = nodeRoleWord(n);
+    const _groupName = nodeGroupName(n);
+    // A machine's place in the operator's order (server-order.js) — the kanban's Servers panel reads
+    // it — and the controls that move it lead its head.
     const orderKey = ServerOrder.key("node", n.id);
     return `
       <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}"${SERVER_ORDER.attrs(orderKey)}
@@ -1955,7 +2010,9 @@ export function nodesLaneHtml() {
       </section>`;
   }).join("");
 
-  return sections || `<div class="topology-muted">${escapeHtml(t("topologyNoNodes"))}</div>`;
+  // No machine yet: nothing is drawn — "+ Add scout" under the lane says what to do. A muted
+  // "no nodes" above it read as leftover debug text (2026-10-08).
+  return sections;
 }
 
 // Move the live controller stats/charts elements back to their home .lane-stats

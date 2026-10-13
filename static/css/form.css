@@ -209,6 +209,8 @@
 .aside-vram-fill.mine { background: #4593ff; }
 .aside-pool-mine { color: #4593ff; }
 .aside-host-stats .aside-vram-track + .aside-vram-label { margin-top: 4px; }
+/* How a start takes VRAM when the figure is not its files (Strata: what is free). */
+.aside-vram-plan { margin-top: 2px; font-size: 11px; color: var(--muted, #8b93a1); }
 .link-button.apply-family-defaults {
   color: #fbbf24;
   font-weight: 600;
@@ -818,6 +820,41 @@ button.cmd-dirty::after {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* A dialog's boxes (dialogs.js, appConfirmChecks): the pools a consumer may call. One per
+   row; the first may stand for all of them, and then the rest are greyed out. */
+.modal-meta .dlg-checks {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* A box's words are the thing chosen, not a caption: the meta grid's small grey
+   capitals (.modal-meta span) would make them read as labels of a tile. */
+.modal-meta .dlg-check span {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.dlg-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.dlg-check:has(input:disabled) { color: var(--muted); cursor: default; }
+.modal-meta .dlg-checks-empty { font-size: 12px; font-weight: 400; color: var(--muted); text-transform: none; }
 
 .modal code {
   display: block;

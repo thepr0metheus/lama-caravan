@@ -2,7 +2,7 @@
 """The cloud accounts file and the secrets beside it, pinned before either moves.
 
 Two documents with opposite jobs. `cloud-providers.json` is configuration —
-accounts and blocks, read on every topology build. `provider-secrets.json` holds
+accounts and pools, read on every topology build. `provider-secrets.json` holds
 the API keys, is mode 0600, and must never leak into anything the panel renders:
 the account list carries `hasCredential` and the last four characters, never the
 key.
@@ -127,7 +127,7 @@ def main():
     if out.returncode == 0:
         got = json.loads(out.stdout)
         check("a missing file reads as empty, not an error",
-              got == {"accounts": [], "blocks": []}, str(got)[:200])
+              got == {"accounts": [], "pools": [], "migrations": []}, str(got)[:200])
     else:
         check("read on a missing file", False, out.stderr.strip()[-300:])
 
@@ -135,7 +135,7 @@ def main():
                     providers="{ not json")
     if out.returncode == 0:
         check("a corrupt file reads as empty, not a crash",
-              json.loads(out.stdout) == {"accounts": [], "blocks": []})
+              json.loads(out.stdout) == {"accounts": [], "pools": [], "migrations": []})
     else:
         check("read on a corrupt file", False, out.stderr.strip()[-300:])
 
@@ -171,6 +171,26 @@ print(json.dumps({"accounts": [a["id"] for a in d["accounts"]],
               got == {"accounts": ["acct-1"], "blocks": ["blk-1"]}, str(got))
     else:
         check("id filtering", False, out.stderr.strip()[-300:])
+
+    # ── the old form rides along until the migration, and only until then ───
+    out, _, _ = run('''
+from caravan.admin.paths import CLOUD_PROVIDERS_FILE
+d = cloud.load_cloud_data()
+cloud.save_cloud_data(d)
+kept = json.loads(CLOUD_PROVIDERS_FILE.read_text())
+cloud.save_cloud_data({"accounts": d["accounts"], "pools": [], "migrations": ["m"]})
+new = json.loads(CLOUD_PROVIDERS_FILE.read_text())
+print(json.dumps({"kept": sorted(kept), "blocks": [b["id"] for b in kept.get("blocks", [])], "new": sorted(new)}))
+''', providers={**PAIRED, "deletedModels": {"acct-1": ["gone"]}})
+    if out.returncode == 0:
+        got = json.loads(out.stdout)
+        check("a save before the migration keeps the old form's blocks and deleted models",
+              got["kept"] == ["accounts", "blocks", "deletedModels", "migrations", "pools"] and got["blocks"] == ["blk-1"],
+              str(got))
+        check("negative: a file of the new form is written without them",
+              got["new"] == ["accounts", "migrations", "pools"], str(got))
+    else:
+        check("old form kept on save", False, out.stderr.strip()[-300:])
 
     # ── the legacy flat schema ───────────────────────────────────────────────
     out, _, _ = run('print(json.dumps(cloud.load_cloud_data(), sort_keys=True))',
@@ -217,7 +237,8 @@ print(json.dumps({"cached": first is second,
 
     # ── secrets: the file mode and what never leaves it ──────────────────────
     out, mode, stored = run('''
-cloud.save_provider_secrets({"acct-1": {"apiKey": "sk-livekey-ABCD1234"}})
+from caravan.common.credential_vault import CredentialVault
+CredentialVault(cloud.PROVIDER_SECRETS_FILE).put_api_key("acct-1", "sk-livekey-ABCD1234")
 print(json.dumps({"summary": cloud.account_credential_summary("acct-1"),
                   "state": cloud.cloud_accounts_state()}, sort_keys=True))
 ''', providers=PAIRED)
@@ -237,6 +258,33 @@ print(json.dumps({"summary": cloud.account_credential_summary("acct-1"),
               str(state)[:200])
     else:
         check("secret summary", False, out.stderr.strip()[-300:])
+
+    # ── a rewrite of the same size inside one tick of the file clock ─────────
+    # (mtime, size) alone kept the old parse (shown 2026-10-07); every writer
+    # renames a new file into place, and the inode tells the generations apart.
+    out, _, _ = run('''
+import os
+from caravan.common.fsio import atomic_write_text
+path = cloud.PROVIDER_SECRETS_FILE
+first = cloud.load_provider_secrets()["acct-1"]["apiKey"]
+st = path.stat()
+atomic_write_text(path, path.read_text().replace("sk-aaaa", "sk-bbbb"), chmod=0o600)
+os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+renamed = cloud.load_provider_secrets()["acct-1"]["apiKey"]
+st = path.stat()
+path.write_text(path.read_text().replace("sk-bbbb", "sk-cccc"))
+os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+in_place = cloud.load_provider_secrets()["acct-1"]["apiKey"]
+print(json.dumps([first, renamed, in_place, path.read_text().count("sk-cccc")]))
+''', providers=PAIRED, secrets={"acct-1": {"apiKey": "sk-aaaa"}})
+    if out.returncode == 0:
+        first, renamed, in_place, on_disk = json.loads(out.stdout)
+        check("a new file of the same size and mtime is read on the next call",
+              (first, renamed) == ("sk-aaaa", "sk-bbbb"), out.stdout.strip())
+        check("as-is: an in-place rewrite of the same size within one tick stays unseen — no writer does that",
+              in_place == renamed and on_disk == 1, out.stdout.strip())
+    else:
+        check("same-size rewrite", False, out.stderr.strip()[-300:])
 
     # ── a key stored the old way (a bare string) still works ─────────────────
     out, _, _ = run('print(json.dumps(cloud.account_secret_entry("acct-1")))',
@@ -272,10 +320,9 @@ print(json.dumps({
 
     # ── deleting a credential ────────────────────────────────────────────────
     out, _, stored = run('''
-cloud.save_provider_secrets({"acct-1": {"apiKey": "sk-a"}, "acct-2": {"apiKey": "sk-b"}})
 cloud.delete_account_credential("acct-1")
 print(json.dumps(cloud.load_provider_secrets(), sort_keys=True))
-''', providers=PAIRED)
+''', providers=PAIRED, secrets={"acct-1": {"apiKey": "sk-a"}, "acct-2": {"apiKey": "sk-b"}})
     if out.returncode == 0:
         got = json.loads(out.stdout)
         check("deleting one credential leaves the others alone",

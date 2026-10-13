@@ -8,12 +8,17 @@ so the guard now also flags untranslated content:
     words after stripping genuine identifiers (--flags, /paths, ALLCAPS,
     snake_case, product names);
   - latin-script locales: values that are verbatim copies of the en string
-    (3+ words) — short labels and shared terms pass.
-Deliberate exceptions live in TRANSLATION_ALLOWLIST."""
+    (3+ words) — short labels and shared terms pass;
+  - locales with diacritics: words written plain ("modele", "uebersetzt")
+    that the same file writes right elsewhere (DroppedLetters).
+Deliberate exceptions live in TRANSLATION_ALLOWLIST. And no language file may
+write a key twice: the later line silently wins (duplicate_keys)."""
 import json
 import re
 import subprocess
 import sys
+import unicodedata
+from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -21,6 +26,7 @@ from _node import find_node, node_search_paths  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "static" / "js" / "i18n-data.js"
+LANG_DIR = ROOT / "static" / "js" / "i18n"
 
 NON_LATIN = {"ru", "zh", "hi", "ar", "bn", "ja", "ko", "te", "mr", "ta", "ur"}
 
@@ -36,17 +42,24 @@ TRANSLATION_ALLOWLIST = {
     "rtTitleOutputServer",     # "Output → server" — literally the same words in it/id
 }
 
-# Identifiers that legitimately stay latin inside any translation.
+# Identifiers that legitimately stay latin inside any translation. Only the
+# named products and terms ignore case. The ALLCAPS alternative must not:
+# under one re.IGNORECASE for the whole pattern, `[A-Z]{2,}` matched every
+# latin word, every word was stripped before _ENG_PHRASE looked, and the
+# english-phrase rule could never fire (found 2026-10-07; a whole English
+# sentence in the Chinese table passed).
 _IDENT_RE = re.compile(
     r"--[a-z0-9-]+|/[A-Za-z]\w*|\b[A-Z]{2,}[A-Za-z0-9_]*\b"
     r"|[a-z_]{2,}_[a-z_]+"
-    r"|\b(llama\.cpp|llama-server|Jinja|vLLM|PyPI|HuggingFace|Hugging Face|OpenClaw"
+    r"|(?i:\b(llama\.cpp|llama-server|Jinja|vLLM|PyPI|HuggingFace|Hugging Face|OpenClaw"
     r"|OpenAI|OpenRouter|Ollama|Qwen[\w.]*|gemma[\w.-]*|deepseek[\w.-]*|caravan[\w-]*"
     r"|GGUF|VRAM|CUDA|RoPE|flash[- ]attention|Prometheus|nvidia[\w/.-]*|whisper"
     r"|faster-whisper|Docker|systemd|launchd|token(s)?|prompt|batch|slot(s)?|cloud"
     r"|repo id|Blackwell|checkpoint|safetensors|webui|web UI|Kanban|small|default"
-    r"|embeddings?|main|spill|max_tokens|FIFO|heartbeat|API|url|json|yaml|ini|Exa|MCP)\b",
-    re.IGNORECASE,
+    r"|embeddings?|main|spill|max_tokens|FIFO|heartbeat|API|url|json|yaml|ini|Exa|MCP"
+    # Names of other products' things, quoted as their owners write them: a
+    # license, and a ChatGPT setting the operator has to find by its label.
+    r"|Moonshine Community License|Device code authorization)\b)"
 )
 _ENG_PHRASE = re.compile(r"\b[A-Za-z]{3,}(\s+[A-Za-z']{2,}){2,}\b")   # 3+ latin words
 
@@ -89,7 +102,168 @@ def untranslated(lang, key, value, en_value, allowlist=TRANSLATION_ALLOWLIST):
     return None
 
 
+#: Plain words that ARE words of their language although the file also writes their accented twin:
+#: the rule in DroppedLetters would take them for dropped letters. Each with its reason; an entry
+#: that stops being true is a lie, so the list holds only what the tables really contain.
+PLAIN_WORDS_ALLOWED = {
+    "es": {
+        "cuanto": "«en cuanto llegue»: the conjunction has no accent, «cuánto» is the question word",
+        "cache": "the English word inside «KV-cache» and the spec type «ngram-cache»; Spanish is «caché»",
+    },
+    "fr": {
+        "change": "«il change», the present tense, beside the participle «changé»",
+        "configure": "«se configure», the present tense, beside «configuré»",
+        "connecte": "«connecte», the present tense, beside «connecté»",
+        "ferme": "«se ferme», the present tense, beside «fermé»",
+        "refuse": "«refuse», the present tense, beside «refusé»",
+        "supprime": "«supprime», the present tense, beside «supprimé»",
+    },
+    "tr": {
+        "tensor": "a value of --split-mode as llama.cpp spells it: none, layer, row, tensor",
+    },
+}
+
+
+class DroppedLetters:
+    """Words a language file writes WITHOUT the letters its spelling needs, found by the file itself.
+
+    The strings of six commits of 2026-08-15 to 08-18 (the NLLB and Seamless runners, the delete-port
+    dialog and its "no key" box, the language chip, a loading-wait label) stood in seven tables with
+    every diacritic dropped: German
+    «uebersetzt», French «modele», Spanish «peticion», Portuguese «nao», Turkish «yalnizca»,
+    Vietnamese «Ngon ngu cua van ban VAO». Nothing flagged them for two months: the key was there, the
+    text was no copy of the English, and a plain Latin word is no English phrase. The file is the
+    witness. It writes the same word right a hundred times beside the wrong one, so:
+
+    * a plain word is DROPPED when its accented twin stands at least RATIO times as often. A language
+      has real plain words that sit beside an accented one («mas»/«más» is no such pair, «ferme»/«fermé»
+      is): there the plain word is the common one, or it is listed in PLAIN_WORDS_ALLOWED with its reason.
+    * Vietnamese puts a tone mark on nearly every sentence and its plain syllables are real words
+      («con», «thu», «chi»), so a twin proves nothing there. A value of SILENT_WORDS words or more with
+      no letter beyond ASCII is a sentence written plain.
+
+    Not looked at: placeholders, --flags, `code`, snake_case, paths, ALLCAPS (they are not the
+    language's words).
+
+    What it does not see, so nobody trusts it for more: a word the file writes right fewer than RATIO
+    times (nothing to hold it against: German «aufgeloest»), a short Vietnamese label (4 words and
+    fewer), the Spanish «¿» that dropped with the accents, and Italian «e» for «è» (both are words).
+    On the 81 strings that were found by hand in 2026-10 it finds 63; a batch is what it is for.
+    """
+
+    #: How many times more often the accented twin must stand than the plain word.
+    RATIO = 3
+    MIN_LETTERS = 3
+    SILENT_WORDS = 5
+    #: Languages whose tone marks go on nearly every sentence: the silent rule, not the twin rule.
+    TONAL = frozenset({"vi"})
+
+    _SKIP = re.compile(r"\{[^}]*\}|--[\w-]+|`[^`]*`|\b\w+_\w+\b|https?://\S+|/[\w./-]+|\b[A-Z0-9]{2,}\w*\b")
+    _WORD = re.compile(r"[^\W\d_]+")
+    _GERMAN_SPELLED_OUT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+
+    def __init__(self, lang, strings, allowlist=TRANSLATION_ALLOWLIST):
+        """`strings`: key → value of one language (fieldHelp entries as "fieldHelp.<name>")."""
+        self.lang = lang
+        self.allowed_words = PLAIN_WORDS_ALLOWED.get(lang, {})
+        self.strings = {key: value for key, value in strings.items()
+                        if isinstance(value, str) and key.rsplit(".", 1)[-1] not in allowlist}
+
+    def findings(self):
+        """[(key, why)], one per string that holds a dropped word, in key order."""
+        return sorted(self._silent() if self.lang in self.TONAL else self._twins())
+
+    def _words(self, value):
+        words = self._WORD.findall(self._SKIP.sub(" ", value))
+        # Turkish capital İ is "i" and the dotted form must not look accented.
+        return [word.replace("İ", "i").lower() if self.lang == "tr" else word.lower() for word in words]
+
+    def _ascii_forms(self, word):
+        """How the word looks when its letters beyond ASCII are dropped; German also spells them out."""
+        dropped = word.replace("đ", "d").replace("ı", "i")
+        forms = {"".join(c for c in unicodedata.normalize("NFD", dropped) if not unicodedata.combining(c))}
+        if self.lang == "de":
+            forms.add(word.translate(self._GERMAN_SPELLED_OUT))
+        return forms
+
+    def _twins(self):
+        plain, accented, where = Counter(), defaultdict(Counter), defaultdict(list)
+        for key, value in self.strings.items():
+            for word in self._words(value):
+                if word.isascii():
+                    plain[word] += 1
+                    where[word].append(key)
+                else:
+                    for form in self._ascii_forms(word):
+                        accented[form][word] += 1
+        found = {}
+        for word, times in plain.items():
+            twins = accented.get(word)
+            if not twins or len(word) < self.MIN_LETTERS or word in self.allowed_words:
+                continue
+            if sum(twins.values()) >= self.RATIO * times:
+                right = twins.most_common(1)[0][0]
+                for key in where[word]:
+                    found.setdefault(key, set()).add(f"«{word}» for «{right}»")
+        return [(key, "dropped-letters " + ", ".join(sorted(words))) for key, words in found.items()]
+
+    def _silent(self):
+        found = []
+        for key, value in self.strings.items():
+            words = [word for word in self._words(value) if len(word) > 1]
+            if len(words) >= self.SILENT_WORDS and all(word.isascii() for word in words):
+                found.append((key, f"dropped-letters: no tone mark in a sentence of {len(words)} words"))
+        return found
+
+
+_KEY_LINE = re.compile(r"^( {2}| {4})([A-Za-z0-9_]+):")
+
+
+def duplicate_keys(text):
+    """Keys written twice in one language file, as `key` or `fieldHelp.key`.
+
+    Read from the text, because loading the table cannot see them: in an
+    object literal the later line silently wins, and the earlier one stays as
+    dead text that reads like a live translation. A new key for the cloud
+    account window took a name the kanban already used (2026-10-07): the new
+    words were never shown, and the kanban's would have been replaced by
+    them in any table where the order ran the other way.
+    """
+    seen, twice, block = set(), [], ""
+    for line in text.splitlines():
+        if block and re.match(r"^  \},?\s*$", line):
+            block = ""
+            continue
+        found = _KEY_LINE.match(line)
+        if not found:
+            continue
+        if len(found.group(1)) == 2:
+            name = found.group(2)
+            if line.rstrip().endswith("{"):
+                block = name
+        elif block:
+            name = f"{block}.{found.group(2)}"
+        else:
+            continue
+        if name in seen:
+            twice.append(name)
+        seen.add(name)
+    return twice
+
+
 def main() -> int:
+    # Written twice is a fault of the file, not of what node loads from it:
+    # checked first, and on a host without node too.
+    doubled = {path.stem: duplicate_keys(path.read_text(encoding="utf-8"))
+               for path in sorted(LANG_DIR.glob("*.js"))}
+    doubled = {lang: keys for lang, keys in doubled.items() if keys}
+    for lang, keys in doubled.items():
+        print(f"{lang}: {len(keys)} keys written twice — the later line wins, the earlier is dead: "
+              + ", ".join(keys[:10]), file=sys.stderr)
+    if doubled:
+        print("keep one line per key in static/js/i18n/<lang>.js (a new key needs a name of its own)",
+              file=sys.stderr)
+        return 1
     # i18n-data.js is an ES module; reading it means running it, and that needs
     # node. A host that CANNOT run this check must say so and stand aside: a
     # traceback here is indistinguishable from the check having found a missing
@@ -137,6 +311,8 @@ def main() -> int:
             verdict = untranslated(lang, k, v, en_help.get(k, ""))
             if verdict:
                 problems.append(("fieldHelp." + k, verdict))
+        if lang not in NON_LATIN:
+            problems += DroppedLetters(lang, {**strings, **{"fieldHelp." + k: v for k, v in fh.items()}}).findings()
         if missing or missing_help or problems:
             failed = True
             print(f"{lang}: missing {len(missing)} keys, {len(missing_help)} fieldHelp, "

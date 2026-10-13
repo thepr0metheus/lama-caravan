@@ -64,7 +64,7 @@ HOP_HEADERS = {
     "proxy-authenticate",
     "proxy-authorization",
     "te",
-    "trailers",
+    "trailer",
     "transfer-encoding",
     "upgrade",
 }

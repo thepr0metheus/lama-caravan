@@ -27,12 +27,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
 
-def _english():
-    """Every one-string line of en.js — a pin quotes the page's own words, not a
+def _table(code):
+    """Every one-string line of a language file (en.js, ru.js) — a pin quotes the page's own words, not a
     copy of them that can drift."""
     import re
     out = {}
-    for key, raw in re.findall(r'^  (\w+): (".*"),$', (ROOT / "static/js/i18n/en.js").read_text(encoding="utf-8"), re.M):
+    for key, raw in re.findall(r'^  (\w+): (".*"),$', (ROOT / f"static/js/i18n/{code}.js").read_text(encoding="utf-8"), re.M):
         try:
             out[key] = json.loads(raw)
         except ValueError:
@@ -40,14 +40,24 @@ def _english():
     return out
 
 
-EN = _english()
+EN = _table("en")
+RU = _table("ru")
 
 
-def en(key, **kw):
-    text = EN[key]
+def _said(table, key, kw):
+    text = table[key]
     for k, v in kw.items():
         text = text.replace("{" + k + "}", str(v))
     return text
+
+
+def en(key, **kw):
+    return _said(EN, key, kw)
+
+
+def ru(key, **kw):
+    """The same words in Russian: an English literal left in the code says the English words there too."""
+    return _said(RU, key, kw)
 
 
 STUBS = ("topology-render,topology-modals,cables,routers,cloud,history,dialogs,favorites,config-locator,system-panels,"
@@ -94,30 +104,22 @@ ERC_RESULT = ('{ calls: calls(), toast: toastText(), asked: globalThis.__asked, 
               'fresh: [...rc._newReservedCells], snap: globalThis.__snap }')
 
 
+# The model-cache panel of the cell form, as fake elements the page writes to, and the form opened over them.
+OPEN_FORM = 'try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
+CACHE_PANEL = (
+    'const panel = { note: { textContent: "kept" }, status: { textContent: "" }, '
+    'btn: { disabled: false, textContent: "Clear", classList: { add() {}, remove() {} } }, start: { disabled: false, title: "" }, '
+    'list: { innerHTML: "" } }; globalThis.__panel = panel; '
+    'F({ llamaRemoteEditTitle: { textContent: "", parentElement: { querySelector: () => ({}) } }, "tr-purgeCache": panel.btn, '
+    '"tr-purgeCacheNote": panel.note, "tr-purgeCacheStatus": panel.status, llamaRemoteEditStart: panel.start, "tr-cacheList": panel.list }); ')
+PURGED = "✓ " + en("topologyPurgeCacheDone") + ": " + en("topologyPurgeCacheResult", n=3, gb="12.34")
+PURGED_RU = "✓ " + ru("topologyPurgeCacheDone") + ": " + ru("topologyPurgeCacheResult", n=3, gb="12.34")
+# The page in Russian for the length of a pin, and English again after it, whatever the pin does.
+IN_RUSSIAN = ('const i18n = await import(new URL("i18n.js", "file://" + process.env.JS_ROOT + "/").href); await i18n.setLang("ru"); '
+              'try { return {BODY}; } finally { await i18n.setLang("en"); }')
+
 PINS = [
     # ── remote_actions ──
-    # ── create a client by hand ──
-    ('add_client_wire',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  box-a  ";',
-     'await (async () => { await rc.addTopologyClient(); return { calls: calls(), toast: toastText() }; })()',
-     '{"calls": [{"path": "/api/topology/client/create", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\"}"}], "toast": ""}',
-     'positive: на провод уходит обрезанный hostId, без выдуманных полей'),
-    ('add_client_cancelled',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
-     'await (async () => { await rc.addTopologyClient(); return calls(); })()',
-     '[]',
-     'negative: отменённый диалог не шлёт ничего'),
-    ('add_client_blank',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
-     'await (async () => { await rc.addTopologyClient(); return calls(); })()',
-     '[]',
-     'negative: имя из одних пробелов — тоже отмена, а не клиент без имени'),
-    ('add_client_refusal_shown',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "dup";'
-     ' globalThis.__fetchReply["/api/topology/client/create"] = { __status: 409, error: "client already exists: dup" };',
-     'await (async () => { await rc.addTopologyClient(); return toastText(); })()',
-     '"Error: client already exists: dup"',
-     'as-is: отказ сервера доходит до оператора с приставкой «Error:» — так его печатает toast(String(e))'),
     # ── moving scout clients under the board's ownership ──
     # ── a route's context window ──
     ('route_ctx_number',
@@ -429,13 +431,18 @@ PINS = [
     ('dtca_yes_named',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }];',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',
-     '{"calls": [{"path": "/api/topology/client/agent/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Removed Scout", "confirm": {"msg": "Delete agent “Scout” from the list?", "opts": {"confirmLabel": "Delete"}}}',
-     'positive: deleteTopologyClientAgent: диалог с именем агента «Scout», на провод {clientId, agentId}; обещания «вернётся с heartbeat» больше нет — вернуть его некому'),
+     '{"calls": [{"path": "/api/topology/client/agent/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Removed Scout", "confirm": {"msg": "Delete agent “Scout” from the list?", "opts": {"title": "Delete agent", "confirmLabel": "Delete"}}}',
+     'positive: deleteTopologyClientAgent: диалог с именем агента «Scout» и своим заголовком (раньше — общий «Confirm service action?»), на провод {clientId, agentId}; обещания «вернётся с heartbeat» больше нет — вернуть его некому'),
     ('dtca_ports_named',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }, { id: "a2", name: "Other" }] }]; st.topology.assignments = { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }, { role: "fallback", proxyId: "skynet:proxy:23002" }] }, { agentId: "a2", routes: [{ role: "primary", proxyId: "skynet:proxy:23009" }] }] } }; globalThis.__fetchReply["/api/topology/client/agent/delete"] = { ok: true, freedPorts: [23001] };',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { toast: toastText(), confirm: globalThis.__msg.msg }; })()',
-     '{"toast": "Removed Scout; freed ports: :23001", "confirm": "Delete agent “Scout” from the list?\\n\\nIts ports :23001 :23002 stay free: bind them to another agent, or delete them in the port\'s window."}',
-     'positive: у агента есть порты — диалог называет его порты (оба, по порядку ролей, без чужого :23009) и говорит, что они останутся; тост — какие порты больше никто не держит'),
+     '{"toast": "Removed Scout; freed ports: :23001", "confirm": "Delete agent “Scout” from the list?\\n\\nIts ports :23001 :23002 stay free: bind them to another agent, or delete them with ✎ on the kanban."}',
+     'positive: у агента есть порты — диалог называет его порты (оба, по порядку ролей, без чужого :23009), говорит, что они останутся, и где их удалить (✎ на канбане — «окна порта» для порта без клиента не было); тост — какие порты больше никто не держит'),
+    ('dtca_one_port_in_the_singular',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }]; st.topology.assignments = { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }] }] } };',
+     'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), confirm: globalThis.__msg.msg }; })()',
+     '{"calls": [], "confirm": "Delete agent “Scout” from the list?\\n\\nIts port :23001 stays free: bind it to another agent, or delete it with ✎ on the kanban."}',
+     'один порт — в единственном числе (было «Its ports :23001»); negative: «отмена» — запроса нет'),
     ('dtca_ports_other_agent_only',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }]; st.topology.assignments = { c1: { assignments: [{ agentId: "a2", routes: [{ role: "primary", proxyId: "skynet:proxy:23009" }] }] }, c2: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23011" }] }] } };',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), confirm: globalThis.__msg.msg, ports: rc.savedAgentPorts("c1", "a1"), missing: rc.savedAgentPorts("nope", "a1") }; })()',
@@ -551,7 +558,7 @@ PINS = [
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
      'await (async () => { await rc.renameTopologyAgent("box-a", "ag1", "old"); return JSON.parse(calls()[0].body).name; })()',
      '""',
-     'as-is: пробелы — это СНЯТИЕ псевдонима, а не отмена (в отличие от add_client_blank, где пробелы = отмена); расхождение зафиксировано'),
+     'as-is: пробелы — это СНЯТИЕ псевдонима, а не отмена (в отличие от имени нового клиента входа, где пробелы = отмена: consumers.js); расхождение зафиксировано'),
     ('route_wait_clamped_silently',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "999999";'
      ' st.setTopology({ proxies: [], clients: [], routers: [{ id: "r1", graph: { nodes: [], edges: [], inputs: {} } }], assignments: {}, nodes: [] });',
@@ -561,7 +568,7 @@ PINS = [
     ('route_wait_not_a_number_refused',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "30s";',
      'await (async () => { await rc.editRouteWait("p1", 30); return { calls: calls(), toast: toastText() }; })()',
-     '{"calls": [], "toast": "Enter a number of seconds, or nothing to use the client\'s own"}',
+     '{"calls": [], "toast": "Enter a number of seconds, or leave it empty to use the port\'s own wait budget."}',
      'negative: не-число отвергается с объяснением и без записи'),
     ('route_model_lock_carries_the_name',
      '',
@@ -578,6 +585,13 @@ PINS = [
      'await (async () => { await rc.editRouteModel("h1", "ag1", "primary", "old", false); return JSON.parse(calls()[0].body).modelName; })()',
      '""',
      'positive: пустое имя — это ОЧИСТКА (порт снова зовётся именем апстрима), а не отмена'),
+    ('nvidia_sources_skip_a_controller_that_cannot_read_its_gpu',
+     '',
+     '(() => { const host = (id, state, gpus) => ({ id, name: id.toUpperCase(), state, gpus }); const top = { hosts: [host("box-a", "online", [{ name: "RTX" }]), host("box-b", "offline", [{ name: "RTX" }]), host("box-c", "online", [])] };'
+     ' const ids = (mon) => rc.nvidiaSmiSources(top, mon, () => "me").map((s) => s.id);'
+     ' return [ids({ latest: { gpu: { ok: false, error: "no scout" } } }), ids({ latest: { gpu: { ok: true } } }), ids(null), rc.nvidiaSmiSources({ hosts: [] }, { latest: { gpu: { ok: false } } }, () => "me")]; })()',
+     '[["box-a"],["local","box-a"],["local","box-a"],[]]',
+     'контроллер, который не читает свою карту (в контейнере без скаута своей машины), — не источник; источников нет — пусто, и ящик nvidia-smi на краю доски прячется (был над карточкой пула NAS); negative: показаний ещё нет — контроллер в списке, как раньше; машины без карты и молчащие не в списке'),
     ('nvidia_source_kept_when_still_listed',
      '',
      'rc.surviving_nvidiaSmiSource([{ id: "local" }, { id: "c1" }, { id: "c2" }], "c2")',
@@ -859,6 +873,106 @@ PINS = [
      json.dumps([en("selectModel"), 0, []], ensure_ascii=False),
      'модель не выбрана («＋ Add model» открывает пустое поле) — сразу «выберите модель», без вопроса «применить?» и без '
      'запроса (раньше сначала спрашивалось, потом отказывалось)'),
+    # ── Speculation switched on: the type the draft is for, as a model pick writes it ──
+    # The switch is bound once, when the form opens first; its handler reads the
+    # fields by id when it fires, so the pin keeps the handler it caught.
+    ('spec_switch_names_the_draft_type',
+     'const sw = { checked: false, closest: () => null,'
+     ' addEventListener: (ev, fn) => { if (ev === "change") (globalThis.__trListeners ||= {}).spec ||= fn; } };'
+     ' globalThis.__sw = sw; F({ "tr-SPEC_ENABLED": sw }); try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}',
+     '(() => { const sw = globalThis.__sw; const fire = (draft, family) => {'
+     ' st.setState({ ...st.state, models: [{ path: "m/model.gguf", familyDefaults: family ? { SPEC_TYPE: family } : {} }] });'
+     ' F({ "tr-SPEC_ENABLED": sw, "tr-SPEC_TYPE": { value: "stale" }, "tr-SPEC_DRAFT_MODEL_FILE": { value: draft }, "tr-MODEL_FILE": { value: "m/model.gguf" } });'
+     ' sw.checked = true; globalThis.__trListeners.spec({ target: sw }); const on = globalThis.__fields["tr-SPEC_TYPE"].value;'
+     ' sw.checked = false; globalThis.__trListeners.spec({ target: sw }); return [on, globalThis.__fields["tr-SPEC_TYPE"].value]; };'
+     ' return [fire("m/dflash-x.gguf", "draft-mtp"), fire("g/mtp/head.gguf", ""), fire("", "draft-eagle3"), fire("", "")]; })()',
+     json.dumps([["draft-dflash", ""], ["draft-mtp", ""], ["draft-eagle3", ""], ["draft-mtp", ""]]),
+     'включённая спекуляция пишет тип черновика, как выбор модели: DFlash остаётся DFlash (раньше — тип семейства '
+     'draft-mtp поверх него), голова из папки mtp/ — draft-mtp; без файла — тип семейства, иначе draft-mtp; '
+     'negative: выключенная — пусто'),
+    # ── A start that is already under way: a notice that names the machine, not an error ──
+    # The form's own fields are set after it opens: opening it needs the whole page.
+    ('start_already_loading_names_the_host',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [{ name: "RTX 5090" }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });'
+     ' globalThis.__fetchReply["/api/topology/client-llama/start"] = { __status: 409, error: "startup already in progress" };',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return { toast: toastText(), closed: globalThis.__fields.llamaRemoteEditOverlay.hidden,'
+     ' pending: [...rc._pendingRemoteStarts.values()].map((p) => [p.hostId, p.hostName, p.modelName, p.port, p.gpuName]) }; })()',
+     json.dumps({"toast": en("topologyRemoteStartAlreadyInProgress", host="box-a"), "closed": True,
+                 "pending": [["h1", "box-a", "model.gguf", 22013, "RTX 5090"]]}),
+     'defect-history: повторный запуск («startup already in progress») называл переменную client, которой в этой '
+     'функции нет — ReferenceError: окно закрывалось молча, без уведомления и без перерисовки; теперь «модель уже '
+     'загружается на box-a» и запись «загружается» с именем машины'),
+    ('start_already_loading_unknown_host',
+     'st.setTopology({ ...st.topology, hosts: [] }); try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });'
+     ' globalThis.__fetchReply["/api/topology/client-llama/start"] = { __status: 409, error: "model already starting" };',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return { toast: toastText(),'
+     ' pending: [...rc._pendingRemoteStarts.values()].map((p) => [p.hostId, p.hostName]) }; })()',
+     json.dumps({"toast": en("topologyRemoteStartAlreadyInProgress", host="h1"), "pending": [["h1", "h1"]]}),
+     'boundary: машины нет в топологии — уведомление и запись называют её id, как успешный запуск'),
+    ('start_sent_names_the_host',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return { toast: toastText(), closed: globalThis.__fields.llamaRemoteEditOverlay.hidden,'
+     ' pending: [...rc._pendingRemoteStarts.values()].map((p) => [p.hostId, p.hostName, p.clientIp]) }; })()',
+     json.dumps({"toast": en("topologyRemoteStartSent", host="box-a"), "closed": True, "pending": [["h1", "box-a", "192.0.2.21"]]}),
+     'positive: принятый запуск — «команда отправлена» с именем машины и та же запись «загружается»'),
+    # ── The form's title: which cell it sets up, not which engine ──
+    ('title_existing_cell', '', 'rc.cellFormTitle("h1 · gpu0", "22009", true)',
+     json.dumps(en("remoteCellTitle", port="22009", host="h1 · gpu0")),
+     'defect-history: форма настроенной ячейки называет её саму — порт и машину; было «Add llama server» у любой '
+     'ячейки, у настроенной Strata тоже (живая проверка 2026-10-13)'),
+    ('title_new_cell', '', 'rc.cellFormTitle("h1", "22011", false)',
+     json.dumps(en("remoteNewCellTitle", port="22011", host="h1")),
+     'новая ячейка («＋ Add model»): «настройки новой ячейки на :порт» — слова подсказки самой кнопки'),
+    ('title_no_port', '', 'rc.cellFormTitle("h1", "", true)',
+     json.dumps(en("remoteNewCellTitleNoPort", host="h1")),
+     'negative: формы без порта сегодня нет, но и тогда заголовок — без пустого «:»'),
+    ('title_on_open',
+     'globalThis.__title = (slot, port) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: slot ? [slot] : [] }] });'
+     ' F({ llamaRemoteEditTitle: { textContent: "", parentElement: { querySelector: () => ({}) } } });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], port); } catch (e) {}'
+     ' const v = globalThis.__fields.llamaRemoteEditTitle.textContent; try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {} return v; };',
+     '[__title({ isSlot: true, clientId: "h1", port: 22009, slotConfig: { RUNNER: "strata", MODEL_FILE: "m.gguf" } }, 22009),'
+     ' __title(null, 22011)]',
+     json.dumps([en("remoteCellTitle", port="22009", host="h1 · gpu0"),
+                 en("remoteNewCellTitle", port="22011", host="h1 · gpu0")]),
+     'форма открывается с заголовком своей ячейки: у настроенной на :22009 — «настройки ячейки», у новой на '
+     ':22011 — «настройки новой ячейки»'),
+    # ── the model-cache panel: its words are the page's, the status line is not the note ──
+    ('purge_result_is_said_in_the_pages_words_on_the_status_line',
+     CACHE_PANEL + OPEN_FORM + ' globalThis.__fetchReply["/api/topology/client-llama/purge-cache"] = { ok: true, result: { removed: 3, freedBytes: 12340000000 } };',
+     'await (async () => { await rc.purgeRemoteModelCache(); return { status: __panel.status.textContent, note: __panel.note.textContent, toast: toastText(), '
+     'sent: calls().filter((c) => c.path.includes("purge-cache")).map((c) => c.body) }; })()',
+     json.dumps({"status": PURGED, "note": "kept", "toast": PURGED, "sent": ['{"hostId":"h1"}']}, ensure_ascii=False),
+     'positive: after a purge the status line (not the note) says the result in the page\'s words — no «file(s)» and «GB freed» written in the code'),
+    ('purge_status_is_cleared_when_the_form_opens',
+     CACHE_PANEL + '__panel.status.textContent = "✓ an earlier purge"; ' + OPEN_FORM,
+     '__panel.status.textContent',
+     json.dumps(""),
+     'positive: the result of an earlier purge belongs to the host it ran on: the form that opens next does not show it'),
+    ('cache_total_line_is_said_in_the_pages_words',
+     CACHE_PANEL + 'globalThis.__fetchReply["/api/topology/client-llama/list-cache?hostId=h1"] = { models: [{ path: "a/x.gguf", sizeBytes: 1000000000 }, { path: "b/y.gguf", sizeBytes: 2500000000 }] }; ' + OPEN_FORM,
+     'await (async () => { const { setTimeout: wait } = await import("node:timers/promises"); await wait(60); return __panel.list.innerHTML.includes(' + json.dumps(en("cacheTotal", n=2, gb="3.50")) + '); })()',
+     json.dumps(True),
+     'positive: the cache list\'s total line is the page\'s own words with the count and the size filled in'),
+    ('purge_result_is_said_in_russian_on_a_russian_page',
+     CACHE_PANEL + OPEN_FORM + ' globalThis.__fetchReply["/api/topology/client-llama/purge-cache"] = { ok: true, result: { removed: 3, freedBytes: 12340000000 } };',
+     'await (async () => { ' + IN_RUSSIAN.replace("{BODY}", '(await rc.purgeRemoteModelCache(), { status: __panel.status.textContent, toast: toastText() })') + ' })()',
+     json.dumps({"status": PURGED_RU, "toast": PURGED_RU}, ensure_ascii=False),
+     'positive: on a Russian page the result of a purge is said in Russian — the words of the result are a key of the table, '
+     'not English written in the code'),
+    ('cache_total_line_is_said_in_russian_on_a_russian_page',
+     CACHE_PANEL + 'globalThis.__fetchReply["/api/topology/client-llama/list-cache?hostId=h1"] = { models: [{ path: "a/x.gguf", sizeBytes: 1000000000 }, { path: "b/y.gguf", sizeBytes: 2500000000 }] }; ',
+     'await (async () => { ' + IN_RUSSIAN.replace("{BODY}", '(' + OPEN_FORM.replace("try {", "(() => { try {").replace("catch (e) {}", "catch (e) {} })()") + ', await (await import("node:timers/promises")).setTimeout(60), __panel.list.innerHTML.includes(' + json.dumps(ru("cacheTotal", n=2, gb="3.50"), ensure_ascii=False) + '))') + ' })()',
+     json.dumps(True),
+     'positive: on a Russian page the total under the list of cached files is said in Russian'),
 ]
 
 _fail = []

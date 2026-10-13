@@ -454,6 +454,24 @@ PINS = [
         [["busy", None], ["Verification could not start", None], ["network error", None]]]),
      "проверка sha256: запуск, опрос раз в 700 мс с долей по байтам, кнопка выключена; итог — по файлам без тоста; ошибка задания — тост; задание пропало — проверка снята; отказ запуска — тост с причиной, без причины и при сбое сети — свой"),
 
+    ("verify_keeps_the_checkpoint_section", "",
+     r"""await (async () => { const ST = { format: "BF16", totalSize: 100, files: [{ name: "m.safetensors", path: "m.safetensors", size: 100 }] };
+        await boot({ [FILES_URL(G)]: { ...FILES(), files: [], safetensors: ST }, [LOCAL_URL(G)]: { ok: true, localNames: [], localFiles: {}, checkpointFolders: ["BF16"] } });
+        const e = page.el; page.catalog.setResults(REPOS()); await page.select(G); await settle(); globalThis.__fetchCalls.length = 0;
+        const sum = (over) => ({ files: 2, pending: 0, same: 0, differs: 0, "wrong-size": 0, missing: 0, "size-only": 0, unreadable: 0, ...over });
+        const copy = (summary) => ({ folder: "g/x/BF16", files: {}, summary });
+        const before = [page.stateFor(G).verifiedCheckpoints, e.repo.innerHTML.includes('data-t="hf-verify"')];
+        replies["/api/hf/verify"] = { ok: true, jobId: "v2" };
+        replies["/api/hf/verify?job=v2"] = { ok: true, job: { done: false, bytesDone: 1, totalBytes: 4, files: {}, checkpoints: [copy(sum({ same: 1, pending: 1 }))] } };
+        await fire(node(e.repo, { act: "verify" }), "click");
+        const running = [page.stateFor(G).verifiedCheckpoints.map((c) => c.summary.pending), e.repo.innerHTML.includes("hf-checkpoint-verified")];
+        replies["/api/hf/verify?job=v2"] = { ok: true, job: { done: true, bytesDone: 4, totalBytes: 4, files: {}, checkpoints: [copy(sum({ same: 1, missing: 1 }))] } }; await runTimers();
+        const done = [page.stateFor(G).verifiedCheckpoints.length, e.repo.innerHTML.includes('data-t="hf-checkpoint-verified"'), e.repo.innerHTML.includes("1 missing")];
+        replies["/api/hf/verify?job=v2"] = { ok: true, job: { done: true, bytesDone: 4, totalBytes: 4, files: {} } }; await page.verify(G); await settle();
+        return [before, running, done, [page.stateFor(G).verifiedCheckpoints, e.repo.innerHTML.includes("hf-checkpoint-verified")]]; })()""",
+     J([[[], True], [[1], False], [1, True, True], [[], False]]),
+     "проверка чекпойнта: кнопка проверки есть у репозитория, где на диске только папка чекпойнта; пока копия читается — её счёт хранится, а строки на странице нет; итог — строка со счётом; ответ без секции (старый сервер) — секция пуста и строки нет"),
+
     ("delete_asks_and_stops_at_failure", "",
      r"""await (async () => { await boot({ [FILES_URL(G)]: FILES(), [LOCAL_URL(G)]: { ok: true, localNames: ["g-Q8_0.gguf", "g-Q4_K_M.gguf", "mmproj-g-bf16.gguf"], localFiles: {} } });
         const e = page.el; page.catalog.setResults(REPOS()); await page.select(G); await settle(); globalThis.__fetchCalls.length = 0;

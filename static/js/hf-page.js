@@ -387,7 +387,7 @@ export class HfPage {
 
   stateFor(id) {
     if (!this.repoStates.has(id)) {
-      this.repoStates.set(id, { lowOpen: new Set(), benchOpen: false, treeOpen: false, otherOpen: false, verify: null, verified: {}, error: "" });
+      this.repoStates.set(id, { lowOpen: new Set(), benchOpen: false, treeOpen: false, otherOpen: false, verify: null, verified: {}, verifiedCheckpoints: [], error: "" });
     }
     return this.repoStates.get(id);
   }
@@ -572,6 +572,7 @@ export class HfPage {
         return;
       }
       state.verified = job.files || {};
+      state.verifiedCheckpoints = job.checkpoints || [];
       if (!job.done) {
         state.verify = { running: true, pct: job.totalBytes ? Math.min(100, Math.round((job.bytesDone * 100) / job.totalBytes)) : 0 };
         this.renderRepo();

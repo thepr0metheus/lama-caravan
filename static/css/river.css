@@ -1,0 +1,148 @@
+/*
+ * river.css: the brook behind the pages (river.js, river-background.js, river-dock.js). Two parts:
+ *   1. the switch in the header, on every page, off until the viewer turns it on;
+ *   2. everything else waits for html.river-on, which is set only while the brook runs:
+ *      with the brook off a page looks exactly as it did before.
+ */
+
+/* ── the switch: a pill beside the tour's, quieter than it while off; while the brook runs the
+   dock's ▾ joins it on the right, and the dock hangs under the two ── */
+.river-switch { position: relative; display: inline-flex; align-items: stretch; }
+.river-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;            /* the global button height (base.css) is for form controls */
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: transparent;
+  color: var(--muted);
+  font: 600 12.5px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.river-toggle-icon { font-size: 14px; line-height: 1; }
+.river-toggle:hover { color: var(--text); border-color: var(--accent); }
+.river-toggle[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.river-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.river-switch > .river-toggle:not(:last-child) { border-radius: 999px 0 0 999px; }
+.river-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 0;
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--accent);
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--text);
+  font: 600 11px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.river-more:hover,
+.river-more[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 42%, transparent); }
+.river-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 640px) { .river-toggle-label { display: none; } }
+
+/* ── the page while the brook runs: its ground gives way to the water ── */
+html.river-on { background: #0b1110; }
+html.river-on body { background: transparent; }
+/* A page whose ground is a full-page block, not the body, lets the water through it too. */
+html.river-on .pb { background: transparent; }                                  /* /kanban */
+/* /kanban's column heads and empty-column notes stand on that ground with no card under them. */
+html.river-on .pb-col-head { text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9); }
+html.river-on .pb-add { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); text-shadow: none; }
+html.river-on .pb-empty { background: var(--panel); }
+/* /hf keeps bare text on the page's ground. Over water the column of filters and results needs a
+   pane, and so does the repository column once it shows a repository; empty, it shows the water. */
+html.river-on .hfp-side,
+html.river-on .hfp-repo:not(:has(> .hfp-empty)) { background: var(--panel); }
+html.river-on .hfp-repo > .hfp-empty { text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9); }
+/* The panels keep base.css's colours with a little of the water showing through. */
+html.river-on { --panel: rgba(24, 33, 37, 0.86); --topbar: rgba(16, 24, 26, 0.76); }
+html.river-on[data-theme="llm"] { --panel: rgba(13, 15, 20, 0.86); --topbar: rgba(8, 9, 12, 0.78); }
+/* The kanban's strip stands over cards, not over water: with the panels' share of water the dimmed cards under it showed
+   through its words. Solid, in the panels' own colour. */
+html.river-on .pb-dock { background: color-mix(in srgb, rgb(24, 33, 37) 94%, #000); }
+html.river-on[data-theme="llm"] .pb-dock { background: color-mix(in srgb, rgb(13, 15, 20) 94%, #000); }
+
+.river-stage {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+  background: #0b1110;
+}
+.river-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* How much of the water shows: river-background.js sets --river-shade per level. */
+.river-shade {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(130% 90% at 50% 40%,
+    rgba(6, 10, 9, calc(var(--river-shade, 0.12) * 0.75)),
+    rgba(6, 10, 9, calc(var(--river-shade, 0.12) * 1.25)));
+  transition: background 0.6s ease;
+}
+
+/* Cables on the board: idle ones are dimmed hard for a plain dark ground and would vanish over
+   moving water, so they stay brighter, with a dark halo. */
+html.river-on .topology-cable { filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.85)); }
+html.river-on .topology-cable.primary.idle,
+html.river-on .topology-cable.fallback.idle,
+html.river-on .topology-cable.consumer.idle { opacity: 0.5; }
+html.river-on .topology-cable.router.idle { opacity: 0.62; }
+/* Text that stands on the ground itself, with no card under it, gets a dark halo. */
+html.river-on .section-title h2,
+html.river-on .topology-lane-head h2,
+html.river-on .cv-entry,                                                          /* the board */
+html.river-on .board-page-link,                                                   /* the board: Models, Hugging Face */
+html.river-on .sys-foot { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9); }   /* /system */
+
+/* ── the dock: brightness, pause, sound — under the switch, opened by its ▾. No backdrop blur:
+   the header blurs already, and a blur inside it sees only the header, not the water. ── */
+.river-dock {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;              /* river-dock.js moves it right on a narrow screen */
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(14, 22, 22, 0.95);
+  border: 1px solid rgba(190, 220, 214, 0.18);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  font: 500 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.river-dock[hidden] { display: none; }
+.river-dock-button {
+  appearance: none;
+  min-height: 0;
+  border: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.river-dock-button:hover { color: var(--text); background: rgba(255, 255, 255, 0.07); }
+.river-dock-button[aria-pressed="true"] { color: #0e1a17; background: var(--accent); }
+.river-dock-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.river-sep { flex: none; width: 1px; height: 18px; margin: 0 4px; background: rgba(190, 220, 214, 0.16); }
+.river-dock-note { margin: 0; padding: 8px 12px; color: var(--muted); }
+@media (max-width: 560px) { .river-dock-button { padding: 8px 9px; } }
+@media (prefers-reduced-motion: reduce) {
+  .river-shade, .river-toggle { transition: none; }
+}

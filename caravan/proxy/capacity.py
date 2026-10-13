@@ -3,7 +3,9 @@ request counts and the has-capacity predicate used for admission."""
 import http.client
 import json
 import time
+from urllib.parse import quote
 
+from caravan.common.upstream_types import UpstreamType
 from caravan.proxy.paths import UPSTREAM_HOST, UPSTREAM_PORT
 from caravan.proxy.runtime import (
     admitted_requests,
@@ -15,15 +17,71 @@ from caravan.proxy.runtime import (
 
 
 def route_group_key(route):
-    """Queue partition key — one queue per upstream llama-server.
+    """Queue partition key — one queue per upstream llama-server, and one per model of a machine's
+    entry (1.3.506): the scout's port serves every model of its machine, each with places of its own.
 
-    Matches the `upstream` field stamped on each active item
-    (f"{upstreamHost}:{upstreamPort}"), so the admin UI can group
-    running/queued requests + slot totals per server.
+    It is the `upstream` stamped on each active item ("host:port", "host:port/model"), so the admin
+    UI can group running/queued requests + slot totals per server.
     """
     host = str(route.get("upstreamHost") or UPSTREAM_HOST)
     port = int(route.get("upstreamPort") or UPSTREAM_PORT)
+    if UpstreamType.of(route) == UpstreamType.MACHINE:
+        return f"{host}:{port}/{route.get('upstreamModel') or ''}"
     return f"{host}:{port}"
+
+
+class MachinePlaces:
+    """A machine model's places as its scout says them (scout 2.29+): `GET /v1/models/<name>` on the
+    machine's entry → `caravan.slots`, how many requests its running copies take at once, and
+    `caravan.busy`, how many they work on now. A count the scout does not say is None — an older
+    scout, a copy whose server does not say, no answer — and the policy's number stands in, as for an
+    engine. Zero places (no copy runs) is no number to wait for either: the request goes, and the
+    entry answers that the model is not running, at once."""
+
+    TIMEOUT = 0.8
+
+    @staticmethod
+    def count(raw):
+        return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0 else None
+
+    @classmethod
+    def read(cls, route, timeout=None):
+        """(slots, busy) of the route's model, each None when not said."""
+        model = str(route.get("upstreamModel") or "")
+        if not model:
+            return None, None
+        try:
+            conn = http.client.HTTPConnection(route["upstreamHost"], int(route["upstreamPort"]),
+                                              timeout=timeout or cls.TIMEOUT)
+            try:
+                conn.request("GET", "/v1/models/" + quote(model, safe=""), headers={"Connection": "close"})
+                res = conn.getresponse()
+                status, body = res.status, res.read(256 * 1024)
+            finally:
+                conn.close()
+            said = json.loads(body.decode("utf-8")).get("caravan") if status == 200 else None
+        except Exception:
+            return None, None
+        said = said if isinstance(said, dict) else {}
+        slots = cls.count(said.get("slots"))
+        return (slots or None), cls.count(said.get("busy"))
+
+def output_has_capacity(out, policy):
+    """True if this output can take a request right now without queueing. Cloud
+    bypasses the slot queue (always True); a llama output is free when its upstream
+    group has fewer active requests than its slot total. One rule for the router
+    graph's failover and for a pool's local row (caravan/proxy/pool_steps.py)."""
+    if str(out.get("upstreamType") or "llama") == "cloud":
+        return True
+    group = route_group_key(out)
+    total = None
+    with slot_total_lock:
+        cached = slot_total_cache.get(group)
+        if cached:
+            total = cached[0]
+    if not total or total <= 0:
+        total = max(1, int((policy or {}).get("maxSlots") or 1))
+    return active_count(group) < total
 
 def upstream_slot_total(route, timeout=0.8, ttl=5.0):
     """Number of slots (llama-server --parallel) for the route's upstream.
@@ -32,8 +90,10 @@ def upstream_slot_total(route, timeout=0.8, ttl=5.0):
     caller can fall back to the policy default — and for an engine next to
     the cells (Ollama, LM Studio) without asking: /slots is llama.cpp's, and
     a foreign engine was sent a request it cannot answer on every admission.
+    A machine's model is asked of its machine's entry (MachinePlaces).
     """
-    if str(route.get("upstreamType") or "") == "engine":
+    kind = UpstreamType.of(route)
+    if kind == UpstreamType.ENGINE:
         return None
     group = route_group_key(route)
     now = time.time()
@@ -42,18 +102,21 @@ def upstream_slot_total(route, timeout=0.8, ttl=5.0):
         if cached and now - cached[1] < ttl:
             return cached[0]
     total = None
-    try:
-        conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=timeout)
-        conn.request("GET", "/slots", headers={"Connection": "close"})
-        res = conn.getresponse()
-        if res.status < 400:
-            body = res.read(1024 * 1024)
-            slots = json.loads(body.decode("utf-8"))
-            if isinstance(slots, list):
-                total = len(slots)
-        conn.close()
-    except Exception:
-        total = None
+    if kind == UpstreamType.MACHINE:
+        total, _busy = MachinePlaces.read(route, timeout)
+    else:
+        try:
+            conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=timeout)
+            conn.request("GET", "/slots", headers={"Connection": "close"})
+            res = conn.getresponse()
+            if res.status < 400:
+                body = res.read(1024 * 1024)
+                slots = json.loads(body.decode("utf-8"))
+                if isinstance(slots, list):
+                    total = len(slots)
+            conn.close()
+        except Exception:
+            total = None
     with slot_total_lock:
         # Preserve last-known-good: /slots latency flaps under load (a failed probe
         # returns None), so don't clobber a previously discovered count with None —
@@ -87,9 +150,13 @@ def active_count(group=None):
     return counted
 
 def llama_processing_count(route, timeout=0.8):
-    # llama.cpp's /slots again: an engine next to the cells has none.
-    if str(route.get("upstreamType") or "") == "engine":
+    # llama.cpp's /slots again: an engine next to the cells has none, and a
+    # machine's model is counted by its machine's entry (MachinePlaces).
+    kind = UpstreamType.of(route)
+    if kind == UpstreamType.ENGINE:
         return None
+    if kind == UpstreamType.MACHINE:
+        return MachinePlaces.read(route, timeout)[1]
     try:
         conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=timeout)
         conn.request("GET", "/slots", headers={"Connection": "close"})

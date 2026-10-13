@@ -1,22 +1,24 @@
-"""Everything that points at a cloud model — a model block, `cb:<id>`."""
+"""Everything that points at a pool — `cb:<id>` on the kanban, an agent route's providerId."""
 from caravan.admin.output_refs import RouterOutputRefs
 from caravan.admin.proxies_config import load_agent_proxy_config
 
 
 class CloudModelRefs:
-    """What points at a cloud model, read from one snapshot of agent-proxies.json.
+    """What points at a pool, read from one snapshot of agent-proxies.json.
 
-    A model the provider stopped offering may leave by itself only when nothing
-    points at it, and the delete confirm lists what would break. The first
-    version of this list (cloud_block_refs) saw bridges, cables, the queue's
-    roles and some rules, and missed a 🛟 backup's main and backup cables' roles,
-    the default a router keeps in reserve (dormantDefault), an agent's own
-    cloud route and its ↑☁ fallback — a confirm that said "nothing references
-    this block" about a model three agents fell back to.
+    The delete confirm lists what would break. The first version of this list
+    (cloud_block_refs) saw bridges, cables, the queue's roles and some rules,
+    and missed a 🛟 backup's main and backup cables' roles, the default a
+    router keeps in reserve (dormantDefault), an agent's own cloud route and
+    its ↑☁ fallback — a confirm that said "nothing references this block" about
+    a model three agents fell back to.
 
-    One snapshot answers for many models: the automatic clean-up asks about
-    every model that left a provider at once.
+    One snapshot answers for many pools: the board asks about every one.
     """
+
+    #: What a pool on the kanban can hold that stops working when it goes.
+    #: Not dormantDefault: that one waits for an absent output by design.
+    HOLDING_RULES = ("default", "audioOutput", "embeddingsOutput", "schedule", "bySource", "failover")
 
     def __init__(self, cfg):
         self._routes = [r for r in (cfg.get("routes") or []) if isinstance(r, dict)]
@@ -33,10 +35,10 @@ class CloudModelRefs:
     def of(self, block_id):
         block_id = str(block_id or "").strip()
         out_ref = f"cb:{block_id}"
-        bridges, routes, fallbacks = [], [], []
+        routes, fallbacks = [], []
         for r in self._routes:
             if str(r.get("providerId") or "") == block_id:
-                (bridges if r.get("kind") == "service" else routes).append(self._port(r))
+                routes.append(self._port(r))
             if str(r.get("cloudFallbackProviderId") or "") == block_id:
                 fallbacks.append(self._port(r))
         edges, queue_roles, rescue_roles, rule_hits = [], [], [], []
@@ -60,28 +62,43 @@ class CloudModelRefs:
                     if str(node_cfg.get(key) or "") in hit_ids:
                         into.append({"router": rid, "node": n.get("id"), "role": role})
             rule_hits.extend({"router": rid, "rule": kind} for kind in refs.rules_naming(out_ref))
-        return {"bridges": bridges, "routes": routes, "fallbacks": fallbacks, "edges": edges,
+        return {"routes": routes, "fallbacks": fallbacks, "edges": edges,
                 "queueRoles": queue_roles, "rescueRoles": rescue_roles, "rules": rule_hits}
 
     def in_use(self, block_id):
         return any(self.of(block_id).values())
 
+    def held(self, pool_id):
+        """What would stop reaching the pool if it went: the cables into it and
+        the rules that name it, over every router."""
+        out = f"cb:{pool_id}"
+        cables, rules = 0, []
+        for router in self._routers:
+            refs = RouterOutputRefs(router)
+            cables += len(refs.edges_touching(out))
+            rules += [k for k in refs.rules_naming(out) if k in self.HOLDING_RULES and k not in rules]
+        return {"cables": cables, "rules": rules}
+
+    def cut(self, pool_id):
+        """Disconnect everything the routers point at the pool — in the routers of
+        the snapshot this was made from; returns how many places."""
+        return sum(RouterOutputRefs(router).drop(f"cb:{pool_id}") for router in self._routers)
+
 
 class CloudModelRewire:
-    """Moves what points at one cloud model onto another — the "new model"
-    window's "move the cables" (the operator's word, 2026-09-27).
+    """Moves what points at one pool onto another — "move the cables" when a
+    pool is deleted (the operator's word for it, 2026-09-27).
 
     In place: an edge keeps its id and only its end changes, so a queue's
     main and overflow, a 🛟 backup's main and backup, a schedule's port — all
     held by edge id — stay where they were; the router's rules (the default,
     the one in reserve, schedule, by-source, failover, audio, embeddings)
-    and an agent's ↑☁ fallback follow too. A model's own ports for apps are
-    pins an app chose, not cables, and stay.
+    and an agent's ↑☁ fallback follow too. An agent's own cloud route is a
+    pin the operator chose, not a cable, and stays.
 
-    The new model's output goes into every router first: saving a router
+    The other pool's output goes into every router first: saving a router
     drops a rule that names an output the router does not have (edges to a
-    cloud model survive, rules do not), and the next sync of outputs would add
-    it anyway — the caller shows the model on the kanban.
+    pool survive, rules do not), and the next sync of outputs adds it anyway.
     """
 
     def __init__(self, cfg):
@@ -89,7 +106,7 @@ class CloudModelRewire:
 
     def move(self, from_id, to_id, output=None):
         """Rewire in the snapshot; returns how many references moved. `output`
-        is the new model's router output (proxies_config.cloud_block_output)."""
+        is the other pool's router output (proxies_config.pool_output)."""
         old, new = f"cb:{from_id}", f"cb:{to_id}"
         for router in self.cfg.get("routers") or []:
             if output and not any(o.get("id") == new for o in router.get("outputs") or []):

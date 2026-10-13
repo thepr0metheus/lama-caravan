@@ -60,6 +60,7 @@ export class HfRepoFacts {
     this.localNames = null;
     this.localFiles = {};
     this.libraryFiles = {};
+    this.checkpointFolders = [];
     this.tree = undefined;
   }
 
@@ -79,11 +80,13 @@ export class HfRepoFacts {
 
   // What we have of this repository: on this disk (localNames, localFiles) and
   // in the libraries a move carried files to (libraryFiles: name → one entry
-  // per library, with its size and time).
+  // per library, with its size and time). A safetensors checkpoint is a folder
+  // with no file name to list: checkpointFolders names the folders that hold one.
   setLocal(data) {
     this.localNames = new Set(data.localNames || []);
     this.localFiles = data.localFiles || {};
     this.libraryFiles = data.libraryFiles || {};
+    this.checkpointFolders = data.checkpointFolders || [];
   }
 
   // The copies of one file in libraries, or an empty list.
@@ -191,6 +194,12 @@ export class HfRepoFacts {
 
   get localCount() {
     return this.localNames ? this.localNames.size : 0;
+  }
+
+  // Whether anything of this repository is on this disk to verify: a GGUF file
+  // or a checkpoint folder. The list's "files on disk" count stays GGUF files.
+  get verifiable() {
+    return this.localCount > 0 || this.checkpointFolders.length > 0;
   }
 
   get libraryCount() {

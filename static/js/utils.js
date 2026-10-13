@@ -28,7 +28,8 @@ export function fillVersionChipFromHealth() {
   const el = $("projectGitBranch");
   if (!el) return;
   fetch("/health").then((r) => r.json()).then((d) => {
-    if (!d || !d.version || el.textContent.includes("git:")) return;
+    // The state's answer is fuller (the branch, or an image's commit): it wins whenever it came.
+    if (!d || !d.version || el.dataset.fromState) return;
     el.textContent = `v${d.version}`;
     el.title = `lama-caravan v${d.version}${d.commit ? ` @ ${d.commit}` : ""}`;
   }).catch(() => {});
@@ -67,9 +68,21 @@ export async function api(path, options = {}) {
         && location.pathname !== "/login") {
       window.location = "/login";
     }
-    throw new Error(data.error || response.statusText);
+    // The refusal's status and its whole answer travel with the error: a caller that can act
+    // on a refusal reads them (isStaleCopy below); every other caller sees the message as before.
+    const err = new Error(data.error || response.statusText);
+    err.status = response.status;
+    err.data = data;
+    throw err;
   }
   return data;
+}
+
+// The controller's refusal of a save made from an older copy of its lists than the stored one
+// (ProxyRevisions, caravan/admin/proxies_config.py): 409, `stale`, and the current topology to
+// make the change again on. One reading of that shape for every page that saves whole lists.
+export function isStaleCopy(err) {
+  return err?.status === 409 && err.data?.stale === true && !!err.data.topology;
 }
 
 export function toast(message) {
@@ -194,27 +207,6 @@ export function markPageState(state, detail = "") {
   if (detail) b.dataset.tStateDetail = String(detail).slice(0, 200);
   else delete b.dataset.tStateDetail;
   b.setAttribute("aria-busy", state === "loading" ? "true" : "false");
-}
-
-// Sidecar prefix → speculative type, mirroring caravan/admin/config_builder.py's
-// _SPEC_SIDECAR_TYPES. llama.cpp itself infers this from a draft repo's sidecars
-// (PR #25989) but only for -hfd downloads; a local --model-draft gets nothing,
-// so both the command preview and the config panel name the type from the file.
-// Matches the FIRST token only, so "my-dflash-lookalike.gguf" is not a sidecar.
-const SPEC_SIDECAR_TYPES = [
-  ["dflash", "draft-dflash"],
-  ["dspark", "draft-dspark"],
-  ["eagle3", "draft-eagle3"],
-  ["mtp", "draft-mtp"],
-];
-
-export function inferSpecType(specPath) {
-  const stem = String(specPath || "").split("/").pop().toLowerCase();
-  const head = stem.split(/[-_.]/)[0];
-  const hit = SPEC_SIDECAR_TYPES.find(([prefix]) => head === prefix);
-  // draft-simple, not draft-mtp: a plain second model drafted autoregressively.
-  // draft-mtp aborts outright on a model with no MTP head.
-  return hit ? hit[1] : "draft-simple";
 }
 
 // Compact token count: 32768 -> "32.8k", 262144 -> "262k", 1500 -> "1.5k".

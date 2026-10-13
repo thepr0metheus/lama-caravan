@@ -21,6 +21,7 @@ operator is choosing between:
     tts              text → speech
     translate        text → text in another language
     speech-translate speech → text in another language
+    robot-policy     camera frames + robot state + instruction → robot actions
 
 `embed` is separate from `llm` for the same kind of reason, and it was got
 wrong first: every non-speech gguf was called an LLM, so a live
@@ -28,6 +29,11 @@ Qwen3-Embedding cell wore "💬 LLM" on the board. An embedding server answers
 /v1/embeddings and returns vectors — llama.cpp's own help says a chat model
 cannot also serve embeddings on the same instance — so an operator scanning for
 something to chat with would have picked it.
+
+`robot-policy` is a vision-language-action model (GR00T N1.7, 2026-10-13): it
+answers POST /v1/robot/predict with numbers for a robot to execute, which no
+chat client can read. Calling it an LLM because a language model sits inside it
+would put it in chat lists, so it is its own job.
 
 `speech-translate` is separate from `asr` on purpose. SeamlessM4T takes speech
 and returns the TARGET language only — no transcript of the source is produced
@@ -40,7 +46,7 @@ exactly the defect this rule was split into its own file to prevent.
 """
 
 #: The whole vocabulary. Order is the order chips are drawn in.
-JOBS = ("llm", "embed", "asr", "tts", "translate", "speech-translate")
+JOBS = ("llm", "embed", "asr", "tts", "translate", "speech-translate", "robot-policy")
 
 #: Words a cell may report in `kinds` that mean one of ours. Cell servers grew
 #: their own spellings before there was a vocabulary — whisper says
@@ -59,6 +65,9 @@ _KIND_ALIASES = {
     # out, so a chat model) or "embedding".
     "vlm": "llm",
     "embedding": "embed",
+    "robot-policy": "robot-policy",
+    # A vision-language-action model, as the field calls it.
+    "vla": "robot-policy",
 }
 
 #: What each runner can be, when the cell itself has not said. A runner absent
@@ -66,12 +75,18 @@ _KIND_ALIASES = {
 #: typed, and guessing its job from the runner id would be inventing a fact.
 _RUNNER_JOBS = {
     "llama-server": ("llm",),
+    # PrismML's fork of llama.cpp: a chat model like its parent. The browser's
+    # twin said so and this one did not — a prism cell's row in a pool did
+    # nothing on the server's word while its card said "llm".
+    "prism": ("llm",),
     "vllm": ("llm",),
+    "strata": ("llm",),
     "whisper": ("asr",),
     "moonshine": ("asr", "tts"),
     "transcribe": ("asr",),
     "seamless": ("speech-translate",),
     "translate": ("translate",),
+    "gr00t": ("robot-policy",),
 }
 
 
@@ -87,9 +102,10 @@ def jobs_for_artifact(kind, stt_variant="", arch="", family=""):
     `kind` is the picker's own artifact class (model | st | whisper | moonshine
     | translate). A gguf ("model") is split by `stt_variant`: present means the
     file's metadata declares speech weights, and llama-server cannot load it at
-    all. Safetensors ("st") are vLLM chat checkpoints except the seamless
-    family, told apart by architecture the same way the picker already tells it
-    apart to avoid promising a ⚡ that cannot start.
+    all. Safetensors ("st") are vLLM chat checkpoints except the seamless and
+    GR00T families, told apart by architecture (config.json model_type) the same
+    way the picker already tells them apart to avoid promising a ⚡ that cannot
+    start.
 
     An unknown kind answers with nothing. A row whose job we cannot name must
     say nothing rather than guess "llm", which is how the silence started.
@@ -103,7 +119,10 @@ def jobs_for_artifact(kind, stt_variant="", arch="", family=""):
         # rather than re-deriving keeps the one answer in the one place.
         return ("embed",) if str(family or "") == "embedding" else ("llm",)
     if kind == "st":
-        return ("speech-translate",) if str(arch or "").startswith("seamless_m4t") else ("llm",)
+        arch = str(arch or "")
+        if arch.startswith("seamless_m4t"):
+            return ("speech-translate",)
+        return ("robot-policy",) if arch.lower().startswith("gr00t") else ("llm",)
     if kind == "whisper":
         return ("asr",)
     if kind == "moonshine":
@@ -142,3 +161,34 @@ def jobs_for_cell(runner_id, kinds=()):
     if live:
         return live
     return _ordered(set(_RUNNER_JOBS.get(str(runner_id or "").strip().lower(), ())))
+
+
+#: The values of a cell's ENABLE_EMBEDDINGS that leave it off.
+_OFF = ("", "0", "no", "false", "off")
+
+
+def cell_runner_id(cfg):
+    """The runner that launches a cell: its RUNNER, a command cell's "custom", or llama-server.
+    The twin of static/js/model-jobs.js cellRunnerId."""
+    c = cfg if isinstance(cfg, dict) else {}
+    runner = str(c.get("RUNNER") or "").strip().lower()
+    if runner:
+        return runner
+    return "custom" if str(c.get("CELL_KIND") or "").lower() == "command" else "llama-server"
+
+
+def cell_jobs(runner_id, cell_meta, cfg):
+    """What a cell DOES, from its record: its settings and what it says of itself. The twin of
+    static/js/model-jobs.js cellJobs — the board draws the chips by that one, the controller tells
+    the proxy by this one what each cell's pool row does (1.3.502), and scripts/test_model_jobs.py
+    runs both against one table of cases.
+
+    An embedding server is an embedding server whatever its runner; a cell this controller holds
+    no settings for is what it says it is, or nothing — the runner on record would be a guess."""
+    c = cfg if isinstance(cfg, dict) else {}
+    if str(c.get("ENABLE_EMBEDDINGS") or "").strip().lower() not in _OFF:
+        return ("embed",)
+    kinds = (cell_meta or {}).get("kinds") if isinstance(cell_meta, dict) else None
+    if not c:
+        return jobs_for_cell("", kinds or ())
+    return jobs_for_cell(runner_id, kinds or ())

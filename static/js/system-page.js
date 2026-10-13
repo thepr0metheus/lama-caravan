@@ -60,7 +60,8 @@ function renderHero(info) {
   const tiles = [];
   if (state.appVersion) tiles.push(stat("lama-caravan", `v${state.appVersion}`));
   const git = (info && info.projectGit) || state.projectGit || {};
-  if (git.branch) tiles.push(stat("git", `${git.branch}${git.head ? " @ " + git.head : ""}`, git.dirtyCount ? "warn" : ""));
+  if (git.baked) tiles.push(stat("git", `${t("gitBaked")}${git.head ? " @ " + git.head : ""}`));
+  else if (git.branch) tiles.push(stat("git", `${git.branch}${git.head ? " @ " + git.head : ""}`, git.dirtyCount ? "warn" : ""));
   const disk = (info && info.disk) || {};
   if (disk.totalGb != null) tiles.push(stat(t("ctrlDisk"), `${disk.freeGb} GB ${t("ctrlDiskFree")}`, (disk.freeGb || 0) < 50 ? "warn" : "good"));
   const models = (info && info.models) || {};

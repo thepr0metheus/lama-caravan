@@ -36,6 +36,9 @@ COMPOSED = {
     "cell-remote-runner-tab": "llama-edit.js: data-t on each runner tab",
     # static/js/memory.js — the CPU/GPU/auto tiles, data-t-id cpu|gpu|auto
     "cell-remote-compute": "memory.js: tHook",
+    # static/js/usage-stats.js — a pool step's two level handles on a limit bar: data-t="pool-${level}"
+    "pool-switch": "usage-stats.js: subscriptionLimitRowHtml, handle(level)",
+    "pool-stop": "usage-stats.js: subscriptionLimitRowHtml, handle(level)",
     # static/js/card-rows.js — a folded card's control: 📌 keeps it open, ▴ folds it back
     "fold-pin": "card-rows.js: FoldSlot.control() by mode",
     "fold-unpin": "card-rows.js: FoldSlot.control() by mode",
@@ -82,12 +85,14 @@ COMPOSED = {
     "model-job-tts": "form.js: jobChips() on the picker row",
     "model-job-translate": "form.js: jobChips() on the picker row",
     "model-job-speech-translate": "form.js: jobChips() on the picker row",
+    "model-job-robot-policy": "form.js: jobChips() on the picker row",
     "cell-job-llm": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-asr": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-embed": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-tts": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-speech-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-robot-policy": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-config-search": "config-locator.js: the settings search input above the tabs",
     # The switch on an engine's strip starts or stops its server — one of the two.
     "node-engine-start": "topology-nodes.js: engineLeverHtml() on an engine's strip",
@@ -95,6 +100,13 @@ COMPOSED = {
     "cell-config-search-results": "config-locator.js: the search suggestion list",
     # The caravan's strip over the chips is an EngineStrip with its own hook.
     "node-caravan": "topology-nodes.js: nodeCaravanGroupHtml() passes EngineStrip its hook",
+    # The caravan's two model pages under the kanban's card: one helper draws both links, the hook is its argument.
+    "board-models-open": "routers.js: renderBoardPageLinks() under the kanban's card",
+    "board-hf-open": "routers.js: renderBoardPageLinks() under the kanban's card",
+    # The kanban's "＋" rows that start a new cable from any point of them: one helper draws both. They stand in the
+    # strip below the board (1.3.533), and on the card of a pool or a set that has nothing yet.
+    "pb-add-row": "pool-board.js: newOutHtml() in a pool's strip, and on a pool with no row",
+    "pb-set-add": "pool-board.js: newOutHtml() in a set's strip, and on a set with no model",
 }
 
 LITERAL = re.compile(r'data-t="([a-z][a-z0-9-]*)"')

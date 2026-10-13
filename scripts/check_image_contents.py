@@ -8,8 +8,9 @@ folder fails. `cells/` was missing that way: a scout asking the containerised
 controller for its cell servers got an empty list and a 500 (found 2026-10-07).
 
 What the code reads is asked from the code, not listed here by hand: the two
-entry points, the caravan package, `caravan.admin.paths.STATIC_DIR` and
-`caravan.admin.cell_assets.CELLS_DIR`. Each must be carried by a COPY line of
+entry points, the caravan package, `caravan.admin.paths.STATIC_DIR`,
+`caravan.admin.cell_assets.CELLS_DIR` and the VERSION file of
+`caravan.common.checkout.CheckoutCommit`. Each must be carried by a COPY line of
 the Dockerfile and must not be dropped by .dockerignore. Every COPY source
 must exist, or the build fails on the machine that builds it, not here.
 
@@ -27,7 +28,8 @@ sys.path.insert(0, str(ROOT))
 def runtime_homes():
     """The repo parts the running code reads, as repo-relative paths (folders end with /)."""
     from caravan.admin import cell_assets, paths
-    homes = ["app.py", "agent-proxies.py", "caravan/"]
+    from caravan.common.checkout import CheckoutCommit
+    homes = ["app.py", "agent-proxies.py", "caravan/", CheckoutCommit.VERSION_FILE]
     for folder in (Path(paths.STATIC_DIR), Path(cell_assets.CELLS_DIR)):
         homes.append(folder.resolve().relative_to(ROOT).as_posix() + "/")
     return homes

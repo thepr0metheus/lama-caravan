@@ -74,9 +74,9 @@ def main():
           "остаются запись конфига контроллера и имя снимка (его берут снимки ячеек на их слотах)")
     print("адрес живого такта доски:")
     heavy = []
-    saved = {name: getattr(routes, name) for name in ("project_git_info", "state", "llama_cpp_info", "runtime_api")}
+    saved = {name: getattr(routes, name) for name in ("project_git_info", "state", "llama_cpp_info")}
     routes.project_git_info = lambda: {"branch": "main", "head": "abc1234", "dirtyCount": 0, "ok": True, "error": ""}
-    for name in ("state", "llama_cpp_info", "runtime_api"):
+    for name in ("state", "llama_cpp_info"):
         setattr(routes, name, lambda *a, _n=name, **k: heavy.append(_n) or {})
 
     class _H:
@@ -92,7 +92,7 @@ def main():
             setattr(routes, name, fn)
     check(_H.sent == {"branch": "main", "head": "abc1234", "dirtyCount": 0, "ok": True, "error": ""},
           f"/api/project-git отдаёт ровно сведения о ветке проекта (got {_H.sent})")
-    check(heavy == [], f"negative: ни целого состояния, ни запуска llama-server, ни опроса одиночного сервера (got {heavy})")
+    check(heavy == [], f"negative: ни целого состояния, ни запуска llama-server (got {heavy})")
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")
         for m in _fail:

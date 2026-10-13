@@ -57,7 +57,7 @@ const SEL = {
   rin: (id) => `[data-topology-router-input][data-router-id="${id}"]`,
   rout: (id) => `[data-topology-router-output][data-router-id="${id}"]`,
   llama: (port) => `[data-topology-llama-input][data-llama-port="${port}"]`,
-  cloud: (acc) => `[data-topology-cloud-input][data-account-id="${acc}"]`,
+  cloud: (pool) => `[data-topology-cloud-input][data-pool-id="${pool}"]`,
 };
 const TOPO = (extra = {}) => ({
   clients: [{ id: "box-a", name: "Box A", agents: [{ id: "hotel" }] }],
@@ -70,7 +70,7 @@ const TOPO = (extra = {}) => ({
   ],
   routers: [{ id: "router:default", outputs: [
     { id: "srv:22001", upstreamType: "llama", upstreamHost: "127.0.0.1", upstreamPort: 22001 },
-    { id: "cb:terra", upstreamType: "cloud", accountId: "acct", providerId: "cb:terra" },
+    { id: "cb:terra", upstreamType: "cloud", providerId: "terra" },
     { id: "srv:22077", upstreamType: "llama", upstreamHost: "127.0.0.1", upstreamPort: 22077 },
   ] }],
   ...extra,
@@ -79,7 +79,7 @@ const DOM = () => { globalThis.__q = {
   [SEL.board]: R(0, 0, 1000, 600),
   [SEL.handle("box-a", "hotel", "primary")]: R(100, 100), [SEL.handle("box-a", "hotel", "fallback")]: R(100, 140), [SEL.handle("box-a", "hotel", "embeddings")]: R(100, 180),
   [SEL.rin("router:default")]: R(400, 120), [SEL.rout("router:default")]: R(440, 120),
-  [SEL.llama(22001)]: R(700, 100), [SEL.cloud("acct")]: R(700, 200),
+  [SEL.llama(22001)]: R(700, 100), [SEL.cloud("terra")]: R(700, 200),
 }; };
 const MON = (port) => ({ latest: { agentProxies: { agents: { [String(port)]: { port, active: [{ phase: "running", port }], recent: [] } } } } });
 const reset = () => { st.setState({ config: {} }); st.setTopology(TOPO()); st.ui.latestSystemMonitor = null; DOM();
@@ -108,31 +108,115 @@ PINS = [
      '[true,true,true,true,true]', "акцент по ключу: детерминирован, разный для разных ключей, пустой ключ = item, формат стиля"),
     # ── drawTopologyCables ──
     ("draw_paths_and_viewbox", '', '(() => { m.drawTopologyCables(); return [svg().attrs.viewBox, paths().length]; })()',
-     '["0 0 1000 600",4]', "viewBox из доски; нарисованы 2 кабеля клиента + 2 выхода роутера, 2 пропущены"),
+     '["0 0 1000 600",2]', "viewBox из доски; нарисованы 2 кабеля клиента; negative: пулов нет — от карточки канбана канатов нет: "
+     "канат к машине или провайдеру значит, что туда ведёт строка пула"),
     ("draw_segment1_classes", '', '(() => { m.drawTopologyCables(); return paths().slice(0, 2); })()',
      '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hotel-primary","topology-cable fallback unverified idle proxy-ctl-proxy-23002 route-box-a-hotel-fallback"]',
      "primary с приоритетом и трафиком — priority, idle без активности; fallback без единого запроса — unverified; классы прокси и маршрута для подсветки"),
     ("draw_unverified_has_title", '', '(() => { m.drawTopologyCables(); return (svg().innerHTML.match(/<title>/g) || []).length; })()', '1', "подсказка «не подтверждён» стоит ровно на непроверенном кабеле"),
-    ("draw_segment3_classes", '', '(() => { m.drawTopologyCables(); return paths().slice(2); })()',
-     '["topology-cable router idle","topology-cable router cloud idle"]', "выходы роутера: локальный и облачный, оба idle без активности"),
+    ("draw_no_cable_leaves_the_kanban", '', '(() => { m.drawTopologyCables(); return [paths().filter((c) => c.includes(" router")), m.cableDrops.filter((d) => d.what.startsWith("router")).length]; })()',
+     '[[],0]', "negative: выходы роутера — ячейка и пул — сами канатов на главной доске не получают и потерянными не записаны: "
+     "строки пулов на канбане, а от карточки канбана канат идёт к машине или провайдеру целиком"),
     ("draw_active_cable_lights", 'st.ui.latestSystemMonitor = MON(23001);', '(() => { m.drawTopologyCables(); return paths()[0]; })()',
      '"topology-cable primary priority activity-active health-ok proxy-ctl-proxy-23001 route-box-a-hotel-primary"', "активный запрос на порту — кабель без idle, с классами активности и здоровья (анимируется)"),
     ("draw_drops_named_with_reasons", '', '(() => { m.drawTopologyCables(); return m.cableDrops.map((d) => ({ ...d })); })()',
-     '[{"what":"box-a/hotel embeddings -> router","routeHandleFound":true,"proxyId":"ctl:proxy:23009","proxyResolved":true,"routerId":"(unresolved)","routerInputFound":false},{"what":"router router:default -> srv:22077","routerOutputFound":true,"upstream":":22077","upstreamInputFound":false}]',
-     "defect-class: невырисованный кабель НАЗВАН — и почему: прокси без роутера, выход без ячейки на доске"),
+     '[{"what":"box-a/hotel embeddings -> router","routeHandleFound":true,"proxyId":"ctl:proxy:23009","proxyResolved":true,"routerId":"(unresolved)","routerInputFound":false}]',
+     "defect-class: невырисованный кабель НАЗВАН — и почему: прокси без роутера. Выход к ячейке без её карточки не назван: "
+     "главная доска показывает машины без ячеек, ячейки — в окне машины (2026-10-11)"),
     ("draw_hidden_cell_put_away", "globalThis.__q['[data-cell-hidden-port=\"22077\"]'] = {};",
      '(() => { m.drawTopologyCables(); return [m.cableDrops.map((d) => d.what), paths().length]; })()',
-     '[["box-a/hotel embeddings -> router"],4]',
-     "positive: ячейку спрятал глаз её машины — её кабель убран вместе с ней и НЕ записан потерянным; прочие как были"),
-    ("draw_hidden_other_port_still_dropped", "globalThis.__q['[data-cell-hidden-port=\"22099\"]'] = {};",
-     '(() => { m.drawTopologyCables(); return m.cableDrops.map((d) => d.what); })()',
-     '["box-a/hotel embeddings -> router","router router:default -> srv:22077"]',
-     "negative: метка другой ячейки не прячет потерю этой — выход без ячейки на доске по-прежнему назван"),
+     '[["box-a/hotel embeddings -> router"],2]',
+     "ячейку спрятал глаз её машины — ничего не меняется: канатов к ячейкам на главной доске нет, и потерянными они не записаны"),
+    ("draw_cell_cable_put_away_on_the_main_board", "delete globalThis.__q[SEL.cloud(\"terra\")];",
+     '(() => { m.drawTopologyCables(); return [m.cableDrops.map((d) => d.what), paths().length]; })()',
+     '[["box-a/hotel embeddings -> router"],2]',
+     "главная доска не рисует ни ячеек (окно машины, 2026-10-11), ни пулов (канбан, 2026-10-12): выход к пулу без его карточки "
+     "не рисуется и потерянным не записан"),
+    ("draw_nothing_in_a_machine_window", "",
+     'await (async () => { const v = (await import(pathToFileURL(process.env.JS_ROOT + "/board-view.js").href)).BOARD_VIEW; v.machine = "box-a";'
+     ' try { m.drawTopologyCables(); return [svg().innerHTML, m.cableDrops.length, svg().attrs.viewBox]; } finally { v.machine = null; } })()',
+     '["",0,"0 0 1000 600"]',
+     "окно машины показывает одну её карточку: кабелей нет — клиенты и узел канбана в странице скрыты, кабель к ним шёл бы из угла доски; "
+     "и потерянными они не записаны"),
+    # ── a client of the entry (2026-10-11, the owner: its activity on the cables, as the agents' was;
+    #    2026-10-12: one cable goes on from a client — to its set of models, which stands on the kanban) ──
+    ("draw_client_to_the_kanban",
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "router:default", set: "main" });'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.cloud("luna")] = R(700, 300);',
+     '(() => { m.drawTopologyCables(); const mine = (svg().innerHTML.match(/<path class="[^"]*consumer[^"]*" d="[^"]*"/g) || []);'
+     ' return [paths().filter((c) => c.includes("consumer")), mine.map((x) => x.split(\' d="\')[1].slice(0, -1)), m.cableDrops.map((d) => d.what)]; })()',
+     '[["topology-cable consumer idle proxy-ctl-proxy-23050"],["M 140 270 C 264.8 270, 275.2 130, 400 130"],["box-a/hotel embeddings -> router"]]',
+     "клиент с набором — один кабель от гнезда его карточки ко входу карточки канбана: наборы и пулы стоят на канбане (2026-10-12); "
+     "negative: к карточкам пулов кабеля нет — их на главной доске нет"),
+    ("draw_client_cable_lit_by_any_of_its_requests",
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "main" });'
+     ' st.topology.routers[0].inputs = ["ctl:proxy:23001"];'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.cloud("luna")] = R(700, 300);'
+     ' st.ui.latestSystemMonitor = { latest: { agentProxies: { agents: { "23050": { port: 23050, recent: [],'
+     ' active: [{ phase: "running", upstreamType: "llama", providerId: "" }] },'
+     ' "23001": { port: 23001, recent: [], active: [{ phase: "running", port: 23001, upstreamType: "cloud", providerId: "terra" }] } } } } };',
+     '(() => { const lit = () => { m.drawTopologyCables(); return paths().filter((c) => c.includes("consumer")); };'
+     ' const busy = lit(); globalThis.__fields = { topologyCables: svgEl() }; st.ui.latestSystemMonitor.latest.agentProxies.agents["23050"].active = [];'
+     ' return [busy, lit()]; })()',
+     '[["topology-cable consumer activity-active proxy-ctl-proxy-23050"],["topology-cable consumer idle proxy-ctl-proxy-23050"]]',
+     "кабель клиента горит от любого его запроса — и от того, что служит ячейка пула (запись без облака); "
+     "negative: запрос чужого порта к тому же пулу его не зажигает"),
+    ("draw_client_without_a_set_has_no_cable",
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "", pool: "terra" });'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260);',
+     '(() => { m.drawTopologyCables(); return [paths().filter((c) => c.includes("consumer")), m.cableDrops.filter((d) => d.what.startsWith("client")).length]; })()',
+     '[[],0]',
+     "negative: канат от клиента к набору не проведён — кабеля нет, и потерянным он не записан: его нет и в данных; "
+     "старое поле pool доска не читает (1.3.497: контроллер отдаёт set)"),
+    ("draw_no_kanban_cable_to_a_busy_pool",
+     'st.topology.routers[0].inputs = ["ctl:proxy:23001"];'
+     ' st.ui.latestSystemMonitor = { latest: { agentProxies: { agents: { "23001": { port: 23001, recent: [],'
+     ' active: [{ phase: "running", port: 23001, upstreamType: "cloud", providerId: "terra" }] } } } } };',
+     '(() => { m.drawTopologyCables(); return paths().filter((c) => c.startsWith("topology-cable router")); })()',
+     '[]',
+     "negative: запрос порта канбана к пулу — каната канбана к пулу на главной доске нет, горящего тоже: пул на канбане"),
+    # ── segment 3: the kanban's card → the machines and the providers its pools lead to (the owner, 2026-10-12) ──
+    ("draw_kanban_to_its_sources",
+     'st.topology.pools = [{ id: "std", steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "srv:22001" },'
+     ' { kind: "account", accountId: "off", enabled: false }] }];'
+     ' globalThis.__stubReturns = { "topology-nodes.machineAt": (a) => ({ key: a === "127.0.0.1" ? "box-c" : a }) };'
+     ' globalThis.__q[\'.machine-glance[data-node-id="box-c"] > .node-head\'] = R(700, 300);'
+     ' globalThis.__q[\'[data-board-provider="sub"] > .node-head\'] = R(700, 400); globalThis.__q[\'[data-board-provider="off"] > .node-head\'] = R(700, 500);',
+     '(() => { m.drawTopologyCables(); const mine = (svg().innerHTML.match(/<path class="topology-cable router[^"]*" d="[^"]*"/g) || []);'
+     ' return [paths().filter((c) => c.startsWith("topology-cable router")), mine.map((x) => x.split(\' d="\')[1].slice(0, -1)),'
+     ' m.cableDrops.filter((d) => d.what.startsWith("kanban")).length]; })()',
+     '[["topology-cable router idle","topology-cable router idle"],["M 480 130 C 585.6 130, 594.4 310, 700 310","M 480 130 C 585.6 130, 594.4 410, 700 410"],0]',
+     "от выхода карточки канбана — канат к шапке машины, чья ячейка стоит строкой пула, и к шапке провайдера, которого зовёт строка; "
+     "negative: к провайдеру выключенной строки каната нет"),
+    ("draw_kanban_cable_lights_where_a_request_runs",
+     'st.topology.pools = [{ id: "std", steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "srv:22001" }] }];'
+     ' globalThis.__stubReturns = { "topology-nodes.machineAt": () => ({ key: "box-c" }) };'
+     ' globalThis.__q[\'.machine-glance[data-node-id="box-c"] > .node-head\'] = R(700, 300); globalThis.__q[\'[data-board-provider="sub"] > .node-head\'] = R(700, 400);'
+     ' const run = (it) => ({ latest: { agentProxies: { agents: { "23050": { port: 23050, recent: [], active: [{ phase: "running", port: 23050, ...it }] } } } } });',
+     '(() => { const draw = (mon) => { st.ui.latestSystemMonitor = mon; m.drawTopologyCables(); return paths().filter((c) => c.startsWith("topology-cable router")); };'
+     ' return [draw(run({ upstreamType: "cloud", cloudAccountId: "sub" })), draw(run({ upstreamType: "llama", routedOutputId: "srv:22001" })),'
+     ' draw(run({ upstreamType: "llama", routedOutputId: "srv:22077" })), draw(run({ upstreamType: "cloud", cloudAccountId: "other" }))]; })()',
+     '[["topology-cable router idle","topology-cable router activity-active"],'
+     '["topology-cable router activity-active","topology-cable router idle"],'
+     '["topology-cable router idle","topology-cable router idle"],["topology-cable router idle","topology-cable router idle"]]',
+     "канат горит, пока туда идёт запрос: к провайдеру — по его аккаунту на запросе, к машине — по выходу её ячейки; "
+     "negative: запрос к ячейке, которой нет в пулах, и запрос к другому аккаунту каната не зажигают"),
+    ("draw_kanban_cable_drop_named",
+     'st.topology.pools = [{ id: "std", steps: [{ kind: "account", accountId: "sub" }] }];',
+     '(() => { m.drawTopologyCables(); return m.cableDrops.filter((d) => d.what.startsWith("kanban")).map((d) => ({ ...d })); })()',
+     '[{"what":"kanban -> provider sub","kanbanOutputFound":true,"targetFound":false}]',
+     "defect-class: канат канбана к провайдеру, чьей карточки нет на доске, не пропал молча — назван, и сказано, чего нет"),
+    ("draw_client_cable_drop_named",
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "main" });'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.rin("router:default")] = null;',
+     '(() => { m.drawTopologyCables(); return m.cableDrops.filter((d) => d.what.startsWith("client")).map((d) => ({ ...d })); })()',
+     '[{"what":"client Hermes -> kanban","handleFound":true,"kanbanFound":false}]',
+     "defect-class: кабель клиента без карточки канбана не пропал молча — назван, и сказано, чего нет"),
     ("draw_drop_warned_once", 'st.topology.assignments["box-a"].assignments[0].routes[2].proxyId = "ctl:proxy:" + Math.random().toString(36).slice(2);',
      '(() => { m.drawTopologyCables(); m.drawTopologyCables(); return [globalThis.__warns.filter((w) => w === "box-a/hotel embeddings -> router").length, m.cableDrops[0].proxyResolved]; })()',
      '[1,false]', "предупреждение в консоль — один раз на новую сигнатуру пропуска (дедуп переживает перерисовки), повторная отрисовка не дублирует"),
     ("draw_drops_rebuilt_each_draw", '', '(() => { m.drawTopologyCables(); globalThis.__q[SEL.rin("router:default")] = null; st.topology.proxies[2].routerId = "router:default"; m.drawTopologyCables(); return [m.cableDrops.length, m.cableDrops.map((d) => d.what)]; })()',
-     '[4,["box-a/hotel primary -> router","box-a/hotel fallback -> router","box-a/hotel embeddings -> router","router router:default -> srv:22077"]]',
+     '[3,["box-a/hotel primary -> router","box-a/hotel fallback -> router","box-a/hotel embeddings -> router"]]',
      "список пропусков пересобирается на каждой отрисовке: пропал вход роутера — пропали все три кабеля клиента"),
     ("draw_ignores_an_old_live_report", 'st.setTopology(TOPO({ clients: [{ id: "box-a", agents: [{ id: "hotel" }], assignments: [{ agentId: "hotel", routes: [{ role: "primary", proxyId: "ctl:proxy:23001" }] }] }] }));',
      '(() => { m.drawTopologyCables(); return paths().slice(0, 2); })()',
@@ -143,13 +227,15 @@ PINS = [
     ("draw_engine_output_to_its_model",
      'st.topology.routers[0].outputs = [{ id: "eng:abc", upstreamType: "engine", upstreamHost: "10.0.0.5", upstreamPort: 11434, upstreamModel: "qwen3:8b" }]; globalThis.__q[\'[data-topology-engine-input][data-output-id="eng:abc"]\'] = R(700, 300);',
      '(() => { m.drawTopologyCables(); return [paths().slice(2), m.cableDrops.length]; })()',
-     '[["topology-cable router idle"],1]',
-     "выход модели движка — кабель к строке этой модели (по id выхода), как к ячейке; пропуск один — кабель эмбеддингов без роутера"),
+     '[[],1]',
+     "negative: выход модели движка на главной доске каната не получает — даже при строке этой модели: он на канбане; пропуск один — "
+     "кабель эмбеддингов без роутера"),
     ("draw_engine_output_not_on_a_cell_port",
      'st.topology.routers[0].outputs = [{ id: "eng:abc", upstreamType: "engine", upstreamHost: "10.0.0.5", upstreamPort: 11434, upstreamModel: "qwen3:8b" }]; globalThis.__q[SEL.llama(11434)] = R(700, 300);',
-     '(() => { m.drawTopologyCables(); return m.cableDrops.map((d) => ({ ...d })).filter((d) => d.what.includes("eng:")); })()',
-     '[{"what":"router router:default -> eng:abc","routerOutputFound":true,"upstream":"engine model qwen3:8b","upstreamInputFound":false}]',
-     "negative: у движка нет строки модели на доске — кабель не цепляется к ячейке на том же порту, а назван пропуском с моделью"),
+     '(() => { m.drawTopologyCables(); return [paths().slice(2), m.cableDrops.filter((d) => d.what.includes("eng:")).length]; })()',
+     '[[],0]',
+     "negative: у движка нет строки модели на доске — кабель не цепляется к ячейке на том же порту; строка модели живёт на карточке "
+     "машины, а её главная доска не рисует целиком (2026-10-11) — кабель убран, не записан потерянным"),
     ("live_cable_replaces_previous", '', '(() => { const prev = { removed: 0, remove() { this.removed += 1; } }; svg().live = prev; m.drawLiveTopologyCable(300, 250); return [prev.removed, paths(), svg().innerHTML.includes("M 140 110 C")]; })()',
      '[1,["topology-cable live"],true]', "живой кабель при перетаскивании: прежний удалён, новый от правого края источника к курсору"),
     ("live_cable_without_board", 'delete globalThis.__q[SEL.board];', '(() => { m.drawLiveTopologyCable(300, 250); return svg().innerHTML; })()', '""', "negative: без доски живой кабель не рисуется"),

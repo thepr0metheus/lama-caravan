@@ -10,7 +10,6 @@ import time
 from collections import deque
 from pathlib import Path
 
-from caravan.admin.llama_metrics import parse_llamacpp_metrics
 from caravan.admin.paths import (
     INCIDENT_LOG_FILE,
     INCIDENT_RETENTION_SECONDS,
@@ -18,7 +17,6 @@ from caravan.admin.paths import (
     MONITOR_RETENTION_DEFAULT,
     MONITOR_SAMPLE_INTERVAL,
 )
-from caravan.admin.proxies_config import load_agent_proxy_config
 from caravan.admin.proxy_stats import (
     agent_proxy_sample,
     summarize_proxy_item,
@@ -30,7 +28,6 @@ from caravan.admin.machine_scout import machine_scout
 from caravan.common.errors import AppError
 from caravan.common.request_kind import is_discovery_probe
 from caravan.common.fsio import atomic_write_text
-from caravan.common.fetch import fetch_json, fetch_text
 from caravan.common.procs import run
 
 
@@ -70,7 +67,7 @@ def monitor_snapshot(kind):
 monitor_history = deque()
 
 # The ring stores SLIM samples (see _slim_sample); the full most-recent sample
-# lives here because the UI panels read latest.agentProxies/agentProxyConfig/
+# lives here because the UI panels read latest.agentProxies/
 # processes/byProxy. Rebound only in this module, under
 # monitor_lock.
 monitor_latest_full = None
@@ -561,8 +558,9 @@ def collect_monitor_sample():
         "cpu": cpu_percentages(monitor_last_cpu, cpu_now),
         "cpuLoad": [round(load1, 2), round(load5, 2), round(load15, 2)],
         "gpu": gpu_sample(),
+        # The proxy's live state, its routes without their keys (agent_proxy_sample). The routes'
+        # config rode here too, keys and all, to every page once a second, and no page read it.
         "agentProxies": agent_proxy_sample(),
-        "agentProxyConfig": load_agent_proxy_config(),
         "memory": memory_sample(),
         "disk": rate_delta(monitor_last_disk, disk_now, elapsed, ["readBytes", "writeBytes"]),
         "net": rate_delta(monitor_last_net, net_now, elapsed, ["rxBytes", "txBytes"]),
@@ -605,7 +603,7 @@ def _slim_item(item):
 
 def _slim_sample(sample):
     """History samples for /api/system-monitor: keep only what the charts and the
-    route-activity timeline read. The per-second agentProxies/agentProxyConfig
+    route-activity timeline read. The per-second agentProxies
     snapshots and the request/response previews made every sample ~180 KB — the
     endpoint shipped >70 MB and could not answer within the 1 s poll cadence.
     The UI reads the heavy fields from `latest` only, which stays full."""
@@ -678,16 +676,6 @@ def system_monitor_state(since=0):
         "incidentRetentionSeconds": INCIDENT_RETENTION_SECONDS,
         "time": int(time.time()),
     }
-
-def runtime_api(config):
-    port = config.get("PORT") or "8080"
-    base = f"http://127.0.0.1:{port}"
-    health = fetch_json(f"{base}/health", timeout=1)
-    props = fetch_json(f"{base}/props")
-    models = fetch_json(f"{base}/v1/models")
-    metrics_text = fetch_text(f"{base}/metrics")
-    metrics = parse_llamacpp_metrics(metrics_text)
-    return {"health": health, "props": props, "models": models, "metrics": metrics}
 
 def gpu_state():
     """The cards of the controller's machine, as its scout reports them.

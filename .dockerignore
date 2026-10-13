@@ -30,3 +30,8 @@ LICENSE
 Dockerfile
 docker-compose.yml
 .dockerignore
+
+# The NAS keeps the app's data next to its code (/volume1/docker/lama-caravan/data,
+# deploy/nas/compose.yaml): accounts, tokens and provider secrets must never be
+# baked into an image built there.
+data/

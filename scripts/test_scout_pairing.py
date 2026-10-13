@@ -70,11 +70,12 @@ def paired(host=None):
                 "id": "box-a", "name": "Box A", "scoutVersion": "2.1.0"}}}}
 
 
-def pairing(scout, headers=TOKEN, store=None, advertised="10.0.0.1"):
+def pairing(scout, headers=TOKEN, store=None, advertised="10.0.0.1", named=""):
     store = {"hosts": {}} if store is None else store
     saved = []
     p = ScoutPairing(lambda: store, lambda: saved.append(1), lambda: dict(headers), 7990, advertised,
-                     http_get=scout.http_get, http_post=scout.http_post, facing_ip=lambda host: "10.9.9.9")
+                     http_get=scout.http_get, http_post=scout.http_post, facing_ip=lambda host: "10.9.9.9",
+                     advertised_url=named)
     return p, store, saved
 
 
@@ -115,6 +116,34 @@ def test_which_controller_address():
     p, _s, _v = pairing(FakeScout(), advertised="127.0.0.1")
     check(p.controller_url_for("http://10.0.0.5:8092") == "http://10.9.9.9:7990",
           "negative: заданный адрес — петля: скаут получает адрес интерфейса, что смотрит на него, а не 127.0.0.1")
+
+
+def test_controller_by_name():
+    print("контроллер за обратным прокси, по имени (NAS):")
+    p, _s, _v = pairing(FakeScout(), named=" https://caravan.example.lan/ ")
+    check(p.controller_url_for("http://10.0.0.5:8092") == "https://caravan.example.lan",
+          "скаут на другой машине получает имя: порт контроллера на NAS слушает только саму машину")
+    check(p.controller_url_for("http://127.0.0.1:8092") == "http://127.0.0.1:7990",
+          "negative: скаут на машине контроллера по-прежнему получает 127.0.0.1")
+    p, _s, _v = pairing(FakeScout(), named="http://caravan.example.lan:8443")
+    check(p.controller_url_for("http://10.0.0.5:8092") == "http://caravan.example.lan:8443", "имя с портом годится")
+    for bad in ("caravan.example.lan", "https://caravan.example.lan/board", "ftp://caravan.example.lan", "https://bad host"):
+        p, _s, _v = pairing(FakeScout(), named=bad)
+        got = refusal(lambda: p.controller_url_for("http://10.0.0.5:8092"))
+        check(got is not None and got[0] == 500 and "LLAMA_TOPOLOGY_SERVER_URL" in got[1],
+              f"negative: {bad!r} — отказ 500 с именем настройки: скаут дописал бы свои пути к чему угодно")
+    scout = FakeScout(post={"/api/controller-url": paired()})
+    p, _store, _saved = pairing(scout, named="https://caravan.example.lan")
+    p.connect("10.0.0.5")
+    check(scout.calls[1][2] == {"url": "https://caravan.example.lan", "token": "fleet-t0k3n"},
+          "скауту уходят имя контроллера и токен флота")
+    scout = FakeScout(post={"/api/controller-url": {"ok": True, "heartbeat": {"state": "error",
+                                                                               "error": "certificate verify failed"}}})
+    p, _store, _saved = pairing(scout, named="https://caravan.example.lan")
+    check(refusal(lambda: p.connect("10.0.0.5")) == (502, "the scout at http://10.0.0.5:8092 took the controller's address "
+          "(https://caravan.example.lan) but cannot reach it: certificate verify failed — check that "
+          "https://caravan.example.lan answers on that machine — its name, the reverse proxy, the home certificate"),
+          "negative: скаут не достучался по имени — совет про имя, прокси и сертификат, а не «откройте порт 7990»")
 
 
 def test_connect():
@@ -258,8 +287,8 @@ def test_move_host_cells():
         sc.topology_store, sc.save_admin_state = orig
 
 
-for fn in (test_what_can_be_typed, test_which_controller_address, test_connect, test_connect_refusals,
-           test_disconnect, test_move_host_cells):
+for fn in (test_what_can_be_typed, test_which_controller_address, test_controller_by_name, test_connect,
+           test_connect_refusals, test_disconnect, test_move_host_cells):
     try:
         fn()
     except Exception as exc:  # noqa: BLE001 — a crash is a red pin; the rest still runs

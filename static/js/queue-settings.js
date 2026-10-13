@@ -10,7 +10,9 @@ import { api, escapeHtml, toast } from "./utils.js";
 export class QueueSettings {
   static FIELDS = [
     { key: "cloudFallbackPct", spec: "spillPct", label: "cvLabelOverflowAt", tip: "cvTipOverflowAt", max: 100, unit: "%", fallback: 20 },
-    { key: "stickySlotSec", spec: "stickySlotSec", label: "cvLabelReserve", tip: "cvTipReserve", max: 120, unit: "s", fallback: 0 },
+    // "hold", not "reserve": a subscription's share kept for the operator is its reserve
+    // (keep 10%), and one word stood for two things on the kanban (2026-10-08).
+    { key: "stickySlotSec", spec: "stickySlotSec", label: "cvLabelHold", tip: "cvTipHold", max: 120, unit: "s", fallback: 0 },
     { key: "loadingModelWaitSec", spec: "loadingModelWaitSec", label: "cvLabelLoadWait", tip: "cvTipLoadWait", max: 900, unit: "s", fallback: 60 },
   ];
   constructor() { this.saving = false; this.editing = false; }

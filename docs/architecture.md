@@ -1,8 +1,9 @@
 # Architecture
 
 > **Purpose.** LAMA CARAVAN routes AI agents' token traffic between local
-> llama.cpp servers and cloud providers: stable per-agent proxy ports on the
-> controller, visual routing pipelines (queues, schedules, spill, size forks),
+> llama.cpp servers and cloud providers: one OpenAI-compatible entry where every
+> client has a key of its own (and stable proxy ports for agents of the older
+> kind), visual routing pipelines (queues, schedules, spill, size forks),
 > remote server cells on client hosts via caravan-scout, an HF model browser,
 > and usage/spend accounting. The "why" in detail: see README → *Why LAMA
 > CARAVAN*.
@@ -11,9 +12,10 @@
 > We are moving away from the model in which every client machine runs
 > caravan-scout: the scout is the sidecar of a host whose GPU or CPU joins
 > the pool, and that host's cells are launched from the board. A machine that
-> only runs agents installs nothing — its client and agent cards (proxy ports)
-> are created by hand on the board, the controller owns them, and the agent
-> points at its port. Better support (nothing to install unless you share a
+> only runs agents installs nothing — each agent is a client of the entry, made
+> on the board (a name, the pools it may call, its key shown once), the
+> controller owns it, and the agent calls the entry with its key. Better
+> support (nothing to install unless you share a
 > GPU) and expectations that match the feature. The last releases moved the
 > architecture onto this: board-made records are the source of truth, a scout
 > report cannot create, rewrite or delete them.
@@ -22,9 +24,10 @@ LAMA CARAVAN is a control plane for a fleet of `llama.cpp` servers: one
 controller host runs the admin UI and the routing proxy, hosts that share
 hardware run their own llama servers behind a small route-agent
 (caravan-scout), and coding agents (OpenClaw, Hermes, anything speaking the
-OpenAI API) consume everything through per-agent proxy ports. Cloud providers
-(OpenAI, OpenRouter, Anthropic-compatible, Ollama, ...) plug in as additional
-routable outputs.
+OpenAI API) consume everything through one entry, each with its own key
+(agents of the older kind through proxy ports of their own). Cloud accounts
+(OpenAI subscriptions and keys, OpenRouter, Anthropic-compatible, Ollama, ...)
+stand in pools of steps, which are routable outputs like the cells.
 
 Everything is intentionally dependency-light: two stdlib-only Python daemons,
 static HTML/CSS/JS with native ES modules, JSON files as the only IPC, and
@@ -41,7 +44,8 @@ mtime, files diff cleanly in git, and a backup is a copy.)
                  │                                                                             │
  browser ──────► │  lama-caravan.service            lama-caravan-proxies.service              │
  (UI :7990)      │  app.py → caravan/admin/         agent-proxies.py → caravan/proxy/         │
-                 │  · serves UI + HTTP API          · one listener per route port (:23001+)    │
+                 │  · serves UI + HTTP API          · the entry (one port, a key per client)   │
+                 │                                   · a listener per open route port (:23001+)│
                  │  · fleet topology & heartbeats   · queue admission / preemption            │
                  │  · writes agent-proxies.json ──► · router DAG (queue/schedule/rules)       │
                  │  · reads  proxy state/events ◄── · llama or cloud upstreams + translation  │
@@ -51,8 +55,9 @@ mtime, files diff cleanly in git, and a backup is a copy.)
                  └─────────────────────────────────────────────────────────────────────────────┘
                         ▲ heartbeats / node control (HTTP)                 ▲ proxied traffic
                         │                                                  │
-        ┌── client hosts (your machines)    ──┐            OpenClaw agents (per host)      
-        │ caravan-scout (:8092)               │            → their local proxy port :81xx
+        ┌── client hosts (your machines)    ──┐            agents and apps, any host
+        │ caravan-scout (:8092)               │            → the entry, by a reverse proxy
+        │                                     │              (the older kind: a port :23001+)
         │ · local llama cells / model cache   │
         │ · POSTs /api/topology/client-heartbeat
         │ cell servers fetched from controller │
@@ -62,7 +67,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 | Component | Where | What it does |
 |---|---|---|
 | Admin server (`caravan/admin`) | controller `:7990` | UI + API: fleet topology, launch configs, HF model browser, monitors, cloud accounts, queue thresholds. See [backend-admin.md](backend-admin.md). |
-| Proxy daemon (`caravan/proxy`) | controller `:23001+` (one port per route; this fleet's legacy routes at `:8101+`) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
+| Proxy daemon (`caravan/proxy`) | controller: the entry's port, and `:23001+` for agents of the older kind (one port per route; older fleets' routes at `:8101+`) | OpenAI-compatible proxy: the entry finds a client by its key, then admission queue, priority preemption, router DAG, pools of steps, protocol translation. See [backend-proxy.md](backend-proxy.md). |
 | Server cells | machines with a scout, the controller's own machine included | Per-port llama-server, vLLM and command-server instances, started and stopped by the machine's scout on the controller's word. The controller runs none itself: its own machine's cells run through a scout installed there, like any other machine's. |
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
 | Cell servers (moonshine, whisper, TTS — `cells/` in THIS repo) | controller + any client | The programs a "command cell" actually runs: ordinary servers managed like llama cells, with a health endpoint reporting download/load progress. The controller owns them and serves them over `/api/cell-assets`; every host materializes them into `$HOME`, where the generated cell command looks for them — the controller before starting a local cell, a scout before starting a client one. They used to live in the scout repo and were copied by hand into the controller, which is how the two copies drifted for months. |
@@ -82,9 +87,10 @@ agent-proxies.py  → caravan/proxy/main.py:main()   (thin launcher, ~25 lines)
 cloud-fallback bootstrap, the queue-thresholds refresher (6 h loop), then a
 `ThreadingHTTPServer` with the route tables from `caravan/admin/routes.py`.
 
-`caravan/proxy/main.py` starts the stop-request watcher, binds one
-`ThreadingHTTPServer` per enabled route, and re-reconciles the listener set
-every ~2 s as `agent-proxies.json` changes — route edits in the UI take
+`caravan/proxy/main.py` starts the stop-request watcher, binds the entry and one
+`ThreadingHTTPServer` per enabled route whose port is open (a client of the
+entry's record and a closed port never listen), and re-reconciles the listener
+set every ~2 s as `agent-proxies.json` changes — route edits in the UI take
 effect without restarting the daemon.
 
 ## File contract (the only IPC)
@@ -99,7 +105,7 @@ and concurrent writers cannot clobber each other.
 | `agent-proxies.json` | admin (`write_agent_proxy_payload`) and proxy (`append_stop_request` only) | proxy (mtime-watched, ~2 s), admin | Routes, routers/graph, policy, stop requests. Every admin write drops a `agent-proxies.json.bak-graph-<stamp>` autobackup next to it. |
 | `agent-proxy-state.json` | proxy (`write_state`) | admin | Live active/recent requests, per-agent runtime — feeds the dashboard. |
 | `logs/proxy-events/<date>.jsonl` | proxy (append) | admin | Per-request telemetry events (received/queued/admitted/completed/error); retention-trimmed by the proxy. |
-| `cloud-providers.json` | admin | proxy, admin | Cloud accounts and model blocks. |
+| `cloud-providers.json` | admin | proxy, admin | Cloud accounts and pools of steps. |
 | `~/.config/llamacpp-easy-admin/provider-secrets.json` | admin, proxy (OAuth refresh) | both | API keys / OAuth tokens, mode 0600, outside the repo tree. |
 | `~/.local/state/llamacpp-easy-admin/admin.json` | admin | admin | Persistent admin state: topology store, pricing, HF token/favorites, starred fields. |
 | `token-history.json` | admin | admin | Token-rate history (14 d). |
@@ -112,9 +118,11 @@ and concurrent writers cannot clobber each other.
 
 ## Request path (agent traffic)
 
-An OpenClaw agent talks to `http://<controller>:<its port>/v1/...`. The proxy
-resolves the route, walks the router DAG (schedule / rule / queue nodes) to
-pick an output, waits for a slot (FIFO queue with SSE keepalive, deadline
+A client calls the entry — `https://<its name>/v1/...` through a reverse proxy,
+with its key. The key names its route; a client no kanban takes goes to the pool
+it names in `model`, and one a kanban takes goes through that kanban's graph, as
+an agent of the older kind does when it calls `http://<controller>:<its port>/v1/...`.
+The proxy walks the router DAG (schedule / rule / queue nodes) to pick an output, waits for a slot (FIFO queue with SSE keepalive, deadline
 aborts, priority preemption, spill-to-overflow), then forwards to either a
 local/remote llama-server or a cloud provider — rewriting the model name and
 translating the protocol (Responses API, Anthropic Messages) when needed.

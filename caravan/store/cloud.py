@@ -6,8 +6,8 @@ lives at mode 0600, and nothing that reaches a browser may carry its contents:
 the account list says whether a credential exists and shows four characters of
 it, never the key.
 
-BOTH are cached on the file's own (mtime, size), and that is load-bearing rather
-than tidy. Reading them was treated as free: the credential summary reads the
+BOTH are cached on the file's own (inode, mtime, size), and that is load-bearing
+rather than tidy. Reading them was treated as free: the credential summary reads the
 accounts once per lookup and the block list calls that once per block, so 502
 blocks meant ~500 re-parses of a 99 KB file for ONE request — ~100 MB of parsing,
 profiled at 287 ms of a 732 ms build. Every parse holds the GIL, so eight tabs
@@ -15,10 +15,16 @@ polling did not run eight builds in parallel; they queued behind each other's
 parsing. That is what an outside measurement saw as time-to-first-byte rising
 from 750 ms to 4.5 s while the bytes themselves still arrived in 30 ms.
 
-The other half of that trade is invalidation. The key is (mtime, size), not a
-timer and not forever: an operator who rotates a key through the UI, or edits the
-file by hand, is served the new one on the very next call. A cache that missed
-that would have the caravan authenticating with a key its owner had revoked.
+The other half of that trade is invalidation. The key is the file's identity,
+not a timer and not forever: an operator who rotates a key through the UI, or
+edits the file by hand, is served the new one on the very next call. A cache that
+missed that would have the caravan authenticating with a key its owner had
+revoked. (mtime, size) alone missed a rewrite of the same size inside one tick of
+the file clock — shown 2026-10-07, and two token renewals finishing together can
+do it. Every writer replaces the file with a new one (atomic_write_text), and the
+new file has its own inode, so the inode tells the generations apart. What stays
+uncaught is an in-place rewrite of the same size within one tick: no writer here
+does that.
 """
 import json
 
@@ -44,7 +50,7 @@ class CachedJsonStore:
     def _key(self):
         try:
             st = self.path.stat()
-            return (st.st_mtime_ns, st.st_size)
+            return (st.st_ino, st.st_mtime_ns, st.st_size)
         except OSError:
             return None
 
