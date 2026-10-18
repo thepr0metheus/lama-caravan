@@ -75,7 +75,8 @@ const base = { PORT: { value: " 22001 " }, MODEL_FILE: { value: "a.gguf" }, MMPR
   ENABLE_FLASH_ATTN: { checked: true }, KV_OFFLOAD: { checked: true }, MMAP: { checked: true }, FIT: { checked: false } };
 const pick = (c) => ({ PORT: c.PORT, MODEL_FILE: c.MODEL_FILE, MMPROJ_FILE: c.MMPROJ_FILE, DRAFT: c.SPEC_DRAFT_MODEL_FILE, RUNNER: c.RUNNER,
   KIND: c.CELL_KIND, DIR: c.LLAMA_MODELS_DIR, FA: c.ENABLE_FLASH_ATTN, KV: c.KV_OFFLOAD, MMAP: c.MMAP, FIT: c.FIT, THREADS: c.THREADS,
-  COMMAND: c.COMMAND, VLLM: c.VLLM_MODEL, NAME: c.MODEL_NAME, n: Object.keys(c).length });
+  COMMAND: c.COMMAND, VLLM: c.VLLM_MODEL, NAME: c.MODEL_NAME, TRUST: c.TRUST_REMOTE_CODE, SEQS: c.MAX_NUM_SEQS, KVDT: c.KV_CACHE_DTYPE,
+  PARSER: c.REASONING_PARSER, n: Object.keys(c).length });
 const out = {
   exports: Object.keys(m).length,
   rc: {
@@ -84,6 +85,9 @@ const out = {
     seamless: pick(F({ ...base, RUNNER: { value: " seamless " } })),
     transcribe: pick(F({ ...base, RUNNER: { value: "transcribe" } })),
     vllm: pick(F({ ...base, RUNNER: { value: "vllm" }, VLLM_MODEL: { value: " org/m " } })),
+    vllmTrusted: pick(F({ ...base, RUNNER: { value: "vllm" }, VLLM_MODEL: { value: "org/m" }, TRUST_REMOTE_CODE: { checked: true, value: "on" } })),
+    vllmRecipe: pick(F({ ...base, RUNNER: { value: "vllm" }, VLLM_MODEL: { value: "org/m" }, MAX_NUM_SEQS: { value: " 8 " },
+      KV_CACHE_DTYPE: { value: " fp8 " }, REASONING_PARSER: { value: " nano_v3 " } })),
     whisper: pick(F({ ...base, RUNNER: { value: "whisper" } })),
     moonshine: pick(F({ ...base, RUNNER: { value: "moonshine" } })),
     command: pick(F({ ...base, CELL_KIND: { value: "command" }, COMMAND: { value: " run.sh --x " } })),
@@ -116,6 +120,21 @@ out.prefixed = m.readConfigForm("tr-").PORT;
 const items = [{ dataset: { search: "Qwen3 8B" }, hidden: false }, { dataset: { search: "gemma" }, hidden: false }, { dataset: {}, hidden: false }];
 m.mcFilterList({ children: items }, "QWEN"); out.filter = { q: items.map((i) => i.hidden) };
 m.mcFilterList({ children: items }, ""); out.filter.blank = items.map((i) => i.hidden);
+// The HF link of the model picker's field: a plain link to the caravan's HF page, in this tab (2026-10-17: "HF ↗" in a window of its own
+// took the unsaved form away or left a tab behind; no target, no arrow). Drawn for the MODEL_FILE field of a repository path only.
+{
+  const keep = document.createElement, keepCss = globalThis.CSS;
+  globalThis.CSS = { escape: (x) => String(x) };
+  document.createElement = (tag) => ({ tag, style: {}, dataset: {}, children: [], appendChild(c) { this.children.push(c); }, addEventListener(ev, fn) { (this.listeners ||= {})[ev] = fn; } });
+  const trigger = { innerHTML: "", children: [], appendChild(c) { this.children.push(c); } };
+  const wrap = { classList: { contains: (c) => c === "mc-wrap" }, querySelector: (sel) => (sel === ".mc-trigger" ? trigger : null) };
+  const draw = (id, value) => { trigger.children.length = 0; m.mcUpdateTrigger({ id, value, previousElementSibling: wrap }); return trigger.children.find((c) => c.tag === "a") || null; };
+  const link = draw("tr-MODEL_FILE", "Qwen3-GGUF/Qwen/Q4_K_M/x.gguf");
+  let stopped = 0; link.listeners.click({ stopPropagation() { stopped += 1; } });
+  out.hfLink = { href: link.href, text: link.textContent, target: link.target ?? null, rel: link.rel ?? null, cls: link.className, title: link.title, stopped,
+                 other: draw("tr-MMPROJ_FILE", "Qwen3-GGUF/Qwen/Q4_K_M/x.gguf") !== null, flat: draw("tr-MODEL_FILE", "plain.gguf") !== null, empty: draw("tr-MODEL_FILE", "") !== null };
+  document.createElement = keep; globalThis.CSS = keepCss;
+}
 // A model combobox's list, opened as a click on the field opens it ("+ Add model").
 const combo = (hidden) => { const w = { clicks: 0 }; const trigger = { click: () => { w.clicks += 1; } };
   w.select = { previousElementSibling: { classList: { contains: (c) => c === "mc-wrap" },
@@ -180,6 +199,27 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   document.createElement = made;
   const lib = (h) => (h.match(/<span class="mbadge mbadge-lib"[^>]*>[^<]*<\/span>/) || [null])[0];
   out.libRows = kids.map((el) => ({ lib: lib(el.innerHTML), llama: el.innerHTML.includes("🦙") }));
+}
+// A package named after the base model whose repository says Coder: its row wears the word (the owner, 2026-10-18: "I do not see the Coder
+// model for Strata" — it stood in the grey folder line only).
+{
+  const kids = [];
+  const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+  const trigger = { innerHTML: "", appendChild() {} };
+  const wrap = { classList: { contains: (c) => c === "mc-wrap" },
+                 querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+  const made = document.createElement;
+  document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {} }, setAttribute() {},
+                                    addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+  m.updateModelComboboxItems({ previousElementSibling: wrap, value: "" }, [
+    { value: "Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF/ISTA-DASLab/IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf", kind: "model", sizeGb: 54.4 },
+    { value: "Qwen3.8-Flash-Next-GSQ-RCO-GGUF/ISTA-DASLab/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf", kind: "model", sizeGb: 63.3 },
+    { value: "Qwen3-Coder-30B-A3B-Instruct-GGUF/unsloth/Q4_K_M/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf", kind: "model", sizeGb: 17.3 },
+    { value: "Foo-Coder-GGUF/a/Q4/foo-Q4.gguf", kind: "model", missing: true },
+    { value: "Foo-Coder-GGUF/a/Q4/asr-Q4.gguf", kind: "model", sttVariant: "ctc", sizeGb: 1 }], "");
+  document.createElement = made;
+  const repo = (h) => (h.match(/<span class="mbadge mbadge-repo"[^>]*>[^<]*<\/span>/) || [null])[0];
+  out.repoRows = kids.map((el) => repo(el.innerHTML));
 }
 // The picker as a whole: renderModelSelects carries a library row's place onto
 // the model, projector and draft pickers alike.
@@ -259,10 +299,11 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   };
   const saved = st.state;
   st.setState({ ...st.state, config: {}, artifacts: [], models: [
-    { path: "S/a/IQ2/S-IQ2-00001-of-00002.gguf", kind: "model", sizeGb: 39, ggufMeta: { architecture: "qwen4exp" } },
+    { path: "S/a/IQ2/S-IQ2-00001-of-00002.gguf", kind: "model", sizeGb: 68, parts: 2, partsFound: 2, ggufMeta: { architecture: "qwen4exp" } },
     { path: "S/a/IQ2/S-IQ2-00002-of-00002.gguf", kind: "model", sizeGb: 29, ggufMeta: {} },
-    { path: "O/a/Q8/one-00001-of-00001.gguf", kind: "model", sizeGb: 1, ggufMeta: { architecture: "llama" } },
-    { path: "W/a/Q4/whole-Q4.gguf", kind: "model", sizeGb: 4, ggufMeta: { architecture: "llama" } }] });
+    { path: "O/a/Q8/one-00001-of-00001.gguf", kind: "model", sizeGb: 1, parts: 1, partsFound: 1, ggufMeta: { architecture: "llama" } },
+    { path: "W/a/Q4/whole-Q4.gguf", kind: "model", sizeGb: 4, ggufMeta: { architecture: "llama" } },
+    { path: "H/a/Q8/half-00001-of-00003.gguf", kind: "model", sizeGb: 5, parts: 3, partsFound: 1, ggufMeta: { architecture: "llama" } }] });
   globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: {}, innerHTML: "", appendChild() {}, previousElementSibling: wrap },
                           "tr-MMPROJ_FILE": other(), "tr-SPEC_DRAFT_MODEL_FILE": other(),
                           "tr-RUNNER": { value: "llama-server" } };
@@ -278,7 +319,9 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   delete globalThis.__stubReturns["llama-edit.ggufKind"];
   st.setState(saved);
   out.splitRows = kids.map((el) => [el.dataset.value, !!(el.cls && el.cls.has("mc-dim"))])
-    .filter(([v]) => /^(S|W|O)\//.test(v));
+    .filter(([v]) => /^(S|W|O|H)\//.test(v));
+  out.splitSizes = kids.filter((el) => /^(S|W|O|H)\//.test(el.dataset.value))
+    .map((el) => [el.dataset.value, (/class="mc-item-size">([^<]*)</.exec(el.innerHTML || "") || [])[1] ?? null]);
 }
 // The redraw of a form awaiting a pick: the config's model (here gone from the
 // disk, so the list would carry it as a "missing" row) does not come back.
@@ -363,6 +406,10 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
              add: (h.match(/≈ <strong>([^<]+)<\/strong>/) || [])[1] || null };
   };
   out.planBar = { strata: draw("strata"), vllm: draw("vllm"), llama: draw("llama-server") };
+  // The same runner with a checkpoint that fits the card's reservation (10 GB of 28.7): no line about the weights.
+  st.setState({ ...st.state, models: [{ ...st.state.models[0], sizeGb: 10 }] });
+  out.planBar.vllmFits = draw("vllm");
+  st.setState({ ...st.state, models: [{ ...st.state.models[0], sizeGb: 36.53 }] });
   card.memoryFreeMiB = 5632;
   out.planBar.strataShort = draw("strata");
   TR_GPUS.length = 0;
@@ -377,10 +424,48 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
              note: (h.match(/<div class="aside-vram-plan">([^<]*)<\/div>/) || [])[1] ?? null };
   };
   out.barOptions = { hard: bar({ hard: true, cards: [0], vramNote: "<b>x</b>" }), grace: bar({ cards: [0] }), all: bar(undefined) };
+  // A cell that RUNS holds its memory already: it is drawn as "this cell", carved out of what is in use (cellHolds, memory.js — the
+  // one place that reads it), and nothing is added on top — the same 6 GB on 5.5 free (by the exact rule) would not fit a cell that is not there yet.
+  const running = (slot) => {
+    globalThis.__stubReturns["llama-edit._commandCellSlot"] = () => slot;
+    globalThis.__fields = { "tr-asideVramBar": aside };
+    m.renderAsideVramBar("tr-", 6, true, { cards: [0], hard: true });
+    const h = aside.innerHTML;
+    delete globalThis.__stubReturns["llama-edit._commandCellSlot"];
+    return { wontFit: h.includes("won't fit"), mine: (h.match(/class="aside-pool-mine">this cell <strong>([^<]+)<\/strong>/) || [])[1] ?? null };
+  };
+  out.barRunning = { running: running({ phase: "running", gpuMem: { 0: 5632 } }), stopped: running({ phase: "stopped", gpuMem: { 0: 5632 } }), noCell: running(null) };
   TR_GPUS.length = 0;
   delete globalThis.__stubReturns["llama-edit.runnerRegistry"];
   globalThis.__fields = keep;
   st.setState(saved);
+}
+// The RAM scale of a runner that keeps its weights in the machine's memory (Strata, 1.3.574; the owner, 2026-10-18: "I do not see the planned amount
+// of RAM on the scale on the right"): its promise is drawn on the RAM pool as the VRAM's is on the VRAM pool, by the scout's own rule — no more than
+// what is free, less the room the scout leaves the system. A cell that runs holds its memory already, in the used figure.
+{
+  const keep = globalThis.__fields, cpu = globalThis.__stubValues["remote-cells._trClientCpu"], aside = { innerHTML: "" };
+  globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => JSON.parse(process.env.RUNNERS_JSON);
+  TR_GPUS.push({ index: 0, name: "Card", memoryTotalMiB: 32768, memoryFreeMiB: 32768, memoryUsedMiB: 0 });
+  const plan = (mib, headMiB = 2048) => ({ addGb: mib / 1024, headroomGb: headMiB / 1024 });
+  const pools = (ramPlan, { slot, extra } = {}) => {
+    cpu.ram = { totalGb: 64, usedGb: 12 };         // 52 GB free
+    if (slot !== undefined) globalThis.__stubReturns["llama-edit._commandCellSlot"] = () => slot;
+    globalThis.__fields = { "tr-asideVramBar": aside, "tr-RUNNER": { value: "strata" }, "tr-ENV": { value: "" } };
+    m.renderAsideVramBar("tr-", 6, true, { cards: [0], hard: true, ramPlan, ...(extra || {}) });
+    delete globalThis.__stubReturns["llama-edit._commandCellSlot"];
+    const ram = aside.innerHTML.split('<div class="aside-pool">')[1] || "", vram = aside.innerHTML.split('<div class="aside-pool">')[2] || "";
+    return { add: (ram.match(/≈ <strong>([^<]+)<\/strong>/) || [])[1] ?? null, wontFit: ram.includes("won't fit"),
+             fill: (ram.match(/aside-vram-fill (bad|warn|good)/) || [])[1] ?? null, note: (ram.match(/<div class="aside-vram-plan">([^<]*)<\/div>/) || [])[1] ?? null,
+             mine: ram.includes("aside-pool-mine"), vramNote: (vram.match(/<div class="aside-vram-plan">([^<]*)<\/div>/) || [])[1] ?? null };
+  };
+  out.ramPlan = { short: pools(plan(51201)), exact: pools(plan(51200)), roomy: pools(plan(40 * 1024)), near: pools(plan(49 * 1024 + 512)),
+                  none: pools(null), noRoom: pools(plan(52 * 1024, 0)), noRoomOver: pools(plan(52 * 1024 + 1, 0)),
+                  running: pools(plan(51201), { slot: { phase: "running", gpuMem: { 0: 5632 } } }), stopped: pools(plan(51201), { slot: { phase: "stopped" } }) };
+  cpu.ram = {};
+  TR_GPUS.length = 0;
+  delete globalThis.__stubReturns["llama-edit.runnerRegistry"];
+  globalThis.__fields = keep;
 }
 // Picking a model writes its draft and the type that draft is for, by the one
 // rule (draft-file.js): a head in the model's mtp/ folder was named draft-simple.
@@ -434,6 +519,105 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   globalThis.__fields = keep;
   st.setState(saved);
 }
+// The projector and draft pickers offer a model's companions as the SERVER lists them — its own folder, default/ and the
+// repository's other quant folders — not only the files of the model's own folder (2026-10-17: gemma-4-12B Q5_K_M had its
+// draft in Q8_0/, the suggested draft had no option, the field stayed empty and the speculative type stayed "draft-mtp").
+{
+  const saved = st.state, keep = globalThis.__fields;
+  const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
+  const picker = () => {
+    const kids = [], opts = [];
+    const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+    const trigger = { innerHTML: "", appendChild() {} };
+    const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                   querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+    return { kids, opts, sel: { value: "", dataset: {}, innerHTML: "", appendChild: (o) => opts.push([o.value, o.textContent]), previousElementSibling: wrap } };
+  };
+  const ROWS = [
+    { path: "G/b/Q5/g-Q5.gguf", kind: "model", sizeGb: 8, compatibleMmprojs: ["G/b/Q8/mmproj-g.gguf"], suggestedMmproj: "G/b/Q8/mmproj-g.gguf",
+      compatibleDrafts: ["G/b/Q8/mtp-g.gguf", "G/b/default/mtp-d.gguf"], suggestedDraft: "G/b/Q8/mtp-g.gguf" },
+    { path: "G/b/Q8/g-Q8.gguf", kind: "model", sizeGb: 12 },
+    { path: "G/b/Q8/mmproj-g.gguf", kind: "mmproj", sizeGb: 1 }, { path: "G/b/Q8/mtp-g.gguf", kind: "draft", sizeGb: 1 },
+    { path: "G/b/default/mtp-d.gguf", kind: "draft", sizeGb: 1 },
+    { path: "H/c/Q4/mmproj-h.gguf", kind: "mmproj", sizeGb: 1 }, { path: "H/c/Q4/mtp-h.gguf", kind: "draft", sizeGb: 1 },
+    { path: "Z/q/mmproj-z.gguf", kind: "mmproj", sizeGb: 1 }, { path: "Z/other/mmproj-z2.gguf", kind: "mmproj", sizeGb: 1 },
+    { path: "Z/q/mtp-z.gguf", kind: "draft", sizeGb: 1 }, { path: "Z/other/mtp-z2.gguf", kind: "draft", sizeGb: 1 }];
+  const draw = (model, mmproj = "", draft = "", rows = ROWS) => {
+    const [pm, pp, pd] = [picker(), picker(), picker()];
+    pp.sel.value = mmproj; pd.sel.value = draft; pm.sel.value = model;
+    st.setState({ ...st.state, config: {}, artifacts: [], models: rows });
+    globalThis.__fields = { MODEL_FILE: pm.sel, MMPROJ_FILE: pp.sel, SPEC_DRAFT_MODEL_FILE: pd.sel };
+    (globalThis.__stubReturns ||= {})["llama-edit.runnerRegistry"] = () => [];
+    const made = document.createElement, keepCss = globalThis.CSS;
+    globalThis.CSS = { escape: (x) => String(x) };
+    document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {}, toggle() {} }, setAttribute() {},
+                                      addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+    let error = null;
+    try { m.renderModelSelects(""); } catch (e) { error = String((e && e.message) || e); }
+    document.createElement = made; globalThis.CSS = keepCss;
+    const rowsOf = (pk) => pk.kids.map((el) => el.dataset.value).filter((v) => v);
+    return { mmproj: rowsOf(pp), draft: rowsOf(pd), heldMmproj: pp.sel.value, heldDraft: pd.sel.value,
+             emptyMmproj: (pp.opts.find(([v]) => v === "") || [])[1], emptyDraft: (pd.opts.find(([v]) => v === "") || [])[1], error };
+  };
+  const q5 = "G/b/Q5/g-Q5.gguf";
+  const a = draw(q5);
+  out.companions = {
+    siblings: [a.mmproj, a.draft],
+    labels: [a.emptyMmproj === en.textOnlyOption, a.emptyDraft === en.noDraftOption, a.emptyDraft === en.textOnlyOption, en.noDraftOption !== en.textOnlyOption],
+    // A companion of another repository: replaced by the model's own suggestion; one of a sibling quant folder: kept.
+    stale: [draw(q5, "H/c/Q4/mmproj-h.gguf", "H/c/Q4/mtp-h.gguf"), draw(q5, "G/b/Q8/mmproj-g.gguf", "G/b/default/mtp-d.gguf")].map((d) => [d.heldMmproj, d.heldDraft]),
+    unknownModel: (({ mmproj, draft }) => [mmproj, draft])(draw("Z/q/z.gguf")),
+    noRow: (({ mmproj, draft }) => [mmproj, draft])(draw(q5, "", "", ROWS.map(({ compatibleMmprojs, compatibleDrafts, ...r }) => r))),
+    errors: [a.error],
+  };
+  // What the draft field HOLDS decides the speculative type: a <select> drops a value it has no option for.
+  const picky = (allowed) => ({ dataset: {}, allowed, _v: "old.gguf", get value() { return this._v; }, set value(x) { this._v = this.allowed.includes(x) ? x : ""; } });
+  const fill = (allowed) => {
+    st.setState({ ...st.state, models: [{ path: "x/q4/m.gguf", suggestedDraft: "x/mtp/d.gguf", familyDefaults: { SPEC_TYPE: "draft-mtp" } }], artifacts: [] });
+    globalThis.__fields = { "tr-MODEL_FILE": { value: "x/q4/m.gguf", dataset: {} }, "tr-SPEC_DRAFT_MODEL_FILE": picky(allowed),
+                            "tr-SPEC_TYPE": { value: "stale" }, "tr-SPEC_ENABLED": { checked: true, closest: () => null } };
+    try { m.maybeAutofillModelHelpersPfx("tr-"); } catch (e) { /* the insight panels */ }
+    const f = globalThis.__fields;
+    return [f["tr-SPEC_DRAFT_MODEL_FILE"].value, f["tr-SPEC_TYPE"].value, f["tr-SPEC_ENABLED"].checked];
+  };
+  // Strata's one draft layer lies in the ORIGINAL's folder, and the server lists it for the Coder's pack by architecture
+  // (DraftPairing, 2026-10-17): another repository's file, offered and kept — while a model whose row does not list it still loses it.
+  const SROWS = [
+    { path: "C/c/IQ1_M/c-IQ1_M-00001-of-00002.gguf", kind: "model", sizeGb: 54,
+      compatibleDrafts: ["O/o/IQ2_XS/mtp-q2_0.gguf"], suggestedDraft: "O/o/IQ2_XS/mtp-q2_0.gguf" },
+    { path: "G/b/Q5/g-Q5.gguf", kind: "model", sizeGb: 8, compatibleDrafts: [], suggestedDraft: "" },
+    { path: "O/o/IQ2_XS/mtp-q2_0.gguf", kind: "draft", sizeGb: 1 }];
+  const coder = "C/c/IQ1_M/c-IQ1_M-00001-of-00002.gguf", layer = "O/o/IQ2_XS/mtp-q2_0.gguf";
+  out.pairedDraft = [draw(coder, "", layer, SROWS), draw(coder, "", "", SROWS), draw("G/b/Q5/g-Q5.gguf", "", layer, SROWS)]
+    .map((d) => [d.draft, d.heldDraft]);
+  out.heldDraft = [fill(["x/mtp/d.gguf"]), fill([])];
+  // A pick writes the companions into pickers whose options are THOSE OF THE NEW MODEL: the options are drawn first. Pickers that
+  // keep only the options drawn since their last redraw (a <select> drops any other value) show the difference.
+  const keepCss = globalThis.CSS, made = document.createElement;
+  globalThis.CSS = { escape: (x) => String(x) };
+  document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {}, toggle() {} }, setAttribute() {},
+                                    addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+  const select = (initial = "") => {
+    const list = { innerHTML: "", appendChild() {} }, trigger = { innerHTML: "", appendChild() {} };
+    const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                   querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+    return { dataset: {}, allowed: [], _v: initial, previousElementSibling: wrap,
+             get value() { return this._v; }, set value(x) { this._v = (x === "" || this.allowed.includes(x)) ? x : ""; },
+             set innerHTML(h) { this.allowed = []; this._v = ""; }, get innerHTML() { return ""; },
+             appendChild(o) { this.allowed.push(o.value); if (o.selected) this._v = o.value; } };
+  };
+  st.setState({ ...st.state, config: {}, artifacts: [], models: ROWS });
+  globalThis.__fields = { "tr-MODEL_FILE": select("G/b/Q5/g-Q5.gguf"),
+                          "tr-MMPROJ_FILE": select(), "tr-SPEC_DRAFT_MODEL_FILE": select(),
+                          "tr-SPEC_TYPE": { value: "stale" }, "tr-SPEC_ENABLED": { checked: false, closest: () => null } };
+  (globalThis.__stubReturns ||= {})["llama-edit.runnerRegistry"] = () => [];
+  try { m.maybeAutofillModelHelpersPfx("tr-"); } catch (e) { out.pickThenWriteError = String((e && e.stack) || e).split("\n").slice(0, 4).join(" | "); }
+  const f = globalThis.__fields;
+  out.pickThenWrite = [f["tr-MMPROJ_FILE"].value, f["tr-SPEC_DRAFT_MODEL_FILE"].value, f["tr-SPEC_TYPE"].value, f["tr-SPEC_ENABLED"].checked];
+  document.createElement = made; globalThis.CSS = keepCss;
+  globalThis.__fields = keep;
+  st.setState(saved);
+}
 console.log(JSON.stringify(out));
 """
 
@@ -463,7 +647,7 @@ if run.returncode != 0:
 got = json.loads(run.stdout.strip().splitlines()[-1])
 
 print("модуль:")
-check(got["exports"] == 42, "form.js экспортирует 42 функции (пересчитай при изменении охвата; +mcOpen, раунд 10; "
+check(got["exports"] == 43, "form.js экспортирует 43 функции (пересчитай при изменении охвата; +ModelCompanions, 2026-10-17; +mcOpen, раунд 10; "
       "+modelChoiceOf, +mcAwaitPick)")
 check(got["classicGone"] == [],
       f"negative: помощников классической формы одиночного сервера больше нет — Gemma-режимы, автошаблон, "
@@ -471,8 +655,9 @@ check(got["classicGone"] == [],
 
 print("readConfigForm — поля:")
 rc = got["rc"]
-check(rc["llama"]["n"] == 143 and rc["empty"]["n"] == 143,
-      "конфиг всегда из 143 ключей, даже с пустой формы (1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T)")
+check(rc["llama"]["n"] == 147 and rc["empty"]["n"] == 147,
+      "конфиг всегда из 147 ключей, даже с пустой формы (1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T; 1.3.550: +TRUST_REMOTE_CODE; "
+      "1.3.555: +MAX_NUM_SEQS, KV_CACHE_DTYPE, REASONING_PARSER)")
 check(rc["named"]["NAME"] == "gemma" and rc["namedWhisper"]["NAME"] == "ear" and rc["llama"]["NAME"] == "",
       "MODEL_NAME (1.3.507) — имя модели на входе машины, у любого раннера, без пробелов; поля нет — пусто")
 check(rc["llama"]["PORT"] == "22001", "порт обрезан от пробелов")
@@ -483,6 +668,20 @@ check(rc["llama"]["MMAP"] == "" and rc["llama"]["FIT"] == "",
       "необязательный тумблер без значения и не тронутый → \"\" — даже при включённом чекбоксе")
 check(got["dirtyFit"] == "0", "тронутый (dirty) необязательный тумблер читает чекбокс: \"0\"")
 check(got["prefixed"] == "9", "префикс формы \"tr-\" читает tr-PORT, а не PORT")
+check(got["hfLink"] == {"href": "/hf?q=Qwen%2FQwen3-GGUF", "text": "HF", "target": None, "rel": None, "cls": "mc-hf-link",
+                        "title": "Open Qwen/Qwen3-GGUF in HF Browser", "stopped": 1, "other": False, "flat": False, "empty": False},
+      "ссылка «HF» у поля модели — обычная ссылка на страницу HF каравана с репозиторием в запросе, в ЭТОЙ ЖЕ вкладке (2026-10-17): без target и без стрелки ↗; щелчок по ней не открывает список "
+      "(stopPropagation); negative: у поля mmproj, у файла без папки репозитория и у пустого поля ссылки нет "
+      f"(получено {got['hfLink']})")
+
+check(rc["vllmTrusted"]["TRUST"] == "1" and rc["vllm"]["TRUST"] == "" and rc["empty"]["TRUST"] == "",
+      "TRUST_REMOTE_CODE (--trust-remote-code у vLLM): отмеченный флажок → \"1\" (не \"on\" — значение флажка), неотмеченный и отсутствующий → \"\", а не \"0\"")
+
+check(rc["vllmRecipe"]["SEQS"] == "8" and rc["vllmRecipe"]["KVDT"] == "fp8" and rc["vllmRecipe"]["PARSER"] == "nano_v3",
+      "рецепт модели (--max-num-seqs, --kv-cache-dtype, --reasoning-parser): три поля читаются обрезанными от пробелов, как остальные текстовые поля vLLM")
+check(rc["vllm"]["SEQS"] == "" and rc["vllm"]["KVDT"] == "" and rc["vllm"]["PARSER"] == "" and rc["empty"]["SEQS"] == ""
+      and rc["empty"]["KVDT"] == "" and rc["empty"]["PARSER"] == "",
+      "negative: поля не заполнены (или их нет на форме) — пустая строка, а не «0», «auto» и не undefined: пусто значит «флага нет»")
 
 print("readConfigForm — раннер:")
 check(rc["llama"]["RUNNER"] == "llama-server" and rc["llama"]["KIND"] == "", "RUNNER по умолчанию llama-server")
@@ -571,9 +770,13 @@ check(pb.get("strata") == {"wontFit": False, "plan": True, "add": "13.6 GB"},
 check(pb.get("strataShort") == {"wontFit": True, "plan": True, "add": "6.00 GB"},
       "на карте свободно 5.5 ГБ из нужных 6 — «won't fit» сразу, без запаса в 1 ГБ: скаут откажет ровно здесь "
       f"(got {pb.get('strataShort')})")
-check(pb.get("vllm") == {"wontFit": True, "plan": False, "add": "28.7 GB"},
+check(pb.get("vllm") == {"wontFit": True, "plan": True, "add": "28.7 GB"},
       "vLLM с моделью — его резерв (0.9 × 31.8 ГБ карты), а не сумма llama по файлу; при 13.6 ГБ свободных — "
-      f"не влезет (got {pb.get('vllm')})")
+      "не влезет; и строка под полосой: веса 36.5 ГБ не помещаются в резерв одной карты (VllmPlacement) "
+      f"(got {pb.get('vllm')})")
+check(pb.get("vllmFits") == {"wontFit": True, "plan": False, "add": "28.7 GB"},
+      "negative: та же карта и тот же резерв, но веса 10 ГБ в него помещаются — строки о весах нет (резерв по-прежнему не влезает в 13.6 свободных) "
+      f"(got {pb.get('vllmFits')})")
 check((pb.get("llama") or {}).get("plan") is False and (pb.get("llama") or {}).get("add") not in (None, "13.6 GB"),
       "negative: llama.cpp с той же моделью — по-прежнему своя цифра (доля VRAM при выгрузке слоёв), "
       f"без строки плана (got {pb.get('llama')})")
@@ -584,11 +787,35 @@ check(bo.get("grace") == {"wontFit": False, "total": "32.0 GB", "note": None},
       f"оценка без hard — запас 1 ГБ, как было: 6 на 5.5 ещё «впритык», строки плана нет (got {bo.get('grace')})")
 check(bo.get("all") == {"wontFit": False, "total": "48.0 GB", "note": None},
       f"без cards — все карты машины, как было (got {bo.get('all')})")
+br = got.get("barRunning") or {}
+check(br.get("running") == {"wontFit": False, "mine": "5.50 GB"},
+      f"работающая ячейка уже держит свою память: полоса рисует её «this cell 5.50 GB» внутри занятого и ничего не добавляет (got {br.get('running')})")
+check(br.get("stopped") == {"wontFit": True, "mine": None} and br.get("noCell") == {"wontFit": True, "mine": None},
+      f"negative: остановленная ячейка и «ячейки нет» ничего не держат — те же 6 ГБ на 5.5 свободных «won't fit», без «this cell» (got {br.get('stopped')}, {br.get('noCell')})")
 check(got.get("awaitEstimate") == {"pending": [False, False, True, True, False], "normal": [True, True, False, False, False]},
       "defect-history: пока «＋ Add model» ждёт выбора, оценка пуста, а полоса памяти говорит «выберите модель» — "
       "раньше редактор показывал размер, «не влезет» и подсказку про проектор модели конфига (живая проверка "
       "1.3.390); negative: обычная форма с пустым полем — модель конфига, как было: размер и подсказка на месте, "
       f"полоса рисуется (у машины карта на 32 ГБ) (got {got.get('awaitEstimate')})")
+
+rp = got.get("ramPlan") or {}
+note = "keeps its weights in memory · needs 50.0 GB free, plus 2.00 GB left for the system"
+check(rp.get("short") == {"add": "50.0 GB", "wontFit": True, "fill": "bad", "note": note, "mine": False, "vramNote": None},
+      f"шкала RAM показывает обещание Strata: 51201 МиБ при 52 ГБ свободных и 2 ГБ, что скаут оставляет системе, — «≈ 50.0 GB ✗ won't fit», красный отрезок и строка под полосой (got {rp.get('short')})")
+check(rp.get("exact", {}).get("wontFit") is False and rp.get("exact", {}).get("add") == "50.0 GB" and rp.get("exact", {}).get("fill") == "warn",
+      f"boundary: ровно 50 ГБ (51200 МиБ) — влезает до МиБ, как режет скаут (MemoryLedger.short); запас меньше 1 ГБ — жёлтый (got {rp.get('exact')})")
+check(rp.get("roomy", {}).get("wontFit") is False and rp.get("roomy", {}).get("fill") == "good" and rp.get("roomy", {}).get("add") == "40.0 GB",
+      f"обещание 40 ГБ при 52 свободных — влезает, зелёный отрезок (got {rp.get('roomy')})")
+check(rp.get("near", {}).get("fill") == "warn" and rp.get("near", {}).get("wontFit") is False and rp.get("near", {}).get("add") == "49.5 GB",
+      f"49.5 ГБ при 52 − 2 = 50 «свободных» после запаса: влезает, но меньше ГБ в запасе — жёлтый, не красный (got {rp.get('near')})")
+check(rp.get("none") == {"add": None, "wontFit": False, "fill": None, "note": None, "mine": False, "vramNote": None},
+      f"negative: без плана (llama.cpp, ничего не обещает) на шкале RAM ничего, кроме занятого, — как было до 1.3.574 (got {rp.get('none')})")
+check(rp.get("noRoom", {}).get("wontFit") is False and rp.get("noRoomOver", {}).get("wontFit") is True,
+      f"запаса системе нет (ответ без него) — обещание сравнивается со свободным как есть: 52 ГБ влезает, МиБ сверху — нет (got {rp.get('noRoom')}, {rp.get('noRoomOver')})")
+check(rp.get("running", {}).get("add") is None and rp.get("running", {}).get("note") is None and rp.get("running", {}).get("wontFit") is False,
+      f"negative: работающая ячейка уже держит память внутри «занято» — обещание поверх не рисуется, дважды не считается (got {rp.get('running')})")
+check(rp.get("stopped", {}).get("wontFit") is True and rp.get("stopped", {}).get("add") == "50.0 GB",
+      f"остановленная ячейка ничего не держит — обещание рисуется, как у новой (got {rp.get('stopped')})")
 
 print("mcOpen:")
 check(got["mcOpen"] == [True, 1, False, 0, False, False],
@@ -612,6 +839,12 @@ check(cn["state"][3] == "🎓 32.8k", "формат тот же, что у 🪟 
 check(cn["apply"] == [262144, "262144"], "нажатие пишет обученное окно в поле и возвращает его")
 check(cn["applyNothing"] == [0, "100000"], "без числа поле не трогается")
 
+print("💻 слово из имени репозитория:")
+repo_rows = got["repoRows"]
+check(repo_rows == ['<span class="mbadge mbadge-repo" title="Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF">\U0001f4bb Coder</span>', None, None, None, None],
+      f"пакет Coder назван по базовой модели (…GSQ-RCO-IQ1_M-…), и слово «Coder» стояло только в серой строке папки: на строке имени теперь чип 💻 Coder, подсказка — репозиторий; "
+      f"negative: у базовой модели чипа нет, у Qwen3-Coder нет (слово уже в имени файла), у файла, которого нет на диске, и у распознавателя речи — тоже (got {repo_rows})")
+
 print("📚 строка пикера из библиотеки:")
 lib_rows = got["libRows"]
 check(lib_rows[0] == {"lib": '<span class="mbadge mbadge-lib" title="In the library N&lt;AS, not on this disk" '
@@ -626,10 +859,15 @@ check(pmap == {"model": [["L/a/Q4/lib-Q4.gguf", True], ["L/a/Q4/loc-Q4.gguf", Fa
       f"без 📚 (got {pmap}, {got.get('pickerMapError')})")
 check(got.get("splitRows") == [["S/a/IQ2/S-IQ2-00001-of-00002.gguf", True],
                                ["O/a/Q8/one-00001-of-00001.gguf", False],
-                               ["W/a/Q4/whole-Q4.gguf", False]] and got.get("splitError") is None,
+                               ["W/a/Q4/whole-Q4.gguf", False],
+                               ["H/a/Q8/half-00001-of-00003.gguf", False]] and got.get("splitError") is None,
       f"разбитый GGUF — один выбор, его первая часть (вторая часть Strata стояла в пикере моделью llama.cpp); "
       f"модель Strata под llama.cpp приглушена — её вид по архитектуре qwen4exp; boundary: «часть 1 из 1» — "
       f"обычная модель (got {got.get('splitRows')}, {got.get('splitError')})")
+check(got.get("splitSizes") == [["S/a/IQ2/S-IQ2-00001-of-00002.gguf", "68 GB \u00d72"], ["O/a/Q8/one-00001-of-00001.gguf", "1 GB"],
+                               ["W/a/Q4/whole-Q4.gguf", "4 GB"], ["H/a/Q8/half-00001-of-00003.gguf", "5 GB \u00d71/3"]],
+      f"модель из частей в пикере — размер ВСЕЙ модели и число частей («68 GB ×2»); недостающая часть названа («×1/3»: её нельзя запустить, а выглядела бы целой); "
+      f"negative: целый файл и «часть 1 из 1» — без «×» (got {got.get('splitSizes')})")
 check(got["stRows"] == [[True, True], [False, True]] and got.get("stPickError") is None,
       f"папка safetensors — в пикере формы, чья машина читает дерево моделей контроллера (машина контроллера); "
       f"negative: у другой машины скаута папки vLLM нет; defect-history: папку SeamlessM4T другая машина видит — "
@@ -641,6 +879,31 @@ check(got["specPick"] == [["gemma-4-31b-it/mtp/gemma-4-31B-it-MTP-Q8_0.gguf", "d
       f"выбор модели пишет черновик и его тип по одному правилу: голова из папки mtp/ — draft-mtp (было draft-simple); "
       f"negative: DFlash не получает тип семейства; без файла с MTP внутри — тип семейства; без черновика и без MTP — "
       f"пусто и выключено (got {got['specPick']})")
+comp = got["companions"]
+check(comp["errors"] == [None], f"пикеры рисуются без ошибок (got {comp['errors']})")
+check(comp["siblings"] == [["G/b/Q8/mmproj-g.gguf"], ["G/b/Q8/mtp-g.gguf", "G/b/default/mtp-d.gguf"]],
+      f"пикеры предлагают компаньонов так, как их назвал сервер: проектор и черновик из соседней папки кванта Q8_0 и из default/, "
+      f"а не только из своей папки; negative: файлы чужого репозитория (H/c) не предложены (got {comp['siblings']})")
+check(comp["labels"] == [True, True, False, True],
+      f"пустой пункт проектора — «только текст», пустой пункт черновика — «без черновика», а не слова про mmproj (got {comp['labels']})")
+check(comp["stale"] == [["G/b/Q8/mmproj-g.gguf", "G/b/Q8/mtp-g.gguf"], ["G/b/Q8/mmproj-g.gguf", "G/b/default/mtp-d.gguf"]],
+      "положительный и отрицательный: сохранённые компаньоны чужого репозитория заменены предложением модели; компаньоны из соседней папки "
+      f"кванта и из default/ — это компаньоны модели, они остаются (got {comp['stale']})")
+check(got["pairedDraft"] == [[["O/o/IQ2_XS/mtp-q2_0.gguf"], "O/o/IQ2_XS/mtp-q2_0.gguf"], [["O/o/IQ2_XS/mtp-q2_0.gguf"], ""], [[], ""]],
+      "defect-history (2026-10-17): the Coder's pack has no draft in its own repository; the server lists the original's draft layer for it "
+      "(by architecture), and the picker OFFERS that other repository's file and KEEPS it when the cell holds it; negative: with nothing "
+      "chosen nothing is written by the redraw, and a model whose row does not list the file is offered none and loses it "
+      f"(got {got['pairedDraft']})")
+check(comp["unknownModel"] == [["Z/q/mmproj-z.gguf"], ["Z/q/mtp-z.gguf"]],
+      f"модель, которой сервер не знает (путь набран руками): остаётся одно правило — своя папка (got {comp['unknownModel']})")
+check(comp["noRow"] == [[], []],
+      f"ответ без списков (сервер старой версии): то же единственное правило — своя папка; в папке Q5 компаньонов нет (got {comp['noRow']})")
+check(got["pickThenWrite"] == ["G/b/Q8/mmproj-g.gguf", "G/b/Q8/mtp-g.gguf", "draft-mtp", True],
+      "выбор модели пишет проектор и черновик в пикеры, у которых уже варианты ЭТОЙ модели (соседняя папка кванта): значения остались, "
+      f"тип — draft-mtp, ускорение включено; пикеры с вариантами прежней модели значения сбросили бы (got {got['pickThenWrite']}, {got.get('pickThenWriteError')})")
+check(got["heldDraft"] == [["x/mtp/d.gguf", "draft-mtp", True], ["", "", False]],
+      "тип ускорения следует за тем, что поле УДЕРЖАЛО: поле приняло черновик — draft-mtp включён; поле значения не приняло "
+      f"(нет такого пункта) — тип пуст и ускорение выключено, а не draft-mtp без файла (got {got['heldDraft']})")
 pl = got["previewsLast"]
 check(pl["pick"] == [["tr-", "m", "x/mtp/d.gguf", "typed"]],
       f"выбор модели рисует превью ОДИН раз и ПОСЛЕ записей: рисунок видит новый алиас и новый черновик (было: старые — "

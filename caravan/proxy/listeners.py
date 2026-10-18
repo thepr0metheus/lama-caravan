@@ -13,7 +13,7 @@ from caravan.proxy.state import sync_agents_state, write_state
 
 
 # Live listen-socket registry: port -> ThreadingHTTPServer. Reconciled against the
-# config so adding/removing a client in the Kanban graph opens/closes its port
+# config so adding/removing a client in the Routing graph opens/closes its port
 # without restarting the proxy. _pending_rebind retries a port whose bind failed
 # (e.g. transiently still in use) on the next watcher tick.
 serving = {}
@@ -107,7 +107,7 @@ entry_listener = EntryListener()
 
 
 def reconcile_listeners():
-    """Open/close listen sockets to match the enabled routes, so the Kanban graph
+    """Open/close listen sockets to match the enabled routes, so the Routing graph
     can add or remove a client without restarting the proxy. Routing changes for a
     port that stays are already picked up live via live_route_for_port(). A route
     whose port is closed is served by the entry only, by its key."""

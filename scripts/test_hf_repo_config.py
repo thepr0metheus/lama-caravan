@@ -86,7 +86,7 @@ def tree():
 def label(token):
     """The checkpoint label hf_list_files gives the gated repository, for an operator with or without a token."""
     with Stand({"dtype": "bfloat16"}, token) as hub:
-        hf._hf_request = lambda path, timeout=12: tree()
+        hf._hf_request = lambda path, timeout=12, all_pages=False: tree()
         return hf.hf_list_files("nvidia/Gated-2B")["safetensors"]["format"], hub
 
 
@@ -117,7 +117,7 @@ def main():
     with Stand({"dtype": "bfloat16"}, TOKEN) as hub:
         hub.fetch_json = lambda url, timeout=2, headers=None: {"ok": False, "error": "HTTP Error 403: Forbidden"}
         fetch.fetch_json = hub.fetch_json
-        hf._hf_request = lambda path, timeout=12: tree()
+        hf._hf_request = lambda path, timeout=12, all_pages=False: tree()
         check(hf.hf_list_files("nvidia/Gated-2B")["safetensors"]["format"] == "SAFETENSORS",
               "negative: a token whose owner has not accepted the terms is refused too — SAFETENSORS, never a guess")
 
@@ -125,6 +125,8 @@ def main():
     seen = []
 
     class Reply:
+        headers = {}                      # what an answer of urllib carries: no `Link`, no next page
+
         def __init__(self, body=b"[]"):
             self.body = body
 

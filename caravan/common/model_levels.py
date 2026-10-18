@@ -1,7 +1,7 @@
 """The stop and switch levels of each subscription model, one pair for every pool.
 
 The owner, 2026-10-12: the limit bars and their levels stand on the models in
-the kanban's right column, not in a pool. So a model's levels are the model's
+Routing's right column, not in a pool. So a model's levels are the model's
 own — `gpt-6.1-sol` of one subscription stops at the same share in every pool
 whose row names it. Until 1.3.486 each pool's step kept its own pair
 (caravan/common/usage_reserve.py says what the two levels do).

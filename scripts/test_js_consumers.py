@@ -4,7 +4,7 @@
 A consumer's card says its name, its key's last four characters and its
 requests; with no cable to a set of models it says so in the alarm colour, and
 "not known" when the controller said nothing (2026-10-12: one cable goes on
-from a client, to its set, drawn on the kanban). ＋ asks a name, makes the
+from a client, to its set, drawn in Routing). ＋ asks a name, makes the
 consumer and shows its key once beside the address and the models its set
 gives (`models`, the controller's reading); a new key says first that the old one stops
 working; rename and delete go through the route's own doors. A refusal is
@@ -87,7 +87,7 @@ PINS = [
      ' const typed = m.ConsumerCards.of({ proxies: [{ port: 23001, label: "A", kind: "consumer" }, { port: "23005", label: "S", kind: "consumer" }], layout: { clientOrder: [23005] } }).map((p) => p.label);'
      ' return [of({ clientOrder: [23003, 23001] }), of({ clientOrder: ["23004", 9999, 23003] }), of({ clientOrder: [] }), of({}), of(undefined), typed]; })()',
      '[["Zed","Hermes","Bot","Odd"],["Odd","Zed","Bot","Hermes"],["Bot","Hermes","Odd","Zed"],["Bot","Hermes","Odd","Zed"],["Bot","Hermes","Odd","Zed"],["S","A"]]',
-     "порядок оператора (1.3.503, перенос карточки на канбане): названные — первыми, в его порядке, остальные — по имени; порт строкой — "
+     "порядок оператора (1.3.503, перенос карточки в Маршрутизации): названные — первыми, в его порядке, остальные — по имени; порт строкой — "
      "в порядке и у клиента — тот же порт; negative: порт без клиента ничего не рисует, пустой или несказанный порядок — по имени, как раньше"),
     ("card_parts",
      '',
@@ -97,7 +97,7 @@ PINS = [
      ' h.includes("lcv1_"), h.includes(" paused"), z.includes("consumer-card paused")]; })()',
      '[true,true,true,[true,true,true,false],true,false,false,true]',
      "карточка: имя, четыре знака ключа, кнопки ключа, имени и удаления; negative: кнопки выбора моделей нет — набор даёт канат "
-     "на канбане; ключа целиком нет; клиент на паузе — блеклый"),
+     "в Маршрутизации; ключа целиком нет; клиент на паузе — блеклый"),
     # 2026-10-11 (the owner: a client's activity on the cables, as the agents' was): the card lights
     # with its client's request and carries the handle its cable leaves from (cables.js).
     ("card_lights_and_carries_its_cable_handle",
@@ -114,7 +114,7 @@ PINS = [
      '[true,true,true,true,false,false,false]',
      "карточка горит, пока идёт запрос её клиента, и несёт гнездо, откуда выходит её канат к набору; "
      "negative: тихая карточка не горит; у клиента без набора и у клиента, о чьём наборе контроллер молчит, гнезда нет"),
-    # 2026-10-12, the owner: the set's name off the card (the kanban names the sets), the
+    # 2026-10-12, the owner: the set's name off the card (Routing names the sets), the
     # client's requests on it — the strip under the clients moved onto them (charts.js draws it).
     ("card_on_one_line_with_quiet_actions",
      '',
@@ -124,7 +124,7 @@ PINS = [
      ' return [head.includes(">Hermes<") && head.includes("🔑 …a1b2"), ["key", "rename", "delete"].map((a) => acts.includes(`data-consumer-${a}="23001"`)),'
      ' (h.match(/class="consumer-line"/g) || []).length]; })()',
      '[true,[true,true,true],0]',
-     "карточка клиента в одну строку (владелец, 2026-10-12: чище, как на канбане): имя, четыре знака ключа и в конце строки "
+     "карточка клиента в одну строку (владелец, 2026-10-12: чище, как в Маршрутизации): имя, четыре знака ключа и в конце строки "
      "три действия — новый ключ, имя, удаление — тихие, пока на карточку не навели; negative: второй строки с ключом нет, "
      "у клиента с канатом под строкой только его запросы"),
     ("card_shows_its_requests_not_its_set",
@@ -136,7 +136,7 @@ PINS = [
      ' o.includes(\'data-t-state="unknown"\') && !o.includes("consumer-activity")]; })()',
      '[true,true,false,true,true]',
      "клиент с канатом: на карточке строка его запросов, по имени, и подсказка, что откроет щелчок; negative: имени набора на "
-     "карточке нет — наборы называет канбан; без каната — сказано красным, строки запросов нет; контроллер не "
+     "карточке нет — наборы называет Маршрутизация; без каната — сказано красным, строки запросов нет; контроллер не "
      "сказал — «неизвестно»"),
     ("set_three_states",
      '',
@@ -147,7 +147,7 @@ PINS = [
      ' o.includes(\'data-t-state="unknown"\') && o.includes(en.consumerSetUnknown), d.setHtml({ set: null }).includes(\'data-t-state="unknown"\')]; })()',
      '[true,true,true,true,true]',
      "набор клиента — имя, которое прислал контроллер; у другого клиента — его имя; negative: каната нет — сказано красным, "
-     "что провести его на канбане; контроллер не сказал — «неизвестно», а не «нет»"),
+     "что провести его в Маршрутизации; контроллер не сказал — «неизвестно», а не «нет»"),
     ("lane_entry_then_cards",
      '',
      '(() => { const [d] = desk(); const h = d.laneHtml(st.topology); const at = (n) => h.indexOf(`>${n}<`);'

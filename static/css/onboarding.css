@@ -1,6 +1,6 @@
 /* ── Onboarding tour: floating "?" button + spotlight overlay ─────────────── */
 
-/* Header pill button (index topbar / kanban head / hf header). */
+/* Header pill button (index topbar / Routing head / hf header). */
 .ob-btn-head {
   display: inline-flex;
   align-items: center;

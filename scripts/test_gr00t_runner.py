@@ -60,8 +60,11 @@ def section_the_registry():
           f"в браузер уходит: свой вид папки, её архитектура Gr00tN1d7, модель из общего выбора, путь командной "
           f"ячейки, окна в токенах нет, память — замеренная цифра (получено {row})")
     claims = {r["id"]: r["stArchs"] for r in registry_json() if r["stArchs"]}
-    check(claims == {"gr00t": ["Gr00tN1d7"], "seamless": ["seamless_m4t", "seamless_m4t_v2"]},
-          f"папки safetensors своих архитектур называют только GR00T и seamless; литерал «seamless_m4t» "
+    check(claims == {"gr00t": ["Gr00tN1d7"], "seamless": ["seamless_m4t", "seamless_m4t_v2"],
+                     "personaplex": ["personaplex"], "lfm-audio": ["Lfm2AudioForConditionalGeneration"],
+                     "step-audio2": ["step_audio_2"], "qwen3-omni": ["qwen3_omni_moe"]},
+          f"папки safetensors своих архитектур называют GR00T, seamless и четыре голосовых раннера (1.3.553, "
+          f"их утверждения держит test_launcher_runners.py); литерал «seamless_m4t» "
           f"жил в браузере дважды (получено {claims})")
     check(jobs_for_cell("gr00t") == ("robot-policy",) and jobs_for_artifact("st", arch="Gr00tN1d7") == ("robot-policy",)
           and jobs_for_artifact("st", arch="qwen3_vl") == ("llm",),

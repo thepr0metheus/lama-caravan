@@ -12,6 +12,7 @@ The module is loaded into node FOR REAL (scripts/_js_harness.mjs); i18n is real 
 Run: python3 scripts/test_js_usage_stats.py
 """
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -103,7 +104,8 @@ out.spend = { api: m.proxySpendHtml("sub"), sub: m.proxySpendHtml("sub", { subsc
   asked: m.proxySpendHtml("sub", { open: true, subscription: true }), none: m.proxySpendHtml("other"),
   zero: m.proxySpendHtml("other", { zero: true }), zeroOwn: m.proxySpendHtml("sub", { zero: true }) === m.proxySpendHtml("sub"),
   of: m.proxySpendOf("sub")?.byModel?.[0]?.model || null, ofNone: m.proxySpendOf("other"),
-  cost: [{ total: 698.73 }, { total: 0 }, { total: 1234567.4 }, { total: 0.4 }, null, {}, { total: "12.5" }].map(m.spendCost) };
+  cost: [{ total: 698.73 }, { total: 0 }, { total: 1234567.4 }, { total: 0.4 }, null, {}, { total: "12.5" },
+    { total: 0.004 }, { total: 0.005 }, { total: 12 }, { total: 99.999 }, { total: 100 }, { total: 0.07 }, { total: 1.22 }].map(m.spendCost) };
 
 // ── возврат на вкладку перечитывает то, что устарело ──
 const NOW = 1_000_000;
@@ -146,7 +148,7 @@ out.refresh_no_id = m.refreshUsageReading("subscription", "");
 const LIMR = { label: "5h limit", name: "", remainingPct: 15, resetsAt: "2031-03-15T10:20:00Z", windowSeconds: 18000 };
 const STEPR = (switchAt, stopAt, extra = {}) => ({ poolId: "p<1>", stepId: "s<1>", switchAt, stopAt, switchMax: 90, ...extra });
 out.row_two = m.subscriptionLimitRowHtml("acc<1>", LIMR, STEPR({ "18000": 40 }, { "18000": 10 }));
-// The kanban's model (1.3.486): the handles name the model by its account and model, not a pool's row.
+// Routing's model (1.3.486): the handles name the model by its account and model, not a pool's row.
 out.row_model = m.subscriptionLimitRowHtml("acc<1>", LIMR, { accountId: "sub<1>", model: "gpt<1>", switchAt: { "18000": 40 }, stopAt: { "18000": 10 }, switchMax: 90 });
 out.row_same = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 20 }, { "18000": 20 }));
 out.row_below = m.subscriptionLimitRowHtml("acc", LIMR, STEPR({ "18000": 5 }, { "18000": 30 }));
@@ -220,6 +222,29 @@ out.drag = [during, m.switchDrag.active, redraws, (listeners.pointerup || []).le
 m.switchDrag.begin(() => { redraws += 1; });
 (listeners.pointercancel || []).slice().forEach((fn) => fn());
 out.drag_cancel_no_defer = [m.switchDrag.active, redraws];
+// ── the limits drawn small (1.3.541): a window one line, the stop levels as ticks on its bar ──
+const LIMW = (label, pct, seconds) => ({ label, name: "", remainingPct: pct, windowSeconds: seconds, resetsAt: "2031-03-15T10:20:00Z" });
+const READ = (id, data, extra = {}) => m.subscriptionUsageCache.set(id, { data, fetchedAt: 1, ...extra });
+READ("mt", { ok: true, limits: [LIMW("5H", 49, 18000), LIMW("WEEKLY", 89, 604800)] });
+READ("mt-one", { ok: true, limits: [LIMW("5H", 49, 18000)] });
+READ("mt-nolen", { ok: true, limits: [LIMW("5H", 49, null)] });
+READ("mt-unknown", { ok: true, limits: [LIMW("5H", null, 18000), LIMW("WEEKLY", undefined, 604800), LIMW("X", "", 3600), LIMW("Y", "abc", 3600)] });
+READ("mt-tones", { ok: true, limits: [LIMW("A", 60, 1), LIMW("B", 30, 1), LIMW("C", 14, 1), LIMW("D", 51, 1), LIMW("E", 15, 1), LIMW("F", 150, 1), LIMW("G", -4, 1), LIMW("H", 50, 1)] });
+READ("mt-credits", { ok: true, limits: [], credits: 12 });
+READ("mt-blocked", { ok: true, limits: [LIMW("5H", 0, 18000)], limitReached: true, creditsInfo: { hasCredits: false }, upsell: null });
+READ("mt-empty", { ok: true, limits: [] });
+READ("mt-busy", { ok: true, limits: [LIMW("5H", 49, 18000)] }, { loading: true });
+m.subscriptionUsageCache.set("mt-first", { data: null, fetchedAt: 0, loading: true });
+m.subscriptionUsageCache.set("mt-failed", { data: null, error: "boom", fetchedAt: 1 });
+m.subscriptionUsageCache.set("mt-notread", { data: { ok: false }, fetchedAt: 1 });
+const MT = (id, stops) => m.subscriptionMetersHtml(id, stops === undefined ? undefined : { stops });
+out.meters = {
+  two: MT("mt", { "18000": [10, 20], "604800": [10] }), one: MT("mt-one"), nolen: MT("mt-nolen", { "0": [10], "18000": [10] }),
+  unknown: MT("mt-unknown"), tones: MT("mt-tones"), credits: MT("mt-credits"), blocked: MT("mt-blocked"), empty: MT("mt-empty"), busy: MT("mt-busy"),
+  never: MT("never-read"), notread: MT("mt-notread"),
+  sameNotes: [MT("mt-first") === m.subscriptionUsageHtml("mt-first"), MT("mt-failed") === m.subscriptionUsageHtml("mt-failed"), MT("mt-notread") === m.subscriptionUsageHtml("mt-notread")],
+  tall_unknown: m.subscriptionLimitRowHtml("acc", LIMW("5h limit", null, 18000)),
+};
 console.log(JSON.stringify(out));
 """
 
@@ -443,7 +468,7 @@ check(got["banner_kept_blocked"].startswith('<div class="sub-usage-banner blocke
 check(got["banner_kept_noreset"] == "", "negative: у вердикта нет срока — плашки нет (не знаем до когда — не пишем)")
 check(got["banner_no_step"] == "", "negative: старое поле учётки (reserveKept) больше ничего не рисует — уровень у шага, а не у учётки")
 check(got["saved_model"] == {"accountId": "sub", "model": "gpt-6-sol", "level": "switch", "windowSeconds": 604800, "pct": 20},
-      f"ручка модели (канбан, 1.3.486) сохраняет уровень модели — аккаунт и модель, без пула и строки (получено {got['saved_model']})")
+      f"ручка модели (Маршрутизация, 1.3.486) сохраняет уровень модели — аккаунт и модель, без пула и строки (получено {got['saved_model']})")
 rm = got["row_model"]
 check(rm.count('data-level-account="sub&lt;1&gt;" data-level-model="gpt&lt;1&gt;" data-window-seconds="18000"') == 2
       and "data-pool-switch" not in rm and "data-step-id" not in rm,
@@ -458,6 +483,48 @@ check(got["drag"] == [True, False, 1, 0, 0],
       f"флаг перетаскивания снимается на отпускании, отложенная перерисовка — один раз, слушатели убраны (получено {got['drag']})")
 check(got["drag_cancel_no_defer"] == [False, 1],
       "отмена жеста тоже снимает флаг; перерисовки не просили — её и нет")
+
+print("the limits drawn small (1.3.541; Routing's account card):")
+mt = got["meters"]
+two = mt["two"]
+check(two.count('<div class="sub-meter" ') == 2 and two.count('class="sub-meters"') == 1 and 'data-t="sub-meters"' in two and "sub-usage-row" not in two,
+      "два окна — две строки-шкалы в одной сетке, высоких строк нет")
+check('<span class="sub-meter-label">5H</span><span class="sub-meter-bar"><i class="sub-meter-fill" style="width:49%;background:#f59e0b"></i>'
+      '<i class="sub-meter-stop" data-t="sub-meter-stop" style="left:10%" title="stop at 10%"></i><i class="sub-meter-stop" data-t="sub-meter-stop" style="left:20%" title="stop at 20%"></i>'
+      '</span><span class="sub-meter-pct">49%</span>' in two,
+      "5H: подпись, полоска с заливкой по остатку (49% — янтарная) и по красной риске на каждом уровне остановки моделей карточки, проценты")
+check('<span class="sub-meter-label">WEEKLY</span><span class="sub-meter-bar"><i class="sub-meter-fill" style="width:89%;background:#22c55e"></i>'
+      '<i class="sub-meter-stop" data-t="sub-meter-stop" style="left:10%" title="stop at 10%"></i></span><span class="sub-meter-pct">89%</span>' in two,
+      "WEEKLY: свои уровни, у каждого окна — только его (окно распознаётся по длине в секундах)")
+check('role="meter" aria-label="5H 49% · resets ' in two and 'aria-valuemin="0" aria-valuemax="100" aria-valuenow="49"' in two and 'aria-valuenow="89"' in two,
+      "для чтеца с экрана окно — «meter» с остатком, как в подсказке: одной строкой «5H 49% · resets …»")
+check(re.search(r'title="5H 49% · resets [^"]*Mar[^"]*15[^"]*"', two) is not None and 'class="sub-usage-panel sub-meters-panel"' in two,
+      "когда сбрасывается окно — в подсказке шкалы, одной строкой с остатком; панель — та же, что у высоких полосок (читаются её правила)")
+check('class="sub-meters single"' in mt["one"] and mt["one"].count('<div class="sub-meter" ') == 1 and "sub-meter-stop" not in mt["one"],
+      "одно окно — на всю ширину («single»); negative: уровней не дали — рисок нет")
+check("sub-meter-stop" not in mt["nolen"],
+      "negative: окно без длины в секундах рисок не получает, что бы ни дали: уровень на безымянном окне — настройка, которая ничего не делает")
+unk = mt["unknown"]
+check(unk.count('role="img" aria-label="') == 4 and "aria-valuenow" not in unk and 'aria-label="5H: unknown"' in unk,
+      "negative: без числа — не «meter» с нулём (экранный чтец прочёл бы «0»), а картинка «5H: unknown»")
+check(unk.count('<span class="sub-meter-pct">—</span>') == 4 and "sub-meter-fill" not in unk and unk.count('data-t-state="unknown"') == 4 and unk.count('data-t-state="known"') == 0,
+      "negative: чтение не назвало остаток (null, undefined, пусто, не число) — прочерк и пустая полоска, а не красный «0%», который читается как «ничего не осталось»")
+tones = {label: (width, color) for label, width, color in re.findall(r'data-t-id="(\w)"[^>]*>.*?style="width:(\d+%);background:(#\w+)"', mt["tones"])}
+check(tones == {"A": ("60%", "#22c55e"), "B": ("30%", "#f59e0b"), "C": ("14%", "#ef4444"), "D": ("51%", "#22c55e"), "E": ("15%", "#ef4444"), "F": ("100%", "#22c55e"), "G": ("0%", "#ef4444"), "H": ("50%", "#f59e0b")},
+      f"тон полоски — правило высоких: строго больше 50% зелёная (на 50 — янтарная), строго больше 15% янтарная (на 15 — красная), иначе красная; остаток сжат до 0–100 (получено {tones})")
+check('<div class="sub-usage-credits"><span>' in mt["credits"] and "<strong>12</strong>" in mt["credits"] and "sub-meters" not in mt["credits"].replace("sub-meters-panel", ""),
+      "кредиты без окон — строка кредитов, сетки шкал нет")
+bl = mt["blocked"]
+check('data-t="sub-usage-banner"' in bl and bl.index("sub-usage-banner") < bl.index('class="sub-meters'),
+      "слово провайдера «лимит исчерпан» — над шкалами, как над высокими (его видно первым)")
+check(mt["empty"] == "" and mt["never"] == "" and mt["notread"] == "",
+      "negative: ни окон, ни кредитов; не читали; чтение пришло «не ok» — карточке нечего рисовать")
+check('class="sub-usage-panel sub-meters-panel refreshing" aria-busy="true"' in mt["busy"] and "sub-meter-fill" in mt["busy"],
+      "перечитывается — шкалы остаются как были и помечены (бежит огонёк), а не пропадают")
+check(mt["sameNotes"] == [True, True, True],
+      "первое чтение и сбой читаются теми же строками, что на высокой панели (одна разметка в одном месте), а не своими")
+check('<span class="sub-usage-pct">—</span>' in mt["tall_unknown"] and "<i style=" not in mt["tall_unknown"] and "0%" not in mt["tall_unknown"],
+      "высокая строка того же чтения — тоже прочерк (карточка и полоса не расходятся: одно правило остатка)")
 
 print("30 дней через караван:")
 check(got["compact"] == ["0", "999", "1K", "1.5K", "360M", "1B", "12.3B", "0"],
@@ -475,12 +542,13 @@ check(sp["of"] == "GPT-5.6-TERRA" and sp["ofNone"] is None,
       "строки моделей читают запись аккаунта; negative: трафика не было — null, а не пустая запись")
 check(sp["none"] == "", "negative: трафика не было — строки нет")
 check("0 req · 0 tok" in sp["zero"] and "30 days via the caravan" in sp["zero"] and sp["zeroOwn"] is True,
-      "где строка — всё, что есть (складка аккаунта на канбане), месяц без трафика сказан нулём, когда расход прочитан; "
+      "где строка — всё, что есть (складка аккаунта в Маршрутизации), месяц без трафика сказан нулём, когда расход прочитан; "
       "negative: у аккаунта с трафиком строка та же")
 check(got["spend_unread"] == "", "negative: расход ещё не прочитан — нуля нет: не знаем, а не «ничего»")
-check(sp["cost"] == ["$699", "$0", "$1,234,567", "$0", "$0", "$0", "$13"],
-      f"сумма пишется одним способом — доллары без центов, тысячи через запятую; нет записи — $0, не NaN (got {sp['cost']}): "
-      "её читают и строка расхода, и голова ступени пула")
+check(sp["cost"] == ["$699", "$0", "$1,234,567", "$0.40", "$0", "$0", "$12.50", "<$0.01", "$0.01", "$12", "$100", "$100", "$0.07", "$1.22"],
+      f"сумма пишется одним способом (1.3.585) — от ста долларов целые, тысячи через запятую; меньше ста — с центами, без «.00»; "
+      f"нет записи — $0, не NaN; больше нуля, но меньше половины цента — «<$0.01», не $0 (got {sp['cost']}). Оператор сверял строку с Console, "
+      "где центы: «≈ $0» при расходе $0.07 читалось как «ничего не потрачено»")
 check("≈ $699 at API prices" in sp["api"], "строка расхода берёт сумму у того же правила")
 
 print()

@@ -114,6 +114,14 @@ h1 {
 }
 .sys-back:hover { border-color: var(--accent); }
 
+/* The way back to the main board is in the bar of EVERY page (scripts/gen_header.py), the board's own among
+   them: index.html is two pages, the main board and a machine's window (/machine?host=…, see board-view.js),
+   and the window lost its way back once because the bar was a copy that nobody gave it. On the board's page
+   the link says it is for the machine's view (`data-view-only`), and this is the one rule that takes it
+   away: the main board is where back goes. It keys on the link's own word, NOT on data-board-view="main":
+   Routing loads the board's script and is marked "main" too, and it is not the main board. */
+html:not([data-board-view="machine"]) .topbar-back[data-view-only="machine"] { display: none; }
+
 /* The page's own name, beside the product's. Styled as a chip rather than a
    second big title: the brand stays the loudest thing in the bar, and this
    answers "which page is this" at a glance. It is the page's <h1> — see

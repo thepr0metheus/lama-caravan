@@ -116,6 +116,11 @@ assert.equal(rungA.children[0].style.transform, "translate(0px, 10px)", "the car
 fire("pointermove", { clientX: 50, clientY: 175 });
 run();
 assert.deepEqual(order(), ["b", "a", "c"], "negative: short of c's middle nothing moves again");
+fire("pointermove", { clientX: 250, clientY: 175 });
+run();
+assert.equal(rungA.children[0].style.transform, "translate(200px, 15px)", "a carrier told no sway follows the pointer sideways as far as it goes (the default, as before 1.3.548)");
+fire("pointermove", { clientX: 50, clientY: 175 });
+run();
 
 // letting go: the card glides home, then the order is saved — and the lane waits for the answer
 let settle;
@@ -215,7 +220,7 @@ Slide.run([rb], () => page.list.insertBefore(rb, ra));
 assert.deepEqual(rb.anims[0].frames, [{ transform: "translateY(40px)" }, { transform: "none" }], "b slides up from where it was seen");
 Slide.run([ra], () => {});
 assert.equal(ra.anims.length, 0, "negative: nothing moved, nothing slides");
-// ── the kanban's cards (1.3.503): the same carrier, told what a card is made of (`parts`). The column
+// ── Routing's cards (1.3.503): the same carrier, told what a card is made of (`parts`). The column
 //    is positioned — its seats' offsets count from it, not from the parent it shares with them — and the
 //    board's own box scrolls when the pointer leans on its edge, not the window ──
 class Seat extends El {
@@ -244,9 +249,9 @@ buildColumn(["std", "eco", "fast"]);
 const parts = { item: ".pb-seat", list: "[data-pb-list]", grip: "[data-pb-card-grip]", idOf: (seat) => seat.dataset.pbSeat,
   ownerOf: (list) => list.dataset.pbList, card: (seat) => seat.children[0] };
 const box = { scrollTop: 0, getBoundingClientRect: () => ({ top: 100, bottom: 600 }) };
-const sorted = [], moved = [];
+const sorted = [], moved = [], told = [];
 const cards = new StepCarry(column.root, { onSort: (kind, ids) => { sorted.push([kind, ids]); return Promise.resolve(); }, win, doc, parts,
-  scroller: () => box, onMove: () => moved.push(1) });
+  scroller: (list) => { told.push(list); return box; }, sway: 10, onMove: () => moved.push(1) });
 const seats = () => StepCarry.order(column.list, parts);
 const once = () => { for (const fn of win.frames.splice(0)) fn(); };
 assert.deepEqual([StepCarry.within(column.list, column.list.children[2]), StepCarry.within(page.list, page.list.children[1])], [150, 40],
@@ -255,18 +260,53 @@ column.root.listeners.pointerdown[0]({ target: column.grips.std, button: 0, isPr
 fire("pointermove", { clientX: 50, clientY: 320 });
 once();
 assert.deepEqual(seats(), ["eco", "std", "fast"], "past eco's middle the card's place goes after it — counted in the column, not by the column's place on the board");
-assert.ok(moved.length >= 1 && column.list.children[2].children[0].style.transform.startsWith("translate("), "each step of the carry is told (the kanban draws its cables again), the card travels");
+assert.ok(moved.length >= 1 && column.list.children[2].children[0].style.transform.startsWith("translate("), "each step of the carry is told (Routing draws its cables again), the card travels");
+fire("pointermove", { clientX: 400, clientY: 320 });
+once();
+const sideways = column.list.children[2].children[0].style.transform;
+fire("pointermove", { clientX: -300, clientY: 320 });
+once();
+assert.deepEqual([sideways.startsWith("translate(10px,"), column.list.children[2].children[0].style.transform.startsWith("translate(-10px,")], [true, true],
+  "a card of Routing is carried along its column: it sways ten pixels to either side and no more, since the column that scrolls cuts what stands out of it");
+fire("pointermove", { clientX: 50, clientY: 320 });
+once();
 const scrolledBefore = win.scrolled;
 fire("pointermove", { clientX: 50, clientY: 590 });
 once();
 once();
 assert.ok(box.scrollTop > 0 && win.scrolled === scrolledBefore, `near the board's bottom edge the board scrolls, not the window (box ${box.scrollTop}, window ${win.scrolled - scrolledBefore})`);
+assert.ok(told.length > 0 && told.every((list) => list === column.list), "the scroller is told the list the card is carried in: Routing scrolls that column");
 fire("pointerup", { clientX: 50, clientY: 590 });
 tick();
 await Promise.resolve(); await Promise.resolve();
 assert.deepEqual([sorted, cards.phase], [[["pools", ["eco", "fast", "std"]]], "idle"], "the column's kind and its cards' ids are saved, once");
 assert.equal(column.list.children[0].classes.has("pb-col-head"), true, "negative: the column's head is no card — it stays first");
-console.log("step carry OK: grip only, press vs carry, the empty place by the layout, the card under the pointer, glide and one save, the lane held until the answer, a refusal frees it, Esc gives back, a redrawn lane lands nothing, Alt+arrows with one save, a pool of one, slides from where seen; the kanban's cards in a positioned column, its box scrolled, each step told");
+
+// A column that scrolls itself (1.3.548): the pointer's place in it is counted from what it holds, not from what is seen.
+// Order now: eco, fast, std. Carry eco with the pointer 100 px under the column's top: unscrolled that is above fast's middle — eco stays
+// first —; scrolled by 120 px the same place is 220 px into the column, below it: eco goes after fast.
+const unscrolled = (() => {
+  column.root.listeners.pointerdown[0]({ target: column.grips.eco, button: 0, isPrimary: true, pointerId: 1, clientX: 50, clientY: 150, preventDefault() {} });
+  fire("pointermove", { clientX: 50, clientY: 200 });
+  once();
+  const got = seats();
+  fire("pointerup", { clientX: 50, clientY: 200 });
+  return got;
+})();
+tick();
+await Promise.resolve(); await Promise.resolve();
+column.list.scrollTop = 120;
+column.root.listeners.pointerdown[0]({ target: column.grips.eco, button: 0, isPrimary: true, pointerId: 1, clientX: 50, clientY: 150, preventDefault() {} });
+fire("pointermove", { clientX: 50, clientY: 200 });
+once();
+const scrolledList = seats();
+fire("pointerup", { clientX: 50, clientY: 200 });
+tick();
+await Promise.resolve(); await Promise.resolve();
+column.list.scrollTop = 0;
+assert.deepEqual([unscrolled, scrolledList], [["eco", "fast", "std"], ["fast", "eco", "std"]],
+  "a scrolled column: the same place under the pointer is further into it, so the card's place goes after fast; negative: unscrolled it stays first");
+console.log("step carry OK: grip only, press vs carry, the empty place by the layout, the card under the pointer, glide and one save, the lane held until the answer, a refusal frees it, Esc gives back, a redrawn lane lands nothing, Alt+arrows with one save, a pool of one, slides from where seen; Routing's cards in a positioned column, its box scrolled, each step told, a sway of ten pixels, the list told to the scroller, a column that scrolls itself");
 '''
 
 

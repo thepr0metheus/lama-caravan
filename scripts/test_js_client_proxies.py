@@ -54,15 +54,15 @@ const out = {};
 """
 
 PINS = [
-    ("kanban_clients_come_from_the_board",
+    ("routing_clients_come_from_the_board",
      'st.setTopology({ ...st.topology, clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }] }],'
      ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary",'
      ' proxyId: "skynet:proxy:23001", endpoint: "e" }] }] } } });',
      '(r => [r.rows.map((x) => x.key), r.unclaimed.map((p) => p.port)])'
      '(m.canvasBoardClients([{ id: "skynet:proxy:23001", port: 23001, label: "p1" }]))',
      '[["c1::a1"],[]]',
-     "клиенты канбана берутся с главной: раньше он перечислял ПОРТЫ и показывал строки, которых на главной нет"),
-    ("kanban_shows_a_contested_port_once",
+     "клиенты Маршрутизации берутся с главной: раньше он перечислял ПОРТЫ и показывал строки, которых на главной нет"),
+    ("routing_shows_a_contested_port_once",
      'st.setTopology({ ...st.topology, clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }] },'
      ' { id: "c2", manual: true, agents: [{ id: "a2" }] }],'
      ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary",'
@@ -72,14 +72,14 @@ PINS = [
      '(r => [r.rows.map((x) => x.key), r.rows.map((x) => x.proxies.length)])'
      '(m.canvasBoardClients([{ id: "skynet:proxy:23001", port: 23001 }]))',
      '[["c1::a1"],[1]]',
-     "boundary: один порт назвали два назначения — на канбане он ОДИН раз, у первого; иначе одна очередь рисуется как две"),
-    ("kanban_names_a_port_no_client_owns",
+     "boundary: один порт назвали два назначения — в Маршрутизации он ОДИН раз, у первого; иначе одна очередь рисуется как две"),
+    ("routing_names_a_port_no_client_owns",
      'st.setTopology({ ...st.topology, clients: [], assignments: {} });',
      '(r => [r.rows.length, r.unclaimed.map((p) => p.port)])'
      '(m.canvasBoardClients([{ id: "skynet:proxy:8022", port: 8022, label: "proton" }]))',
      '[0,[8022]]',
      "порт без владельца НЕ прячется: молча выкинуть заведённый в маршрутизацию вход — отсутствие, нарисованное нормой"),
-    ("kanban_pairs_primary_and_fallback_in_one_row",
+    ("routing_pairs_primary_and_fallback_in_one_row",
      'st.setTopology({ ...st.topology, clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }] }],'
      ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary",'
      ' proxyId: "skynet:proxy:23001", endpoint: "e" }, { role: "fallback",'
@@ -88,7 +88,7 @@ PINS = [
      '(m.canvasBoardClients([{ id: "skynet:proxy:23001", port: 23001 }, { id: "skynet:proxy:23002", port: 23002 }]))',
      '[1,[23001,23002],0]',
      "пара ролей одного агента — одна строка, как и было"),
-    ("kanban_rows_alphabetical_by_client_then_agent",
+    ("routing_rows_alphabetical_by_client_then_agent",
      'st.setTopology({ ...st.topology, clients: [{ id: "zeta", manual: true, agents: [{ id: "z1" }] },'
      ' { id: "mid", name: "Alpha", manual: true, agents: [{ id: "beta" }, { id: "alpha" }] }],'
      ' assignments: { zeta: { assignments: [{ agentId: "z1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e" }] }] },'
@@ -97,8 +97,8 @@ PINS = [
      '(r => r.rows.map((x) => x.key))'
      '(m.canvasBoardClients([{ id: "skynet:proxy:23001", port: 23001 }, { id: "skynet:proxy:23003", port: 23003 }, { id: "skynet:proxy:23005", port: 23005 }]))',
      '["mid::alpha","mid::beta","zeta::z1"]',
-     "строки канбана — в порядке главной: клиенты по алфавиту ПОКАЗАННЫХ имён (Alpha раньше zeta, хоть id «mid»), внутри клиента агенты по алфавиту — а не в порядке хранения"),
-    ("kanban_ignores_a_client_whose_ports_are_not_wired",
+     "строки Маршрутизации — в порядке главной: клиенты по алфавиту ПОКАЗАННЫХ имён (Alpha раньше zeta, хоть id «mid»), внутри клиента агенты по алфавиту — а не в порядке хранения"),
+    ("routing_ignores_a_client_whose_ports_are_not_wired",
      'st.setTopology({ ...st.topology, clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }] }],'
      ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary",'
      ' proxyId: "skynet:proxy:29999", endpoint: "e" }] }] } } });',
@@ -146,13 +146,13 @@ PINS = [
      'st.topology.clients.map((c) => m.clientIsLive(c))',
      '[false,false,false]',
      "negative: все агенты простаивают, агентов нет, назначений нет — клиент тихий; тот же порог 12 ч, что у жёлтой рамки"),
-    ("kanban_rows_put_live_agents_first",
+    ("routing_rows_put_live_agents_first",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, lastRequestAt: 1700000100 - 3600 * 13 }, { id: "skynet:proxy:23003", port: 23003, lastRequestAt: 1700000100 - 60 }, { id: "skynet:proxy:23005", port: 23005, lastRequestAt: 1700000100 - 120 }],'
      ' clients: [{ id: "alpha", manual: true, agents: [{ id: "a1" }] }, { id: "host", manual: true, agents: [{ id: "argus" }, { id: "orion" }] }],'
      ' assignments: { alpha: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23003" }] }] }, host: { assignments: [{ agentId: "argus", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }] }, { agentId: "orion", routes: [{ role: "primary", proxyId: "skynet:proxy:23005" }] }] } } });',
      '(r => [r.rows.map((x) => x.key), r.rows.map((x) => x.live)])(m.canvasBoardClients([{ id: "skynet:proxy:23001", port: 23001 }, { id: "skynet:proxy:23003", port: 23003 }, { id: "skynet:proxy:23005", port: 23005 }]))',
      '[["alpha::a1","host::orion","host::argus"],[true,true,false]]',
-     "строки канбана — как карточки главной: живые агенты (a1, orion) раньше тихого argus, даже когда он из того же клиента и первый по алфавиту; внутри групп по имени"),
+     "строки Маршрутизации — как карточки главной: живые агенты (a1, orion) раньше тихого argus, даже когда он из того же клиента и первый по алфавиту; внутри групп по имени"),
     ("agent_card_carries_its_name",
      'st.setTopology({ ...st.topology, proxies: [], clients: [{ id: "c1", manual: true, agents: [{ id: "a1", name: "Alice" }, { id: "a2" }] }] });',
      'm.clientLaneAgentCards(st.topology.clients[0], []).map((c) => c.name)',
@@ -242,7 +242,7 @@ PINS = [
      '[[[23001,"","","r",false],[23003,"lcv1_x","","r",false],[23007,"(none)","consumer","",false]],false,""]',
      "клиент входа: его ключа на странице нет, и пересборка не шлёт пустой ключ — иначе любая правка порта стёрла бы "
      "ключ клиента (контроллер хранит его: PolicyOwnedFields); набор и модели тоже не шлются — набор ставит своя дверь; "
-     "клиент не кормит канбан (2026-10-12: его канат ведёт к набору) — роутер уходит пустым, что бы ни было в записи; "
+     "клиент не кормит роутер (2026-10-12: его канат ведёт к набору) — роутер уходит пустым, что бы ни было в записи; "
      "negative: порт старого вида шлёт свой ключ как есть — и пустой, это его слово"),
     ("routes_rebuild_keeps_a_detached_port_detached",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "" },'
@@ -250,8 +250,8 @@ PINS = [
      'm.topologyProxyRoutes().map((r) => [r.port, r.routerId])',
      '[[23001,""],[23002,"router:default"],[23003,"r"]]',
      "defect-history (2026-10-04): пересборка писала отвязанному порту (routerId \"\" — сервер держит его свободным, 503) "
-     "router:default, и правка или удаление ЛЮБОГО порта молча привязывали его обратно к канбану по умолчанию; "
-     "negative: порт без поля routerId (свежий) получает router:default, привязанный — свой канбан"),
+     "router:default, и правка или удаление ЛЮБОГО порта молча привязывали его обратно к Маршрутизации по умолчанию; "
+     "negative: порт без поля routerId (свежий) получает router:default, привязанный — свой роутер"),
     ("an_edit_changes_only_what_the_form_shows",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "", role: "primary",'
      ' clientId: "box-a", clientTimeoutSeconds: 600, contextLength: 8192, enabled: false, upstreamType: "cloud", providerId: "cb:x" },'

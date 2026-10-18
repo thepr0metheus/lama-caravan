@@ -102,15 +102,15 @@ def main():
             print(f"cloud: levels of {_rows['steps']} step(s) moved onto {_rows['models']} model(s)", flush=True)
     except Exception as exc:
         print(f"cloud: moving the steps' levels onto their models skipped ({exc})", flush=True)
-    # The kanban's right column shows the models added to it (1.3.491): the ones
+    # Routing's right column shows the models added to it (1.3.491): the ones
     # the pools' rows name are added once, so none in use leaves it.
     try:
         from caravan.admin.pools import PoolDesk
         _added = PoolDesk().migrate_added()
         if _added is not None:
-            print(f"cloud: {_added['models']} model(s) the pools' rows name added to the kanban", flush=True)
+            print(f"cloud: {_added['models']} model(s) the pools' rows name added to Routing", flush=True)
     except Exception as exc:
-        print(f"cloud: adding the rows' models to the kanban skipped ({exc})", flush=True)
+        print(f"cloud: adding the rows' models to Routing skipped ({exc})", flush=True)
     # The main board shows each cloud provider as a block of its accounts
     # (1.3.492): the providers of the accounts are put there once.
     try:
@@ -141,6 +141,16 @@ def main():
                   + (", ".join(f"{c['name']} → {c['set'] or 'none'}" for c in _sets["clients"]) or "none"), flush=True)
     except Exception as exc:
         print(f"entry: cabling the clients to sets skipped ({exc})", flush=True)
+    # The models folder is read now, in the background, not by the first page that asks: that page waited for every
+    # header (51 s for the 56 models of the NAS, 2026-10-14, the owner's red "did not finish loading"). A page that
+    # asks while this runs waits for this one walk (ModelList), not for a second.
+    def _read_models_folder():
+        try:
+            from caravan.admin.models import MODEL_LIST
+            MODEL_LIST.rows()
+        except Exception as exc:
+            print(f"models: reading the folder at start skipped ({exc})", flush=True)
+    threading.Thread(target=_read_models_folder, daemon=True).start()
     sampler = threading.Thread(target=monitor_sampler_loop, daemon=True)
     sampler.start()
 

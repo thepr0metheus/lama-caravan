@@ -70,6 +70,8 @@ SERVERS = {
     "engine_cell_server.py": (["ollama", "1", "does-not-exist"], "/v1/chat/completions"),
     # No checkpoint and no Isaac-GR00T here: it refuses on the folder before it imports anything.
     "gr00t_server.py":      (["does-not/exist", "--backbone", "does-not/exist"], "/v1/robot/predict"),
+    # A model folder that is not there: it refuses on the folder, before it imports torch.
+    "lfm_audio_server.py":  (["does-not/exist"], "/v1/audio/speech"),
 }
 
 
@@ -78,10 +80,7 @@ def check(name, cond, detail=""):
     print(f"  {'ok  ' if cond else 'FAIL'} {name}{'' if cond else '  — ' + str(detail)[:160]}")
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from _ports import free_port  # noqa: E402
 
 
 def get(url, data=None, timeout=5):

@@ -18,6 +18,11 @@ resends with replace:true; a no drops the job and keeps the selection; a
 refusal or a network error is an error row. A checkpoint asks with its format,
 size and folder, after the room question, and leaves the selection alone.
 
+A gated repository (the terms are accepted on its page) refuses its files with a wall, and the failed
+job then carries `access` with the page's address: the page that started the job opens it in a new
+window once, a job a reload brought back does not, the row's button opens it any time, a window the
+browser refuses leaves the button, and a refusal that names no page is an ordinary error row.
+
 A job while it runs: progress by bytes, the file and its share, the speed
 smoothed over polls (a step back in bytes does not count), "retrying" while
 the server retries; a missed poll is shown and asked again. Its ends: done
@@ -52,17 +57,18 @@ const D = await import(pathToFileURL(process.env.JS_ROOT + "/hf-downloads.js").h
 const GIB = 2 ** 30, MIB = 2 ** 20;
 const A = "bartowski/gemma-4-12B-it-GGUF", B = "unsloth/Qwen3.6-35B-A3B-GGUF";
 const F = (name, quant, size) => ({ path: name, name, quant, size });
-let dl, posts, gets, replies, answers, asked, toasts, timers, clock, finished, changes, store;
+let dl, posts, gets, replies, answers, asked, toasts, timers, clock, finished, changes, store, opened;
 // A reply is a value, an Error to throw, a promise to wait on, or a list served in turn (the last one stays).
 const answer = (url) => { let r = replies[url]; if (Array.isArray(r)) r = r.length > 1 ? r.shift() : r[0]; if (r instanceof Error) throw r; return r === undefined ? { ok: true } : r; };
 const settle = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
 const runTimers = async () => { const due = timers.splice(0); for (const t of due) await t.fn(); await settle(); };
-const reset = () => { posts = []; gets = []; replies = {}; answers = []; asked = []; toasts = []; timers = []; clock = 1000000; finished = []; changes = 0; store = new Map();
+const reset = () => { posts = []; gets = []; replies = {}; answers = []; asked = []; toasts = []; timers = []; clock = 1000000; finished = []; changes = 0; store = new Map(); opened = [];
   dl = new D.HfDownloads({ getJson: async (url) => { gets.push(url); return answer(url); },
     postJson: async (url, body) => { posts.push([url, JSON.parse(JSON.stringify(body))]); return answer(url); },
     confirm: async (...a) => { asked.push(a); return answers.length ? answers.shift() : false; }, toast: (m) => toasts.push(m),
     storage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
-    later: (fn, ms) => timers.push({ fn, ms }), now: () => clock, onChange: () => { changes += 1; }, onFinished: (id) => finished.push(id) }); };
+    later: (fn, ms) => timers.push({ fn, ms }), now: () => clock, onChange: () => { changes += 1; }, onFinished: (id) => finished.push(id),
+    go: (url) => { opened.push(url); } }); };
 """
 
 PINS = [
@@ -175,10 +181,10 @@ PINS = [
         clock += 2000; replies[URL] = S({ total_bytes_done: 60 * MIB, current_idx: 1, current_file: "a-00002.gguf", file_bytes_done: 10 * MIB }); await runTimers(); look();
         clock += 1000; replies[URL] = S({ total_bytes_done: 50 * MIB, current_idx: 5 }); await runTimers(); look();
         return [seen, timers.map((t) => t.ms), gets.length]; })()""",
-     '[[["running",10,1,"a-00001.gguf",20,0,"File 1/2 — a-00001.gguf (20%)"],["running",14,1,"a-00001.gguf",28,2097152,"File 1/2 — a-00001.gguf (28%) — 2.0 MB/s"],'
+     '[[["running",10,1,"a-00001.gguf",20,0,"File 1/2 — a-00001.gguf (20%)"],["running",14,1,"a-00001.gguf",28,2097152,"File 1/2 — a-00001.gguf (28%) — 2.0 MB/s — ~45 s left"],'
      '["retrying",14,1,"a-00001.gguf",28,1468006,"Connection dropped — retrying — File 1/2 — a-00001.gguf (28%) — 1.4 MB/s"],'
-     '["running",60,2,"a-00002.gguf",20,8262779,"File 2/2 — a-00002.gguf (20%) — 7.9 MB/s"],["running",50,2,"a-00001.gguf",0,8262779,"File 2/2 — a-00001.gguf (0%) — 7.9 MB/s"]],[600],5]',
-     "опрос: доля по байтам, файл и его доля; скорость — со второго ответа, сглаженная 0.7/0.3; шаг назад по байтам скорость не трогает; «повтор соединения» — всё ещё идёт; номер файла не больше числа файлов"),
+     '["running",60,2,"a-00002.gguf",20,8262779,"File 2/2 — a-00002.gguf (20%) — 7.9 MB/s — ~15 s left"],["running",50,2,"a-00001.gguf",0,8262779,"File 2/2 — a-00001.gguf (0%) — 7.9 MB/s — ~20 s left"]],[600],5]',
+     "опрос: доля по байтам, файл и его доля; скорость — со второго ответа, сглаженная 0.7/0.3; шаг назад по байтам скорость не трогает; «повтор соединения» — всё ещё идёт; номер файла не больше числа файлов; в подписи бегущей строки — «~N s left» словами страницы /models (осталось байт ÷ медленный темп: 86 MiB при 2 MiB/s — 43 s, и секунды идут шагом 5 — «~45 s»), у повтора соединения и у первого ответа — без него"),
 
     ("resumed_speed_ignores_the_part_on_disk", "",
      r"""await (async () => { const job = dl.addJob({ jobId: "r1", repoId: A, title: A, totalFiles: 1, state: "resuming" });
@@ -188,8 +194,90 @@ PINS = [
         clock += 600; replies[URL] = S(640 * MIB); await runTimers(); speeds.push(Math.round(job.speed));
         clock += 1000; replies[URL] = S(660 * MIB); await runTimers(); speeds.push(Math.round(job.speed));
         return [speeds, dl.jobLabel(job)]; })()""",
-     '[[0,0,20971520],"File 1/1 — q.gguf (39%) — 20.0 MB/s"]',
-     "продолжение: скачок от нуля до уже скачанной части — не скорость; скорость считается со следующего шага (20 MB/s, а не 1 GB/s)"),
+     '[[0,0,20971520],"File 1/1 — q.gguf (39%) — 20.0 MB/s — ~55 s left"]',
+     "продолжение: скачок от нуля до уже скачанной части — не скорость; скорость считается со следующего шага (20 MB/s, а не 1 GB/s), и время до конца — от неё же: 1040 MiB при 20 MiB/s — 52 s, то есть «~55 s»"),
+
+    ("follow_adopts_a_job_started_elsewhere", "",
+     r"""await (async () => { dl.follow(); const armed = timers.map((t) => t.ms);
+        replies["/api/hf/download/jobs"] = { ok: true, jobs: [{ jobId: "x1", status: "running", repo: A, title: "t1", total_files: 3 }] };
+        replies["/api/hf/download/status?job=x1"] = { ok: true, status: "running", total_bytes: 100 * MIB, total_bytes_done: 10 * MIB, current_idx: 0, total_files: 3, current_file: "a.gguf", file_bytes_total: 50 * MIB, file_bytes_done: 10 * MIB };
+        await runTimers();
+        const first = [dl.jobs.map((j) => [j.jobId, j.title, j.repoId, j.totalFiles, j.state]), dl.jobsOpen, gets.filter((g) => g.includes("status")).length, store.get("hfDlJobs")];
+        await runTimers();
+        return [armed, first, dl.jobs.length, timers.map((t) => t.ms).sort((a, b) => a - b)]; })()""",
+     '[[10000],[[["x1","t1","bartowski/gemma-4-12B-it-GGUF",3,"running"]],true,1,'
+     '"[{\\"jobId\\":\\"x1\\",\\"title\\":\\"t1\\",\\"repoId\\":\\"bartowski/gemma-4-12B-it-GGUF\\",\\"totalFiles\\":3}]"],1,[600,10000]]',
+     "сверка со списком сервера: через 10000 мс страница спрашивает список заданий и подхватывает чужое (запущено другой вкладкой или скриптом): "
+     "оно в доке, список заданий открыт, сохранено в браузере, опрашивается; второй просмотр списка не делает копию; сверка ставит следующую сама"),
+
+    ("follow_takes_only_live_jobs_it_does_not_hold", "",
+     r"""await (async () => { dl.follow(); dl.addJob({ jobId: "k1", repoId: A, title: "k", totalFiles: 1, state: "running" });
+        replies["/api/hf/download/jobs"] = { ok: true, jobs: [
+          { jobId: "k1", status: "running", repo: A, title: "k", total_files: 1 },
+          { jobId: "d1", status: "done", repo: A, title: "d", total_files: 1 }, { jobId: "e1", status: "error", repo: A, title: "e", total_files: 1 },
+          { jobId: "c1", status: "cancelled", repo: A, title: "c", total_files: 1 }, { jobId: "r1", status: "retrying", repo: B, title: "r", total_files: 2 },
+          { jobId: "i1", status: "interrupted", repo: A, title: "i", current_file: "x.gguf", resumable: true }, { status: "running", repo: A }] };
+        replies["/api/hf/download/status?job=r1"] = { ok: true, status: "retrying", total_bytes: 10, total_bytes_done: 1, current_idx: 0, total_files: 2, current_file: "b.gguf", file_bytes_total: 5, file_bytes_done: 1 };
+        await runTimers();
+        return [dl.jobs.map((j) => j.jobId), dl.interrupted.map((r) => r.jobId), gets.filter((g) => g.includes("status")).length]; })()""",
+     '[["k1","r1"],["i1"],1]',
+     "negative: сверка берёт только идущие задания (running, retrying), которых страница не держит; свои (k1), готовые, упавшие, отменённые, "
+     "задание без номера не берёт — иначе готовое задание вставало бы в док снова на каждой сверке; прерванные идут в список «продолжить»"),
+
+    ("follow_waits_for_a_job_it_is_starting", "",
+     r"""await (async () => { dl.follow(); dl.addJob({ jobId: null, repoId: A, title: "starting", totalFiles: 1, state: "starting" });
+        replies["/api/hf/download/jobs"] = { ok: true, jobs: [{ jobId: "n1", status: "running", repo: A, title: "n", total_files: 1 }] };
+        await runTimers(); const during = dl.jobs.map((j) => j.jobId);
+        dl.jobs[0].jobId = "n1";
+        replies["/api/hf/download/status?job=n1"] = { ok: true, status: "running", total_bytes: 10, total_bytes_done: 1, current_idx: 0, total_files: 1, current_file: "a", file_bytes_total: 10, file_bytes_done: 1 };
+        await runTimers();
+        return [during, dl.jobs.map((j) => j.jobId)]; })()""",
+     '[[null],["n1"]]',
+     "defect-guard: пока своё задание без номера (старт ещё не ответил), а сервер его уже перечисляет, сверка ничего не берёт — иначе оно встало бы в док дважды; "
+     "когда номер пришёл, сверка узнаёт своё и копии не делает"),
+
+    ("follow_survives_a_missed_answer", "",
+     r"""await (async () => { dl.follow();
+        replies["/api/hf/download/jobs"] = new Error("offline"); await runTimers(); const missed = [dl.jobs.length, timers.map((t) => t.ms)];
+        replies["/api/hf/download/jobs"] = { ok: false }; await runTimers(); const refused = [dl.jobs.length, timers.map((t) => t.ms)];
+        replies["/api/hf/download/jobs"] = { ok: true, jobs: [{ jobId: "i2", status: "interrupted", repo: A, title: "i", current_file: "y.gguf" }] };
+        const before = changes; await runTimers();
+        return [missed, refused, dl.interrupted.map((r) => r.jobId), timers.map((t) => t.ms), changes > before]; })()""",
+      '[[0,[10000]],[0,[10000]],["i2"],[10000],true]',
+     "сверка и промах, и отказ переживает: заданий не прибавилось, следующая уже в очереди (10000 мс); дальше список прерванных обновляется и страница узнаёт об этом (перерисовка)"),
+
+    ("time_left_is_named_only_when_it_can_be_said", "",
+     r"""(() => { const eta = (over) => D.HfDownloads.etaSeconds({ state: "running", pace: MIB, bytesDone: 10 * MIB, bytesTotal: 100 * MIB, ...over });
+        return [eta({}), eta({ state: "retrying" }), eta({ state: "resuming" }), eta({ state: "done" }), eta({ pace: 0 }), eta({ pace: 1023 }),
+                eta({ pace: 1024 }), eta({ bytesTotal: 0 }), eta({ bytesDone: 100 * MIB }), eta({ bytesDone: 101 * MIB }), eta({ pace: undefined })]; })()""",
+     '[90,null,null,null,null,null,92160,null,null,null,null]',
+     "время до конца: осталось байт ÷ темп (90 MiB при 1 MiB/s — 90 s); не бежит (повтор соединения, продолжение, готово), темпа ещё нет, "
+     "стоит (меньше 1 KiB/s; ровно 1 KiB/s — ещё считается), сервер не назвал итог, ничего не осталось — null: «неизвестно», а не «0 s» и не «∞»"),
+
+    ("time_left_pace_moves_slower_than_the_speed", "",
+     r"""await (async () => { const job = dl.addJob({ jobId: "e1", repoId: A, title: A, totalFiles: 1, state: "resuming" });
+        const S = (done) => ({ ok: true, status: "running", total_bytes: 1000 * MIB, total_bytes_done: done * MIB, current_idx: 0, total_files: 1, current_file: "m.gguf", file_bytes_total: 1000 * MIB, file_bytes_done: done * MIB });
+        const URL = "/api/hf/download/status?job=e1"; const seen = []; const r2 = (v) => Math.round(v / MIB * 100) / 100;
+        const look = () => seen.push([r2(job.speed), r2(job.pace), Math.round(D.HfDownloads.etaSeconds(job))]);
+        replies[URL] = S(100); dl.poll(job); await settle();
+        for (const done of [101, 102, 103]) { clock += 1000; replies[URL] = S(done); await runTimers(); look(); }
+        clock += 1000; replies[URL] = S(113); await runTimers(); look();
+        return seen; })()""",
+     '[[1,1,899],[1,1,898],[1,1,897],[3.7,1.45,612]]',
+     "темп времени до конца сдвигается на 0.05 за ответ, а скорость в строке — на 0.3: скачок с 1 до 10 MiB/s даёт скорость 3.7, темп 1.45 и время 612 s, "
+     "а не 887 ÷ 3.7 = 240 s — оценка не прыгает за каждым всплеском линии"),
+
+    ("time_left_on_the_label_in_every_scale", "",
+     r"""(() => { const lab = (pace, done, total) => dl.jobLabel({ state: "running", idx: 1, totalFiles: 1, file: "m.gguf", filePct: 0, speed: pace, pace,
+          bytesDone: done, bytesTotal: total, pollError: "" });
+        return [lab(10 * MIB, 0, 450 * MIB), lab(10 * MIB, 0, 600 * MIB), lab(10 * MIB, 0, 36000 * MIB), lab(10 * MIB, 0, 36100 * MIB),
+                lab(10 * MIB, 0, 900000 * MIB), lab(0, 0, 100)]; })()""",
+     '["File 1/1 — m.gguf (0%) — 10.0 MB/s — ~45 s left","File 1/1 — m.gguf (0%) — 10.0 MB/s — ~1 min left",'
+     '"File 1/1 — m.gguf (0%) — 10.0 MB/s — ~1 h 0 min left","File 1/1 — m.gguf (0%) — 10.0 MB/s — ~1 h 1 min left",'
+     '"File 1/1 — m.gguf (0%) — 10.0 MB/s — ~25 h 0 min left","File 1/1 — m.gguf (0%)"]',
+     "подпись строки — правило и слова страницы /models: «~45 s left», ровно 60 s — «~1 min», час — «~1 h 0 min», за час — минуты вверх («~1 h 1 min»), "
+     "суток нет («~25 h 0 min»); "
+"нет ни скорости, ни темпа — подпись без обеих приписок, как до 1.3.565"),
 
     ("poll_miss_is_shown_and_asked_again", "",
      r"""await (async () => { const job = dl.addJob({ jobId: "j1", repoId: A, title: A, totalFiles: 1, state: "running" });
@@ -218,6 +306,62 @@ PINS = [
      '["running",50,"",0,[],["/api/hf/download/status?job=j1","/api/hf/download/jobs"],[],1],["error",50,"disk full",1,[],["/api/hf/download/status?job=j1"],[],0],'
      '["error",50,"unknown",1,[],["/api/hf/download/status?job=j1"],[],0],["running",0,"",0,[],["/api/hf/download/status?job=j1"],[],0],[0,[],0]]',
      "концы: готово — 100%, обратный вызов с репозиторием (или своим), уходит через 4 с; отменено — задание уходит, прерванные перечитываются; ошибка — остаётся с текстом; неизвестное серверу — уходит; убранное во время ответа не воскресает"),
+
+    ("gated_refusal_goes_nowhere_by_itself", "",
+     r"""await (async () => { const PAGE = "https://huggingface.co/nvidia/personaplex-7b-v1", REPO = "nvidia/personaplex-7b-v1";
+        const access = (tokenSet) => ({ kind: "gated", url: PAGE, repo: REPO, status: 403, tokenSet });
+        const refuse = async (extra, fields = {}) => { reset(); const job = dl.addJob({ jobId: "j1", repoId: REPO, title: REPO, totalFiles: 7, state: "running", ...fields });
+          replies["/api/hf/download/status?job=j1"] = { ok: true, status: "error", error: "HTTP Error 403: Forbidden", total_bytes: 10, total_bytes_done: 0, ...extra };
+          dl.poll(job); await settle(); return job; };
+        const job = await refuse({ access: access(true) });
+        const first = [job.state, job.error, job.access.url, [...opened], timers.length];
+        const byButton = [dl.openPageOf(job.uid), [...opened]];
+        const again = [dl.openPageOf(job.uid), opened.length];
+        const noToken = await refuse({ access: access(false) });
+        const noTokenOpened = [...opened];
+        const plain = await refuse({}); const plainOpened = opened.length;
+        const unnamed = await refuse({ access: { kind: "gated", url: "", repo: REPO } }); const unnamedOpened = opened.length;
+        return [first, byButton, again, [noToken.access.tokenSet, noTokenOpened], [plain.state, plain.access, plainOpened, dl.openPageOf(plain.uid)], [unnamed.access, unnamedOpened, dl.openPageOf(unnamed.uid)],
+                dl.openPageOf("dlj404"), dl.openAccessPage(null)]; })()""",
+     '[["error","HTTP Error 403: Forbidden","https://huggingface.co/nvidia/personaplex-7b-v1",[],0],'
+     '[true,["https://huggingface.co/nvidia/personaplex-7b-v1"]],[true,2],[false,[]],["error",null,0,false],[null,0,false],false,false]',
+     "закрытый репозиторий (2026-10-17: ничего не открывается в новой вкладке): отказ с access остаётся строкой с кнопкой, страница САМА не открывается и вкладку не уводит; "
+     "кнопка строки ведёт на страницу в этой же вкладке — каждый нажим, а не один раз; negative: без токена — то же, без access (обычный отказ) и без адреса страницы кнопка ничего не делает, чужой uid и пустое задание — тоже"),
+
+    ("gated_refusal_of_a_restored_job_waits_for_the_button", "",
+     r"""await (async () => { const REPO = "nvidia/personaplex-7b-v1", PAGE = "https://huggingface.co/" + REPO;
+        replies["/api/hf/download/jobs"] = { ok: true, jobs: [{ jobId: "j1", title: REPO, repo: REPO, total_files: 7, status: "error" }] };
+        replies["/api/hf/download/status?job=j1"] = { ok: true, status: "error", error: "HTTP Error 403: Forbidden", total_bytes: 10, total_bytes_done: 0,
+          access: { kind: "gated", url: PAGE, repo: REPO, status: 403, tokenSet: true } };
+        await dl.restore(); await settle(); const job = dl.jobs[0];
+        return [dl.jobs.length, job.state, !!job.access, opened.length, dl.openPageOf(job.uid), [...opened]]; })()""",
+     '[1,"error",true,0,true,["https://huggingface.co/nvidia/personaplex-7b-v1"]]',
+     "задание, вернувшееся после перезагрузки: строка с отказом и кнопкой есть, страница сама не открывается; кнопка строки ведёт на неё в этой же вкладке"),
+
+    ("the_button_goes_to_the_page_of_its_own_row", "",
+     r"""(() => { const a = dl.addJob({ jobId: "j1", state: "error", access: { kind: "gated", url: "https://huggingface.co/a/one", repo: "a/one", status: 403, tokenSet: true } });
+        const b = dl.addJob({ jobId: "j2", state: "error", access: { kind: "gated", url: "https://huggingface.co/b/two", repo: "b/two", status: 403, tokenSet: true } });
+        dl.openPageOf(b.uid); dl.openPageOf(a.uid); return [...opened]; })()""",
+     '["https://huggingface.co/b/two","https://huggingface.co/a/one"]',
+     "кнопка строки ведёт на страницу своего репозитория, а не соседнего"),
+
+    ("gated_row_words_and_button", "",
+     r"""(() => { const REPO = "nvidia/personaplex-7b-v1";
+        const gated = (tokenSet) => dl.addJob({ jobId: tokenSet ? "j1" : "j2", repoId: REPO, title: REPO, state: "error", error: "HTTP Error 403: Forbidden",
+          access: { kind: "gated", url: "https://huggingface.co/" + REPO, repo: REPO, status: 403, tokenSet } });
+        const withToken = gated(true), withoutToken = gated(false);
+        const plain = dl.addJob({ jobId: "j3", repoId: REPO, title: "other/repo", state: "error", error: "HTTP Error 404: Not Found" });
+        dl.jobsOpen = true; const h = dl.html(() => null);
+        const row = (id) => { const at = h.indexOf(`data-t="hf-download-job" data-t-id="${id}"`); const next = h.indexOf('<div class="hfp-job ', at); return h.slice(h.lastIndexOf("<div", at), next < 0 ? h.length : next); };
+        const a = row("j1"), b = row("j2"), c = row("j3");
+        return [dl.jobLabel(withToken), dl.jobLabel(withoutToken), dl.jobLabel(plain),
+          a.startsWith('<div class="hfp-job is-error is-gated"'), a.includes('data-act="job-open-page" data-uid="dlj1" data-t="hf-download-open-page" data-t-id="j1">Open the page</button>'),
+          a.includes('data-act="job-dismiss"'), a.indexOf("job-open-page") < a.indexOf("job-dismiss"), b.includes("job-open-page"),
+          c.startsWith('<div class="hfp-job is-error"'), c.includes("job-open-page"), c.includes('data-act="job-dismiss"')]; })()""",
+     '["nvidia/personaplex-7b-v1 is gated: Hugging Face wants its terms accepted first. Press “Open the page”, accept them there, then download again.",'
+     '"nvidia/personaplex-7b-v1 is gated: Hugging Face wants its terms accepted first, and a token. Press “Open the page”, accept the terms, save a token in “HF token”, then download again.",'
+     '"Error: HTTP Error 404: Not Found",true,true,true,true,true,true,false,true]',
+     "строка закрытого репозитория: слова по-английски с именем репозитория, названием кнопки и названием поля токена; без токена — ещё и про токен; кнопка «Open the page» перед ✕; обычная ошибка — старые слова и без кнопки"),
 
     ("cancel_holds_and_fails_back", "",
      r"""await (async () => {

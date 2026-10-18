@@ -24,11 +24,11 @@ class EntryHandler(ProxyHandler):
     Two kinds of consumer carry a key. A consumer of the entry — a route of
     kind "consumer", the owner's way since 2026-10-11 — is served as a company's
     gateway serves its clients: its key calls the pools of the set a cable on
-    the kanban leads it to (caravan/common/entry_models.py), `GET /v1/models`
+    Routing leads it to (caravan/common/entry_models.py), `GET /v1/models`
     lists them by their names, a request's `model` picks one, and every answer
     is in OpenAI's shape (caravan/proxy/dialect.py). An agent of the old kind, moved here with its
     port's key (1.3.442), is still its port's: its request goes through its
-    kanban graph, as if it had come to the port — the window, the model name,
+    Routing graph, as if it had come to the port — the window, the model name,
     the queue and the journal are the route's.
 
     A request without a key, or with one no route carries, is refused before
@@ -74,7 +74,7 @@ class EntryHandler(ProxyHandler):
         return True
 
     def _client(self):
-        """The sender as the journal names it. The kanban's test of a client — a request from this
+        """The sender as the journal names it. Routing's test of a client — a request from this
         machine itself, not through the DSM's proxy, with KeyEntry.PROBE_HEADER — is named as the
         test: a client cannot hide its own errors by sending the header, it comes through the DSM."""
         remote = self.client_address[0] if self.client_address else ""

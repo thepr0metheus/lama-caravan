@@ -1,5 +1,6 @@
 // SVG cable drawing between board cards.
 import { BOARD_VIEW } from "./board-view.js";
+import { CableFlow } from "./cable-flow.js";
 import { PoolReach } from "./provider-glances.js";
 import { state, topology } from "./state.js";
 import { topologyItemsActivity, topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
@@ -28,9 +29,19 @@ export function topologyCablePath(from, to) {
   return `M ${from.x} ${from.y} C ${from.x + dx} ${from.y}, ${to.x - dx} ${to.y}, ${to.x} ${to.y}`;
 }
 
-export function topologySvgPath(from, to, className, title = "") {
+// The classes of a cable that things find it by: the hovered handle lights the cables of its route or of its proxy.
+const CABLE_KIN = /^(proxy|route)-/;
+
+export function topologySvgPath(from, to, className, title = "", key = "") {
   if (!from || !to) return "";
-  return `<path class="${className}" d="${topologyCablePath(from, to)}">${title ? `<title>${escapeHtml(title)}</title>` : ""}</path>`;
+  const d = topologyCablePath(from, to);
+  const cable = `<path class="${className}" d="${d}">${title ? `<title>${escapeHtml(title)}</title>` : ""}</path>`;
+  // A cable that carries a request now has its drops over it, both ways (cable-flow.js, cables.css). `key` names the cable, the same at every
+  // drawing, so its drops come up when it begins to carry a request and go down when it stops.
+  const classes = String(className).split(/\s+/);
+  return classes.includes("activity-active")
+    ? cable + CableFlow.twin(d, classes.filter((c) => CABLE_KIN.test(c)).join(" "), Date.now(), { key: key ? `main:${key}` : "", from, to })
+    : cable;
 }
 
 export function topologyProxyClass(proxyId) {
@@ -69,7 +80,7 @@ export function highlightTopologyCable(className) {
   if (!className) return;
   clearTimeout(_cableHighlightClearTimer);
   _cableHighlightClearTimer = null;
-  document.querySelectorAll(".topology-cable").forEach((path) => {
+  document.querySelectorAll(".topology-cable, .cable-flow").forEach((path) => {
     const active = path.classList.contains(className);
     path.classList.toggle("muted-by-hover", !active && !path.classList.contains("trunk"));
     path.classList.toggle("hovered", active);
@@ -77,7 +88,7 @@ export function highlightTopologyCable(className) {
 }
 
 export function clearTopologyCableHighlight() {
-  document.querySelectorAll(".topology-cable").forEach((path) => {
+  document.querySelectorAll(".topology-cable, .cable-flow").forEach((path) => {
     path.classList.remove("muted-by-hover", "hovered");
   });
 }
@@ -97,12 +108,30 @@ export function drawLiveTopologyCable(toClientX, toClientY) {
   const board = topologyBoardRect();
   const source = topologyPointerDrag?.source;
   if (!svg || !board || !source) return;
-  const from = topologyPointFor(source, "right");
+  const from = topologyPointFor(source, "center");
   const to = { x: toClientX - board.left, y: toClientY - board.top };
   const previous = svg.querySelector(".topology-cable.live");
   previous?.remove();
   if (!from) return;
   svg.insertAdjacentHTML("beforeend", topologySvgPath(from, to, "topology-cable live"));
+}
+
+// The end of a cable on a card that has no dot of its own: a machine's head, a provider's. The head has the class
+// `cable-end` while a cable comes to it — its dot (cables.css) then stands on its edge, as every cable's end does —
+// and `flowing` while that cable carries a request. The lane draws its heads anew, so each drawing says which of them
+// have a cable now, and the ones that had and have not lose the marks.
+export class CableEnds {
+  static marked = new Set();
+
+  static mark(ends) {
+    const now = new Set(ends.map((end) => end.el));
+    for (const el of CableEnds.marked) if (!now.has(el)) el.classList?.remove("cable-end", "flowing");
+    for (const { el, lit } of ends) {
+      el.classList?.add("cable-end");
+      el.classList?.toggle("flowing", !!lit);
+    }
+    CableEnds.marked = now;
+  }
 }
 
 // A cable whose anchor or binding is missing renders to "" and used to disappear
@@ -134,9 +163,10 @@ export function drawTopologyCables() {
   const paths = [];
   cableDrops.length = 0;   // rebuilt every draw; the dedup set outlives it
   // A machine's own window shows its card alone (board-view.js): no cable has its other end there.
-  // The clients and the kanban's node are in the page, hidden — a cable to them would start at
+  // The clients and Routing's node are in the page, hidden — a cable to them would start at
   // the corner of the board.
-  if (BOARD_VIEW.isMachine) return;
+  if (BOARD_VIEW.isMachine) { CableEnds.mark([]); return; }
+  CableFlow.round();    // the drops of a cable this drawing does not carry go down, not off (cable-flow.js)
   // Segment 1: client route handle (the proxy entry point, now on the client card)
   // → router input. The proxy is identified by route.proxyId; its router
   // (proxy.routerId) is the cable target. Muted/inactive roles draw a faint cable.
@@ -158,10 +188,11 @@ export function drawTopologyCables() {
         // actually carrying a request stands out + animates — mirrors segment 3.
         const idle = activity.state === "idle";
         const cable = topologySvgPath(
-          topologyPointFor(source, "right"),
-          topologyPointFor(target, "left"),
+          topologyPointFor(source, "center"),
+          topologyPointFor(target, "center"),
           `topology-cable ${escapeHtml(role)} ${unverified ? "unverified" : ""} ${idle ? "idle" : ""} ${Number(proxy?.priority || 0) > 0 ? "priority" : ""} ${topologyStateHealthClasses(activity)} ${topologyProxyClass(route.proxyId)} ${topologyRouteClass(client.id, assignment.agentId, role)}`,
           unverified ? t("taTitleUnverifiedRoute") : "",
+          `route:${client.id}/${assignment.agentId}/${role}`,
         );
         if (!cable) {
           noteCableDrop(`${client.id}/${assignment.agentId} ${role} -> router`, {
@@ -176,33 +207,35 @@ export function drawTopologyCables() {
       });
     });
   });
-  // Segment 2: a client of the entry (consumers.js) → the kanban, lit by its requests (the owner,
+  // Segment 2: a client of the entry (consumers.js) → Routing, lit by its requests (the owner,
   // 2026-10-11: a client's activity on the cables, as the agents' was). Its one cable leads to a set
-  // of models (2026-10-12), and the sets and pools stand on the kanban, not on the main board: on the
-  // main board the cable comes into the kanban's card. A client no cable reaches (`set`, the
+  // of models (2026-10-12), and the sets and pools stand in Routing, not on the main board: on the
+  // main board the cable comes into Routing's card. A client no cable reaches (`set`, the
   // controller's reading) has none here either. Every request of the client goes down it, whichever
   // pool and row serve it.
-  const kanban = document.querySelector('[data-topology-router-input][data-router-id="router:default"]');
+  const Routing = document.querySelector('[data-topology-router-input][data-router-id="router:default"]');
   (topology.proxies || []).filter(isEntryClient).forEach((p) => {
     if (!String(p.set || "")) return;
     const source = document.querySelector(`[data-topology-proxy-output][data-proxy-id="${CSS.escape(p.id)}"]`);
     const activity = topologyItemsActivity((it, port) => port === Number(p.port));
-    const cable = topologySvgPath(topologyPointFor(source, "right"), topologyPointFor(kanban, "left"),
-      `topology-cable consumer ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)} ${topologyProxyClass(p.id)}`);
-    if (!cable) noteCableDrop(`client ${p.label || p.id} -> kanban`, { handleFound: !!source, kanbanFound: !!kanban });
+    const cable = topologySvgPath(topologyPointFor(source, "center"), topologyPointFor(Routing, "center"),
+      `topology-cable consumer ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)} ${topologyProxyClass(p.id)}`, "", `consumer:${p.id}`);
+    if (!cable) noteCableDrop(`client ${p.label || p.id} -> routing`, { handleFound: !!source, routingFound: !!Routing });
     paths.push(cable);
   });
-  // Segment 3: the kanban's card → the machines and the cloud providers its pools lead to (the owner,
-  // 2026-10-12). The rows themselves are the kanban's (pool-board.js); here a cable says only that
+  // Segment 3: Routing's card → the machines and the cloud providers its pools lead to (the owner,
+  // 2026-10-12). The rows themselves are Routing's (pool-board.js); here a cable says only that
   // requests can go there — a machine one of whose cells is a pool's row, an account a pool's row
   // calls (PoolReach) — and it lights while a request runs there: a cell's leg names its output
   // (`routedOutputId`), a provider's its account (`cloudAccountId`, caravan/proxy/handler.py).
   const out = document.querySelector('[data-topology-router-output][data-router-id="router:default"]');
   const reach = PoolReach.of(topology);
+  const ends = [];
   const towards = (target, activity, what) => {
-    const cable = topologySvgPath(topologyPointFor(out, "right"), topologyPointFor(target, "left"),
-      `topology-cable router ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)}`);
-    if (!cable) noteCableDrop(`kanban -> ${what}`, { kanbanOutputFound: !!out, targetFound: !!target });
+    const cable = topologySvgPath(topologyPointFor(out, "center"), topologyPointFor(target, "left"),
+      `topology-cable router ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)}`, "", `router:${what}`);
+    if (!cable) noteCableDrop(`routing -> ${what}`, { routingOutputFound: !!out, targetFound: !!target });
+    else ends.push({ el: target, lit: activity.state === "active" });
     paths.push(cable);
   };
   reach.machines.forEach(({ key, outputs }) => towards(
@@ -213,6 +246,7 @@ export function drawTopologyCables() {
     document.querySelector(`[data-board-provider="${CSS.escape(id)}"] > .node-head`),
     topologyItemsActivity((it) => String(it.cloudAccountId || "") === id),
     `provider ${id}`));
-  svg.innerHTML = paths.filter(Boolean).join("");
+  svg.innerHTML = paths.filter(Boolean).join("") + CableFlow.ghosts();
+  CableEnds.mark(ends);
 }
 

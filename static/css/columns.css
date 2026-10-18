@@ -1,0 +1,25 @@
+/* What the main board's columns — the clients', the machines' — have in common: a column is a head and a body. The title stands over the
+   body that scrolls and is not in it (the owner, 2026-10-18, of Routing's heads and then of this board's: "the headings outside the area
+   I scroll, shown always"; before it, since 2026-10-14, the title was sticky inside the column and the cards passed under it): nothing sticks,
+   nothing passes under the title, and a line under it shows while the body above is scrolled. How the board makes its columns — the room a
+   column keeps for what stands out of its cards, the body that scrolls — is in topology-board.css. Routing's four columns (pool-board.js)
+   are built the same way (pool-board.css). */
+
+/* The title: the clients' and the machines' (.board-col-title; index.html) — the first child of its column, over the body. One height for
+   both, so the two titles stand on one line and the two bodies start on one (`--board-head`, set on the board where the cables are cut at
+   it). The line under it is transparent at rest; `scrolled`, which main.js sets on the body when it is not at its top, shows it. It is as
+   wide as the column and the room the column keeps for the dots, so it runs under the dots of the cards too. */
+.board-col-title {
+  flex: none; box-sizing: border-box; height: var(--board-head, 28px);
+  padding: 0 calc(2px + var(--board-col-room, 14px)); margin-inline: calc(-1 * var(--board-col-room, 14px));
+  border-bottom: 1px solid transparent; transition: border-color 0.15s ease;
+}
+.board-col:has(> .board-col-body.scrolled) > .board-col-title {
+  border-bottom-color: color-mix(in srgb, var(--line) 70%, transparent);
+}
+/* A section title inside a body — the cloud providers' under the machines — is not a column's: it scrolls with its section. */
+.board-sub-title { padding: 0 2px; }
+.board-sub-title h2 { margin: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .board-col-title { transition: none; }
+}

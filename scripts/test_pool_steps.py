@@ -303,7 +303,7 @@ class Selection(unittest.TestCase):
         self.assertEqual(self.choose()[0]["accountId"], "b")
 
     def test_a_model_nobody_set_levels_for_stops_at_ten_percent(self):
-        # The owner, 2026-10-12: a model cabled into a pool on the kanban has no
+        # The owner, 2026-10-12: a model cabled into a pool in Routing has no
         # levels written; it stops — and switches — where a new subscription does.
         self.pool["steps"] = [row("a", "a", "new"), row("b", "b", "new")]
         self.usage.keep("a", windows(short=88), self.now)       # 12% left

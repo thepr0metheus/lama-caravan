@@ -114,7 +114,7 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fpL',
      'true',
      "boundary: замок у имени — то же самое изменение записи, и оно обязано доехать до глаз без перезагрузки"),
-    ("fingerprint_sees_a_port_join_a_kanban",
+    ("fingerprint_sees_a_port_join_a_routing",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23010", port: 23010, label: "alpha", routerId: "" }] });'
      ' globalThis.__fpR0 = m.topologyStructureFingerprint();'
      ' st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23010", port: 23010, label: "alpha", routerId: "" }] });'
@@ -122,8 +122,8 @@ PINS = [
      ' st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23010", port: 23010, label: "alpha", routerId: "router:default" }] });',
      '[globalThis.__fpR1 === globalThis.__fpR0, m.topologyStructureFingerprint() !== globalThis.__fpR1]',
      '[true,true]',
-     "defect-history (2026-10-04): порт, привязанный из списка «unassigned», менял только routerId — канбан оставался "
-     "со старыми клиентами и старым значком; negative: тот же канбан на следующем опросе — отпечаток тот же"),
+     "defect-history (2026-10-04): порт, привязанный из списка «unassigned», менял только routerId — Маршрутизация оставалась "
+     "со старыми клиентами и старым значком; negative: та же Маршрутизация на следующем опросе — отпечаток тот же"),
     ("fingerprint_steady_when_nothing_changed",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }] })],'
      ' assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e",'
@@ -325,6 +325,29 @@ PINS += [
      json.dumps(_en("nodeScoutLastReport").replace("{ago}", "15m")),
      "positive: живой патчер двигает возраст молчащего скаута тем же текстом, что и узел (hostAgeText), — "
      "иначе починка текста держалась бы один тик опроса"),
+    # 2026-10-18: a cell that is being started stays a line, and the strip under its name carries the copy's figures; the card's own bar
+    # followed `.remote-dl-bar`, a class the status line does not have, and stood where it was first drawn: "12 %" said, a sliver shown.
+    ("live_patch_moves_the_copy_in_the_line_and_the_card",
+     'globalThis.CSS = { escape: (x) => x };'
+     ' const el = () => ({ textContent: "", style: {}, dataset: {}, classList: { toggle: () => {} }, setAttribute: () => {}, removeAttribute: () => {} });'
+     ' const strip = { bar: el(), words: Object.assign(el(), { dataset: { stripName: "a" } }) };'
+     ' const card = { bar: el(), words: el() };'
+     ' const line = { querySelector: (sel) => sel === "[data-live-rowdl]" ? strip.words : sel === ".fr-strip .msl-bar > span" ? strip.bar : sel === "[data-live-rowtps]" ? el() : null,'
+     '   classList: { toggle: () => {} } };'
+     ' const cardEl = { querySelector: (sel) => sel === "[data-live-dl]" ? card.words : null,'
+     '   querySelectorAll: (sel) => sel.includes(".msl-bar:not(.indeterminate)") ? [card.bar] : [] };'
+     ' const nodeEl = { querySelector: (sel) => sel.startsWith(".node-server[") ? cardEl : sel.startsWith(".cell-row[") ? line : null };'
+     ' globalThis.__live = { strip, card };'
+     ' globalThis.__qs = document.querySelector;'
+     ' document.querySelector = (sel) => sel.includes(\'data-node-id="h1"\') ? nodeEl : null;'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [], servers: [{ port: 22001, isSlot: true, phase: "downloading",'
+     ' downloadingFile: "a-Q4_K_M-00001-of-00002.gguf (1/2)", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 3 * 2 ** 30 }] }] });',
+     '(() => { try { m.syncTopologyLive(); const { strip, card } = globalThis.__live;'
+     ' return [strip.words.textContent, strip.bar.style.width, card.words.textContent, card.bar.style.width]; }'
+     ' finally { document.querySelector = globalThis.__qs; } })()',
+     json.dumps(["Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%", "50%", "a-Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%", "50%"]),
+     "positive: живой тик двигает и полоску под строкой ячейки (слова без имени модели, ширина полосы), и полосу самой карточки; "
+     "defect-history: полоса карточки искала `.remote-dl-bar` и не двигалась — слова росли, а полоса стояла там, где её нарисовали"),
     # 2026-10-11: the pools' cards say which step serves and why the others wait — the proxy's word
     # changes between structural renders, so every live tick asks the lane, which draws itself only
     # when its own key moved (cloud.js).
@@ -400,7 +423,7 @@ PINS += [
 ]
 
 PINS += [
-    # 2026-10-12: the kanban is the pools' board — what it draws is structure, moved from any page.
+    # 2026-10-12: Routing is the pools' board — what it draws is structure, moved from any page.
     ("fingerprint_follows_the_pools_board",
      'st.setTopology({ ...st.topology, proxies: [{ port: 23001, kind: "consumer", set: "chat", models: ["S"] }],'
      ' sets: [{ id: "chat", name: "Chat", pools: ["std"] }],'
@@ -416,7 +439,7 @@ PINS += [
      ' (() => { globalThis.ROUTER_STANDALONE = false; return moved(() => { top.poolsRuntime.pools.std.selectedStepId = "r1"; }); })()]; }'
      ' finally { delete globalThis.ROUTER_STANDALONE; } })()',
      '[true,true,true,true,true,true,true,true,false,false]',
-     "канбан перерисовывается, когда клиент перенёс канат на другой набор, у клиента сменились модели, у набора сменились пулы "
+     "Маршрутизация перерисовывается, когда клиент перенёс канат на другой набор, у клиента сменились модели, у набора сменились пулы "
      "или имя (1.3.497), строка сменила выход, задан уровень модели, у аккаунта добавлена "
      "или убрана модель (2026-10-12), прокси выбрал другую строку; "
      "negative: время решения прокси меняется с каждым запросом — не структура; на главной доске решение прокси не перестраивает страницу"),
@@ -438,7 +461,7 @@ PINS += [
      ' moved(() => { c.misses.items[0].count = 2; }), moved(() => { c.misses = { ...c.misses, more: 3 }; }),'
      ' moved(() => { c.misses = { items: [{ ...c.misses.items[0] }], more: 3 }; }), moved(() => { delete c.misses; })]; })()',
      '[true,true,true,true,false,true]',
-     "канбан перерисовывает карточку клиента, когда у него новая ошибка, выросло число или пришли ещё (2026-10-12); "
+     "Маршрутизация перерисовывает карточку клиента, когда у него новая ошибка, выросло число или пришли ещё (2026-10-12); "
      "нет чтения журнала — это не «ошибок нет»; negative: те же ошибки новым объектом — не новая структура"),
     ("fingerprint_follows_a_pools_window",
      'st.setTopology({ ...st.topology, pools: [{ id: "std", name: "S", steps: [] }] });',
@@ -447,7 +470,7 @@ PINS += [
      ' moved(() => { pool.contextLength = "300000"; }), moved(() => { pool.contextAuto = true; }), moved(() => { pool.window = 272000; }),'
      ' moved(() => { delete pool.window; })]; })()',
      '[true,true,true,true,false,true]',
-     "канбан перерисовывается, когда у пула сменилось окно в «Pool settings», переключатель или то, что пул называет клиентам "
+     "Маршрутизация перерисовывается, когда у пула сменилось окно в «Pool settings», переключатель или то, что пул называет клиентам "
      "(2026-10-12) — с этой страницы или с другой; ответа контроллера нет — это не «окна нет»; negative: то же значение — не новая структура"),
     ("fingerprint_follows_the_providers_on_the_board",
      'st.setTopology({ ...st.topology, cloudAccounts: [{ id: "sub", name: "Sub", hasCredential: true }],'
@@ -473,7 +496,7 @@ PINS += [
 ]
 
 # Model servers is one list of machines and cloud providers in the operator's order
-# (server-order.js, 2026-10-04). The kanban's Servers panel is built in that order, so
+# (server-order.js, 2026-10-04). Routing's Servers panel is built in that order, so
 # the order is structure; the board must not be rebuilt under a card in the air. The
 # order is module state that outlives a pin: each pin starts it empty and leaves it so.
 _SO_FRESH = ('globalThis.__so = (await import(pathToFileURL(process.env.JS_ROOT + "/server-order.js").href)).SERVER_ORDER;'
@@ -498,7 +521,7 @@ PINS += [
      ' return [a, same, m.topologyStructureParts().order, m.topologyStructureFingerprint() !== fa]; } finally { ' + _SO_DONE + ' } })()',
      '["cloud:p,node:a", true, "node:a,cloud:p", true]',
      "порядок карточек Model servers — часть структуры: новый порядок (с этой страницы или с другой) перестраивает "
-     "панель «Серверы» канбана, которая собрана в этом порядке; negative: тот же порядок на следующем опросе — нет"),
+     "панель «Серверы» Маршрутизации, которая собрана в этом порядке; negative: тот же порядок на следующем опросе — нет"),
     ("server_order_is_read_before_the_update_decides",
      _SO_FRESH + ' globalThis.__ae = document.activeElement; document.activeElement = { matches: () => true, closest: () => null };',
      '(() => { const so = globalThis.__so; try {'
@@ -507,7 +530,7 @@ PINS += [
      ' finally { document.activeElement = globalThis.__ae; ' + _SO_DONE + ' } })()',
      '["cloud:p", "node:a"]',
      "опрос берёт порядок из топологии до решения о перерисовке — иначе отпечаток считался бы по старому порядку "
-     "и канбан ждал бы следующего изменения; взят и тогда, когда перерисовка отложена (фокус в поле)"),
+     "и Маршрутизация ждала бы следующего изменения; взят и тогда, когда перерисовка отложена (фокус в поле)"),
 ]
 
 _fail = []

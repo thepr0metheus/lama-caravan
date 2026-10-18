@@ -296,6 +296,7 @@
       "pids": [],
       "port": 22001,
       "promptTps": 812.5,
+      "ramBytes": 2147483648,
       "requestsProcessing": 1,
       "running": true,
       "specPath": "",
@@ -330,6 +331,7 @@
         "pids": [],
         "port": 22001,
         "promptTps": 812.5,
+        "ramBytes": 2147483648,
         "requestsProcessing": 1,
         "running": true,
         "specPath": "",
@@ -356,6 +358,7 @@
         ],
         "port": 22012,
         "promptTps": 150.0,
+        "ramBytes": null,
         "requestsProcessing": 2,
         "requestsWaiting": 1,
         "running": true,
@@ -377,6 +380,7 @@
         "pid": 4444,
         "pids": [],
         "port": 22013,
+        "ramBytes": null,
         "running": true,
         "startedAt": 1789999940,
         "startingTail": "[caravan] provisioning vLLM venv at $HOME/vllm-venv (first start on this host, several minutes)…\nCollecting vllm==0.24.0",
@@ -415,6 +419,30 @@
       "running": false,
       "startedAt": 1789913600,
       "tag": "b9947"
+    },
+    "modelCache": {
+      "disk": {
+        "freeBytes": 412000000000,
+        "totalBytes": 915000000000
+      },
+      "foreign": {
+        "bytes": 67300000000,
+        "files": 3,
+        "folders": [
+          {
+            "bytes": 61000000000,
+            "files": 2,
+            "folder": "hand-copied"
+          },
+          {
+            "bytes": 6300000000,
+            "files": 1,
+            "folder": "speech"
+          }
+        ]
+      },
+      "keep": 1,
+      "managedBytes": 12000000000
     },
     "platform": "linux",
     "prismRuntime": {
@@ -731,6 +759,7 @@
       "pids": [],
       "port": 22001,
       "promptTps": 812.5,
+      "ramBytes": 2147483648,
       "requestsProcessing": 1,
       "running": true,
       "specPath": "",
@@ -765,6 +794,7 @@
         "pids": [],
         "port": 22001,
         "promptTps": 812.5,
+        "ramBytes": 2147483648,
         "requestsProcessing": 1,
         "running": true,
         "specPath": "",
@@ -791,6 +821,7 @@
         ],
         "port": 22012,
         "promptTps": 150.0,
+        "ramBytes": null,
         "requestsProcessing": 2,
         "requestsWaiting": 1,
         "running": true,
@@ -812,6 +843,7 @@
         "pid": 4444,
         "pids": [],
         "port": 22013,
+        "ramBytes": null,
         "running": true,
         "startedAt": 1789999940,
         "startingTail": "[caravan] provisioning vLLM venv at $HOME/vllm-venv (first start on this host, several minutes)…\nCollecting vllm==0.24.0",
@@ -850,6 +882,30 @@
       "running": false,
       "startedAt": 1789913600,
       "tag": "b9947"
+    },
+    "modelCache": {
+      "disk": {
+        "freeBytes": 412000000000,
+        "totalBytes": 915000000000
+      },
+      "foreign": {
+        "bytes": 67300000000,
+        "files": 3,
+        "folders": [
+          {
+            "bytes": 61000000000,
+            "files": 2,
+            "folder": "hand-copied"
+          },
+          {
+            "bytes": 6300000000,
+            "files": 1,
+            "folder": "speech"
+          }
+        ]
+      },
+      "keep": 1,
+      "managedBytes": 12000000000
     },
     "platform": "linux",
     "prismRuntime": {

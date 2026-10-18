@@ -2,7 +2,7 @@
 through one address with their own key").
 
 A client of the caravan calls one address — the entry — with its own key, and
-the cable from it on the kanban leads it to its pool (caravan/admin/consumers.py).
+the cable from it in Routing leads it to its pool (caravan/admin/consumers.py).
 A pool's own port was a second way in: a port of its own, open to anyone without
 a key, straight into one pool. Its "+ port" button went with the main board's
 pools column in 1.3.486, and nothing on the board showed such a port any more,

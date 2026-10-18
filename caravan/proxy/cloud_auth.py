@@ -61,7 +61,7 @@ def _cached_context_length(account_id, model_id):
 
 def load_cloud_provider(pool_id):
     """A cable's cloud end — a pool, by the id a route's providerId and the
-    kanban's output `cb:<id>` name — as the proxy routes it: the pool with its
+    Routing's output `cb:<id>` name — as the proxy routes it: the pool with its
     steps and the window it stands for. Which step serves is chosen per request
     (caravan/proxy/pool_steps.py); `model` stays empty until then, and `name`
     is what a client is told it calls."""

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.hub_hash import HubHash
+from caravan.admin.hub_pages import HubPages
 from caravan.admin.state import admin_state
 from caravan.common.model_artifacts import hidden
 from caravan.common.ttl_cache import MISS, TtlCache
@@ -31,16 +32,30 @@ def _hf_headers():
     return headers
 
 
-def _hf_request(path, timeout=12):
+def _hf_get(url, timeout):
+    """One answer of the hub: its JSON, and the `Link` header that names the next page ("" when none)."""
+    req = urllib.request.Request(url, headers=_hf_headers())
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8")), (r.headers.get("Link") or "")
+
+
+def _hf_request(path, timeout=12, all_pages=False):
+    """The hub's answer to `path`, or `{"_error": …}`.
+
+    A list the hub sends in pages (a repository's tree, 50 entries to a page) is read to its end
+    when `all_pages` says so (hub_pages.py): the caller that needs the whole list asks for it, and a
+    list that cannot be read to its end is an error, never the pages read so far. A search is NOT
+    read to its end: the hub would send every repository it has."""
     url = "https://huggingface.co/api/" + path
-    cache_key = url + ("?auth=1" if admin_state.get("hfToken") else "")
+    cache_key = url + ("?auth=1" if admin_state.get("hfToken") else "") + (" pages" if all_pages else "")
     hit = _hf_cache.get(cache_key)
     if hit is not MISS:
         return hit
-    req = urllib.request.Request(url, headers=_hf_headers())
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            data = json.loads(r.read().decode("utf-8"))
+        if all_pages:
+            data = HubPages(lambda page: _hf_get(page, timeout)).read(url)
+        else:
+            data = _hf_get(url, timeout)[0]
         _hf_cache.put(cache_key, data)
         return data
     except Exception as exc:
@@ -61,8 +76,15 @@ def _classify_gguf(filename):
         return "vocab"
     return "model"
 
+#: The tail the parts of a split GGUF carry: "-00003-of-00006". It is not a part of the quant. Left in, "Q8_0-00003-of-00006"
+#: read as a quant of its own: every part of a model was a row of its own on /hf, and the folder the file lands in
+#: (<model>/<author>/<quant>/) was a folder of its own too. Six parts went to six folders and no engine finds the others.
+#: The page reads the same tail the same way (static/js/hf-repo-view.js, SHARD_TAIL_RE); scripts/hf_quant_cases.py is the
+#: one table both are run against.
+_SHARD_TAIL = re.compile(r"-\d{5}-of-\d{5}(?=\.gguf$)", re.IGNORECASE)
+
 def _extract_quant(filename):
-    m = _QUANT_PAT.search(filename)
+    m = _QUANT_PAT.search(_SHARD_TAIL.sub("", filename))
     return m.group(0).upper() if m else ""
 
 _SKIP_REPO_FILES = (".gitattributes", "readme.md", "license", "license.txt", "notice.txt")
@@ -114,7 +136,7 @@ def hf_list_files(repo_id):
     if not re.match(r'^[\w.\-]+/[\w.\-]+$', repo_id):
         return {"ok": False, "error": "invalid repo id"}
     encoded = urllib.parse.quote(repo_id, safe='/')
-    raw = _hf_request(f"models/{encoded}/tree/main?recursive=true&expand=true")
+    raw = _hf_request(f"models/{encoded}/tree/main?recursive=true&expand=true", all_pages=True)
     if not isinstance(raw, list):
         err = (raw.get("_error") or raw.get("error") or "unexpected response") if isinstance(raw, dict) else "unexpected response"
         return {"ok": False, "error": err}

@@ -8,7 +8,7 @@ the old form (model blocks in a pool of subscriptions — the NAS of 2026-10-10
 is pinned as it was), a pool made on the board, its steps added, edited,
 reordered and taken out, a step's switch levels, a pool deleted with the
 answer it asks for when cables or rules hold it, an account deleted with its
-steps, the models added to the kanban's right column (the owner, 2026-10-12:
+steps, the models added to Routing's right column (the owner, 2026-10-12:
 only the ones he added, not every model an account offers), and what the
 board is handed. systemd is a stand-in; nothing reaches the machine or a
 provider.
@@ -152,7 +152,7 @@ def test_migration_of_the_nas():
     doc = stored()
     check(done == {"pools": ids, "dropped": []}, f"seven models became seven pools, none dropped (got {done})")
     check([(p["id"], p["name"]) for p in doc["pools"]] == list(zip(ids, models)),
-          "each pool has its model block's id — the kanban's cb:<id> — and its model's name, in order")
+          "each pool has its model block's id — Routing's cb:<id> — and its model's name, in order")
     check(all(p["steps"] == [{"id": "chatgpt-subscription", "kind": "account", "accountId": "chatgpt-subscription",
                               "model": m, "enabled": True}]
               for p, m in zip(doc["pools"], models)),
@@ -187,7 +187,7 @@ def test_migration_keeps_what_is_used():
     done = desk().migrate()
     pools = {p["id"]: p for p in stored()["pools"]}
     check(done == {"pools": ["shown", "cabled"], "dropped": ["ported", "idle"]},
-          "on the kanban or with a cable — kept; a copy of a list nobody uses — dropped; negative: a block held "
+          "in Routing or with a cable — kept; a copy of a list nobody uses — dropped; negative: a block held "
           f"only by a pool's own port is dropped too — that port is gone since 1.3.487 (got {done})")
     levels = stored()["levels"]
     check(not {"mode", "manualStepId", "manualUntil"} & set(pools["shown"])
@@ -336,13 +336,13 @@ def test_levels():
     shown = desk().model_levels()
     check(shown == {"max": 90, "default": {"stopAt": {"18000": 10, "604800": 10}, "switchAt": {"18000": 10, "604800": 10}},
                     "set": stored()["levels"]},
-          f"the kanban's right column reads every model's levels: the ones set, the default of the rest, the ceiling (got {shown})")
+          f"Routing's right column reads every model's levels: the ones set, the default of the rest, the ceiling (got {shown})")
     check("gpt-6-astra" not in shown["set"].get("sub", {}) and ModelLevels(stored()).of("sub", "gpt-6-astra")[0] == shown["default"]["stopAt"],
           "negative: a model nobody set is not in `set` — it reads the default, said once, the pair ModelLevels gives it")
 
 
 def test_rows():
-    print("rows on the kanban (the owner, 2026-10-12): «+ row», a cable to a model, the cable taken away:")
+    print("rows in Routing (the owner, 2026-10-12): «+ row», a cable to a model, the cable taken away:")
     new_form()
     pool = desk().add_row("sol")
     check(pool["steps"][1] == {"id": "r1", "kind": "open", "enabled": True}, f"«+ row» adds an open row (got {pool['steps'][1]})")
@@ -416,7 +416,7 @@ def test_named_after_its_model():
 
 
 def test_order_and_arrange():
-    print("the pools' order on the kanban, and «Arrange» by the cables (1.3.503):")
+    print("the pools' order in Routing, and «Arrange» by the cables (1.3.503):")
     new_form()
     doc = stored()
     doc["pools"].append({"id": "extra", "name": "Extra", "steps": [{"id": "ant", "accountId": "ant", "model": "claude-opus"}]})
@@ -501,7 +501,7 @@ def test_migrate_rows():
 
 
 def test_added_models_rule():
-    print("the models added to the kanban's column, as the file keeps them:")
+    print("the models added to Routing's column, as the file keeps them:")
     got = AddedModels({"addedModels": {"sub": [" sol ", "luna", "sol", "", None], " ": ["x"], "ant": "opus", "key": []}})
     check(got.stored() == {"sub": ["sol", "luna"]},
           f"by account, in the order added, once each; negative: a blank account, a blank model, a list that is no list, "
@@ -523,7 +523,7 @@ def test_added_models_rule():
 
 
 def test_added_models():
-    print("the kanban's right column holds the models added to it (the owner, 2026-10-12):")
+    print("Routing's right column holds the models added to it (the owner, 2026-10-12):")
     new_form()
     done = desk().migrate_added()
     doc = stored()
@@ -607,7 +607,7 @@ def test_model_doors():
           f"the board is handed the added models with the rest of the topology (got {drawn.get('addedModels')})")
     told = [(p["id"], p.get("window", "absent")) for p in drawn["pools"]]
     check(told == [("sol", 200000), ("luna", None)],
-          f"each pool comes with the window it states to its clients — the kanban's «Pool settings» say it; "
+          f"each pool comes with the window it states to its clients — Routing's «Pool settings» say it; "
           f"negative: a pool that states none says None, not nothing (got {told})")
     sent = []
 
@@ -750,7 +750,7 @@ def test_what_the_board_gets():
     pc.sync_router_outputs(routers, {"llamaServers": []}, desk().state(), [])
     check([o["id"] for o in routers[0]["outputs"]] == ["cb:sol", "cb:luna"]
           and routers[0]["outputs"][0]["label"] == "☁ gpt-6-sol" and routers[0]["outputs"][0]["target"] == "pool:sol",
-          "every pool is an output of the kanban, named by the pool")
+          "every pool is an output of Routing, named by the pool")
 
 
 def main():

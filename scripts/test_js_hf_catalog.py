@@ -18,15 +18,17 @@ The chip counts are faceted — each under the other filters. Sorting by every
 key, both ways, unknown values last in "descending", ties in the server's
 order. Favorites: a new one goes first, the payload keeps the date and the
 modality when known. HfText: variables, the English fallback, "ago" words;
-HfFormat: counts and sizes.
+HfFormat: counts, sizes and a time left (the models page's rule and words, one table of cases).
 
 Run: python3 scripts/test_js_hf_catalog.py
 """
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _js_pins import run  # noqa: E402
+from pace_cases import expected as eta_expected, inputs_js as eta_inputs, say_in  # noqa: E402
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -199,6 +201,17 @@ PINS = [
         T.HfFormat.bytes(12669647328), T.HfFormat.bytes(175115712), T.HfFormat.bytes(1000), T.HfFormat.bytes(0), T.HfFormat.gib(50 * GB, 1)]""",
      '["999","61.4k","1.3M","0","11.8 GB","167 MB","1 MB","—","50.0"]',
      "числа: счёт 999/61.4k/1.3M; размеры в двоичных GB и MB, крошечный — 1 MB, ноль — «—»"),
+
+    ("time_left_is_the_shared_rule", "",
+     r"""(() => { const at = """ + eta_inputs() + r""".map((s) => T.HfFormat.eta(s));
+        localStorage.setItem(T.LANG_KEY, "ru"); const ru = T.HfFormat.eta(4200);
+        localStorage.setItem(T.LANG_KEY, "ja"); const ja = T.HfFormat.eta(185);
+        localStorage.setItem(T.LANG_KEY, "xx"); const unknown = T.HfFormat.eta(185); localStorage.clear();
+        return [at, ru, ja, unknown]; })()""",
+     json.dumps([eta_expected(say_in("en")), say_in("ru")("moveEtaHours", h=1, m=10), say_in("ja")("moveEtaMinutes", n=4),
+                 say_in("en")("moveEtaMinutes", n=4)], ensure_ascii=False),
+     "время до конца: то же правило и те же слова, что у страницы /models (pace-rule.js, таблица scripts/pace_cases.py, слова — из общего словаря): "
+     "секунды шагом 5, от минуты — минуты вверх, от часа — часы и минуты, неизвестное — ничего; на языке страницы (ru, ja), незнакомый язык — английский"),
 ]
 
 

@@ -136,10 +136,14 @@ export function applyConfigToForm(config, pfx = "") {
   // The model's name at the machine's entry (1.3.507): the cell's own, never another's left over.
   const mnEl = $(pfx + "MODEL_NAME");
   if (mnEl) mnEl.value = config.MODEL_NAME || "";
-  ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL"].forEach((k) => {
+  ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
+   "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER"].forEach((k) => {
     const el = $(pfx + k);
     if (el) el.value = config[k] || "";
   });
+  // The cell's own, never the previous cell's left in the box: a config that does not say, says no.
+  const trustEl = $(pfx + "TRUST_REMOTE_CODE");
+  if (trustEl) trustEl.checked = ["1", "true", "yes", "on"].includes(String(config.TRUST_REMOTE_CODE ?? "").trim().toLowerCase());
   const whEl = $(pfx + "WHISPER_MODEL");
   if (whEl) whEl.value = config.WHISPER_MODEL || "large-v3";
   const msEl = $(pfx + "MOONSHINE_MODEL");
@@ -150,7 +154,7 @@ export function applyConfigToForm(config, pfx = "") {
   // SEAMLESS_TGT_LANG=eng opened showing the select's default "rus" — the form
   // presenting its own default as the cell's setting, and Apply silently
   // retargeting the cell. A new panel is now populated by existing.
-  ["commandFields", "vllmFields", "whisperFields", "moonshineFields",
+  ["commandFields", "vllmFields", "envFields", "whisperFields", "moonshineFields",
    "seamlessFields", "translateFields", "strataFields", "gr00tFields"].forEach((panel) => {
     $(pfx + panel)?.querySelectorAll("input, select, textarea").forEach((el) => {
       const key = String(el.id || "").slice(pfx.length);
@@ -241,6 +245,15 @@ export function usesLlamaConfig(runner) {
   return row?.llamaConfig === true || runner === "llama-server";
 }
 
+// The VRAM, in GB, that a start of this runner takes whatever its model files weigh: the registry's fixed plan
+// (runner.py vram_plan — GR00T's measured policy, the voice servers' measured engines). 0 when the runner has no
+// fixed figure. The form's estimate bar and the stopped cell's chip both read it here: the chip once sized
+// llama.cpp-omni by its 4.7 GB GGUF while the bar beside it said 12.5.
+export function runnerFixedVramGb(runner) {
+  const mib = Number(runnerRegistry().find((r) => r.id === runner)?.vramPlan?.fixedMiB || 0);
+  return mib > 0 ? mib / 1024 : 0;
+}
+
 export function effectiveRunnerId(pfx) {
   // Mirrors `runner_id` in caravan/domain/runner.py: same trim, same lower-case,
   // on both fields. It used to differ — RUNNER kept its case and CELL_KIND was
@@ -310,17 +323,6 @@ export function stKind(arch) {
   return (owner && (owner.artifacts || [])[0]) || "safetensors";
 }
 
-const KIND_REASON = {
-  "llm-gguf": "runnerNeedsLlmGguf",
-  "asr-gguf": "runnerNeedsAsrGguf",
-  "strata-gguf": "runnerNeedsStrataGguf",
-  "whisper-size": "runnerNeedsWhisperSize",
-  "moonshine-lang": "runnerNeedsMoonshineLang",
-  "seamless-st": "runnerNeedsSeamlessSt",
-  "gr00t-st": "runnerNeedsGr00tSt",
-  "nllb-repo": "runnerNeedsNllbRepo",
-};
-
 // Can this runner launch the currently selected artifact? "*" accepts anything —
 // vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
 // what sits in that field cannot disqualify them.
@@ -346,7 +348,9 @@ function runnerAvailability(runner, pfx) {
   if (accepts.includes("*")) return { ok: true };
   const kind = artifactKind($(pfx + "MODEL_FILE")?.value || "");
   if (!kind || accepts.includes(kind)) return { ok: true };
-  return { ok: false, reasonKey: KIND_REASON[accepts[0]] || "runnerNeedsGguf" };
+  // Why it is grey is the runner's own word (needsKey, runner.py): a table of kinds here was one more place to
+  // remember when a runner arrived.
+  return { ok: false, reasonKey: runner.needsKey || "runnerNeedsGguf" };
 }
 
 // CUDA compute capability by GPU marketing name — best-effort map used only to
@@ -421,7 +425,7 @@ function markWhisperOptions(pfx) {
 // editor's CSS hides, so the tip is the only place its help is read.
 const _STATIC_TIP_FIELDS = ["MODEL_NAME", "COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
-  "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL", "MOONSHINE_MODEL",
+  "DTYPE", "TENSOR_PARALLEL", "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "TRUST_REMOTE_CODE", "WHISPER_MODEL", "MOONSHINE_MODEL",
   "SEAMLESS_TGT_LANG", "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
   "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
   "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS"];
@@ -453,21 +457,13 @@ export function renderRunnerTabs(pfx) {
   injectStaticFieldTips(pfx);
   const current = effectiveRunnerId(pfx);
   // Each tab carries a (?) with the full trade-off story: what the runner is
-  // good at (benefitsKey) and what it costs (runner*Minus).
-  const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "prism": "runnerPrismMinus", "vllm": "runnerVllmMinus",
-                      "strata": "runnerStrataMinus",
-                      "gr00t": "runnerGr00tMinus",
-                      "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
-                      "transcribe": "runnerTranscribeMinus",
-                      "seamless": "runnerSeamlessMinus",
-                      "translate": "runnerTranslateMinus",
-                      "custom": "runnerCustomMinus" };
+  // good at (benefitsKey) and what it costs (minusKey) — both the runner's own words, from the registry.
   // A runner that says editorTab: false has no tab: an engine cell (Ollama, LM
   // Studio) is made on the reserve step, choosing the engine and its model.
   wrap.innerHTML = runnerRegistry().filter((r) => r.editorTab !== false).map((r) => {
     const avail = runnerAvailability(r, pfx);
     const label = (r.icon ? r.icon + " " : "") + t(r.labelKey || r.id);
-    const tipParts = [r.benefitsKey ? t(r.benefitsKey) : "", MINUS_KEY[r.id] ? t(MINUS_KEY[r.id]) : ""];
+    const tipParts = [r.benefitsKey ? t(r.benefitsKey) : "", r.minusKey ? t(r.minusKey) : ""];
     if (!avail.ok) tipParts.unshift(t(avail.reasonKey));
     const tip = tipParts.filter(Boolean).join("\n\n");
     return `<button type="button" class="cell-kind-btn${r.id === current ? " is-active" : ""}"` +
@@ -529,8 +525,9 @@ export function applyCellKindUI(pfx) {
   // GR00T reads the shared picker too (its checkpoint is a library folder) and
   // its robot and backbone sit in its panel.
   const isGr00t = runner === "gr00t";
-  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe
-                   || isSeamless || isTranslate || isStrata || isGr00t;
+  // Every runner that is not llama.cpp's own: the registry says (llamaConfig), not a chain of ids that each new
+  // runner had to be added to — and a runner left out of it showed llama.cpp's flags on a cell that has none.
+  const nonLlama = !usesLlamaConfig(runner);
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
@@ -539,6 +536,9 @@ export function applyCellKindUI(pfx) {
   if (cmdFields) cmdFields.style.display = isCommand ? "" : "none";
   const vllmFields = $(pfx + "vllmFields");
   if (vllmFields) vllmFields.style.display = isVllm ? "" : "none";
+  // ENV belongs to the two runners whose command the operator shapes: a custom command and vLLM.
+  const envFields = $(pfx + "envFields");
+  if (envFields) envFields.style.display = (isCommand || isVllm) ? "" : "none";
   // The whisper size is picked in the SHARED model picker on every form —
   // the container stays as the hidden carrier of the WHISPER_MODEL value.
   const whisperFields = $(pfx + "whisperFields");
@@ -839,6 +839,12 @@ export function buildVllmCommandPreview(pfx) {
   if (dtype && dtype !== "auto") parts.push("--dtype", dtype);
   const tp = v("TENSOR_PARALLEL");
   if (tp && tp !== "0" && tp !== "1") parts.push("--tensor-parallel-size", tp);
+  // The three flags a model's recipe asks for, in the order VllmRunner.command writes them.
+  if (v("MAX_NUM_SEQS")) parts.push("--max-num-seqs", v("MAX_NUM_SEQS"));
+  const kv = v("KV_CACHE_DTYPE").toLowerCase();
+  if (kv && kv !== "auto") parts.push("--kv-cache-dtype", kv);
+  if (v("REASONING_PARSER")) parts.push("--reasoning-parser", v("REASONING_PARSER"));
+  if ($(pfx + "TRUST_REMOTE_CODE")?.checked) parts.push("--trust-remote-code");
   return parts.join(" ");
 }
 
@@ -881,10 +887,43 @@ export function buildGr00tCommandPreview(pfx) {
   return parts.join(" ");
 }
 
+// POSIX shell quoting as Python's shlex.quote does it: a word of safe characters stands as it is, anything else
+// goes into single quotes. The launcher runners build their line with it on the server, and this mirrors it.
+function shellQuote(word) {
+  const w = String(word);
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(w) ? w : `'${w.replace(/'/g, `'"'"'`)}'`;
+}
+
+// The model's folder a launcher runner is given, from the picked MODEL_FILE — LauncherCellMixin.folder_of_model
+// (runner.py): the picked path itself, or for the "entry" rule the folder two steps above the picked file.
+// "" when none can be told: a path with nothing above it.
+export function launcherModelFolder(row, model) {
+  const picked = String(model || "").trim().replace(/\/+$/, "");
+  if (!picked || (row?.folderRule || "picked") === "picked") return picked;
+  let folder = picked;
+  for (let i = 0; i < 2; i += 1) folder = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
+  return folder;
+}
+
+// The line of a runner that launches a library folder through a launcher of the caravan (the voice servers:
+// LauncherCellMixin in runner.py), from the registry row's own words — `launcher`, `launcherArgs`, `folderRule` — as
+// the server builds it. A mirror, pinned against the server's line over one table of cases
+// (scripts/test_launcher_runners.py, run by test_js_llama_edit.py): the server's line is the one that runs.
+export function buildLauncherCommandPreview(row, pfx) {
+  const model = ($(pfx + "MODEL_FILE")?.value || "").trim();
+  const folder = model ? launcherModelFolder(row, model) : "…";
+  if (!folder) return "";
+  const path = (rel) => (rel === "…" ? rel : ((rel.startsWith("/") || rel.startsWith("$"))
+    ? shellQuote(rel) : `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${shellQuote(rel)}`));
+  return ["bash", `$HOME/${row.launcher}`, '"$PORT"', ...(row.launcherArgs || ["{model}"]).map((a) => a.replace("{model}", path(folder)))].join(" ");
+}
+
 // Which draft layer the Strata cell starts with: the picker fills
-// SPEC_DRAFT_MODEL_FILE from the model's folder (its mtp-*.gguf), and that
-// field lives among the llama flags this runner hides — so the panel says it.
-// None found is said too: the cell then runs without it, about half as fast.
+// SPEC_DRAFT_MODEL_FILE from the model's folders, else from the library's draft
+// made for the model's architecture (the server lists it, DraftPairing), and
+// that field lives among the llama flags this runner hides — so the panel says it.
+// None found is said too, with what it costs: a Q2_0 pack runs without it, about
+// half as fast, an IQ pack does not start (the start is refused, StrataRunner).
 export function syncStrataDraftNote(pfx) {
   const note = $(pfx + "strataDraft");
   if (!note) return;
@@ -960,6 +999,13 @@ export function _buildCommandExecPreview(pfx) {
     return [`export PORT=${port}`,
             "# first start provisions ~/seamless-venv (torch + transformers)",
             `exec bash $HOME/run_seamless.sh "$PORT" ${model} ${tgt}`].join("\n");
+  }
+  const launcherRow = runnerRegistry().find((r) => r.id === runner && r.launcher);
+  if (launcherRow) {
+    const line = buildLauncherCommandPreview(launcherRow, pfx);
+    return [`export PORT=${port}`,
+            "# the launcher installs its engine at the first start (minutes); the scout brings the model's folder",
+            line ? `exec ${line}` : `# MODEL_FILE must be a file of a library model laid out as <model>/<author>/<variant>/<file>`].join("\n");
   }
   // Runners this builder has no command for, told apart instead of being
   // swept into the custom branch. Both used to land there and print `exec …` —

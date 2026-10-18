@@ -13,7 +13,7 @@ class CloudFileKeys:
     shape is not written: an empty map and no map read the same."""
 
     #: levels — the subscription models' levels (caravan/common/model_levels.py);
-    #: addedModels — the models on the kanban's right column (caravan/admin/added_models.py);
+    #: addedModels — the models on Routing's right column (caravan/admin/added_models.py);
     #: boardProviders — the providers on the main board (caravan/admin/board_providers.py);
     #: sets — the entry clients' sets of models (caravan/admin/model_sets.py);
     #: schedules — when each model is open (caravan/common/model_schedules.py).

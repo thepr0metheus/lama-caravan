@@ -40,6 +40,7 @@ place, never reassigned.
 | `container_preflight` | What a container must be told before it starts. In a container (`CARAVAN_CONTAINER=1`) the controller and the proxy refuse to start, with exit code 2 and the reason, unless `TZ` names a time zone (by name AND by effect: the C library's offset must equal the zone's, or the image has no zone data) and, for the controller, `LLAMA_TOPOLOGY_SERVER_IP` is an address the fleet reaches (not loopback, not `0.0.0.0`). Natively nothing is asked: the machine knows both. The one place that reads `CARAVAN_CONTAINER` (`paths.IS_CONTAINER` comes from it). | `ContainerPreflight` (`enforce`, `problems`, `in_container`) |
 | `proxy_heartbeat` | How often the proxy rewrites its state file (every 10 s, whatever happened) and when the admin stops trusting it (30 s: three beats missed). One rule for both sides: a cloud-only controller probed no cells, wrote the file only on requests, and its pool card fell back to "Not measured yet" 30 s after each (2026-10-08). | `ProxyHeartbeat` (`BEAT_SECONDS`, `STALE_SECONDS`, `fresh`) |
 | `draft_file` | Which speculative type a draft file is for, from its path: the first word of its name (`mtp`, `dflash`, `dspark`, `eagle3`, followed by `-`, `_` or `.`, any case), else `draft-mtp` for a file under a folder named `mtp` (the layout before upstream's `mtp-` names), else no sidecar (`""`) — launched as `draft-simple`. The model scanner files exactly the sidecars as drafts, and the builder launches a cell with an empty type by it. Twin of `static/js/draft-file.js`, both run against one table (`scripts/test_draft_file.py`): until 2026-10-11 the rule was read five ways, and a head in a model's `mtp/` folder was offered with the model and launched as `draft-simple`. | `DraftFile` (`sidecar_type`, `launch_type`) |
+| `kv_cache` | Which pair of flash attention and V cache type llama.cpp starts with: a quantized V cache (q8_0, q4_0 …) needs flash attention ON, and with it stated OFF the server exits at once with `quantized V cache requires flash_attn to be enabled` (a new cell's form offered that pair, 2026-10-14: four crashes in ten minutes). `KvCache.refused_type(config)` is the quantized type the pair is refused for, `""` when it starts — flash attention left unstated is not refused (llama.cpp decides), nor is a K cache, the draft's cache types (saved, not passed) or a V cache of plain numbers (`f32`, `f16`, `bf16`). `KvCache.check` raises the refusal, with the cause and both ways out, from `preflight_start` of the llama.cpp and PrismML runners. Twin of `static/js/kv-cache.js`, both run against one table (`scripts/fixtures/kv-cache-cases.json`). | `KvCache` (`refused_type`, `check`) |
 | `ttl_cache` | `(timestamp, value)` TTL cache with an internal lock. `get()` returns the `MISS` sentinel so falsy values are cacheable. No single-flight by design: concurrent misses may both fetch, same as the pre-refactor call sites. | `TtlCache`, `MISS` |
 
 ## `paths.py`
@@ -52,7 +53,8 @@ container — `DEFAULT_MODELS_DIR`), the AA scores cache (`AA_SCORES_CACHE_PATH`
 (`var/server-backups`), the settings-backup dir (`var/settings-backups` — the copy taken before each
 settings import; on the data volume in a container), the shared JSON files (`agent-proxies.json`,
 `agent-proxy-state.json`, `cloud-providers.json`, `token-history.json`), per-user state
-(`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` — outside the repo,
+(`admin.json`, monitor history, incident log, `GGUF_HEADERS_FILE` — what the models' headers said,
+`state/gguf-headers.json`, `header_memory.py`), secrets (`provider-secrets.json` — outside the repo,
 0600), and tunables (monitor interval/retention, token-history caps,
 `SERVER_CELL_BASE_PORT`, default 22001 via `CARAVAN_CELL_BASE_PORT`). `PROXY_PORTS` (`ProxyPortRange`,
 23001–23999 from `CARAVAN_PROXY_BASE_PORT` and `CARAVAN_PROXY_PORT_SPAN`) is the block of proxy ports the
@@ -85,7 +87,7 @@ object), `topology_store` (defaults-ensured topology sub-store).
 
 The order of the server cards — the machines and the pools in one list (2026-10-04; until then the
 machines always stood above the cloud). Since 2026-10-11 the board shows the machines apart, under
-Machines, and since 2026-10-12 the pools stand on the kanban in their own order; no page reads the
+Machines, and since 2026-10-12 the pools stand in Routing in their own order; no page reads the
 pools' places here any more, and the machines' places stay. `ServerOrder` keeps it
 in the admin document's `topology.layout`: `serverOrder`, a list of card keys (`node:<machine id>`,
 `cloud:<account id>`), and `serverOrderRev`, which grows by one with every save. `save(order)` checks
@@ -94,7 +96,7 @@ refused with 400, never trimmed into a shorter one — and answers `{ok, order, 
 hand-edited document as the keys that are keys, once each; anything else there is no order at all.
 Reading writes nothing. GET /api/topology carries `layout` (`ServerOrder(section=…).layout()`, read
 from the same document as the rest of the answer); the board places its cards by it
-(static/js/server-order.js), and the kanban's Servers panel follows.
+(static/js/server-order.js), and Routing's Servers panel follows.
 Owns: `topology.layout` in `admin.json`. Key functions: `ServerOrder.save`, `keys`, `revision`,
 `layout`; `SERVER_ORDER` is the route's instance (`POST /api/topology/server-order`).
 
@@ -123,7 +125,12 @@ a timing pad on unknown users, per-IP lockout after 5 failures); sessions are ra
 as SHA-256 hashes with a TTL and a 5 s in-process cache. A CLI (`python3 -m caravan.admin.auth …`)
 covers create-user / set-password / fleet-token for headless bootstrap. The panel lists a session
 under the first 12 characters of its hash (`session_id`) and ends one by exactly that id: an empty
-or partial id ends nothing (400 / 404).
+or partial id ends nothing (400 / 404). A request whose session cannot be read because the database
+does not answer (locked, an I/O error, a file that is not a database) is NOT a request from nobody:
+`session_from_handler` raises `SessionStoreUnavailable`, and the dispatcher answers 503 — never 401,
+which every page takes for a sign-out (2026-10-17: a poll answered 401 with a good cookie while the
+NAS was busy, and the board threw the owner to `/login`). A cookie that is missing or does not
+parse, a token the store does not know or has expired stay a plain `{}`.
 Owns: `auth.db`, the session cache, `_LOGIN_FAILS`.
 Key functions: `auth_enabled`, `create_user`/`set_password`/`delete_user`/`list_users`,
 `verify_login`, `create_session`/`validate_session`/`delete_session`, `list_sessions`/`session_id`,
@@ -191,9 +198,13 @@ config the goldens pin: env header, the config block (so the GUI can reload valu
 `parse_config`), file-existence guards,
 and a generated `# BEGIN/END LLAMA COMMAND` `exec llama-server …` block — regenerated from the
 config so block and command never drift. The engine's environment is the runner's
-(`Runner.launch_env`): CPU-only llama configs (`N_GPU_LAYERS=0`) export `CUDA_VISIBLE_DEVICES=""`
+(`Runner.launch_env`): every engine exports `CUDA_DEVICE_ORDER=PCI_BUS_ID` (`Runner.CUDA_ORDER`), so
+that card N is the card the board and `nvidia-smi` call GPU N — CUDA's own order is fastest first, and on
+a machine with an RTX 3090 and an RTX 5090 `CUDA_VISIBLE_DEVICES=1` once named the other card than the
+board did; CPU-only llama configs (`N_GPU_LAYERS=0`) add `CUDA_VISIBLE_DEVICES=""`
 because a CUDA build still initializes the backend at `-ngl 0` and can abort on a full GPU; a
-scout's start carries the same environment (`env`, since scout 2.8.1). `render_command_cell_script` does the same for command cells (arbitrary managed
+scout's start carries the same environment (`env`, since scout 2.8.1). The order is exported BEFORE the
+cell's own `ENV`, so a row of the operator's can still say otherwise. `render_command_cell_script` does the same for command cells (arbitrary managed
 process, `exec`'d so whoever starts it tracks the real PID; `ENV` rendered as exports, optional `cd
 WORKDIR`), and `render_command_cell_shell_line` renders that same cell as one `bash -lc` sentence
 — how a scout runs it, as a child process — shipped as `payload["shellLine"]`. The two share
@@ -203,7 +214,19 @@ share the runner's bootstrap too (`runner.bootstrap_lines`, vLLM's venv provisio
 has it as lines, the sentence as the same lines joined by `one_line_statements`. vLLM once had a
 one-line copy of its own — it installed an unpinned vLLM, and the `exec` meant for the command stood
 in front of the whole chain, so bash was replaced by `[` and a vLLM cell on a scout never served
-(`scripts/test_vllm_shell_line.py` now runs the sentence in bash). Both are pinned by the goldens:
+(`scripts/test_vllm_shell_line.py` now runs the sentence in bash). That bootstrap also settles the
+venv's FlashInfer pair: a `flashinfer-cubin` whose version differs from `flashinfer-python` (an older
+install left it behind when vLLM moved to 0.30.0; FlashInfer then refuses to start with "flashinfer-cubin
+version … does not match flashinfer version …", on every model that reaches it) is uninstalled before the
+start, and FlashInfer fetches the kernels it needs. A vLLM cell also takes `TRUST_REMOTE_CODE` (`"1"`:
+`--trust-remote-code`, for models that ship their own Python code, MiniCPM-o and Nemotron Omni among
+them), the three flags a model's recipe asks for — `MAX_NUM_SEQS` (`--max-num-seqs`), `KV_CACHE_DTYPE`
+(`--kv-cache-dtype`; empty or `auto`: no flag) and `REASONING_PARSER` (`--reasoning-parser`) — and exports its
+`ENV` like any command cell: the form shows the ENV block for vLLM as for a custom command. Only the SHAPE of
+the three values is checked (`VllmRunner.flag_value`: a number from 1 to 999999, a type name, a parser name; anything else is refused
+with a 400 that names the field): vLLM's own sets move with its versions (`--kv-cache-dtype` has eighteen
+values in 0.30.0, the reasoning parsers are registered by name and by plugin), so a value it does not know is
+refused by vLLM, in the cell's log. Both are pinned by the goldens:
 `tests/golden/commands/*.sh` and, for command cells, `tests/golden/shell-lines/*.txt`.
 A file in a library brings one guard more, before the file tests and once per library: its mark
 in the library's root. Without the mark the share did not mount, and what sits under the mount point
@@ -220,12 +243,23 @@ Key functions: `render_launch_script`, `render_command_cell_script`,
 
 ## `models.py`
 
-GGUF model catalog. `read_gguf_metadata` parses the binary GGUF (v2+) header directly for a wanted
-key set (architecture, block/context/embedding sizes, attention heads, `pooling_type`);
-`extract_runtime_meta` normalizes it (pooling read presence-aware since 0 is valid). `list_models`
+GGUF model catalog. `read_gguf_metadata` gives the facts a GGUF (v2+) header states for a wanted
+key set (architecture, block/context/embedding sizes, attention heads, `pooling_type`) — it is
+`GgufHeader.read` (`gguf_header.py`); `read_gguf_metadata_cached` asks `HeaderMemory` first
+(`header_memory.py`: path, second written and size) and reads the file only when the memory has nothing
+for it; `extract_runtime_meta` normalizes it (pooling read presence-aware since 0 is valid). `list_models`
 scans the models dir, classifies files (model / mmproj / draft — a draft by `DraftFile`, the rule its
-type is read by; vocab skipped), suggests
-same-directory companions (plus the sibling `default/` folder HF downloads land in), detects the
+type is read by; vocab skipped; a projector by the header's architecture first, `_gguf_kind`: `clip` is one
+whatever the name, a file named `…projector…` whose header says another architecture is none — MiniCPM-o's
+speech `…-projector-F16.gguf` was offered as the mmproj and its cell died on "Failed to load CLIP model",
+while its real `…-vision-F16.gguf` (`clip`) was a "model", 2026-10-17 — and the name alone judges a file
+with no header, one only a library holds), suggests
+companions (the model's own quant folder, then the sibling `default/` folder HF downloads land in, then the
+repository's other quant folders — and, for a draft, then every draft made for the model's architecture wherever the
+library keeps it: `DraftPairing` reads the draft's header, whose architecture is the model's with `-mtp` after it
+(Strata's one draft layer, `qwen4exp-mtp`, serves every `qwen4exp` pack, and no repository of the Coder's, Swift's or
+Unsloth's ships it); `compatibleMmprojs` and `compatibleDrafts` hold up to five each, the first is
+`suggestedMmproj` / `suggestedDraft`, and the cell form offers exactly those lists), detects the
 family (`gemma-4-…` → `gemma4`) and applies `FAMILY_DEFAULTS`; embedding models (name hints or a
 GGUF pooling type) get `embedding_family_defaults` instead — `--embeddings`, the right `--pooling`,
 chat-only flags cleared, CTX right-sized to the trained context. `serve_model_file` streams a GGUF
@@ -240,11 +274,23 @@ Key functions: `read_gguf_metadata`, `extract_runtime_meta`, `detect_family`,
 `list_models` also lists the files only a usable library holds (`model_locator.py`), in their places
 and marked `libraryOnly` with their `store`; their header facts come from `library_meta.py`, never
 from reading the NAS.
+The FIRST part of a split model (`…-00001-of-00003.gguf`, `Locations.split_part`) is the row the picker
+offers for the whole model, so its `size` / `sizeGb` is the size of all the parts the list finds (here or in a
+library), plus `parts` (how many the name says) and `partsFound` (how many were found); the later parts keep
+their own sizes and no such fields, and a whole file has neither. Until 1.3.565 the row said the first part's
+own size — `0.01 GB` for a 93 GB model whose first part holds the header only, so the form's estimate said it
+fits anywhere — against the rule the models page and the ≈VRAM badge follow. The header lookup of a library
+file still keys on the file's own size.
 `ModelList` (one instance, `MODEL_LIST`) is the list the board follows: `/api/state`'s `models`,
 `/api/models/rows` and the topology's `modelsStamp` all read it. It keeps `list_models()` for 5 s
 (a beat per open board asks for the stamp; the walk is 4 ms warm on the controller) and
 `current()` gives the rows and the stamp of the same walk. `stamp_of(rows)` is 16 hex characters of
 the sorted path, kind, size, mtime and `libraryOnly` of each row.
+One walk at a time (1.3.544): everyone who asks before the first list exists waits for the one walk, and
+a list gone stale is made anew by one caller while the others are given the old rows. The controller
+makes that first walk itself, in a background thread, when it starts (`main.py`), and `list_models`
+writes the header memory out at its end. Before 1.3.544 the first `/api/state` after each start read
+every header and waited 51 s for the 56 models of the NAS — the board's red "did not finish loading".
 
 ## `model_locator.py`
 
@@ -276,6 +322,32 @@ before a move deletes it (`store_moves.py` → `remember_header`) and kept in
 `state/library-meta.json` by library, path and size — a different size under the same name is
 another file and gets nothing.
 Key functions: `LibraryMeta.lookup`, `LibraryMeta.remember_file`, `library_meta`.
+
+## `gguf_header.py`
+
+What a GGUF header says, out of its key-value block: `GgufHeader.read(path, limit_keys=256)`. A header is mostly
+the tokenizer — tokens and merges, a hundred thousand strings and more, and as many scores and token types — and
+the controller wants a dozen facts of it (the keys of `WANTED` and the ends of `SUFFIXES`). Those are read; every
+other value is passed over: a number array by its length, a string array by the lengths in front of its strings, in
+one loop that unpacks nothing else. The old reader unpacked every item, one by one (51 s for the 56 models of
+the NAS; 7–9 s now, 0 files that say anything different, 16 MB the longest header). The file is read from its start
+in blocks of `BLOCK` and never mapped: a mapped file that is cut short while it is read kills the process (SIGBUS),
+and a download or a move may do exactly that. A header cut short, a version below 2, a file that is no GGUF, a
+length no header has (past `LIMIT`) all say `{}`; a half-read header says nothing rather than half of it.
+`scripts/test_gguf_header.py` holds it to the old reader — kept verbatim there as the oracle — on 334 files at
+six sizes of block.
+Key functions: `GgufHeader.read`, `GgufHeader.facts`, `GgufHeader.skip_strings`.
+
+## `header_memory.py`
+
+What the headers of GGUF files said, kept in the process and across starts: `HeaderMemory.recall(path, mtime,
+size)` and `remember(...)`, written by `flush()` to `state/gguf-headers.json` (`GGUF_HEADERS_FILE`, `{"format": 1,
+"files": {path: {mtime, size, meta}}}`). A file counts as the same only when its second and size are the same.
+A header that said nothing is kept in the process but never written: the next start reads it again, and by then
+it may say something. A file the code did not write (another format, wrong shapes) is read as no file; past
+`CAP` (4000) files the ones remembered longest ago leave the disk; a disk that cannot be written to is said once
+and does not stop the walk. `list_models` flushes at its end; `read_gguf_metadata_cached` is the one reader.
+Key functions: `HeaderMemory.recall`, `HeaderMemory.remember`, `HeaderMemory.flush`, `header_memory`.
 
 ## `model_gc.py`
 
@@ -347,7 +419,7 @@ way in. A consumer of the entry has its key already: "Give a key" is refused for
 
 `ConsumerDesk` — a consumer of the entry as the board makes it (the owner, 2026-10-11: the caravan
 speaks the OpenAI API as a company's gateway does). A consumer is a name, its own key and the set of
-models a cable on the kanban leads it to (`set`, since 1.3.497; the owner, 2026-10-12: "only one cable
+models a cable in Routing leads it to (`set`, since 1.3.497; the owner, 2026-10-12: "only one cable
 goes on from a client", then the set between it and the pools) — kept as a route of kind `"consumer"`: the journal, the queue and the board know a route,
 and the route's number is its name in all of them. The number comes from the proxy range
 (`next_free_proxy_port`) and never listens: the route is `portClosed`, and the entry is the consumer's
@@ -374,13 +446,13 @@ Owns: nothing in memory; the consumers live in `agent-proxies.json`.
 Key names: `ConsumerDesk` (`create`, `set_set`, `new_key`, `migrate`).
 
 `SetDesk` (`caravan/admin/model_sets.py`, 1.3.497) — the sets of models the entry's clients call, the
-kanban's «Набор» (the owner, 2026-10-12: a set between the clients and the pools, shared by several
+Routing's «Набор» (the owner, 2026-10-12: a set between the clients and the pools, shared by several
 clients; a request's `model` picks a pool of it, an unknown name is 404). `cloud-providers.json` keeps them
 beside the pools they hold, `sets: [{id, name, pools}]`; a pool deleted leaves every set in the same write
 (`PoolDesk.delete` answers `unset`, the sets it left). `create(name)` — "Set", "Set 2"… when unnamed, a name
 another set has is 409; `rename`; `add_pool` (last, once; an unknown pool is 400); `remove_pool`; `delete`
 (its clients lose their cable — `uncabled`, their names); `order(ids)` — the sets in the order a carried
-card leaves on the kanban (1.3.503), refused 409 unless `ids` names every set once. `migrate()` runs once at start, after
+card leaves in Routing (1.3.503), refused 409 unless `ids` names every set once. `migrate()` runs once at start, after
 `ConsumerDesk.migrate`: each pool a client was cabled to becomes a set of that pool, named as the pool and
 shared by its clients; the sets are written before the routes, so the proxy, which reads a route's old
 `pool` meanwhile, never sees a client without its model (`entry: clients cabled to sets: …` in the log).
@@ -456,7 +528,8 @@ headers from `_hf_headers`, `config.json` of a repository (`_fetch_repo_config`,
 from it) included: a gated repository refuses any file to a request with no token whose owner has the terms. `hf_search` returns
 GGUF-filtered repos sorted by downloads with modality hints (pipeline_tag/tags) straight from the
 search response; a query containing `/` is treated as a direct repo id. `hf_list_files` lists a repo
-tree, classifying `.gguf` files (model/mmproj/mtp/vocab) and extracting the quant from the filename;
+tree (read to its end, page by page: `hub_pages.py`), classifying `.gguf` files (model/mmproj/mtp/vocab) and extracting the quant from the filename (the
+`-00003-of-00006` tail of a split model's parts is cut off first: the parts of one model share one quant, and the quant names the folder a download lands in);
 the rest of a repo with safetensors weights is the `safetensors` plan the page downloads as one
 artifact (the weights, configs, tokenizer, a repository folder kept as a folder — not the README,
 pictures, licences or the weights again as `.bin`/`.pt`). Every file entry, GGUF or not, carries what
@@ -480,6 +553,29 @@ one of four kinds — `sha256`, `git-sha1`, `hidden`, `none` — and writes them
 hash. The mask used to read as a hash, and every file of a gated repo "differed".
 Owns: —.
 Key functions: `HubHash.from_tree_item`, `HubHash.from_entry`, `HubHash.fields`.
+
+## `hub_pages.py`
+
+A list the hub sends in pages, read to its end. A repository's tree with file details comes 50 entries
+to a page, and the hub names the next page in the `Link: <url>; rel="next"` header. The first page was
+taken for the repository: `openbmb/MiniCPM-o-4_5-awq` (75 files) listed the folder `assets/` first, the
+weights after it, and its checkpoint row read "34 files · 1.4 GB". `HubPages.read` asks for 100 to a page
+(the most the hub allows with `expand`), follows only a next page of the hub's own API (the request carries
+the operator's token) and fails when the list cannot be read to its end, instead of handing back the pages
+read so far. `hf._hf_request(path, all_pages=True)` is its one caller; a search is read one page.
+Owns: —.
+Key functions: `HubPages.read`, `HubPages.next_url`, `HubPages.sized`.
+
+## `hub_access.py`
+
+Why the hub shut the door on a download, and the page where a person opens it. A gated repository lists
+its files and refuses them (401, 403) until the owner of the token accepts its terms on its page.
+`HubAccess.is_wall` names the refusal — the same answer every time, so `downloads.py` does not retry it —
+and `HubAccess.after` reads the repository's record once: a wall at a gated repository becomes the job's
+`access` (`{kind: "gated", url, repo, status, tokenSet}`), a wall at an open one, an unreadable record and
+every other failure name no page.
+Owns: —.
+Key functions: `HubAccess.is_wall`, `HubAccess.after`, `HubAccess.page`.
 
 ## `hf_checkpoint.py`
 
@@ -522,6 +618,8 @@ A cancel (`cancel_hf_download`, from `POST /api/hf/download/cancel`) raises a fl
 checks before each file and after each chunk: the job ends `cancelled`, is never retried, and the
 bytes already fetched stay as a partial with its manifest — listed as interrupted and resumable at
 once (the scan cache is dropped); a partial with no bytes is removed.
+The hub's own wall (401, 403) is not retried and, at a gated repository, puts `access` on the failed job
+(`hub_access.py`): the page the /hf page opens so the terms can be accepted.
 Owns: `_download_jobs` + `_download_jobs_lock`; job worker threads.
 Key functions: `start_hf_download` (returns job id; status polled via `/api/hf/download/status`),
 `cancel_hf_download`, `scan_interrupted_downloads`, `resume_interrupted_download`.
@@ -670,6 +768,32 @@ as before. `topology_nodes` gives each node its `entryModels`, as its record
 keeps them: the board reads a model's state and copies there.
 Key functions: `MachineModels.clean`, `MachineOutputs.output_id`, `entry_address`, `outputs`.
 
+## `model_cache.py`
+
+A machine's model cache as its scout reports it, and what the board asks of it (1.3.576; the owner,
+2026-10-18, when a disk was 94 % full of model copies and a start died with "No space left on device": keep the
+last models only, 1 to 5, 1 by default, the setting in a noticeable place, the older ones deleted by themselves).
+The scout (2.34+, `cache_keeper.py` there) does the keeping and owns the rules; both its reports carry
+`modelCache`.
+
+`ModelCacheFacts.clean` keeps it on the machine's record: the setting `keep`, what the scout holds
+(`managedBytes`), the files of the cache folder that it did not download (`foreign`: `files`, `bytes` and
+the eight biggest `folders`) and the disk (`disk`: `totalBytes`, `freeBytes`). None when the scout does not
+say (older than 2.34) or says a setting that is no setting; a part it said in a form that cannot be read
+is None inside — never a made-up zero (a disk with 0 bytes free and a disk nobody measured are two different
+things on a screen). A folder row that cannot be read is dropped and does not take a place of the eight.
+The pull (`/api/state`) and the heartbeat carry the same block, so the record does not blink between them.
+
+`ModelCache` carries the operator's word to the scout: `keep(host, n)` →
+`POST /api/topology/client-llama/cache-keep` (the scout trims at once) and `delete_foreign(host, bytes)` →
+`POST /api/topology/client-llama/cache-delete-foreign` (the scout deletes the files it did not download, only
+when their size is still the size the operator was shown; it refuses with 409 otherwise, and nothing is
+deleted). The number is checked here (a whole number), nothing else: the range and the refusals are the
+scout's, and its words reach the caller unchanged (`Scout.post`). After an answer the machine's figures are
+asked again and stored in its record, so a board read a moment later shows them and does not wait for the next
+report. `topology_nodes` gives each node its `modelCache` (`static/js/model-cache.js` draws it).
+Key functions: `ModelCacheFacts.clean`, `foreign`, `disk`; `ModelCache.keep`, `delete_foreign`, `refresh`.
+
 ## `proxies_config.py`
 
 `agent-proxies.json` I/O and mutation — routes, routers, policy. The admin **owns** this file; the
@@ -683,7 +807,7 @@ next write — there was no limit, and a copy per save left 13 678 of them besid
 migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) idempotently.
 `sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
 server, one per engine model the operator made an output, and one `cb:<pool id>` per pool
-(`pool_output`: a pool is on the kanban for as long as it is; with a one-time migration from legacy
+(`pool_output`: a pool is in Routing for as long as it is; with a one-time migration from legacy
 `cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server. A cell's output
 carries what its model does (1.3.502, `ModelKind.cell_facts`, caravan/common/model_kinds.py): its
 `jobs` by the record rule (`model_jobs.cell_jobs`, the twin of the board's `cellJobs`), a chat
@@ -691,7 +815,7 @@ cell's `inputs` by llama.cpp's own `/props`, the `languages` and `maxAudioMs` it
 path, the `contextLength` it serves — each only when known, kept by `normalize_router_output`
 through `ModelKind.clean_facts`. The proxy tells the entry's clients a model's kind from them, and
 counts a cell's window in its pool's; the topology build marks each pool with its `kind`
-(`annotate_pool_kinds`: jobs and a chat's inputs, `{"mixed": true}`, or None) for the kanban.
+(`annotate_pool_kinds`: jobs and a chat's inputs, `{"mixed": true}`, or None) for Routing.
 `save_agent_proxy_config` validates + dedupes routes by port, refuses a NEW port outside the proxy
 range the firewall lets in (`PROXY_PORTS` in `paths.py`, 400 before anything is written; a port
 already in the file keeps working), writes, and makes sure the proxy runs — it never restarts it:
@@ -707,7 +831,7 @@ NAS (2026-10-08). No version given — a script's save — passes; background wr
 Owns: `agent-proxies.json` and its `.bak-graph-*` autobackups; `DEFAULT_AGENT_PROXY_ROUTES`.
 Key functions: `read_agent_proxy_payload`, `write_agent_proxy_payload`, `load_agent_proxy_config`,
 `save_agent_proxy_config`, `normalize_routers` (default router always exists, orphan routes
-re-pointed — `""` stays deliberately unassigned, a client of the entry whose kanban is gone goes free, inputs derived; through `PortInputs` a graph keeps
+re-pointed — `""` stays deliberately unassigned, a client of the entry whose router is gone goes free, inputs derived; through `PortInputs` a graph keeps
 no cable and no wait budget of a port no route has, on every read and write and before the graph
 is normalised, so a model's queue does not count such a cable — the graph names a port by its
 number, and a stale page once wrote a deleted port's cable back for the next port of that number;
@@ -751,7 +875,7 @@ progress (`oauth.end_pending_logins`), and once the account is gone ends its own
 provider (`oauth.SignOut`); it answers how that went. `cloud_accounts_state` tells the board which
 accounts that is (`signOutOnDelete`), whether an account is a subscription, and the steps of the
 pools that name it (`usedIn`) — what its deletion takes.
-The keys the file keeps beside accounts and pools — the models' levels, the kanban's added models,
+The keys the file keeps beside accounts and pools — the models' levels, Routing's added models,
 the board's providers, the sets, the models' schedules — are one table, `CloudFileKeys`
 (caravan/common/cloud_file_keys.py), read and written by this module and read by the proxy: until
 1.3.498 three lists named them, and a key one of them lacked was dropped by the next save.
@@ -788,7 +912,7 @@ journal of the controller's own single server to requests by time went with that
 step 6.9.) One reading of each day file (`_day_seen`: a finished day once, today's file only for
 its added bytes) serves two answers: `proxy_ports_last_seen` — each port's last successful request,
 the board's proof that a route is used — and `embeddings_last_called` — the last call for
-/v1/embeddings whatever came of it, 0 for none in 7 days: the kanban's unset embeddings slot is
+/v1/embeddings whatever came of it, 0 for none in 7 days: Routing's unset embeddings slot is
 red only then (2026-10-08).
 Owns: — (reader only).
 Key functions: `agent_proxy_sample`, `summarize_proxy_item`, `proxy_usage_tokens`,
@@ -928,6 +1052,18 @@ the client's model, and the pool the model block became knows the model; a pool'
 names no account went to none (until 2026-10-11 the pool's first step took it as its own request).
 `cloud_spend_summary` (the 30 days per account and model) and `cloud_upstream_errors` (24 h of
 refused or failed requests per account, the caravan's own refusals as their own rows) read through it.
+`cloud_spend_summary` prices a request by `ModelPrices` (caravan/common/model_prices.py: the operator's own
+price, else the LiteLLM table, else none — `known` False, adds 0 and is COUNTED as `unpriced`): the same rule as
+`usage_stats`, where it used to be the table alone. Since 1.3.585 both price the cache too: the journal row's `usage` holds `prompt` (ALL the
+input, the cached and the written parts in it — OpenAI's meaning), `completion`, and, where the answer had them, `cacheRead` and `cacheWrite`;
+`ModelPrices.cost(model, prompt, completion, cache_read, cache_write)` prices the plain rest of the prompt at the input price, what was read at the
+cache-read price and what was written at the cache-write price — the table's own (`cacheReadPer1M`, `cacheWritePer1M`), or the row's input price
+where it names none (the operator's own row never does). A count above its prompt is cut to it. An account the operator gave a credit
+(caravan/common/account_credit.py: `credit` `{amountUsd, asOf}` on the account, from `creditUsd` of
+`/api/cloud-accounts/save`; the provider tells no balance) also gets `sinceCredit` — what went through the caravan from the
+moment the figure was typed, read back as far as that takes (`partial` when the proxy's logs, kept
+`LOG_RETENTION_DAYS`, do not reach so far) — and always has a row, even with no traffic, so "nothing spent" is an answer
+of the reading (named for the figure it counts from) and not the absence of one.
 `usage_stats` is the statistics panel: a single pass over the last N days of proxy event logs'
 `finished` events — cloud requests priced from LiteLLM pricing (manual `apiPricing` overrides win),
 local requests counted in tokens plus a "would have cost" estimate from `localPricing` — aggregated
@@ -959,15 +1095,15 @@ stop (`CloudPools.levels`): a stop raised past it takes it along. A subscription
 or rules lead to it, `resolution` says where they go: `{moveTo}` another pool (`CloudModelRewire`) or
 `{cut: true}`; without one, 409. `remove_account` takes an account's steps out of every pool. `state()` is every pool as the board draws it: each
 step with the levels its subscription has reached now — the proxy's last reading, judged by the rule
-the proxy enforces (`stopReached`, `switchReached`) — what holds it on the kanban (`held`,
+the proxy enforces (`stopReached`, `switchReached`) — what holds it in Routing (`held`,
 `inUse`) and the levels' ceiling; `runtime()` is the proxy's word on each pool while the proxy is
 alive to say it. `migrate()` rewrites a file of the old form once (stamped `pools-of-steps-2026-10`):
-a model block on the kanban or pointed at becomes a pool with the block's id — so its `cb:<id>`
+a model block in Routing or pointed at becomes a pool with the block's id — so its `cb:<id>`
 cables and rules stay — its steps the members of the subscription pool it belonged to, or its
 one account, each with the block's model and the account's reserve as its levels; the other blocks
 were copies of a provider's list and go. `clone_test` keeps the legacy routing-test aliases.
 
-On the kanban (1.3.503): `create` also takes its first row as a row takes it (`target`: an account's
+In Routing (1.3.503): `create` also takes its first row as a row takes it (`target`: an account's
 model or a local output — a model carried onto the Pools column), named after `name_after`, the board's
 word for the model, else the model id. A pool still under the board's name ("Pool", "Pool 2"…,
 `default_named`) whose first cable `add_row` or `connect_row` draws takes that word as its name
@@ -1020,8 +1156,12 @@ model lists with a 10-minute TTL refreshed by a background thread whenever the b
 topology (`kick_refresh` + a guarded fetcher) — what "+ Add step" offers (`GET
 /api/cloud-accounts/catalogue`, chat models first by `ChatModels`) and what a step's model is checked
 against: a step whose model fell out of the list paints "unlisted"; (2) a circuit breaker around
-every provider endpoint (`guarded_call(key, fn)`: 3 consecutive failures open the breaker with
-exponential 6 h→48 h backoff; `endpoints_report` feeds the "API issues" panel and
+every provider endpoint (`guarded_call(key, fn)`: 3 consecutive failures of the PROVIDER open the breaker with
+exponential 6 h→48 h backoff; a failure of the road to it — no route, no name, a refused or timed-out
+connection, `is_network_failure`, 1.3.584 — is shown (the count and the error in the panel) but does not count and never blocks,
+and the next success clears it: on 2026-10-18 twenty minutes of "Network is unreachable" turned the Anthropic model list off
+for six hours, after the network was back. The two counts are kept apart (`failCount` for the card, `hardFails` for the breaker);
+`endpoints_report` feeds the "API issues" panel and
 `retry_endpoint` the panel's retry button — 401/403 on spend/limit endpoints stay soft); (3) the
 codex `client_version`: `CARAVAN_CODEX_CLIENT_VERSION` env verbatim, else
 max(npm `@openai/codex` latest cached 24 h, floor 0.160.0) — the floor matters because npm lags
@@ -1034,10 +1174,14 @@ Key functions: `guarded_call`, `record_ok`/`record_fail`, `endpoint_blocked`, `e
 ## `pricing.py`
 
 The LiteLLM model-pricing table (`model_prices_and_context_window.json` from GitHub raw), reduced to
-`{model: {inputPer1M, outputPer1M, provider}}` and cached on disk for 24h at
-`logs/model-pricing-cache.json`. Returns `{}` on any error — pricing is a non-critical feature.
+`{model: {inputPer1M, outputPer1M, provider[, cacheReadPer1M, cacheWritePer1M]}}` and cached on disk for 24h at
+`logs/model-pricing-cache.json`. The cache prices are the table's `cache_read_input_token_cost` and `cache_creation_input_token_cost` (1.3.585); a row
+that names none has none, and a price that is text, negative or a boolean is no price. The file says its `shape` (`PRICING_SHAPE`, 2): a file of any
+other shape is refetched even inside its day, because a table of the older shape would price every cached token as a plain one. When the fetch fails
+the old table is returned (an old price is better than none — no price reads as a spend of nothing), and `{}` only where there is none — pricing is a
+non-critical feature.
 Owns: the pricing cache file.
-Key functions: `fetch_model_pricing`.
+Key functions: `fetch_model_pricing`, `per_million`.
 
 ## `telemetry.py`
 
@@ -1052,7 +1196,9 @@ this controller holds no settings for says it is: engine, model, kinds — and s
 proxy's requests meet as well — not the `ok` any answer below 500 used to be (2026-09-26). The three history rings —
 `_gpu_history` (mem/util/power per `node:gpuIndex`), `_cpu_history` (load/RAM per node),
 `_tps_history` (prompt/gen t/s per `node:port`) — are appended on every topology build, same-second
-samples collapsed, 600s retention / 300 rows kept / 150 emitted, all guarded by `_history_lock`.
+samples collapsed, 600s retention / 300 rows kept / 150 emitted, all guarded by `_history_lock`. A cell that says it answers no
+request (`requestsProcessing` 0 on its entry) records zeros in `_tps_history`, not the rates its scout keeps while it is idle (`TokenRates`, 1.3.590):
+a cell that says no count is recorded as it reports.
 Owns: the three probe caches, the three history rings, `_history_lock`.
 Key functions: `probe_remote_port`, `remote_llama_health`,
 `command_cell_health`, `remote_llama_modalities`, the `_record_*_history` feeders used by topology.
@@ -1085,9 +1231,26 @@ library only; `run_engine.sh` only starts it, and exists because a scout brings 
 $HOME by the `run_<name>.sh` its command names — a bare `python3 …server.py` would name none, and
 the server would never reach the machine. Runners `ollama` and `lmstudio` get the launcher,
 `cell_base.py` and this.
+
+The voice models — the ones that ANSWER IN A VOICE (1.3.551 as custom commands with presets; 1.3.553 as runners) —
+are runners of their own: `personaplex`, `lfm-audio`, `step-audio2`, `qwen3-omni` and `minicpm-omni`
+(`LauncherCellMixin` in `runner.py`), and their files are the groups of `RUNNER_ASSETS` named after the runner's id.
+`lfm-audio` carries `run_lfm_audio.sh`, `cell_base.py` and `lfm_audio_server.py`, the one cell server of the five: the
+HTTP front of LFM2.5-Audio. The others are the launcher alone: NVIDIA's `moshi.server`, `vllm serve --omni` (one launcher
+under both vLLM-Omni runners, each with its recipe) and `llama-omni-server` (built by its launcher) serve themselves. A
+scout asks the manifest which group the cell's runner names and fetches it, so a new voice server needs no scout release;
+`group_for_command` reads the launcher out of a command and still serves a custom command that names one of these
+launchers (the cells made from the 1.3.551 presets). The board's ⇪ stale-source check (`cell_source_state`) compares the
+cell's stamp with the group of ITS launcher, not with the runner id `custom`, which stands for the TTS server alone; a cell
+that serves itself reports no stamp, and its state is "unknown", never "stale". Each launcher installs its engine into a
+folder of its own at the first start and writes a completion marker only when the install is DONE: a start that stopped
+halfway is finished by the next one. `scripts/test_voice_launchers.py` runs the four launchers against stand-in `uv`, `git`,
+`cmake` and `python`; `scripts/test_launcher_runners.py` holds the runners (the line a start runs, the folder the launcher is
+given, what the scout is told to bring, the VRAM, the claims on checkpoint folders). How a server is added:
+[adding-a-runner.md](adding-a-runner.md).
 Owns: `cells/` and what `/api/cell-assets` exposes.
 Key functions: `cell_assets_manifest`, `cell_asset_bytes`, `materialize_local_assets`,
-`assets_for_runner`.
+`assets_for_runner`, `group_for_command`.
 
 ## `server_cells.py`
 
@@ -1112,7 +1275,7 @@ deleted cell's rows lose their cable and its schedule goes (`cell_outputs.py`).
 `KeptCells` (1.3.504) makes a slot of each cell a scout keeps that the controller lacks. A stopped cell
 is drawn from its slot alone — the scout drops a stopped cell from its report — and a controller that
 did not start a cell had none: on 2026-10-12 the controller moved to the NAS had no slot of a machine's
-cells, and each went off the board as it was stopped, with its switch and the kanban's cable to it.
+cells, and each went off the board as it was stopped, with its switch and Routing's cable to it.
 The scout reports the start request it keeps for each autostart cell (`autostartRequests`, scout
 2.26); `adopt(host, requests)` — run on every report, the heartbeat's and the pull's
 (`record_host_report`) — makes a slot from each it lacks, the settings whole (an empty value too), the
@@ -1145,15 +1308,15 @@ Key names: `CellOutputs` (`move`, `swap`, `drop`).
 
 When each model is open (1.3.498, step 1 of the visumap scheme caravan-model-schedule; the owner,
 2026-10-12: the schedule is the model's, not a pool's or a set's). `ModelScheduleDesk.set(key,
-{enabled, windows})` is the door the kanban's ⏱ calls (`POST /api/models/schedule`): the key is the
-kanban's — `acc:<account>/<model>` or `out:srv:<port>` / `out:eng:<id>` (`ModelKey`); the windows are
+{enabled, windows})` is the door Routing's ⏱ calls (`POST /api/models/schedule`): the key is the
+Routing's — `acc:<account>/<model>` or `out:srv:<port>` / `out:eng:<id>` (`ModelKey`); the windows are
 read strictly (`WeekWindows.parse`, caravan/common/week_windows.py: what is wrong with which window,
 400); an unknown account is 404, and a schedule switched on with no window is 400 — it would close
 the model for good. The schedules live in `cloud-providers.json` under `schedules` (`ModelSchedules`,
 caravan/common/model_schedules.py), where the proxy reads them with each pool and passes over the
 row of a model closed now. A cell's schedule goes with the cell's other names (`cell_outputs.py`);
 `PoolDesk.remove_account` forgets an account's models' schedules,
-and a model taken off the kanban keeps its own, as its levels. `state()` is the board's
+and a model taken out of Routing keeps its own, as its levels. `state()` is the board's
 `modelSchedules`: the caravan's zone (`CaravanZone`, caravan/common/caravan_zone.py — TZ, else the
 machine's zone, else UTC said as not known), the moment, and each model's schedule with what it says
 now (`open`, `until`, `opensAt`). Step 1 starts and stops no server: that is still `cell_schedule.py`'s
@@ -1336,7 +1499,7 @@ that machine's cells run through its scout like any other's; it is still the mac
 first and the one whose panels the controller fills from its own monitor. `name()` is the computer's
 short hostname, case kept — `topology.server.hostname`, the name the board gives the controller's
 machine when no scout reports from it (a scout reports the same name). It replaced the
-controller's own display name (`LLAMA_TOPOLOGY_SERVER_NAME`, no longer read), which the kanban
+controller's own display name (`LLAMA_TOPOLOGY_SERVER_NAME`, no longer read), which Routing
 had put over that machine's cells.
 
 ## `status.py`
@@ -1393,7 +1556,7 @@ the body before the path lookup (empty → `{}`, anything but a JSON object → 
 every verb answers with the status an `AppError` carries. `Handler` provides `send_json` (via
 `json_bytes`), `send_file` (mtime+size ETag with `Cache-Control: no-cache` — redeploys show up
 immediately, unchanged files answer 304) and `read_body`. 87 GET, 113 POST and one DELETE route
-(`/api/hf/local-file`); static pages `/`, `/hf`, `/board` (`/` redirects here), `/kanban`
+(`/api/hf/local-file`); static pages `/`, `/hf`, `/board` (`/` redirects here), `/routing`
 (`/router` redirects), `/models`, `/system` and `/login` come from `static/`. When sign-in is
 enabled (`auth.py`), `_auth_guard` lets a request through by `ROUTE_ACCESS` (`route_access.py`).
 Owns: the four route tables; `Handler`; `API_SPEC`, built after every route is registered.

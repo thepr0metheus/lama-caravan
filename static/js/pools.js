@@ -43,7 +43,7 @@ export class PoolCards {
     output_missing: ["poolOutputMissing", "missing"],
     not_connected: ["poolNotConnected", "open"],
     tried: ["poolTried", "reserve"],
-    // A row of a model its schedule closes now (model-schedule.js): the kanban says until when
+    // A row of a model its schedule closes now (model-schedule.js): Routing says until when
     // from the controller's word of the moment; this is the proxy's, for a page without it.
     closed: ["poolClosed", "closed"],
   };
@@ -396,7 +396,7 @@ export class PoolCards {
     button?.setAttribute("aria-label", t(open ? "collapse" : "expand"));
   }
 
-  // "Delete pool": what leads to it on the kanban is the controller's reading, not a list kept
+  // "Delete pool": what leads to it in Routing is the controller's reading, not a list kept
   // here; when the controller cannot say, the pool stays. With nothing leading to it the question
   // is plain; with cables or rules it asks where they go — onto another pool, or disconnected.
   async remove(poolId) {

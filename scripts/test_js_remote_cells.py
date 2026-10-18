@@ -70,7 +70,7 @@ const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
 st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, nodes: [] });
 Date.now = () => 1_700_000_100_000;
-globalThis.__stubReturns = { "dialogs.appConfirm": async () => true };
+globalThis.__stubReturns = { "dialogs.appConfirm": async () => true, "dialogs.appConfirmTyped": async () => true };
 const le = await import(pathToFileURL(process.env.JS_ROOT + "/llama-edit.js").href);
 const rc = await import(pathToFileURL(process.env.JS_ROOT + "/remote-cells.js").href);
 const cst = await import(pathToFileURL(process.env.JS_ROOT + "/constants.js").href);
@@ -80,7 +80,7 @@ const toastEl = () => ({ textContent: "", classList: { add() {}, remove() {} } }
 const F = (fields) => { globalThis.__fields = { toast: toastEl(), ...fields }; };
 const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, nodes: [] });
-  F({}); globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true };
+  F({}); globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true, "dialogs.appConfirmTyped": async () => true };
   for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body }));
 const toastText = () => globalThis.__fields.toast.textContent;
@@ -436,12 +436,12 @@ PINS = [
     ('dtca_ports_named',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }, { id: "a2", name: "Other" }] }]; st.topology.assignments = { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }, { role: "fallback", proxyId: "skynet:proxy:23002" }] }, { agentId: "a2", routes: [{ role: "primary", proxyId: "skynet:proxy:23009" }] }] } }; globalThis.__fetchReply["/api/topology/client/agent/delete"] = { ok: true, freedPorts: [23001] };',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { toast: toastText(), confirm: globalThis.__msg.msg }; })()',
-     '{"toast": "Removed Scout; freed ports: :23001", "confirm": "Delete agent “Scout” from the list?\\n\\nIts ports :23001 :23002 stay free: bind them to another agent, or delete them with ✎ on the kanban."}',
-     'positive: у агента есть порты — диалог называет его порты (оба, по порядку ролей, без чужого :23009), говорит, что они останутся, и где их удалить (✎ на канбане — «окна порта» для порта без клиента не было); тост — какие порты больше никто не держит'),
+     '{"toast": "Removed Scout; freed ports: :23001", "confirm": "Delete agent “Scout” from the list?\\n\\nIts ports :23001 :23002 stay free: bind them to another agent, or delete them with ✎ in Routing."}',
+     'positive: у агента есть порты — диалог называет его порты (оба, по порядку ролей, без чужого :23009), говорит, что они останутся, и где их удалить (✎ в Маршрутизации — «окна порта» для порта без клиента не было); тост — какие порты больше никто не держит'),
     ('dtca_one_port_in_the_singular',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }]; st.topology.assignments = { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }] }] } };',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), confirm: globalThis.__msg.msg }; })()',
-     '{"calls": [], "confirm": "Delete agent “Scout” from the list?\\n\\nIts port :23001 stays free: bind it to another agent, or delete it with ✎ on the kanban."}',
+     '{"calls": [], "confirm": "Delete agent “Scout” from the list?\\n\\nIts port :23001 stays free: bind it to another agent, or delete it with ✎ in Routing."}',
      'один порт — в единственном числе (было «Its ports :23001»); negative: «отмена» — запроса нет'),
     ('dtca_ports_other_agent_only',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }]; st.topology.assignments = { c1: { assignments: [{ agentId: "a2", routes: [{ role: "primary", proxyId: "skynet:proxy:23009" }] }] }, c2: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23011" }] }] } };',
@@ -659,26 +659,27 @@ PINS = [
      'null',
      'negative: в ответе нет раздела hosts — ни одной машины, а не падение и не подстановка клиента'),
     ('disconnect_live_scout',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };'
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirmTyped"] = async (msg, phrase, opts) => { globalThis.__msg = { msg, phrase, opts }; return true; };'
      ' st.topology.hosts = [{ id: "h2", name: "Box B", state: "online", ageSeconds: 20 }];'
      ' globalThis.__fetchReply["/api/topology/scout/disconnect"] = { ok: true, hostId: "h2", unpaired: true };',
      'await (async () => { await rc.disconnectScout("h2"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',
      json.dumps({"calls": [{"path": "/api/topology/scout/disconnect", "method": "POST", "body": "{\"hostId\":\"h2\"}"}],
                  "toast": en("scoutDisconnected", name="Box B"),
-                 "confirm": {"msg": en("dlgDisconnectScout", name="Box B"),
-                             "opts": {"confirmLabel": en("nodeDisconnectScout")}}}, ensure_ascii=False),
-     'positive: скаут отвечает — диалог «отключить», на провод только {hostId}; тост — скаут отключён'),
+                 "confirm": {"msg": en("dlgDisconnectScout", name="Box B"), "phrase": "Box B",
+                             "opts": {"confirmLabel": en("nodeDisconnectScout"), "detail": "Box B"}}}, ensure_ascii=False),
+     'positive: скаут отвечает — диалог «отключить» просит ВПИСАТЬ имя машины (не только нажать), на провод только {hostId}; тост — скаут отключён'),
     ('disconnect_silent_scout_forgets',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__msg = msg; return true; };'
+     'globalThis.__msg = null; globalThis.__phrase = null; globalThis.__stubReturns["dialogs.appConfirmTyped"] = async (msg, phrase) => { globalThis.__msg = msg; globalThis.__phrase = phrase; return true; };'
      ' st.topology.hosts = [{ id: "h2", name: "Box B", state: "stale", ageSeconds: 600 }];'
      ' globalThis.__fetchReply["/api/topology/scout/disconnect"] = { ok: true, hostId: "h2", unpaired: false };',
-     'await (async () => { await rc.disconnectScout("h2"); return { toast: toastText(), msg: globalThis.__msg }; })()',
+     'await (async () => { await rc.disconnectScout("h2"); return { toast: toastText(), msg: globalThis.__msg, phrase: globalThis.__phrase }; })()',
      json.dumps({"toast": en("scoutForgottenSilent", name="Box B"),
-                 "msg": en("dlgForgetSilentScout", name="Box B", ago=en("nodeScoutLastReport", ago="10m"))},
+                 "msg": en("dlgForgetSilentScout", name="Box B", ago=en("nodeScoutLastReport", ago="10m")),
+                 "phrase": "Box B"},
                 ensure_ascii=False),
-     'positive: скаут молчит — диалог говорит «забыть» и сколько он молчит, а тост — что забыта, скаут не ответил'),
+     'positive: скаут молчит — диалог говорит «забыть» и сколько он молчит и тоже просит вписать имя машины, а тост — что забыта, скаут не ответил'),
     ('disconnect_declined',
-     'globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; st.topology.hosts = [{ id: "h2", name: "Box B", state: "online" }];',
+     'globalThis.__stubReturns["dialogs.appConfirmTyped"] = async () => false; st.topology.hosts = [{ id: "h2", name: "Box B", state: "online" }];',
      'await (async () => { await rc.disconnectScout("h2"); return { calls: calls(), toast: toastText() }; })()',
      '{"calls": [], "toast": ""}',
      'negative: отказ в подтверждении — ничего не уходит'),
@@ -689,10 +690,10 @@ PINS = [
      '"Error: the scout of h2 refused to let go: fleet token required"',
      'negative: скаут отказал — отказ доходит до оператора, тоста «отключён» нет'),
     ('disconnect_unknown_host_names_its_id',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__msg = msg; return false; };',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirmTyped"] = async (msg, phrase) => { globalThis.__msg = [msg, phrase]; return false; };',
      'await (async () => { await rc.disconnectScout("h9"); return globalThis.__msg; })()',
-     json.dumps(en("dlgDisconnectScout", name="h9"), ensure_ascii=False),
-     'boundary: записи нет — диалог называет id; «молчит» он сказать не может, и не говорит'),
+     json.dumps([en("dlgDisconnectScout", name="h9"), "h9"], ensure_ascii=False),
+     'boundary: записи нет — диалог называет id и просит вписать его; «молчит» он сказать не может, и не говорит'),
     ('smi_sources_name_the_controller_machine_once',
      'F({ nvidiaSmiSources: { innerHTML: "", querySelectorAll: () => [] } });'
      ' st.topology.server = { name: "Ctl-Display", ip: "10.0.0.5", hostname: "ctl-host" };'
@@ -873,13 +874,120 @@ PINS = [
      json.dumps([en("selectModel"), 0, []], ensure_ascii=False),
      'модель не выбрана («＋ Add model» открывает пустое поле) — сразу «выберите модель», без вопроса «применить?» и без '
      'запроса (раньше сначала спрашивалось, потом отказывалось)'),
+    # ── vLLM without a path: a model picked in the list is not a path on THIS machine ──
+    ('apply_vllm_with_a_pick_and_no_path_asks_for_the_path',
+     'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; }; globalThis.__asked = () => asked;'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" } });',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), globalThis.__asked(), calls()]; })()',
+     json.dumps([en("vllmPathNeeded"), 0, []], ensure_ascii=False),
+     'defect-history (2026-10-17): на машине, где нет контроллера, выбор модели в списке не вписывает VLLM_MODEL (путь у неё свой), а Apply отвечал «Select a model» при выбранной модели; теперь просит путь, без вопроса и без запроса'),
+    ('apply_vllm_with_nothing_picked_still_says_select_a_model',
+     'F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "  " } });',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls()]; })()',
+     json.dumps([en("selectModel"), []], ensure_ascii=False),
+     'negative: ни выбора, ни пути — по-прежнему «выберите модель»'),
+    ('apply_vllm_with_a_typed_path_goes_on',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "/mnt/lib/Omni-AWQ" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" },'
+     ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
+     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
+     'negative: путь вписан — запрос уходит как раньше, выбор в списке ему не мешает'),
+    # ── Flash attention and the V cache: the pair llama.cpp stops at is never offered, and never sent ──
+    ('new_cell_opens_with_flash_attention_on',
+     'F({ "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "" }, "tr-CACHE_TYPE_K": { value: "" } }); ' + OPEN_FORM,
+     '[globalThis.__fields["tr-ENABLE_FLASH_ATTN"].checked, globalThis.__fields["tr-CACHE_TYPE_K"].value, globalThis.__fields["tr-CACHE_TYPE_V"].value]',
+     '[true, "q8_0", "q8_0"]',
+     'defect-history (2026-10-14): форма новой ячейки открывалась с кэшем q8_0 и ВЫКЛЮЧЕННЫМ flash attention — '
+     'llama.cpp с такой парой не запускается («quantized V cache requires flash_attn…»), ячейка упала 4 раза; теперь он включён'),
+    ('new_cell_keeps_the_machines_own_flash_attention',
+     'st.setState({ ...st.state, config: { ENABLE_FLASH_ATTN: "0" } }); F({ "tr-ENABLE_FLASH_ATTN": { checked: true } }); ' + OPEN_FORM,
+     'globalThis.__fields["tr-ENABLE_FLASH_ATTN"].checked',
+     'false',
+     'negative: что сказано в настройках машины («0»), остаётся как сказано — умолчание «включён» стоит только там, где сказать было нечего'),
+    ('apply_refuses_quantized_v_cache_without_flash_attention',
+     'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; }; globalThis.__asked = () => asked;'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" } });',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), globalThis.__asked(), calls()]; })()',
+     json.dumps([en("kvCacheNeedsFlash", type="q8_0"), 0, []], ensure_ascii=False),
+     'сжатый кэш V при выключенном flash attention — отказ сразу, словами с типом и выходом, без вопроса «применить?» и без запроса '
+     '(раньше ячейка падала 4 раза, а карточка показывала последнюю строку лога)'),
+    ('apply_with_flash_attention_on_goes_on',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: true }, "tr-CACHE_TYPE_V": { value: "q8_0" },'
+     ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
+     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
+     'negative: та же пара с включённым flash attention уходит как раньше'),
+    ('apply_with_f16_v_cache_and_flash_attention_off_goes_on',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "f16" },'
+     ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
+     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
+     'negative: flash attention выключен, но кэш V из чисел (f16) — запускается: отказ только для сжатого'),
+    # ── A cell's Apply only SAVES: a running cell keeps its old settings until it restarts, and the toast says so ──
+    ('apply_of_a_stopped_cell_says_saved',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped" }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path), globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
+     json.dumps([en("saved"), ["/api/topology/server-cell/save-config"], True]),
+     'positive: Apply остановленной ячейки только сохраняет — «Saved.», один запрос save-config, окно закрыто; запуска нет'),
+    ('apply_of_a_running_cell_says_it_keeps_its_old_settings',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "running", gpuMem: { "0": 18350, "1": 24364 } }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path), globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
+     json.dumps([en("savedKeepsRunning"), ["/api/topology/server-cell/save-config"], True]),
+     'defect-history (2026-10-17): Apply работающей ячейки закрывал окно на «Saved.», будто изменение вступило в силу, — а запущенный сервер держит '
+     'прежние настройки до перезапуска (выбранное на 70B деление между картами «ничего не сделало»); теперь тост говорит это словами'),
+    ('apply_of_a_cell_that_runs_nothing_yet_says_saved',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "starting", gpuMem: {} },'
+     ' { isSlot: true, clientId: "h1", port: 22014, phase: "running", gpuMem: { "0": 100 } }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return toastText(); })()',
+     json.dumps(en("saved")),
+     'negative: другая ячейка той же машины работает, а эта ещё нет — «Saved.»: вопрос о ЭТОЙ ячейке (по порту), не о машине'),
+    # ── The compute target follows the fields that decide the cards: a vLLM cell's TENSOR_PARALLEL and ENV pin ──
+    # The form's `change` listener is bound once, when the form first opens; it reads the fields by id when it fires.
+    ('change_of_tensor_parallel_redraws_the_cards_tile',
+     'const form = { addEventListener: (ev, fn) => { if (ev === "change") (globalThis.__trListeners ||= {}).form ||= fn; } };'
+     ' const box = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null }; globalThis.__box = box;'
+     ' const two = [{ index: 0, name: "NVIDIA GeForce RTX 3090", memoryTotalMiB: 24576, memoryFreeMiB: 24000, memoryUsedMiB: 576 },'
+     ' { index: 1, name: "NVIDIA GeForce RTX 5090", memoryTotalMiB: 32607, memoryFreeMiB: 32000, memoryUsedMiB: 607 }];'
+     ' F({ llamaRemoteEditForm: form, "tr-computeTarget": box, "tr-RUNNER": { value: "vllm" }, "tr-TENSOR_PARALLEL": { value: "1" }, "tr-ENV": { value: "" } });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", two, ""); } catch (e) {}'   # the machine's cards: memory.js reads them from THIS module instance
+     ' try { (await import(pathToFileURL(process.env.JS_ROOT + "/remote-cells.js").href + "?tp-tile")).openLlamaRemoteEdit("h1", "gpu0", two, ""); } catch (e) {}'
+     ' globalThis.__fields = { ...globalThis.__fields, "tr-computeTarget": box, "tr-RUNNER": { value: "vllm" }, "tr-TENSOR_PARALLEL": { value: "1" }, "tr-ENV": { value: "" } };',
+     '(() => { const main = () => (globalThis.__box.innerHTML.match(/data-compute="gpu"[^>]*>[\\s\\S]*?compute-card-main">([^<]*)</) || [])[1] ?? null;'
+     ' const fire = (id, value) => { globalThis.__fields["tr-" + id] = { value }; globalThis.__box.innerHTML = ""; globalThis.__trListeners.form({ target: { id: "tr-" + id } }); return main(); };'
+     ' return [fire("TENSOR_PARALLEL", "2"), fire("TENSOR_PARALLEL", "1"), fire("ENV", "CUDA_VISIBLE_DEVICES=1"), fire("CTX_SIZE", "4096")]; })()',
+     json.dumps(["2/2 · 55.8 GB", "1/2 · 24.0 GB", "1/2 · 31.8 GB", None]),
+     'defect-history (2026-10-17): у vLLM плитка GPU называла одну карту, что бы ни стояло в TENSOR_PARALLEL; теперь перерисовывается при смене TENSOR_PARALLEL и ENV (пин карты) — '
+     'и только при них: negative: чужое поле (CTX_SIZE) плитку не трогает'),
+    ('apply_for_another_runner_ignores_the_llama_fields',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "org/m" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" },'
+     ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
+     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
+     'negative: у vLLM поля формы llama.cpp скрыты и ничего не значат — «сжатый кэш V без flash attention» его запуск не останавливает'),
     # ── Speculation switched on: the type the draft is for, as a model pick writes it ──
     # The switch is bound once, when the form opens first; its handler reads the
     # fields by id when it fires, so the pin keeps the handler it caught.
     ('spec_switch_names_the_draft_type',
      'const sw = { checked: false, closest: () => null,'
      ' addEventListener: (ev, fn) => { if (ev === "change") (globalThis.__trListeners ||= {}).spec ||= fn; } };'
-     ' globalThis.__sw = sw; F({ "tr-SPEC_ENABLED": sw }); try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}',
+     ' globalThis.__sw = sw; F({ "tr-SPEC_ENABLED": sw });'
+     ' try { (await import(pathToFileURL(process.env.JS_ROOT + "/remote-cells.js").href + "?spec-switch")).openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}',
      '(() => { const sw = globalThis.__sw; const fire = (draft, family) => {'
      ' st.setState({ ...st.state, models: [{ path: "m/model.gguf", familyDefaults: family ? { SPEC_TYPE: family } : {} }] });'
      ' F({ "tr-SPEC_ENABLED": sw, "tr-SPEC_TYPE": { value: "stale" }, "tr-SPEC_DRAFT_MODEL_FILE": { value: draft }, "tr-MODEL_FILE": { value: "m/model.gguf" } });'
@@ -934,6 +1042,21 @@ PINS = [
     ('title_no_port', '', 'rc.cellFormTitle("h1", "", true)',
      json.dumps(en("remoteNewCellTitleNoPort", host="h1")),
      'negative: формы без порта сегодня нет, но и тогда заголовок — без пустого «:»'),
+    ('title_names_every_card', '',
+     '[rc.cellFormMachine("h1", [{ name: "NVIDIA GeForce RTX 3090" }, { name: "NVIDIA GeForce RTX 5090" }], "NVIDIA GeForce RTX 3090"),'
+     ' rc.cellFormMachine("h1", [{ name: "NVIDIA GeForce RTX 5090" }, { name: "NVIDIA GeForce RTX 5090" }], ""),'
+     ' rc.cellFormMachine("h1", [{ name: "NVIDIA GeForce RTX 5090" }], ""), rc.cellFormMachine("h1", [], "gpu0"), rc.cellFormMachine("h1", null, "")]',
+     '["h1 · RTX 3090 + RTX 5090","h1 · 2 × RTX 5090","h1 · NVIDIA GeForce RTX 5090","h1 · gpu0","h1"]',
+     'defect-history (2026-10-17): форма машины с 3090 и 5090 называла её «NVIDIA GeForce RTX 3090» — именем первой карты; теперь называет обе: '
+     '«RTX 3090 + RTX 5090», две одинаковые — «2 × …»; negative: машина с одной картой — её имя, как было; карт нет — имя из запроса, а нет и его — одно имя машины'),
+    ('title_on_open_names_both_cards',
+     'globalThis.__title = () => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [] }] });'
+     ' F({ llamaRemoteEditTitle: { textContent: "", parentElement: { querySelector: () => ({}) } } });'
+     ' try { rc.openLlamaRemoteEdit("h1", "NVIDIA GeForce RTX 3090", [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], "22011"); } catch (e) {}'
+     ' const v = globalThis.__fields.llamaRemoteEditTitle.textContent; try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {} return v; };',
+     '__title()',
+     json.dumps(en("remoteNewCellTitle", port="22011", host="h1 · RTX 3090 + RTX 5090")),
+     'форма открывается с заголовком, который называет обе карты машины, а не карту из первого аргумента'),
     ('title_on_open',
      'globalThis.__title = (slot, port) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: slot ? [slot] : [] }] });'
      ' F({ llamaRemoteEditTitle: { textContent: "", parentElement: { querySelector: () => ({}) } } });'

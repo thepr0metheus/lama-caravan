@@ -42,15 +42,20 @@ SECOND = "Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00002-of-00002.gguf"
 SETUP = '''
 import os
 EXE = "strata"
+import math
 MODELS = {"IQ2_XS": {"ram_gb": 48, "arena_gb": 35.5},
-          "UD-Q4_K_XL": {"ram_gb": 48, "arena_gb": 77.0, "budget": True}}
+          "UD-Q4_K_XL": {"ram_gb": 48, "arena_gb": 77.0, "budget": True},
+          "UD-IQ4_XS": {"ram_gb": 48, "arena_gb": 59.5, "budget": True}}
+KV_CELL_BYTES = {"q4_0": 576, "k8v4": 816}
+UNSLOTH_RAM_LEFT_GB = 24
 FAMILIES = {"qwen": {"name": "qwen3.8-flash-next"},
             "coder": {"name": "qwen3.8-flash-next-coder", "profile": "expert-profile-coder.bin"},
             "unsloth": {"name": "qwen3.8-flash-next-unsloth", "pack_args": ["--compat-bf16"]}}
 DRAFT_VOCABS = {"cjk": "draft_vocab.bin", "en": "draft_vocab_en.bin",
                 "cyrillic": "draft_vocab_cyrillic.bin", "fr": "draft_vocab_fr.bin"}
 NAMES = {"Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf": ("qwen", "IQ2_XS"),
-         "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf": ("unsloth", "UD-Q4_K_XL")}
+         "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf": ("unsloth", "UD-Q4_K_XL"),
+         "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf": ("unsloth", "UD-IQ4_XS")}
 def ram_gb():
     return float(os.environ.get("FAKE_RAM_GB", "60"))
 def gguf_choice(name):
@@ -59,6 +64,11 @@ def low_ram_wanted(model, ram, choice="auto"):
     return not MODELS[model].get("budget") and ram < MODELS[model]["arena_gb"] + 10
 def kv_streaming_wanted(model, ctx, kv, ram, choice="auto"):
     return ctx >= 65536 and ram >= MODELS[model]["ram_gb"] + ctx * 13 * 1056 / 1e9 + 1
+def kv_streaming_ram_gb(ctx, kv):
+    return ctx * (13 * KV_CELL_BYTES.get(kv, 1056)) / 1e9
+def resident_budget_gib(model, ram, kv_ram_gb=0.0):
+    gib = round(ram) - UNSLOTH_RAM_LEFT_GB - math.ceil(kv_ram_gb)
+    return max(8, min(gib, int(MODELS[model]["arena_gb"] / 1.073741824)))
 '''
 IQ_PACK = '''
 import json, sys
@@ -89,12 +99,13 @@ class GGUFFile:
 '''
 
 
-def strata_home(name="home", setup=SETUP, engine=True):
+def strata_home(name="home", setup=SETUP, engine=True, build=None):
     home = TMP / name
     files = {"setup.py": setup, "tools/iq_pack.py": IQ_PACK, "tools/mtp_rt.py": MTP_RT,
              "tools/gguf_reader.py": READER, "serve/server.py": "", "data/expert-profile.bin": "p",
              "data/expert-profile-coder.bin": "c", "data/draft_vocab_cyrillic.bin": "cyr",
-             "data/draft_vocab_en.bin": "en", "engine/BUILD.json": json.dumps({"cuda_dirs": ["/cuda/bin"]})}
+             "data/draft_vocab_en.bin": "en",
+             "engine/BUILD.json": json.dumps(build or {"cuda_dirs": ["/cuda/bin"]})}
     if engine:
         files["engine/strata"] = "engine"
     for rel, text in files.items():
@@ -202,6 +213,98 @@ def section_the_config():
     check(cfg["gpu"] == 1, "карта, закреплённая в окружении ячейки, — карта Strata")
 
 
+def unsloth_pack(folder, quant="UD-Q4_K_XL", parts=4):
+    root = TMP / folder
+    root.mkdir(parents=True, exist_ok=True)
+    for i in range(1, parts + 1):
+        (root / f"Qwen3.8-Flash-Next-{quant}-0000{i}-of-0000{parts}.gguf").write_text("GGUF")
+    return root, f"Qwen3.8-Flash-Next-{quant}-00001-of-0000{parts}.gguf"
+
+
+def section_budget_packs():
+    print("~4-битные модели Unsloth — с бюджетом ОЗУ по правилу самой Strata:")
+    root, first = unsloth_pack("unsloth-q4")
+    cfg = json.loads(RamOf(60)(lambda: launch(HOME, root, "--work", str(TMP / "b1"), "--vram-reserve-mib", "4096",
+                                              first=first).config()).read_text())
+    args = cfg["args"]
+    check(args[-6:] == ["--kv-resident", "32768", "--resident-budget-gib", "34", "--vram-reserve-mib", "4096"],
+          f"UD-Q4_K_XL на 60 ГБ ОЗУ: после --kv-resident — --resident-budget-gib 34 (60 − 24 на систему − 2 на KV в ОЗУ), "
+          f"до запаса видеопамяти, как пишет установщик (получено {args[-6:]})")
+    check("--ple-gguf" not in args and args[args.index("--native") + 1] == str(root / first),
+          "часть с таблицей n-грамм не названа движку, когда частей больше двух: он находит её сам с первой (так пишет установщик)")
+    check(json.loads((TMP / "b1/pack/argv.json").read_text())
+          == ["--gguf", str(root / first), "--out", str(TMP / "b1/pack"), "--compat-bf16"],
+          "пак для Unsloth собран с --compat-bf16 (pack_args семейства из setup.py)")
+    check(cfg["model_name"] == "qwen3.8-flash-next-unsloth", "имя по умолчанию — семейства Unsloth")
+    one = json.loads(RamOf(60)(lambda: launch(HOME, root, "--work", str(TMP / "b2"), "--context", "16384", first=first).config()).read_text())
+    check(one["args"][-2:] == ["--resident-budget-gib", "36"] and "--kv-resident" not in one["args"],
+          "окно 16384: KV в ОЗУ не уходит и из бюджета не вычитается — 60 − 24 = 36")
+    big = json.loads(RamOf(100)(lambda: launch(HOME, root, "--work", str(TMP / "b3"), first=first).config()).read_text())
+    check("--resident-budget-gib" in big["args"] and big["args"][big["args"].index("--resident-budget-gib") + 1] == "71",
+          "boundary: ОЗУ много — бюджет не больше самих экспертов (77 ГБ / 1.0737 = 71)")
+    tiny = json.loads(RamOf(28)(lambda: launch(HOME, root, "--work", str(TMP / "b4"), "--context", "16384", first=first).config()).read_text())
+    check(tiny["args"][-2:] == ["--resident-budget-gib", "8"], "boundary: ОЗУ мало — бюджет не меньше 8 (правило Strata)")
+    three, first3 = unsloth_pack("unsloth-iq4", "UD-IQ4_XS", 3)
+    cfg3 = json.loads(RamOf(60)(lambda: launch(HOME, three, "--work", str(TMP / "b5"), first=first3).config()).read_text())
+    check("--ple-gguf" not in cfg3["args"] and cfg3["args"][cfg3["args"].index("--resident-budget-gib") + 1] == "34",
+          "UD-IQ4_XS в три части — так же: бюджет 34, таблицу n-грамм движок находит сам")
+    plain = json.loads(launch(HOME, ROOT_M, "--work", str(TMP / "b6")).config().read_text())
+    check("--resident-budget-gib" not in plain["args"],
+          "negative: IQ2_XS бюджета не знает — все эксперты в ОЗУ, флага нет")
+    old = strata_home("no-budget", setup=SETUP.replace("def resident_budget_gib", "def resident_budget_was"))
+    check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "b7")).config())
+          == "this Strata has no setup.resident_budget_gib — the caravan's launcher knows v0.1.42",
+          "negative: в setup.py нет правила бюджета — отказ с его именем, а не догадка о числе")
+    old = strata_home("no-kv-ram", setup=SETUP.replace("def kv_streaming_ram_gb", "def kv_streaming_ram_was"))
+    check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "b8")).config())
+          == "this Strata has no setup.kv_streaming_ram_gb — the caravan's launcher knows v0.1.42",
+          "negative: нет правила, сколько ОЗУ берёт KV, — отказ с его именем: бюджет без него был бы неверен")
+
+
+def section_the_engine_knows_the_card():
+    print("движок собран под карту ячейки:")
+    def start(build, arch, name, env=None):
+        home = strata_home(name, build=build)
+        L = launch(home, ROOT_M, "--work", str(TMP / name), env=env)
+        L.card_arch = lambda gpu: arch
+        return refused(L.config)
+    sm120 = {"cuda_dirs": ["/cuda/bin"], "archs": [120]}
+    both = {"cuda_dirs": ["/cuda/bin"], "archs": [86, 120]}
+    msg = start(sm120, 86, "arch1")
+    check(msg == "Strata's engine has code for sm_120 and GPU 0 is sm_86: pin the cell to a card the engine has code for, "
+                 "or build it for this card too (Strata's setup.sh --gpus <the cards>)",
+          f"engine для RTX 5090 (120) и ячейка на RTX 3090 (86): отказ до запуска, с картой, архитектурами и тем, что сделать (получено {msg})")
+    check(start(sm120, 120, "arch2") is None, "negative: карта той же архитектуры, что движок, — запуск идёт")
+    check(start(both, 86, "arch3") is None and start(both, 120, "arch4") is None,
+          "negative: движок собран под обе архитектуры — запуск идёт на любой из карт")
+    check(start({**sm120, "ptx": True}, 130, "arch5") is None and start({**sm120, "ptx": True}, 86, "arch6") is not None,
+          "boundary: с PTX движок идёт и на карте новее самой новой из собранных, а на старше — нет")
+    check(start({"cuda_dirs": ["/cuda/bin"]}, 86, "arch7") is None, "negative: сборка не назвала архитектуры (BUILD.json без archs) — не отказываем")
+    check(start(sm120, None, "arch8") is None, "negative: nvidia-smi карту не назвал — не отказываем: догадка хуже отказа")
+    msg = start(both, 75, "arch9", env={"CUDA_VISIBLE_DEVICES": "2"})
+    check(msg is not None and "GPU 2 is sm_75" in msg and "sm_86, sm_120" in msg, f"номер карты — закреплённая в окружении ячейки (получено {msg})")
+    print("как читается compute_cap:")
+    keep = strata_launch.subprocess.run
+    def smi(out, rc=0):
+        return lambda *a, **k: strata_launch.subprocess.CompletedProcess(a[0], rc, stdout=out, stderr="")
+    L = launch(HOME, ROOT_M)
+    try:
+        strata_launch.subprocess.run = smi("0, 8.6\n1, 12.0\n")
+        got = [L.card_arch(0), L.card_arch(1), L.card_arch(2)]
+        strata_launch.subprocess.run = smi("0, [N/A]\ngarbage\n")
+        junk = L.card_arch(0)
+        strata_launch.subprocess.run = smi("0, 8\n")
+        no_dot = L.card_arch(0)
+        def missing(*a, **k):
+            raise FileNotFoundError("nvidia-smi")
+        strata_launch.subprocess.run = missing
+        gone = L.card_arch(0)
+    finally:
+        strata_launch.subprocess.run = keep
+    check(got == [86, 120, None] and junk is None and no_dot is None and gone is None,
+          f"8.6 → 86, 12.0 → 120; карты нет, ответ не число, число без точки («8»), nvidia-smi нет — None (получено {got}, {junk}, {no_dot}, {gone})")
+
+
 def section_refusals():
     print("отказы:")
     check(refused(lambda: launch(HOME, ROOT_M, "--work", str(TMP / "r1"), env={"CUDA_VISIBLE_DEVICES": "0,1"})
@@ -220,15 +323,6 @@ def section_refusals():
     check(refused(lambda: launch(HOME, odd, "--work", str(TMP / "r4"), first="my-model.gguf").config())
           == "Strata does not know the file my-model.gguf: it runs the published Qwen3.8-Flash-Next GGUFs, by their names",
           "negative: файл с чужим именем — отказ: Strata знает модели по опубликованным именам")
-    unsloth = TMP / "unsloth"
-    unsloth.mkdir(exist_ok=True)
-    for i in range(1, 5):
-        (unsloth / f"Qwen3.8-Flash-Next-UD-Q4_K_XL-0000{i}-of-00004.gguf").write_text("GGUF")
-    check(refused(lambda: launch(HOME, unsloth, "--work", str(TMP / "r5"),
-                                 first="Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf").config())
-          == "UD-Q4_K_XL keeps a RAM budget of its experts (--resident-budget-gib), which the caravan's Strata "
-             "cell does not set up yet",
-          "negative: файл Unsloth с бюджетом ОЗУ — отказ, а не запуск без бюджета")
     check(refused(lambda: RamOf(40)(lambda: launch(HOME, ROOT_M, "--work", str(TMP / "r6")).config()))
           == "IQ2_XS needs Strata's low-RAM mode on this machine (40 GB of RAM), which the caravan's Strata cell "
              "does not set up yet",
@@ -304,6 +398,8 @@ def section_becomes_the_server():
 
 def main():
     section_the_config()
+    section_budget_packs()
+    section_the_engine_knows_the_card()
     section_refusals()
     section_kept_with_the_cache()
     section_becomes_the_server()

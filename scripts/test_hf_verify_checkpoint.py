@@ -136,7 +136,7 @@ class Hub:
         self.trees = trees
         self.configs = configs or {}
 
-    def request(self, path, timeout=12):
+    def request(self, path, timeout=12, all_pages=False):
         repo = path.split("/tree/")[0][len("models/"):]
         return self.trees.get(repo, {"_error": "404"})
 

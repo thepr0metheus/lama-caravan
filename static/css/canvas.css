@@ -770,7 +770,7 @@ select.cv-pin { width: 100%; }
    confirmed route. Never applies while the route is actually carrying traffic:
    real activity is proof of use and outranks the doubt. */
 .topology-cable.unverified:not(.activity-active):not(.activity-recent):not(.activity-queued) {
-  opacity: .16;
+  opacity: .5;
 }
 /* A route's state — a single icon, explained on hover. In words this used to
    take up half a row and still needed explaining. The three icons differ by
@@ -1230,9 +1230,9 @@ select.cv-pin { width: 100%; }
 .cv-in-row:hover .cv-in-edit { opacity: .8; }
 .cv-in-edit:hover { color: var(--accent,#6ea8fe); opacity: 1; }
 
-/* The proxy route form must float above the kanban router workspace — both
+/* The proxy route form must float above Routing router workspace — both
    are .topology-policy-overlay at z-60, and DOM order painted the workspace
-   on top (the form was reachable but invisible on the kanban page). */
+   on top (the form was reachable but invisible in Routing page). */
 [data-topology-proxy-overlay] { z-index: 80; }
 
 /* The context window on a route's row. Three states are visually distinct:
@@ -1249,7 +1249,7 @@ select.cv-pin { width: 100%; }
 
 /* The model name sits next to the window and the port: three facts about one
    route read as a single line, not three different forms. */
-/* A client on the kanban is one row: name, ports, a reference wait budget.
+/* A client in Routing is one row: name, ports, a reference wait budget.
    While the budget was an input field, each row took up three; a list of
    thirteen clients didn't fit on screen, and it still has to be edited on
    the card anyway. */
@@ -1258,7 +1258,7 @@ select.cv-pin { width: 100%; }
 .cv-inputs-client .cv-in-row { display: inline-flex; align-items: center; gap: 4px; }
 /* Fallback on ITS OWN row. Both rows on one line gave the port dots the same
    top offset: the fallback's dot landed right on primary's, and the second
-   output couldn't be grabbed — on the kanban a client with a fallback looked
+   output couldn't be grabbed — in Routing a client with a fallback looked
    like it had only one port. */
 .cv-inputs-client .cv-in-row.fallback { flex-basis: 100%; padding-left: 2px; }
 /* Compact: a 2px gap between rows; the wait budget hugs the right edge of
@@ -1399,7 +1399,7 @@ select.cv-pin { width: 100%; }
 .consumer-name { overflow-wrap: anywhere; }
 .consumer-key { font-size: 11px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The card's actions wait at the end of its one line, quiet — no frame, half seen — until the card is
-   pointed at or one of them holds the focus (the owner, 2026-10-12: as clean as the kanban's card). */
+   pointed at or one of them holds the focus (the owner, 2026-10-12: as clean as Routing's card). */
 .consumer-acts { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; opacity: .45; transition: opacity .12s ease; }
 .consumer-card:hover .consumer-acts, .consumer-card:focus-within .consumer-acts { opacity: 1; }
 .consumer-acts .consumer-act { border-color: transparent; background: transparent; }

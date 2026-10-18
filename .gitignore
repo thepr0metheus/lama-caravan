@@ -5,7 +5,7 @@ __pycache__/
 .DS_Store
 agent-proxy-state.json
 # agent-proxies.json НЕ хранится в git — живая конфигурация, управляется
-# только сервисом. Граф канбана защищён автобэкапом в write_agent_proxy_payload.
+# только сервисом. Граф Маршрутизации защищён автобэкапом в write_agent_proxy_payload.
 agent-proxies.json
 client-labels.json
 cloud-providers.json

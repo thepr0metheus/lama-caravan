@@ -85,7 +85,7 @@ scrape_configs:
 
 A client of the entry always has a key (see the next section). A proxy port of
 the older kind can demand its own key too: open the port's edit form (✎ on its
-row on the kanban, or "Port settings" in its route window) → Advanced → **API
+row in Routing, or "Port settings" in its route window) → Advanced → **API
 key**, roll one with 🎲, Save. From that moment requests to the port need
 `Authorization: Bearer <key>` (or `x-api-key: <key>`); everything else gets
 `401`. An empty field keeps the port open — nothing changes until you opt in.

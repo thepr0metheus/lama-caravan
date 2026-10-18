@@ -66,6 +66,7 @@ def test_rows():
         blocked(NOW, "entry", "/v1/models", 401),
         {"time": NOW, "event": "received", "item": {"port": 23001, "path": "/x", "status": 500}},
         {"event": "finished", "status": "bad", "item": {"port": 23001}},
+        {"time": NOW, "event": "blocked", "item": {"port": 23001, "path": "/v1/audio/transcriptions", "status": 400, "client": "routing-probe"}},
         {"time": NOW, "event": "blocked", "item": {"port": 23001, "path": "/v1/audio/transcriptions", "status": 400, "client": "kanban-probe"}},
         None)]
     check(got[:3] == [(23001, "POST", "/api/show", 404, "entry:invalid-url", int(NOW)),
@@ -73,9 +74,10 @@ def test_rows():
                       (23001, "POST", "/v1/chat/completions", 502, "upstream_error", int(NOW))],
           f"a refusal of the entry and a request finished with an error, under the client's port; a record from "
           f"before 1.3.495 has no method — said as none (got {got[:3]})")
-    check(got[3:] == [None] * 6,
+    check(got[3:] == [None] * 7,
           "negative: a request finished 200, a refusal of no client (the entry's own, an unknown key), a mid-flight "
-          "event, a status that is no number, the kanban's test of the client, no row — none of them an error of a client")
+          "event, a status that is no number, Routing's test of the client under the name it has now and under the one "
+          "the journal's rows from before 1.3.582 carry (kept 30 days), no row — none of them an error of a client")
 
 
 def test_window():

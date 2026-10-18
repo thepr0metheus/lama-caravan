@@ -149,8 +149,10 @@
   --cell-accent: var(--ok, #3fb950);
   position: relative;
   display: flex;
+  /* The strip of a start (below) stands under the line's own row: a second row of the same flex line, not a wider card. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: 3px 7px;
   min-height: 36px;
   padding: 5px 10px 5px 11px;
   border: 1px solid var(--line);
@@ -161,13 +163,23 @@
   min-width: 0;
 }
 .cell-row.cpu { --cell-accent: #4593ff; }
+/* The start of a cell in its line (start-strip.js; the owner, 2026-10-18: "when I start a cell, do not widen it by itself — the same
+   thin line, the progress as the card says it, without the model's name"). Under the line's name, the whole width of the line: the
+   bar and the words of the card's status line (nodes.css .model-status-line), the model's name left out — the line carries it. */
+.cell-row > .fr-strip {
+  flex: 1 0 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  /* Under the port, past the switch (30px) and the gap after it. */
+  padding-left: 37px;
+}
 .cell-row.running {
   border-left-color: var(--cell-accent);
   background: color-mix(in srgb, var(--cell-accent) 6%, var(--field));
 }
 .cell-row:hover { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .cell-row:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
-.cell-row > .topology-handle.server-input { height: 28px; }
 .cell-row.parked > .topology-handle.server-input,
 .cell-row.reserved > .topology-handle.server-input { background: var(--muted, #6e7681); }
 /* The line's switch: on while the cell runs, off while it is parked — the
@@ -206,7 +218,7 @@
 .fr-switch:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .fr-switch:disabled { opacity: .45; cursor: not-allowed; }
 .fr-switch[aria-busy="true"] { opacity: 1; display: grid; place-items: center; }
-/* Generating right now: the switch breathes — the line's own word for "busy". */
+/* Answering a request right now: the switch breathes — the line's own word for "busy". A speed the cell only holds after its last request is no work (`.fr-tps.held`). */
 .cell-row.busy .fr-switch { animation: fold-breathe 1.4s ease-in-out infinite; }
 .fr-port { flex-shrink: 0; font: 500 11.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
 .fr-name {
@@ -224,14 +236,50 @@
 .cell-row.parked .fr-name,
 .cell-row.reserved .fr-name { font-weight: 500; color: var(--muted); }
 .fr-warn { flex-shrink: 0; color: var(--warn); font-size: 12px; }
+/* A failed cell (card-fold.js cellFailed) is the same thin line in the colour of the trouble — the owner, 2026-10-17:
+   "red, but thin, like the usual one", and the description of the error in the window the line opens. The accent
+   drives the edge, the switch and the tint; the name is read at full strength, not greyed like a parked one. */
+.cell-row.failed {
+  --cell-accent: var(--bad, #ff6b7a);
+  border-left-color: var(--cell-accent);
+  border-color: color-mix(in srgb, var(--cell-accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--cell-accent) 9%, var(--field));
+}
+.cell-row.failed .fr-name { font-weight: 600; color: var(--text); }
+.fr-fail {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--bad, #ff6b7a) 55%, transparent);
+  background: color-mix(in srgb, var(--bad, #ff6b7a) 12%, transparent);
+  color: var(--bad, #ff6b7a);
+  font: 700 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+/* The window of a failed cell opens on the reason, over the card. */
+.cell-window > .llama-err-block {
+  padding: 10px 12px;
+  border-radius: 8px;
+  gap: 9px;
+  border: 1px solid color-mix(in srgb, var(--bad, #ff6b7a) 45%, var(--line));
+  background: color-mix(in srgb, var(--bad, #ff6b7a) 9%, var(--field));
+}
+.cell-window > .llama-err-block .llama-err-icon { font-size: 15px; }
+.cell-window > .llama-err-block .llama-err-friendly { font-size: 13.5px; }
+.cell-window > .llama-err-block .llama-err-hint { font-size: 12px; opacity: 1; }
+.cell-window > .llama-err-block .llama-err-raw { font-size: 11px; opacity: .75; }
 .fr-tps { flex-shrink: 0; font: 600 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: color-mix(in srgb, var(--accent) 60%, var(--text)); }
 .fr-tps:empty { display: none; }
+/* The last request's speed, held while the cell has none running: quiet, and the line's words say `last` (cell-speed.js). */
+.fr-tps.held { font-weight: 500; color: var(--muted); }
 .cell-row .mbadge { flex-shrink: 0; }
 /* Its memory estimate goes grey with it. The dashed chip kept the cell's
    accent — green on a GPU cell — so a lane of parked cells still read as a lane
    of green; the only green left on the lane is what runs. The chip's colour
    never said "fits": it was the accent, and the row's border still carries it. */
-.cell-row.parked .mbadge-vram-est {
+.cell-row.parked .mbadge-vram-est,
+.cell-row.parked .mbadge-ram-est {
   color: var(--muted);
   border-color: color-mix(in srgb, var(--muted) 45%, transparent);
   background: transparent;
@@ -279,7 +327,6 @@
   min-width: 0;
 }
 .ar-route.fallback { border-left: 2px dashed var(--fallback, #60a5fa); background: color-mix(in srgb, var(--fallback, #60a5fa) 5%, transparent); }
-.ar-route > .topology-handle { height: 22px; }
 .ar-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: color-mix(in srgb, var(--accent) 70%, var(--text)); }
 .ar-route.fallback .ar-port { color: color-mix(in srgb, var(--fallback, #60a5fa) 75%, var(--text)); }
 .ar-model { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

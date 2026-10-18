@@ -1,5 +1,5 @@
 // Tour definitions for the board (index), the cell editor (the tr- modal)
-// and the standalone kanban page. Strings live in
+// and the standalone Routing page. Strings live in
 // i18n-data.js (en/ru; the rest falls back to English via t()).
 import { LANGS, messages, onLanguageLoaded } from "./i18n-data.js";
 import { lang, setLang, t } from "./i18n.js";
@@ -45,7 +45,7 @@ function indexSteps() {
     { anchor: "#topologyClients", title: t("tourIxClientsT"), body: t("tourIxClientsB") },
     { anchor: "#topologyProxies", title: t("tourIxProxiesT"), body: t("tourIxProxiesB") },
     // A step stands on a card of its section: the machines' on a machine's card (its glance on the main
-    // board, its whole card in its own window). The pools stand on the kanban (2026-10-12): its card's step tells.
+    // board, its whole card in its own window). The pools stand in Routing (2026-10-12): its card's step tells.
     { anchor: "#topologyLlamaServers .node-card", title: t("tourIxServersT"), body: t("tourIxServersB") },
     { anchor: "#topologyLlamaServers .node-server", title: t("tourIxCellLifeT"), body: t("tourIxCellLifeB") },
     { anchor: "[data-t=\"node-caravan-add\"]", title: t("tourIxCellNewT"), body: t("tourIxCellNewB") },
@@ -76,8 +76,8 @@ function configSteps(pfx) {
   ];
 }
 
-// The kanban is three columns (pool-board.js; the owner, 2026-10-12): one step for each.
-function kanbanSteps() {
+// Routing is three columns (pool-board.js; the owner, 2026-10-12): one step for each.
+function routingSteps() {
   return [
     { center: true, title: t("tourKbWelcomeT"), body: t("tourKbWelcomeB"), onRender: langPicker },
     { anchor: "[data-t='pb-clients']", title: t("tourKbClientsT"), body: t("tourKbClientsB") },
@@ -90,7 +90,7 @@ function kanbanSteps() {
 function currentSteps() {
   const trOpen = document.getElementById("llamaRemoteEditOverlay")?.hidden === false;
   if (trOpen) return configSteps("tr");
-  if (window.ROUTER_STANDALONE) return kanbanSteps();
+  if (window.ROUTER_STANDALONE) return routingSteps();
   return indexSteps();
 }
 
@@ -100,7 +100,7 @@ function startTour() {
 
 export function initOnboarding() {
   initTourButtons({ title: () => t("tourBtnTitle"), onClick: startTour });
-  const pageKey = window.ROUTER_STANDALONE ? "kanban" : "index";
+  const pageKey = window.ROUTER_STANDALONE ? "routing" : "index";
   const contentReady = window.ROUTER_STANDALONE
     ? () => !document.getElementById("appLoader") && !!document.querySelector("[data-pb-root]")
     : () => !document.getElementById("appLoader") && !!document.querySelector(".topology-board");

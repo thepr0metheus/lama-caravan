@@ -15,6 +15,11 @@ starts its own controller: its own data folder and home (CARAVAN_DATA_DIR, HOME 
 of the machine's real state is read or written), a free port on 127.0.0.1, and a stop on
 every way out.
 
+It also watches what the controller does BY ITSELF at its start (1.3.544): it reads the models
+folder in the background and keeps what the headers said (`state/gguf-headers.json`), so the first
+page that asks does not wait for every header — 51 s for the 56 models of the NAS, the board's red
+"did not finish loading". The folder it starts with holds one model, and nobody asks for it.
+
 Exit codes: 0 every answer as expected, 1 an answer was not, 2 the server did not start.
 
 Run: python3 scripts/check_boot_smoke.py
@@ -27,11 +32,14 @@ import os
 import secrets
 import shutil
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+
+from _ports import PORTS
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -59,6 +67,8 @@ class BootSmoke:
 
     #: How long the server may take to answer its first /health.
     START_SECONDS = 45
+    #: How long, after that, it may take to have read the models folder by itself.
+    WARM_SECONDS = 20
     USER = "ci-smoke"
 
     def __init__(self, root: Path = ROOT):
@@ -72,9 +82,7 @@ class BootSmoke:
 
     @staticmethod
     def free_port() -> int:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-            return sock.getsockname()[1]
+        return PORTS.take()
 
     def env(self) -> dict:
         """The environment the server starts with: this machine's PATH and language, and
@@ -85,6 +93,18 @@ class BootSmoke:
         return {**keep, "HOME": str(home), "CARAVAN_DATA_DIR": str(self.tmp / "data"),
                 "LLAMACPP_ADMIN_HOST": "127.0.0.1", "LLAMACPP_ADMIN_PORT": str(self.port),
                 "PYTHONDONTWRITEBYTECODE": "1"}
+
+    def seed_model(self) -> None:
+        """One model whose header says something, in the models folder of the controller's own data folder."""
+        folder = self.tmp / "data" / "models" / "Demo-GGUF" / "x" / "Q4_K_M"
+        folder.mkdir(parents=True)
+
+        def text(value: str) -> bytes:
+            raw = value.encode()
+            return struct.pack("<Q", len(raw)) + raw
+        pairs = (text("general.architecture") + struct.pack("<I", 8) + text("llama")
+                 + text("llama.context_length") + struct.pack("<II", 4, 4096))
+        (folder / "demo-Q4_K_M.gguf").write_bytes(b"GGUF" + struct.pack("<IQQ", 3, 0, 2) + pairs + b"tensors" * 20)
 
     def start(self) -> bool:
         """Start the server and wait for its first /health; False when it never answers."""
@@ -135,6 +155,23 @@ class BootSmoke:
         print(("  ok  " if cond else " FAIL ") + msg)
         if not cond:
             self.failures.append(msg)
+
+    def warm(self) -> None:
+        """The controller read the models folder by itself, at its start: nobody has asked for /api/state yet, and
+        what the header of the one model said is already on disk."""
+        print("the models folder, read at the start:")
+        kept = self.tmp / "data" / "state" / "gguf-headers.json"
+        deadline = time.time() + self.WARM_SECONDS
+        while time.time() < deadline and not kept.exists():
+            time.sleep(0.2)
+        try:
+            files = json.loads(kept.read_text(encoding="utf-8")).get("files", {})
+        except (OSError, ValueError, AttributeError):
+            files = {}
+        said = next((entry for name, entry in files.items() if name.endswith("demo-Q4_K_M.gguf")), {})
+        self.check((said.get("meta") or {}) == {"general.architecture": "llama", "llama.context_length": 4096},
+                   f"the model's header is kept on disk, read before anyone asked (got {sorted(files)!r}, "
+                   f"waited up to {self.WARM_SECONDS} s)")
 
     def fresh(self) -> None:
         """Before the first account: the public routes answer, pages lead to /setup,
@@ -204,11 +241,13 @@ class BootSmoke:
 
     def run(self) -> int:
         try:
+            self.seed_model()
             if not self.start():
                 tail = self.log.read_text(errors="replace")[-1500:] if self.log.exists() else ""
                 print(f"boot smoke: FAILED — the server did not answer /health on 127.0.0.1:{self.port} "
                       f"within {self.START_SECONDS} s (exit {self.proc.poll() if self.proc else None})\n{tail}")
                 return 2
+            self.warm()
             self.fresh()
             self.signed_in(self.first_account())
         finally:

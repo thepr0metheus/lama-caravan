@@ -59,7 +59,7 @@ class PortDoor:
 
 class ConsumerAddress:
     """Where a consumer calls the caravan — one rule for the board's proxy rows,
-    the agents' cards and the kanban's clients panel.
+    the agents' cards and Routing's clients panel.
 
     A route's own port, while it is open; once it is closed, the entry: the
     public name the owner gave it (the DSM name, https://caravan-api.…/v1),
@@ -214,7 +214,7 @@ class ClientProbe:
 
 class AsConsumer:
     """What a client of the entry gets for a question of its own, asked with its key on the
-    operator's behalf (the owner, 2026-10-12: links on a client's card on the kanban, "to get the
+    operator's behalf (the owner, 2026-10-12: links on a client's card in Routing, "to get the
     same data the client gets").
 
     The browser cannot ask it: the entry refuses a request without the client's key, and the page
@@ -321,7 +321,7 @@ class AsConsumer:
         key, entry_port = self._client(port)
         request = urllib.request.Request(f"http://{self.host}:{entry_port}{asked}",
                                          headers={"Authorization": f"Bearer {key}", "Accept": "application/json",
-                                                  KeyEntry.PROBE_HEADER: "kanban"})
+                                                  KeyEntry.PROBE_HEADER: "routing"})
         return self._send(request, entry_port, self.timeout)
 
     def probe(self, port, path, model=""):
@@ -337,7 +337,7 @@ class AsConsumer:
         body, kind, sent = probe.request(model)
         request = urllib.request.Request(f"http://{self.host}:{entry_port}{probe.path}", data=body, method="POST",
                                          headers={"Authorization": f"Bearer {key}", "Content-Type": kind, "Accept": "*/*",
-                                                  KeyEntry.PROBE_HEADER: "kanban"})
+                                                  KeyEntry.PROBE_HEADER: "routing"})
         started = self.clock()
         status, ctype, raw = self._send(request, entry_port, self.probe_timeout)
         out = {"request": {"method": "POST", "path": probe.path, "model": model, "sent": sent},

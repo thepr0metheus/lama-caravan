@@ -4,7 +4,7 @@
    One place, because the header has to stay in step with it. */
 :root { --board-min: 1148px; }
 
-/* Three columns of one width (the owner, 2026-10-12): the clients, the kanban's card, the machines
+/* Three columns of one width (the owner, 2026-10-12): the clients, Routing's card, the machines
    with the cloud providers — and between them gutters wide enough for the cables to run. */
 .topology-board {
   position: relative;
@@ -14,21 +14,21 @@
   row-gap: 12px;
   align-items: start;
 }
-/* The server column and its lanes give their boxes up on the main board: the kanban's lane and the
+/* The server column and its lanes give their boxes up on the main board: Routing's lane and the
    machines' lane are the board's second and third columns, so the three are one grid of one width.
    They keep the layer over the cables that their column gave them. A machine's own window keeps its
    one column (below). */
 html:not([data-board-view="machine"]) .topology-board > .topology-server-column,
 html:not([data-board-view="machine"]) .topology-server-column > .topology-lanes { display: contents; }
 html:not([data-board-view="machine"]) .topology-lanes > section { position: relative; z-index: 2; min-width: 0; }
-/* The windows are drawn inside the kanban card's lane (#topologyProxies), and each lane is its own
+/* The windows are drawn inside Routing card's lane (#topologyProxies), and each lane is its own
    layer: the machines' lane, drawn after it, covered a window's right part and its shade — the
    picker's × among it (2026-10-12). The lane that holds an open window stands over the others. */
 html:not([data-board-view="machine"]) .topology-lanes > section:has(.topology-policy-overlay) { z-index: 70; }
 html:not([data-board-view="machine"]) .topology-lanes > .topology-divider-lane,
 html:not([data-board-view="machine"]) .topology-lanes > .lane-stats { display: none; }
 html:not([data-board-view="machine"]) .topology-lanes.nodes-on .lane-servers { grid-column: auto; }
-/* The kanban's lane runs the board's whole height: its card stays in sight while the page scrolls. */
+/* Routing's lane runs the board's whole height: its card stays in sight while the page scrolls. */
 html:not([data-board-view="machine"]) .topology-lanes > section:first-child { align-self: stretch; }
 
 .topology-cables {
@@ -67,9 +67,10 @@ html:not([data-board-view="machine"]) .topology-lanes > section:first-child { al
   min-height: 34px;
 }
 
-/* Zero the title's bottom margin so it centers true in the band (the Model
-   Servers head h2 is already margin-0); otherwise the text hugs the top. */
-.topology-board > .topology-column:first-of-type .topology-title h2 {
+/* A column's title — the clients', the machines' — is the first child of its column and stands over the body that scrolls (the end of
+   this file; columns.css; the owner, 2026-10-18: "the headings outside the area I scroll, shown always"). It is the h2's own 22px line in
+   a head of `--board-head`, and what follows it is 12px away in both columns: the head's spare 6px and the body's 6px of padding. */
+.board-col-title h2 {
   margin: 0;
 }
 
@@ -103,8 +104,9 @@ html:not([data-board-view="machine"]) .topology-lanes > section:first-child { al
 /* "+ New pool" in the head of Pools: the lane's main action, wide and in the
    accent (2026-10-04, the operator), filling the head between the title and its icon buttons —
    as "＋" does in the clients lane. It stood as a dashed button at the end of a long list. */
-.lane-servers > .topology-lane-head > .topology-head-actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
-.topology-head-actions > .icon-action.prominent.topology-head-add {
+.lane-servers .topology-lane-head > .topology-head-actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+.topology-head-actions > .icon-action.prominent.topology-head-add,
+.board-pages > .icon-action.prominent.board-page-link {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
@@ -115,7 +117,8 @@ html:not([data-board-view="machine"]) .topology-lanes > section:first-child { al
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.topology-head-actions > .icon-action.prominent.topology-head-add:hover {
+.topology-head-actions > .icon-action.prominent.topology-head-add:hover,
+.board-pages > .icon-action.prominent.board-page-link:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
@@ -200,10 +203,6 @@ html:not([data-board-view="machine"]) .topology-lanes > section:first-child { al
   justify-content: space-between;
   gap: 8px;
   margin: 0 0 8px;
-}
-
-.topology-lane-head h2 {
-  margin: 0;
 }
 
 .topology-card {
@@ -794,13 +793,12 @@ details.topology-server-stats-card > .topology-processes-details {
 .topology-card.router-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
 .router-card .topology-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .router-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
-/* 📦 Models and 🤗 Hugging Face under the kanban's card (1.3.537): the caravan's other two pages, quiet text, side by
-   side — the card is a page link too. */
-.board-pages { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 4px; }
-.board-page-link { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; text-decoration: none; }
-.board-page-link:hover { color: var(--accent); }
-.board-page-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
-.board-page-arrow { font-size: 10px; opacity: .7; }
+/* 📦 Models and 🤗 Hugging Face in the head of Machines (the owner, 2026-10-14): the caravan's other two pages, two
+   wide buttons of the Add scout kind (the look is the one rule below, shared), a row of their own over the scouts'
+   buttons, each half of the column. They are links: the page opens in this tab (2026-10-17). */
+.board-pages { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; }
+.board-pages > .icon-action.prominent.board-page-link { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
+.board-page-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .router-default-chip {
   font-size: 9px;
   text-transform: uppercase;
@@ -810,12 +808,8 @@ details.topology-server-stats-card > .topology-processes-details {
   border-radius: 4px;
   padding: 0 4px;
 }
-/* output handle sits on the card's right edge, aligned to its row */
-.topology-handle.router-output { right: -24px; top: 50%; transform: translateY(-50%); border-radius: 0 8px 8px 0; }
-.topology-handle.router-input { left: -24px; top: 22px; border-radius: 8px 0 0 8px; }
-.topology-cable.router { opacity: .8; }
-/* Idle output cable: dimmed + static (no flow) — it isn't carrying a request. */
-.topology-cable.router.idle { opacity: .3; }
+/* The hub's two dots (the clients' cables come in on the left, the machines' and the providers' go out on the right) stand
+   on the middle of its card's edges, as every dot does (cables.css). Its cables are the board's: calm until a request runs. */
 
 /* Router config popover */
 
@@ -984,8 +978,10 @@ body:has(.topology-view) .topbar {
    On the main board each machine stands at a glance, in a section of its own under the pools:
    its head and its Compute panel in one column — the card's two halves (servers | compute) are
    one, the servers being in the machine's own window (board-view.js). ↗ opens that window. */
-.machines-head { margin-top: 18px; }
-.machine-cards { display: grid; gap: 10px; min-width: 0; }
+/* The title of Machines starts on the line the clients' title starts on (the owner, 2026-10-14: "their titles are not
+   level"), and it is as far from the first row of buttons as the clients' title is from its "＋": since 1.3.578 the two are one rule —
+   the head of `.board-col-title` and the body's own padding — so they cannot differ. test_board_heads.py holds both. */
+.machine-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .machine-glance .node-body { grid-template-columns: minmax(0, 1fr); }
 /* The machine's name keeps its line (2026-10-12: a machine's name broke in two in a column of the
    board's one width); where the head still has no room, what follows it goes to a second line, ↗ and
@@ -1018,6 +1014,8 @@ body:has(.topology-view) .topbar {
 }
 .machine-glance .node-telemetry .gpu-metric .gpu-metric-spark { grid-column: 3; margin-left: 0; }
 .machine-glance .node-telemetry .gpu-metric canvas { grid-column: 1 / -1; }
+/* The lines of the cards (charts.js nodeTelemetryRowsHtml) span the metric's whole grid, or they are squeezed into its first column. */
+.machine-glance .node-telemetry .gpu-metric .gpu-metric-cards { grid-column: 1 / -1; }
 .machine-glance .node-body::before { display: none; }
 /* The card is the way into the machine's window (main.js): it says so to the pointer, and its name is
    the link for the keyboard, read as the name, not as a button (the owner, 2026-10-12). */
@@ -1028,18 +1026,23 @@ body:has(.topology-view) .topbar {
 .machine-missing { padding: 24px 4px; color: var(--muted); }
 
 /* A machine's own window: its whole card under the page's header, nothing of the main board
-   around it. The clients, the kanban's node, the pools, Add scout and the monitor stay in the
+   around it. The clients, Routing's node, the pools, Add scout and the monitor stay in the
    page, hidden — the page is the board's, and the card's dialogs and listeners live in it. */
 html[data-board-view="machine"] .topology-board > .topology-column:not(.topology-server-column),
 html[data-board-view="machine"] .topology-lanes > section:not(.lane-servers),
-html[data-board-view="machine"] .lane-servers > :not(.machines-head):not(.machine-cards),
-html[data-board-view="machine"] .machines-head h2,
+html[data-board-view="machine"] .lane-servers > .board-col-title,
+html[data-board-view="machine"] .lane-servers .board-col-body > :not(.machines-head):not(.machine-cards),
 html[data-board-view="machine"] .monitor-drawer,
 html[data-board-view="machine"] .server-order,
 html[data-board-view="machine"] .topology-cables { display: none; }
 html[data-board-view="machine"] .topology-board,
 html[data-board-view="machine"] .topology-view { min-width: 0; }
 html[data-board-view="machine"] body .topbar { min-width: 0; }
+/* The bar of a machine's window carries the way back to the main board (scripts/gen_header.py), and the long name under
+   the brand goes: the window is one machine's page, not the product's front page, and with both the bar was 28 px wider
+   than the window's own 1180 (the account chip, the brook, the tour and the language beside the title), so the page
+   scrolled sideways. */
+html[data-board-view="machine"] .topbar .brand-acronym { display: none; }
 html[data-board-view="machine"] .topology-board { grid-template-columns: minmax(0, 1fr); }
 html[data-board-view="machine"] .topology-lanes { grid-template-columns: minmax(0, 1fr); }
 html[data-board-view="machine"] .topology-lanes.nodes-on .lane-servers { grid-column: 1 / -1; }
@@ -1052,7 +1055,8 @@ html[data-board-view="machine"] .machines-head { margin-top: 0; justify-content:
 .topology-head-actions > [data-scout-add-find][aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
 /* A machine's own window: adding and finding scouts are the main board's. */
 html[data-board-view="machine"] .machines-head [data-scout-add-open],
-html[data-board-view="machine"] .machines-head [data-scout-add-find] { display: none; }
+html[data-board-view="machine"] .machines-head [data-scout-add-find],
+html[data-board-view="machine"] .machines-head .board-pages { display: none; }
 
 /* A client's recent requests on its own card (consumers.js activityHtml, charts.js
    drawClientActivity): one row of the activity chart, across the card; a click opens them all. */
@@ -1060,16 +1064,20 @@ html[data-board-view="machine"] .machines-head [data-scout-add-find] { display: 
 
 /* The cloud providers under the machines (provider-glances.js; the owner, 2026-10-12): each provider a
    block of its accounts — its sign and name, an account a row (its head, then a subscription's windows
-   or an API key's spend), and "＋" at its foot, the kanban's way of adding. No models: the kanban has
+   or an API key's spend), and "＋" at its foot, Routing's way of adding. No models: Routing has
    them. */
-.providers-head { margin-top: 18px; }
+html:not([data-board-view="machine"]) .lane-servers .providers-title { margin-top: 18px; margin-bottom: 8px; }
 /* In a column of the board's one width the heads of the machines and of the providers keep their
    title on the first line and their buttons on the second, across the column — the way the clients'
    column puts its ＋ under its title. On one line the buttons were cut. */
-html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head { flex-wrap: wrap; }
-html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head > .topology-head-actions { flex: 1 1 100%; flex-wrap: wrap; row-gap: 6px; }
-html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head > .topology-head-actions > .topology-head-add { flex: 1 1 170px; }
-.provider-cards { display: grid; gap: 10px; min-width: 0; }
+html:not([data-board-view="machine"]) .lane-servers .topology-lane-head { flex-wrap: wrap; }
+html:not([data-board-view="machine"]) .lane-servers .topology-lane-head > .topology-head-actions { flex: 1 1 100%; flex-wrap: wrap; row-gap: 6px; }
+html:not([data-board-view="machine"]) .lane-servers .topology-lane-head > .topology-head-actions > .topology-head-add { flex: 1 1 170px; }
+/* ONE column that may shrink: a grid's implicit column is `auto`, and `auto` took the width of the widest unbreakable text in a card —
+   an API error on a provider card, 721px in a 340px column — so the card stood out of its column, cut off at the right and the
+   buttons with it (the owner, 2026-10-18: "on an error the labels run off to the right, past the screen"). The machine cards
+   above have the same grid and the same chance. test_board_cards_fit_css.py holds both. */
+.provider-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .provider-group { overflow: hidden; }
 .provider-group-head {
   display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
@@ -1101,7 +1109,7 @@ html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head > .top
 .provider-body, .provider-issues { padding: 4px 14px 10px; font-size: 12px; min-width: 0; }
 .provider-body .sub-usage-panel { margin: 0; padding: 0; border: 0; background: none; }
 .provider-group-empty { margin: 0; padding: 12px 14px 2px; color: var(--muted); font-size: 12px; }
-/* "＋ subscription" / "＋ API key": the kanban's "＋ row" and "＋ model" look (pool-board.css). */
+/* "＋ subscription" / "＋ API key": Routing's "＋ row" and "＋ model" look (pool-board.css). */
 .lane-servers .provider-group-add {
   display: block; width: calc(100% - 28px); min-height: 0; height: auto; margin: 8px 14px 12px; padding: 6px 10px;
   border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 9px; background: transparent;
@@ -1111,3 +1119,38 @@ html:not([data-board-view="machine"]) .lane-servers > .topology-lane-head > .top
 html[data-board-view="machine"] [data-board-providers-head],
 html[data-board-view="machine"] #boardProviderCards { display: none; }
 
+/* ── The board is a window, not a page (1.3.548; the owner, 2026-10-14: "not the whole screen — each column by itself") ──
+   The page does not scroll down. The clients' column and the machines' lane (with the cloud providers) scroll, each on its own,
+   under the header; the cables are drawn again as they do (main.js). Routing's lane between them stays as it is: it is one
+   card, and the windows it opens are drawn inside it, so it must not cut them. A scroller cuts what stands out of it, and the
+   dots that end the cables stand 8px out of the cards, with a 4px ring round them when a request runs (cables.css): so each
+   body has that room inside (padding) and is that much wider (the same, as a negative margin), and the cards keep their
+   places. (Until 1.3.549 a cable ended in a 20×34 bracket that stood 24px out: the room was too small for it, and the
+   brackets of the clients' cards came out cut off, 2026-10-14.) A column is a head and a body (1.3.578; the owner, 2026-10-18: "the
+   headings outside the area I scroll, shown always"): the title stands over the body that scrolls, and the cables are cut at the
+   head's height (`--board-head`), so a cable to a card scrolled up does not run across a title. A machine's own window
+   (data-board-view="machine") is one column of cards and scrolls as a page, as before. */
+html:not([data-board-view="machine"]):has(.topology-view) { overflow-y: hidden; }
+html:not([data-board-view="machine"]) body:has(.topology-view) { height: 100dvh; display: flex; flex-direction: column; }
+html:not([data-board-view="machine"]) body:has(.topology-view) > .topology-view {
+  flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; padding-bottom: 16px;
+}
+html:not([data-board-view="machine"]) .topology-view > .topology-board {
+  flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr);
+}
+html:not([data-board-view="machine"]) .topology-board { --board-head: 28px; }
+html:not([data-board-view="machine"]) .topology-board .board-col {
+  --board-col-room: 14px;
+  display: flex; flex-direction: column; gap: 0; min-height: 0;
+}
+html:not([data-board-view="machine"]) .topology-board .board-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; align-content: start;
+  padding-top: 6px; padding-inline: var(--board-col-room); margin-inline: calc(-1 * var(--board-col-room));
+  scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+/* The clients' body is a grid of its own: its tools and its cards 12px apart, as the column's grid kept them before it was a head and a body. */
+html:not([data-board-view="machine"]) .topology-column > .board-scroll { display: grid; gap: 12px; }
+/* A cable to a card scrolled out of its column runs off the board's edge, or under the titles: the layer cuts it at both. */
+html:not([data-board-view="machine"]) .topology-cables { overflow: hidden; clip-path: inset(var(--board-head) 0 0 0); }
+/* A machine's GPU panel keeps in view while its lane scrolls, now under the header, not under the page's. */
+html:not([data-board-view="machine"]) .lane-servers .node-gpus { top: 8px; max-height: calc(100vh - 150px); }

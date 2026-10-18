@@ -1,0 +1,20 @@
+{
+  "why": "One table of cases for the two copies of the rule 'a quantized V cache needs flash attention': caravan/common/kv_cache.py and static/js/kv-cache.js. `refused` is the V cache type the pair is refused for, or '' when llama.cpp starts with it.",
+  "cases": [
+    {"say": "the pair the form of a new cell offered: q8_0 V cache, flash attention off", "config": {"ENABLE_FLASH_ATTN": "0", "CACHE_TYPE_V": "q8_0"}, "refused": "q8_0"},
+    {"say": "the form's own off is the string 0; a config written by hand may say false", "config": {"ENABLE_FLASH_ATTN": "false", "CACHE_TYPE_V": "q4_0"}, "refused": "q4_0"},
+    {"say": "off in the other spellings the config accepts", "config": {"ENABLE_FLASH_ATTN": "off", "CACHE_TYPE_V": "q5_1"}, "refused": "q5_1"},
+    {"say": "the type is read in any case and with stray spaces", "config": {"ENABLE_FLASH_ATTN": " 0 ", "CACHE_TYPE_V": " Q8_0 "}, "refused": "q8_0"},
+    {"say": "every quantized type is refused, not only q8_0", "config": {"ENABLE_FLASH_ATTN": "0", "CACHE_TYPE_V": "iq4_nl"}, "refused": "iq4_nl"},
+    {"say": "flash attention on: any V cache type starts", "config": {"ENABLE_FLASH_ATTN": "1", "CACHE_TYPE_V": "q8_0"}, "refused": ""},
+    {"say": "on in the other spellings", "config": {"ENABLE_FLASH_ATTN": "true", "CACHE_TYPE_V": "q8_0"}, "refused": ""},
+    {"say": "flash attention off with a V cache of plain numbers starts: f16", "config": {"ENABLE_FLASH_ATTN": "0", "CACHE_TYPE_V": "f16"}, "refused": ""},
+    {"say": "...and f32 and bf16", "config": {"ENABLE_FLASH_ATTN": "0", "CACHE_TYPE_V": "bf16"}, "refused": ""},
+    {"say": "flash attention off and no V cache type: llama.cpp's own f16", "config": {"ENABLE_FLASH_ATTN": "0", "CACHE_TYPE_V": ""}, "refused": ""},
+    {"say": "flash attention UNSTATED is no choice the operator made: llama.cpp decides, nothing is refused", "config": {"ENABLE_FLASH_ATTN": "", "CACHE_TYPE_V": "q8_0"}, "refused": ""},
+    {"say": "...also when the key is missing altogether", "config": {"CACHE_TYPE_V": "q8_0"}, "refused": ""},
+    {"say": "only the V cache needs it: a quantized K cache with flash attention off starts", "config": {"ENABLE_FLASH_ATTN": "0", "CACHE_TYPE_K": "q8_0", "CACHE_TYPE_V": "f16"}, "refused": ""},
+    {"say": "the draft model's cache types are saved but not passed: they refuse nothing", "config": {"ENABLE_FLASH_ATTN": "0", "SPEC_DRAFT_CACHE_TYPE_V": "q8_0"}, "refused": ""},
+    {"say": "no config at all", "config": {}, "refused": ""}
+  ]
+}

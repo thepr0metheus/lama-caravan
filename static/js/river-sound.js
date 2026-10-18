@@ -6,7 +6,6 @@
 
 /** Noise colours as generators: one row per colour instead of a branch per colour. */
 const NOISE_COLOURS = Object.freeze({
-  white: () => () => Math.random() * 2 - 1,
   pink: () => {
     let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
     return () => {
@@ -26,8 +25,8 @@ const NOISE_COLOURS = Object.freeze({
 });
 
 /**
- * One scene's sounds: loops of filtered noise and short synthesized events (drops,
- * splashes). Each kit has its own fader, so switching scenes crossfades kits. `stop()` takes
+ * One scene's sounds: loops of filtered noise and short synthesized events (drops).
+ * Each kit has its own fader, so switching scenes crossfades kits. `stop()` takes
  * down every source and timer the kit started, the timers included.
  */
 export class SoundKit {
@@ -113,12 +112,12 @@ export class SoundKit {
     const first = setTimeout(() => { this.timers.delete(first); loop(); }, Math.random() * maxS * 1000);
     this.timers.add(first);
   }
-  /** One sine voice with a pitch glide and a fast attack: bird notes, drops and hoots. */
-  voice(t, { f0, f1 = f0, dur, gain, pan = 0, room = 0.3, type = 'sine', attack = 0.006, vib = 0, vibRate = 0 }) {
+  /** One sine voice with a pitch glide (over `glide`, the whole `dur` unless said) and a fast attack: bird notes, drops and hoots. */
+  voice(t, { f0, f1 = f0, dur, glide = dur, gain, pan = 0, room = 0.3, type = 'sine', attack = 0.006, vib = 0, vibRate = 0 }) {
     const ctx = this.ctx;
     const o = ctx.createOscillator(); o.type = type;
     o.frequency.setValueAtTime(f0, t);
-    o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + glide);
     if (vib) {
       const l = ctx.createOscillator(), lg = ctx.createGain();
       l.frequency.value = vibRate; lg.gain.value = vib;
@@ -139,19 +138,15 @@ export class SoundKit {
     const dur = 0.025 + Math.random() * 0.06;
     this.voice(t, { f0: f, f1: f * (1.4 + Math.random() * 0.8), dur, gain, pan, room, attack: 0.002 });
   }
-  /** A click of noise through a high-pass filter: fire crackle, a twig, a tap on glass. */
-  click(t, { gain = 0.12, freq = 2500, q = 0.9, dur = 0.012, pan = 0, type = 'highpass', room = 0.1 } = {}) {
-    const ctx = this.ctx;
-    const src = ctx.createBufferSource();
-    src.buffer = SoundKit.buffer(ctx, 'white', 1);
-    const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    const p = ctx.createStereoPanner(); p.pan.value = pan;
-    src.connect(f).connect(g).connect(p).connect(this.out);
-    if (room) { const s = ctx.createGain(); s.gain.value = room; p.connect(s).connect(this.room); }
-    src.start(t, Math.random() * 0.9, dur + 0.02);
+  /**
+   * A drop falling into water: the ring of the bubble it takes down — one sine whose pitch climbs fast and then settles while it
+   * dies away (Minnaert), and nothing else. A burst of noise, which is what a tap or a splash is made of, did not sound right
+   * (the owner, 2026-10-14: "let it be a sound like a drop falling into water"). `f` is where the ring starts — a small drop
+   * rings high, a big one low and longer — and each drop comes a little different.
+   */
+  plink(t, { f = 900, ring = 0.24, gain = 0.07, pan = Math.random() * 1.2 - 0.6, room = 0.2 } = {}) {
+    const start = f * (0.92 + Math.random() * 0.16);
+    this.voice(t, { f0: start, f1: start * SoundKit.PLINK_RISE, dur: ring, glide: ring * 0.5, gain, pan, room, attack: 0.004 });
   }
   stop(fade = 0.8) {
     if (!this.alive) return;
@@ -168,6 +163,9 @@ export class SoundKit {
     }, fade * 1000 + 100);
   }
 }
+
+/** How far a drop's ring climbs from where it starts to where it settles, as a ratio of pitch: the bubble shrinks as it rings. */
+SoundKit.PLINK_RISE = 1.8;
 
 
 /**

@@ -28,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 os.environ.setdefault("CARAVAN_DATA_DIR", tempfile.mkdtemp(prefix="caravan-list-files-test-"))
 
@@ -66,7 +67,7 @@ def folder(path):
 def listing(repo, tree, config=None):
     """hf_list_files over a hub that answers `tree`, and whose config.json is `config`."""
     real = (hf._hf_request, hf._fetch_repo_config)
-    hf._hf_request = lambda path, timeout=12: tree
+    hf._hf_request = lambda path, timeout=12, all_pages=False: tree
     hf._fetch_repo_config = lambda repo_id: config
     try:
         return hf.hf_list_files(repo)
@@ -145,6 +146,29 @@ def main():
           "negative: an LFS file with no hash given is not called hidden — only what the hub does is named")
     check("safetensors" not in gguf and [o["name"] for o in gguf["otherFiles"]] == ["README.md"],
           "a GGUF-only repository has no checkpoint plan")
+
+    print("the parts of a split model:")
+    names = ["Split-Q8_0-00001-of-00003.gguf", "Split-Q8_0-00002-of-00003.gguf", "Split-Q8_0-00003-of-00003.gguf",
+             "Split-UD-Q4_K_XL-00001-of-00002.gguf", "Split-UD-Q4_K_XL-00002-of-00002.gguf",
+             "Split-BF16-00001-of-00002.gguf", "Split-BF16-00002-of-00002.gguf", "Split-Q4_K_M.gguf"]
+    parts = listing("acme/Split-GGUF", [lfs(name, 10_000 * (i + 1), SHA[i + 1]) for i, name in enumerate(names)])
+    quants = {}
+    for f in parts["files"]:
+        quants.setdefault(f["quant"], []).append(f["name"])
+    check(sorted(quants) == ["BF16", "Q4_K_M", "Q4_K_XL", "Q8_0"],
+          "every part of a split model reads the quant of the model: four quants, not one per part (Q8_0-00003-OF-00003 was one)")
+    check(sorted(quants["Q8_0"]) == names[:3] and len(quants["Q4_K_XL"]) == 2 and len(quants["BF16"]) == 2
+          and quants["Q4_K_M"] == ["Split-Q4_K_M.gguf"],
+          "the parts of a model share one quant, and so one row on the page and one folder on the disk; a whole file is its own")
+    got_sha = {f["name"]: f["oid"] for f in parts["files"]}
+    check(got_sha == {name: SHA[i + 1] for i, name in enumerate(names)},
+          "a part keeps its own sha256: the verify compares every part against the hub")
+
+    print("the quant read off a file name — the table the page is run against too:")
+    from hf_quant_cases import QUANT_CASES  # noqa: E402
+    wrong = [(name, hf._extract_quant(name), quant) for name, quant in QUANT_CASES if hf._extract_quant(name) != quant]
+    check(not wrong, f"every name of scripts/hf_quant_cases.py reads as the table says ({len(QUANT_CASES)} names)"
+          + (f"; read otherwise: {wrong}" if wrong else ""))
 
     print("a repository with both kinds:")
     both = listing("acme/Both-7B", [

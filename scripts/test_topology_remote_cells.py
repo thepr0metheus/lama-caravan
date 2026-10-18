@@ -120,6 +120,21 @@ def test_no_neighbour_meta():
               f"negative ({order}): у command-ячейки её собственные версия и язык остаются")
 
 
+def test_copy_progress_reaches_the_card():
+    print("ход копирования модели на машину доходит до карточки:")
+    copying = dict(LLAMA, port=22033, running=True, phase="downloading", modelPath="/m/m-00001-of-00002.gguf",
+                   downloadedBytes=28_500_000_000, totalBytes=29_600_000_000, downloadingFile="m-00002-of-00002.gguf (2/2)")
+    silent = dict(LLAMA, port=22034, running=True, phase="downloading", downloadedBytes=5, totalBytes=9)
+    answer = served([copying, silent])
+    rows = {s["port"]: s for s in answer["llamaServers"] if s.get("isRemote")}
+    check((rows[22033]["downloadedBytes"], rows[22033]["totalBytes"], rows[22033]["downloadingFile"])
+          == (28_500_000_000, 29_600_000_000, "m-00002-of-00002.gguf (2/2)"),
+          "defect-history: карточка читала имя файла (downloadingFile) с первого дня, а сервер его не отдавал — «downloading model» на любом файле; "
+          f"теперь имя, как его назвал скаут, идёт с байтами (ответ: {rows[22033]['downloadingFile']!r})")
+    check((rows[22034]["downloadingFile"], rows[22034]["downloadedBytes"]) == ("", 5),
+          "negative: скаут имени не назвал — пустая строка, а не None и не чужое имя; байты — свои")
+
+
 def test_cell_with_no_settings():
     print("ячейка, настроек которой у контроллера нет, — с её собственных слов:")
     ASKED.clear()
@@ -440,11 +455,58 @@ def test_strata_on_the_card():
           "карточка несёт галочку кэша ячейки — окно ячейки открывается с ней, а не с галочкой по умолчанию")
 
 
+def test_ram_on_the_card():
+    print("память ячейки в RAM из отчёта скаута (2.35):")
+    import caravan.admin.fleet_clients as fc
+
+    def kept(value, absent=False):
+        node = dict(LLAMA) if absent else dict(LLAMA, ramBytes=value)
+        record = fc.host_from_report({"hostId": "box-a", "host": {"name": "box-a"}, "llamaNodes": [node]})
+        return record["llamaNodes"][0]["ramBytes"]
+    values = [1500, "2000", 3.9e9, 0, True, None, -5, "x", [], {}, float("nan")]
+    got = [kept(v) for v in values]
+    check(got == [1500, 2000, 3900000000, 0, None, None, None, None, None, None, None],
+          f"запись машины хранит память ячейки как число байт: число, число текстом и дробное читаются, ноль остаётся нулём (замер); "
+          f"negative: булево, None, отрицательное, слово, список, словарь, NaN — None, а не число (got {got})")
+    check(kept(None, absent=True) is None,
+          "negative: скаут старше 2.35 поля не шлёт — None («не сказано»), а не ноль: карточка рисует прочерк, ноль сказал бы, что ячейка ничего не держит")
+    live = {s["port"]: s for s in served([dict(LLAMA, ramBytes=2_000_000_000), dict(WHISPER)])["llamaServers"] if s.get("isRemote")}
+    check((live[22021].get("ramBytes"), live[22024].get("ramBytes")) == (2_000_000_000, None) and "ramBytes" in live[22024],
+          f"живая ячейка на доске несёт память в RAM как её сказал скаут; ячейка без поля — None, но ключ на месте (got {live[22021].get('ramBytes')}, {live[22024].get('ramBytes')})")
+    parked = [s for s in served([dict(LLAMA)], parked=[22012])["llamaServers"] if s.get("port") == 22012]
+    check(parked and "ramBytes" not in parked[0],
+          f"negative: стоящая ячейка поля не имеет — она ничего не держит, ожидание считает карточка (declared in check_cell_card_keys)")
+
+
+def test_requests_on_the_card():
+    print("the number of requests a cell answers now, on every cell's entry (1.3.588):")
+    import caravan.admin.fleet_clients as fc
+
+    def kept(node):
+        record = fc.host_from_report({"hostId": "box-a", "host": {"name": "box-a"}, "llamaNodes": [node]})
+        return record["llamaNodes"][0].get("requestsProcessing", "no key")
+    check([kept(dict(LLAMA, requestsProcessing=2)), kept(dict(LLAMA, requestsProcessing=0)), kept(dict(LLAMA))] == [2, 0, None],
+          f"the machine's record keeps the count as the scout says it: 2 is 2, a measured 0 stays 0; a scout that says nothing leaves None, "
+          f"never a 0 (got {[kept(dict(LLAMA, requestsProcessing=2)), kept(dict(LLAMA, requestsProcessing=0)), kept(dict(LLAMA))]})")
+    live = {s["port"]: s for s in served([dict(LLAMA, requestsProcessing=2, genTps=120.5), dict(WHISPER, requestsProcessing=0),
+                                          dict(WHISPER, port=22023)])["llamaServers"] if s.get("isRemote")}
+    got = {port: (live[port].get("requestsProcessing", "no key")) for port in (22021, 22024, 22023)}
+    check(got == {22021: 2, 22024: 0, 22023: None},
+          f"a live cell's entry carries the count: 2 and a measured 0 as told, None (key present) when its scout says nothing (got {got})")
+    check(live[22021].get("vllmStats") is None and live[22021].get("genTps") == 120.5,
+          "defect-history: the count reached the page only inside vllmStats, which only a vLLM cell has — a llama.cpp or Strata cell's line "
+          "could not tell a running request from a held speed")
+    parked = [s for s in served([dict(LLAMA)], parked=[22012])["llamaServers"] if s.get("port") == 22012]
+    check(parked and "requestsProcessing" in parked[0] and parked[0]["requestsProcessing"] is None,
+          "negative: a stopped cell's entry has the key too, as None — it answers nothing (the two builders name the same keys)")
+
+
 if __name__ == "__main__":
     for fn in (test_the_controller_names_its_computer, test_the_launch_on_the_card, test_a_checkpoint_cell_is_named_by_its_model, test_the_model_name_rule,
                test_library_on_the_card, test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
                test_crash_on_the_card, test_retry_on_the_card, test_vllm_stats_on_the_card,
-               test_starting_on_its_machine, test_cell_with_no_settings, test_strata_on_the_card):
+               test_starting_on_its_machine, test_copy_progress_reaches_the_card, test_cell_with_no_settings, test_strata_on_the_card, test_ram_on_the_card,
+               test_requests_on_the_card):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

@@ -1,5 +1,5 @@
 """agent-proxies.json I/O and mutation: routes, routers, policy. Every write
-funnels through write_agent_proxy_payload (with the kanban-graph autobackup)."""
+funnels through write_agent_proxy_payload (with the routing-graph autobackup)."""
 import hashlib
 import json
 import secrets
@@ -77,7 +77,7 @@ class ProxyRevisions:
     """Which version of the proxy document a page was shown, list by list — and the refusal
     of a save made from an older one.
 
-    A page saves whole lists built from its own copy of the topology: the kanban its routers
+    A page saves whole lists built from its own copy of the topology: Routing its routers
     with every cable, the port form every route. A tab left open since the morning wrote its
     copy over the afternoon's with its first click: on the NAS (2026-10-08, 09:04) such a tab
     put back the cable of a deleted port, and a port given that number later took it over.
@@ -252,7 +252,7 @@ class PortInputs:
     a page holding an old copy of the graph saved it on the NAS (2026-10-08,
     09:04) and wrote back the cable of a port deleted a quarter of an hour
     earlier. The next port given that number took the cable over, and its new
-    client went to a model nobody chose; only the kanban showed it. So every
+    client went to a model nobody chose; only Routing showed it. So every
     read and every write forgets what a graph holds for a port no route has.
 
     A port that exists keeps its cables, also while no router has it: the board
@@ -816,7 +816,7 @@ def set_agent_proxy_route_policy(port, patch):
             # A client of the entry has no router: its cable leads to a set of models.
             if str(route.get("kind") or "") == "consumer":
                 raise AppError("a client of the entry goes to its set of models, not to a router: "
-                               "cable it to a set on the kanban", 400)
+                               "cable it to a set in Routing", 400)
             router_id = str(patch.get("routerId") or "").strip()
             if router_id and router_id not in {s.get("id") for s in (payload.get("routers") or [])}:
                 raise AppError("unknown router", 400)

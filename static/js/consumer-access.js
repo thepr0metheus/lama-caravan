@@ -1,4 +1,4 @@
-// How a consumer reaches the caravan, as the kanban's clients panel shows it (2026-10-07).
+// How a consumer reaches the caravan, as Routing's clients panel shows it (2026-10-07).
 //
 // Every consumer goes to one address — the entry, https://caravan-api.…/v1 — with its
 // own key, and the caravan finds it by the key (caravan/proxy/entry.py). A row says
@@ -53,19 +53,19 @@ export class ConsumerAccess {
       // at all. Elsewhere an open port without a key is how consumers have always called, and
       // red read as a fault that was none.
       const stuck = topology?.portsReachable === false;
-      return `<span class="cv-in-key none${stuck ? "" : " quiet"}" data-t="kanban-consumer-key" data-t-state="none">${escapeHtml(t("consumerNoKey"))}</span>`
+      return `<span class="cv-in-key none${stuck ? "" : " quiet"}" data-t="routing-consumer-key" data-t-state="none">${escapeHtml(t("consumerNoKey"))}</span>`
         + `<span class="cv-in-port-num">:${port}</span>${seen}`
-        + `<button class="cv-in-act" type="button" data-cv-port-key="${port}" data-t="kanban-consumer-give-key">${escapeHtml(t("consumerGiveKey"))}</button>`;
+        + `<button class="cv-in-act" type="button" data-cv-port-key="${port}" data-t="routing-consumer-give-key">${escapeHtml(t("consumerGiveKey"))}</button>`;
     }
-    const key = `<span class="cv-in-key" data-t="kanban-consumer-key" data-t-state="${p.portClosed ? "entry" : "open"}"`
+    const key = `<span class="cv-in-key" data-t="routing-consumer-key" data-t-state="${p.portClosed ? "entry" : "open"}"`
       + ` title="${escapeHtml(t("consumerKeyTitle"))}">🔑 …${escapeHtml(tail)}</span>`;
     if (p.portClosed) {
       return `${key}<span class="cv-in-access entry">${escapeHtml(t("consumerEntryOnly"))}</span>${seen}`
-        + `<button class="cv-in-act quiet" type="button" data-cv-port-reopen="${port}" data-t="kanban-consumer-reopen"`
+        + `<button class="cv-in-act quiet" type="button" data-cv-port-reopen="${port}" data-t="routing-consumer-reopen"`
         + ` title="${escapeHtml(t("consumerReopenTitle", { port: String(p.port) }))}" aria-label="${escapeHtml(t("consumerReopenTitle", { port: String(p.port) }))}">↺</button>`;
     }
     return `${key}<span class="cv-in-access open">${escapeHtml(t("consumerPortOpen", { port: String(p.port) }))}</span>${seen}`
-      + `<button class="cv-in-act" type="button" data-cv-port-close="${port}" data-t="kanban-consumer-close">${escapeHtml(t("consumerClosePort"))}</button>`;
+      + `<button class="cv-in-act" type="button" data-cv-port-close="${port}" data-t="routing-consumer-close">${escapeHtml(t("consumerClosePort"))}</button>`;
   }
 
   // The panel's line about the entry: the address every consumer with a key may call,
@@ -78,27 +78,27 @@ export class ConsumerAccess {
     const port = Number(entry?.port || 0);
     // ✕ wherever the entry has a port. Turning it off used to be an empty port in the second
     // window of ✎, which nobody found (the owner, 2026-10-11).
-    const off = port ? `<button class="cv-in-act quiet" type="button" data-cv-entry-off data-t="kanban-entry-off"`
+    const off = port ? `<button class="cv-in-act quiet" type="button" data-cv-entry-off data-t="routing-entry-off"`
       + ` title="${escapeHtml(t("consumerEntryTurnOff"))}" aria-label="${escapeHtml(t("consumerEntryTurnOff"))}">✕</button>` : "";
     if (!url) {
       // Why it is worth setting up, said under the line (the owner, 2026-10-11): "The entry is
       // off" alone does not tell a first-time operator what the entry is for.
-      return `<div class="cv-entry off" data-t="kanban-entry" data-t-state="${port ? "nameless" : "off"}" title="${escapeHtml(t("consumerEntryOffTitle"))}">`
+      return `<div class="cv-entry off" data-t="routing-entry" data-t-state="${port ? "nameless" : "off"}" title="${escapeHtml(t("consumerEntryOffTitle"))}">`
         + `<span>${escapeHtml(port ? t("consumerEntryNoName", { port: String(port) }) : t("consumerEntryOff"))}</span>`
-        + `<button class="cv-in-act" type="button" data-cv-entry-setup data-t="kanban-entry-setup">${escapeHtml(t("consumerEntrySetup"))}</button>${off}`
-        + `<small class="cv-entry-why" data-t="kanban-entry-why">${escapeHtml(t("consumerEntryWhy"))}</small></div>`;
+        + `<button class="cv-in-act" type="button" data-cv-entry-setup data-t="routing-entry-setup">${escapeHtml(t("consumerEntrySetup"))}</button>${off}`
+        + `<small class="cv-entry-why" data-t="routing-entry-why">${escapeHtml(t("consumerEntryWhy"))}</small></div>`;
     }
     const shown = url.replace(/^https?:\/\//, "");
     // The port, when the address does not already say it: the reverse proxy must lead the
     // public name to it, and it was shown only in the second window of ✎ (the owner, 2026-10-11).
     const portShown = port && !shown.includes(`:${port}`)
-      ? `<span class="cv-entry-port" data-t="kanban-entry-port" title="${escapeHtml(t("consumerEntryPortTitle", { port: String(port) }))}">`
+      ? `<span class="cv-entry-port" data-t="routing-entry-port" title="${escapeHtml(t("consumerEntryPortTitle", { port: String(port) }))}">`
         + `${escapeHtml(t("consumerEntryPort", { port: String(port) }))}</span>` : "";
-    return `<div class="cv-entry" data-t="kanban-entry" data-t-state="on" title="${escapeHtml(t("consumerEntryTitle"))}">`
+    return `<div class="cv-entry" data-t="routing-entry" data-t-state="on" title="${escapeHtml(t("consumerEntryTitle"))}">`
       + `<span class="cv-entry-url">${escapeHtml(shown)}</span>${portShown}`
-      + `<button class="cv-in-act quiet" type="button" data-cv-entry-copy data-t="kanban-entry-copy"`
+      + `<button class="cv-in-act quiet" type="button" data-cv-entry-copy data-t="routing-entry-copy"`
       + ` title="${escapeHtml(t("consumerCopyEntry"))}" aria-label="${escapeHtml(t("consumerCopyEntry"))}">⧉</button>`
-      + `<button class="cv-in-act quiet" type="button" data-cv-entry-setup data-t="kanban-entry-setup"`
+      + `<button class="cv-in-act quiet" type="button" data-cv-entry-setup data-t="routing-entry-setup"`
       + ` title="${escapeHtml(t("consumerEntryEdit"))}" aria-label="${escapeHtml(t("consumerEntryEdit"))}">✎</button>${off}</div>`;
   }
 

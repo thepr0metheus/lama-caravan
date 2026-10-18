@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Regenerate the pixel-llama page loader embedded in static/index.html and
-static/kanban.html (the block between <div id="appLoader"> and its </div>).
+static/routing.html (the block between <div id="appLoader"> and its </div>).
 
 The llamas are 16x13 box-shadow pixel grids drawn DOWNWARD from the anchor —
 the ::before carries translateY(-12em) so the hooves sit on the ground line.
@@ -224,7 +224,7 @@ LOADER = f'''  <div id="appLoader" aria-hidden="true">
 '''
 
 BLOCK_RE = re.compile(r'  <div id="appLoader".*?</script>\n  </div>\n', re.S)
-for page in ("static/index.html", "static/kanban.html", "static/hf.html"):
+for page in ("static/index.html", "static/routing.html", "static/hf.html"):
     p = ROOT / page
     s = p.read_text(encoding="utf-8")
     if BLOCK_RE.search(s):

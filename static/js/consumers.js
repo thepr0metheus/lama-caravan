@@ -1,13 +1,13 @@
 // The consumers of the entry on the board: a name, its own key and the set of models it calls
 // (the owner, 2026-10-11: the caravan speaks the OpenAI API as a company's gateway does;
-// 2026-10-12: one cable goes on from a client, to its set, drawn on the kanban).
+// 2026-10-12: one cable goes on from a client, to its set, drawn in Routing).
 //
 // A consumer calls one address with its key; `GET /v1/models` lists the pools of its set by name
 // and a request's `model` picks one (caravan/proxy/entry.py). The board makes it with a name,
 // shows the key once beside the address and the models, and afterwards only the key's last four
 // characters. A lost key is replaced, never shown again. Its set is the controller's reading
 // (`set`, `setName`, `models`, caravan/common/entry_models.py). The card does not name it (the
-// owner, 2026-10-12): the kanban's card names the sets, and the client's cable goes there. It
+// owner, 2026-10-12): Routing's card names the sets, and the client's cable goes there. It
 // carries the client's recent requests instead, and says out loud when no cable leads anywhere.
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { t } from "./i18n.js";
@@ -36,7 +36,7 @@ export class ConsumerCards {
   }
 
   // The consumers in the topology — the routes of kind "consumer" — in the operator's order (1.3.503:
-  // carried by the grip on the kanban, kept by the controller — caravan/admin/board_layout.py,
+  // carried by the grip in Routing, kept by the controller — caravan/admin/board_layout.py,
   // ClientOrder): the ones the order names first, in its order, then the rest by name, as before
   // there was an order.
   static of(top) {
@@ -62,10 +62,10 @@ export class ConsumerCards {
   }
 
   // The card lights while the client's request runs, as an agent's row does, and its cable leaves
-  // from the handle on its right (cables.js) to the kanban, where its set stands. A client with no
+  // from the handle on its right (cables.js) to Routing, where its set stands. A client with no
   // set has no cable, and no handle to draw one from. One line says who it is — its name, its key's last four characters,
   // when it last called — with its three actions at the end, quiet until the card is pointed at or
-  // holds the focus (the owner, 2026-10-12: as clean as the kanban's card, with nothing lost); under
+  // holds the focus (the owner, 2026-10-12: as clean as Routing's card, with nothing lost); under
   // it, its requests.
   cardHtml(p) {
     const port = escapeHtml(String(p.port));
@@ -110,7 +110,7 @@ export class ConsumerCards {
   }
 
   // ＋ — a name, then the key once. The entry first: a consumer has no other way in. Its set comes
-  // with a cable on the kanban.
+  // with a cable in Routing.
   async create() {
     if (!String(topology?.entry?.url || "")) {
       this.notify(t("entryNeedsSetupFirst"));

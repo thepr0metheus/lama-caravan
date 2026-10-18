@@ -107,7 +107,7 @@ class OpenAIError:
 
     @classmethod
     def no_pool(cls):
-        """A key no cable on the kanban leads to a set of models yet, or whose set holds none: it
+        """A key no cable in Routing leads to a set of models yet, or whose set holds none: it
         calls no model at all."""
         return cls(404, "This API key has no model yet. Ask the caravan's operator to connect it to a set of models.",
                    param="model", code="model_not_found")

@@ -12,6 +12,12 @@
 // connection. Cancel stops the job on the server; what it fetched comes back as
 // an interrupted partial with Resume. Jobs survive a reload: the server lists
 // them, and this browser's own list is the fallback when it cannot.
+//
+// A gated repository lists its files and refuses them until the owner of the token
+// accepts its terms on its page. The server says so on the failed job (`access`: the
+// page's address), and the page that started the job opens it in a new window at
+// once — the person goes there anyway, and found the way by asking. A job brought
+// back by a reload does not open it again; the row's button does, at any time.
 import { escapeHtml } from "./utils.js";
 import { HfFormat, hfT } from "./hf-text.js";
 
@@ -21,18 +27,31 @@ const STORE_KEY = "hfDlJobs";
 const POLL_MS = 600;
 //: A finished job stays on screen this long, then leaves.
 const DONE_LINGER_MS = 4000;
+//: How often the page asks the server which downloads run, to show the ones it did not start itself.
+const SYNC_MS = 10000;
+//: The states of a job still at work. The others (done, error, cancelled) leave by their own poll, and a job in one of them
+//: must not be taken in again by the next look at the server's list.
+const LIVE_STATES = ["running", "retrying"];
+//: How far each answer moves the pace the time left is read from, toward the speed of the last step. The speed on the row
+//: moves 0.3 a step; a time left that followed every wobble of the line would not be an estimate any more.
+const PACE_WEIGHT = 0.05;
+//: A pace under this (bytes a second) is a stall, and a stalled job has no time left to name.
+const STALL_BPS = 1024;
 //: Room a multi-part file needs on top of its size while it is assembled.
 const ASSEMBLY_SLACK_GB = 5;
 const GIB = 1073741824;
 
 export class HfDownloads {
   // `confirm(title, body, okLabel, danger)` resolves true or false;
-  // `onFinished(repoId)` hears about a job that landed its files.
-  constructor({ getJson, postJson, confirm, toast, storage, later, now, onChange, onFinished } = {}) {
+  // `onFinished(repoId)` hears about a job that landed its files;
+  // `go(url)` leaves this page for another, in this tab (the owner, 2026-10-17: the caravan opens
+  // nothing in a new tab or window).
+  constructor({ getJson, postJson, confirm, toast, storage, later, now, onChange, onFinished, go } = {}) {
     this.getJson = getJson;
     this.postJson = postJson;
     this.confirm = confirm;
     this.toast = toast || (() => {});
+    this.go = go || ((url) => globalThis.location.assign(url));
     this.storage = storage;
     this.later = later || ((fn, ms) => setTimeout(fn, ms));
     this.now = now || (() => Date.now());
@@ -221,7 +240,7 @@ export class HfDownloads {
   // ── jobs ──────────────────────────────────────────────────────────────────
   addJob(fields) {
     const job = { uid: `dlj${++this.seq}`, jobId: null, repoId: "", title: "", totalFiles: 1, pct: 0, state: "starting",
-      idx: 0, file: "", filePct: 0, speed: 0, error: "", pollError: "", ...fields };
+      idx: 0, file: "", filePct: 0, speed: 0, pace: 0, bytesDone: 0, bytesTotal: 0, error: "", pollError: "", access: null, ...fields };
     this.jobs.push(job);
     return job;
   }
@@ -270,6 +289,7 @@ export class HfDownloads {
       if (s.status === "error") {
         job.state = "error";
         job.error = s.error || "unknown";
+        job.access = s.access && s.access.url ? s.access : null;
         this.persist();
         this.changed();
         return;
@@ -284,10 +304,15 @@ export class HfDownloads {
       // server has counted the part already on disk, and that jump is not speed.
       if (job.lastBytes > 0 && t > job.lastTime) {
         const inst = (s.total_bytes_done - job.lastBytes) / ((t - job.lastTime) / 1000);
-        if (inst >= 0) job.speed = job.speed ? job.speed * 0.7 + inst * 0.3 : inst;
+        if (inst >= 0) {
+          job.speed = job.speed ? job.speed * 0.7 + inst * 0.3 : inst;
+          job.pace = job.pace ? job.pace * (1 - PACE_WEIGHT) + inst * PACE_WEIGHT : inst;
+        }
       }
       job.lastBytes = s.total_bytes_done;
       job.lastTime = t;
+      job.bytesDone = Number(s.total_bytes_done) || 0;
+      job.bytesTotal = Number(s.total_bytes) || 0;
       this.changed();
       this.later(tick, POLL_MS);
     };
@@ -323,6 +348,22 @@ export class HfDownloads {
   dismiss(uid) {
     const job = this.jobs.find((j) => j.uid === uid);
     if (job && job.state === "error") this.dropJob(job);
+  }
+
+  // The page where the terms of a gated repository are accepted: the button of the row goes to it, in
+  // this tab. The job stays on the server and the page reads it back when the operator returns. Nothing
+  // goes there by itself: it used to open in a window of its own, once, when the refusal came, and a
+  // page that takes this tab on its own is not what the owner asked for (2026-10-17). Answers whether
+  // it went: no, when the refusal named no page.
+  openAccessPage(job) {
+    const url = job && job.access && job.access.url;
+    if (!url) return false;
+    this.go(url);
+    return true;
+  }
+
+  openPageOf(uid) {
+    return this.openAccessPage(this.jobs.find((j) => j.uid === uid));
   }
 
   async resume(destDir, name) {
@@ -377,6 +418,44 @@ export class HfDownloads {
     this.changed();
   }
 
+  // Downloads the server runs that this page did not start — another tab, a script, a client of the API — join the dock without
+  // a reload. Until 1.3.566 the page asked once, at load, and a job started after that ran unseen (the owner, 2026-10-17: "I see
+  // nothing on the page that says something is downloading"). Every SYNC_MS the server's list is read again.
+  follow() {
+    const tick = async () => {
+      await this.adopt();
+      this.later(tick, SYNC_MS);
+    };
+    this.later(tick, SYNC_MS);
+  }
+
+  // One look at the server's list: a live job this page does not hold is polled like one it started, the partials that cannot
+  // go on are refreshed with it.
+  async adopt() {
+    let answer;
+    try {
+      answer = await this.getJson("/api/hf/download/jobs");
+    } catch {
+      return; // a missed answer is the next look's
+    }
+    if (!answer || !answer.ok || !Array.isArray(answer.jobs)) return;
+    // A job this page is just starting has no id until the server answers it, and the list may already hold it: held twice,
+    // it would show twice. The next look finds it with its id.
+    if (this.jobs.some((j) => !j.jobId)) return;
+    this.interrupted = answer.jobs.filter((j) => j.status === "interrupted");
+    let joined = 0;
+    for (const j of answer.jobs) {
+      if (!LIVE_STATES.includes(j.status) || !j.jobId || this.jobs.some((x) => x.jobId === j.jobId)) continue;
+      this.poll(this.addJob({ jobId: j.jobId, title: j.title || "", repoId: j.repo || "", totalFiles: j.total_files || 1, state: "resuming" }));
+      joined += 1;
+    }
+    if (joined) {
+      this.jobsOpen = true;
+      this.persist();
+    }
+    this.changed();
+  }
+
   async refreshInterrupted() {
     try {
       const answer = await this.getJson("/api/hf/download/jobs");
@@ -396,6 +475,16 @@ export class HfDownloads {
   }
 
   // ── the dock ──────────────────────────────────────────────────────────────
+  // Seconds a running job still needs at the pace it keeps, or null when nothing honest can be said: it does not run (a
+  // dropped connection leaves an old pace that says nothing), it has no pace yet (the first answer, or a resumed job that has
+  // not counted the part on disk), or it stalls. No total from the server is "nothing left" here too: 0 bytes to go. A job with
+  // nothing left is done, not "0 s left".
+  static etaSeconds(job) {
+    if (job.state !== "running" || !(job.pace >= STALL_BPS)) return null;
+    const left = job.bytesTotal - job.bytesDone;
+    return left > 0 ? left / job.pace : null;
+  }
+
   jobLabel(job) {
     let text;
     switch (job.state) {
@@ -403,10 +492,14 @@ export class HfDownloads {
       case "resuming": text = hfT("dlResuming"); break;
       case "cancelling": text = hfT("jobCancelling"); break;
       case "done": text = hfT("jobDone", { n: job.totalFiles }); break;
-      case "error": text = hfT("jobError", { err: job.error }); break;
+      case "error": text = job.access
+        ? hfT(job.access.tokenSet ? "jobGated" : "jobGatedNoToken", { repo: job.access.repo || job.repoId, open: hfT("jobOpenPage"), token: hfT("tokenLabel") })
+        : hfT("jobError", { err: job.error }); break;
       default: {
         text = hfT("jobFile", { i: job.idx || 1, n: job.totalFiles, name: job.file, pct: job.filePct });
         if (job.speed > 0) text += ` — ${hfT("jobSpeed", { speed: (job.speed / 1048576).toFixed(1) })}`;
+        const left = HfDownloads.etaSeconds(job);
+        if (left !== null) text += ` — ${HfFormat.eta(left)}`;
         if (job.state === "retrying") text = `${hfT("jobRetrying")} — ${text}`;
       }
     }
@@ -483,10 +576,13 @@ export class HfDownloads {
   jobsHtml() {
     const rows = this.jobs.map((job) => {
       const live = !["done", "error", "cancelling"].includes(job.state);
+      const openPage = job.state === "error" && job.access
+        ? `<button type="button" class="hfp-btn is-primary" data-act="job-open-page" data-uid="${escapeHtml(job.uid)}" data-t="hf-download-open-page" data-t-id="${escapeHtml(String(job.jobId || job.uid))}">${escapeHtml(hfT("jobOpenPage"))}</button>`
+        : "";
       const action = live
         ? `<button type="button" class="hfp-btn" data-act="job-cancel" data-uid="${escapeHtml(job.uid)}" data-t="hf-download-cancel" data-t-id="${escapeHtml(String(job.jobId || job.uid))}" aria-label="${escapeHtml(hfT("jobCancel"))}">${escapeHtml(hfT("cancelWord"))}</button>`
-        : (job.state === "error" ? `<button type="button" class="hfp-icon-btn" data-act="job-dismiss" data-uid="${escapeHtml(job.uid)}" data-t="hf-download-dismiss" aria-label="${escapeHtml(hfT("frontierClose"))}">✕</button>` : "");
-      return `<div class="hfp-job is-${escapeHtml(job.state)}" data-t="hf-download-job" data-t-id="${escapeHtml(String(job.jobId || job.uid))}">`
+        : (job.state === "error" ? `${openPage}<button type="button" class="hfp-icon-btn" data-act="job-dismiss" data-uid="${escapeHtml(job.uid)}" data-t="hf-download-dismiss" aria-label="${escapeHtml(hfT("frontierClose"))}">✕</button>` : "");
+      return `<div class="hfp-job is-${escapeHtml(job.state)}${job.access ? " is-gated" : ""}" data-t="hf-download-job" data-t-id="${escapeHtml(String(job.jobId || job.uid))}">`
         + `<div class="hfp-job-main"><div class="hfp-job-title">${escapeHtml(job.title)}</div>`
         + `<span class="hfp-bar"><i style="width:${Math.min(100, job.pct || 0)}%"></i></span>`
         + `<div class="hfp-job-label">${escapeHtml(this.jobLabel(job))}</div></div>${action}</div>`;

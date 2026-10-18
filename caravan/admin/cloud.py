@@ -7,9 +7,11 @@ caravan/admin/pools.py.
 """
 import json
 import re
+import time
 
 from caravan.admin.board_providers import BoardProviders
 from caravan.admin.paths import CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
+from caravan.common.account_credit import AccountCredit
 from caravan.common.cloud_file_keys import CloudFileKeys
 from caravan.common.cloud_sources import CloudSources
 from caravan.common.errors import AppError
@@ -96,12 +98,12 @@ LEGACY_KEYS = ("blocks", "deletedModels")
 
 def _parse_cloud_data(parsed):
     """Accounts, pools, the subscription models' levels, the models added to
-    the kanban and the providers on the main board — and, in a file of the old
+    Routing and the providers on the main board — and, in a file of the old
     form, its model blocks."""
     data = {"accounts": [], "pools": [], "migrations": []}
     if isinstance(parsed, dict) and ("accounts" in parsed or "blocks" in parsed or "pools" in parsed):
         data["pools"] = [p for p in (parsed.get("pools") or []) if isinstance(p, dict) and p.get("id")]
-        # The models' levels, the kanban's added models, the board's providers, the sets and the
+        # The models' levels, Routing's added models, the board's providers, the sets and the
         # schedules: one table names them for every reader and writer (CloudFileKeys).
         data.update(CloudFileKeys.read(parsed))
         done = parsed.get("migrations")
@@ -232,7 +234,8 @@ def account_secret_entry(account_id):
         return {"apiKey": entry}
     return entry if isinstance(entry, dict) else {}
 
-def normalize_cloud_account(account):
+def normalize_cloud_account(account, now=None):
+    """An account as the file keeps it. `now` stamps a credit typed for the first time or changed (account_credit.py)."""
     if not isinstance(account, dict):
         raise AppError("account must be an object", 400)
     aid = str(account.get("id") or "").strip()
@@ -267,16 +270,24 @@ def normalize_cloud_account(account):
         }
     if account.get("testAliasOf"):
         result["testAliasOf"] = str(account["testAliasOf"])
+    # A dollar credit is a key account's. A subscription has limits; a figure sent for it is refused, not dropped without a word.
+    if auth_mode == "oauth":
+        if "creditUsd" in account and AccountCredit.amount(account["creditUsd"]) is not None:
+            raise AppError("a subscription has limits, not a dollar credit", 400)
+    else:
+        credit = AccountCredit.resolve(account, time.time() if now is None else now)
+        if credit:
+            result["credit"] = credit
     return result
 
-def upsert_cloud_account(account):
+def upsert_cloud_account(account, now=None):
     data = load_cloud_data()
     # An edit sends only what it changes — the name, the address, how it signs
     # in. What it leaves out (a custom OAuth setup, the plan type) stays as it
     # is stored: normalizing the bare edit would put the preset's defaults back.
     aid = str(account.get("id") or "").strip() if isinstance(account, dict) else ""
     prev = next((a for a in data["accounts"] if a.get("id") == aid), None) if aid else None
-    norm = normalize_cloud_account({**prev, **account} if prev else account)
+    norm = normalize_cloud_account({**prev, **account} if prev else account, now)
     if norm.get("testAliasOf"):
         owner = CloudSources(data).canonical(norm["testAliasOf"])
         if not CloudSources.is_subscription(owner) or owner["id"] == norm["id"]:
@@ -284,7 +295,7 @@ def upsert_cloud_account(account):
     data["accounts"] = [a for a in data["accounts"] if a.get("id") != norm["id"]]
     data["accounts"].append(norm)
     # An account stands in no pool by itself: the row that names it is the
-    # operator's (the kanban, caravan/admin/pools.py). It stands under its
+    # operator's (Routing, caravan/admin/pools.py). It stands under its
     # provider on the main board, which is put there if it is missing
     # (caravan/admin/board_providers.py).
     providers = BoardProviders(data)
@@ -393,6 +404,9 @@ def cloud_accounts_state():
             # confirmation says so only when the delete will (SignOut.of).
             "signOutOnDelete": SignOut.of(a, own.get(a["id"])) is not None,
             "usedIn": used.get(a["id"], []),
+            # What the operator typed as the credit left (account_credit.py): None when none — not 0, which is a credit used up.
+            "creditUsd": (AccountCredit.kept(a.get("credit")) or {}).get("amountUsd"),
+            "creditAsOf": (AccountCredit.kept(a.get("credit")) or {}).get("asOf"),
             **({"testAliasOf": a["testAliasOf"]} if a.get("testAliasOf") else {}),
         })
     return result

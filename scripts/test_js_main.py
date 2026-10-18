@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot of static/js/main.js — the board's and the standalone kanban's entry point.
+"""Snapshot of static/js/main.js — the board's and the standalone Routing's entry point.
 
 The module is a single DOMContentLoaded handler with two branches. The
 snapshot intercepts it at import time and fires it itself; neighbors are
@@ -15,7 +15,7 @@ through rAF only on the board view; the click delegate (cloud); focusout
 resets the delayed render after 60ms; the loader hides
 once the board is populated, or after 15s; a loadState failure hides the
 loader, sets the error state, shows a toast; after loading — stats/pricing/
-route errors and their intervals. The kanban: its own language hook
+route errors and their intervals. Routing: its own language hook
 (renderTopology), a router from ?id= or the default, not found → a message
 and error, found → ui identifiers, a viewport from saved positions, the
 board monitor, ready.
@@ -105,12 +105,12 @@ const out = {};
 """
 
 PINS = [
-    # 2026-10-12: the pools left the main board for the kanban, and so did the list that ordered them.
+    # 2026-10-12: the pools left the main board for Routing, and so did the list that ordered them.
     ("board_binds_no_pool_list",
      '',
      'await (async () => { await bootBoard(); const el = E("boardServerCards"); return [Object.keys(el.listeners), el.dataset.serverOrderBound || ""]; })()',
      '[[],""]',
-     "negative: на главной доске нет списка пулов — и ничего не вешается на его место (пулы на канбане, 2026-10-12)"),
+     "negative: на главной доске нет списка пулов — и ничего не вешается на его место (пулы в Маршрутизации, 2026-10-12)"),
     ("board_boot_order", '', 'await (async () => { await bootBoard(); const n = names(); const pos = (x) => n.indexOf(x); return [n.slice(0, 5), document.documentElement.lang === "en", pos("bindMonitorDrawer") >= 0, pos("loadState") < pos("setActiveView"), n.filter((x) => x === "renderAll").length, calls(), timers.map((t) => t.every).filter(Boolean), n.slice(-3), n.filter((x) => x === "mountScoutAdd").length]; })()',
      '[["initDialogLlamas","initOnboarding","mountScoutAdd","bindMonitorDrawer","loadState"],true,true,true,0,["/api/auth/me"],[60000,86400000,60000],["fetchProxyDailyStats","fetchModelPricing","refreshRouteErrBadges"],1]',
      "доска (i18n настоящий, initLanguage не записывается): онбординг после ламы, поле «＋ Добавить скаута» связано один раз и до загрузки состояния, монитор-ящик привязан, loadState → setActiveView, renderAll не зовётся сам (только хук языка), чип пользователя спрошен, три интервала: 60 с / сутки / 60 с"),
@@ -128,20 +128,19 @@ PINS = [
      ' const LINK = "[data-machine-open]", CARD = ".machine-glance[data-node-id]", OWN = "[data-open-chart],[data-open-route-activity],a,button,input,select,textarea";'
      ' let followed = 0; const link = { dataset: { machineOpen: "h2" } }; const card = { dataset: { nodeId: "h3" }, querySelector: (sel) => (sel === LINK ? { click() { followed += 1; } } : null) };'
      ' const ev = (hits, extra = {}) => ({ target: { closest: (sel) => hits[sel] ?? null }, button: 0, prevented: 0, preventDefault() { this.prevented += 1; }, ...extra });'
-     ' const plain = ev({ [LINK]: link, [CARD]: card, [OWN]: link }); fire("topologyLlamaServers", "click", plain);'
-     ' const meta = ev({ [LINK]: link, [CARD]: card, [OWN]: link }, { metaKey: true }); fire("topologyLlamaServers", "click", meta);'
-     ' const body = ev({ [CARD]: card }); fire("topologyLlamaServers", "click", body);'
+     ' const onLink = ev({ [LINK]: link, [CARD]: card, [OWN]: link }); fire("topologyLlamaServers", "click", onLink); const afterLink = followed;'
+     ' const meta = ev({ [CARD]: card }, { metaKey: true }); fire("topologyLlamaServers", "click", meta);'
      ' const chart = ev({ [CARD]: card, [OWN]: {} }); fire("topologyLlamaServers", "click", chart);'
      ' const shifted = ev({ [CARD]: card }, { shiftKey: true }); fire("topologyLlamaServers", "click", shifted);'
+     ' const rightButton = ev({ [CARD]: card }, { button: 2 }); fire("topologyLlamaServers", "click", rightButton);'
      ' const off = ev({}); fire("topologyLlamaServers", "click", off); const before = followed;'
-     ' globalThis.open = () => null; const refused = ev({ [LINK]: link, [CARD]: card, [OWN]: link }); fire("topologyLlamaServers", "click", refused);'
-     ' const refusedCard = ev({ [CARD]: card }); fire("topologyLlamaServers", "click", refusedCard);'
-     ' delete globalThis.open; return [opened, plain.prevented, meta.prevented, refused.prevented, off.prevented, before, followed, (E("topologyLlamaServers").listeners.click || []).length]; })()',
-     '[[["/machine?host=h2","caravan-machine-h2"],["/machine?host=h3","caravan-machine-h3"]],1,0,0,0,0,1,1]',
-     "машину открывает её имя и вся карточка (2026-10-12: кнопки ↗ Open больше нет) — окно по адресу и имени, слушатель один, "
-     "на статичной лейне; negative: щелчок с модификатором и окно, которое браузер не дал, идут по ссылке имени (без preventDefault), "
-     "а щелчок по карточке, которой окно не дали, — тоже по ней, а не впустую; график и кнопка на карточке открывают своё, не машину; "
-     "щелчок мимо карточек — ничего"),
+     ' const body = ev({ [CARD]: card }); fire("topologyLlamaServers", "click", body);'
+     ' delete globalThis.open; return [opened, afterLink, before, followed, [onLink, meta, body].map((x) => x.prevented), (E("topologyLlamaServers").listeners.click || []).length]; })()',
+     '[[],0,0,1,[0,0,0],1]',
+     "машину открывает её имя и вся карточка в ЭТОЙ ЖЕ вкладке (2026-10-17: был отдельным окном; 2026-10-12: кнопки ↗ Open больше нет): "
+     "щелчок по телу карточки идёт по ссылке имени, окон скрипт не открывает (window.open не вызван), preventDefault не нужен, слушатель один, "
+     "на статичной лейне; negative: щелчок по самой ссылке — дело браузера (скрипт не вмешивается, ссылку не нажимает второй раз), "
+     "с модификатором, правой кнопкой, по графику и кнопке на карточке и мимо карточек — ничего"),
     ("board_ready_gives_up_after_15s", '', 'await (async () => { await bootBoard(); tick(15200); await settle(); return globalThis.__hidden; })()', '1', "boundary: доска так и не заполнилась — лоадер всё равно прячется через 15 с"),
     ("board_loadstate_failure", 'globalThis.__stubReturns["polling.loadState"] = async () => { throw new Error("state down"); };', 'await (async () => { await bootBoard(); return [globalThis.__hidden, document.body.dataset.tState, document.body.dataset.tStateDetail, E("toast").textContent, names().includes("setActiveView"), names().includes("fetchProxyDailyStats")]; })()',
      '[1,"error","state down","state down",false,true]', "negative: отказ loadState — лоадер спрятан, состояние error с причиной, тост; вид не переключается, а фоновые загрузки всё равно идут"),
@@ -168,11 +167,28 @@ PINS = [
      '[["p1","router:b"],true,false]', "pointerup над входом роутера перецепляет прокси; мимо входа — только снятие перетаскивания"),
     ("resize_and_scroll_redraw_only_on_board", '', 'await (async () => { await bootBoard(); winListeners.resize[0](); winListeners.scroll[0](); const a = names().filter((x) => x === "drawTopologyCables").length; setv("topology-render.activeView", "system"); winListeners.resize[0](); winListeners.scroll[0](); return [a, names().filter((x) => x === "drawTopologyCables").length]; })()', '[2,2]',
      "resize и scroll перерисовывают кабели на виде доски; на другом виде — нет"),
+    ("column_scroll_redraws_cables_on_the_boards_columns_only", '',
+     'await (async () => { await bootBoard(); const scroll = (docListeners.scroll || [])[0]; const count = () => names().filter((x) => x === "drawTopologyCables").length;'
+     ' const column = { target: { classList: { contains: (c) => c === "board-scroll", toggle: () => {} } } }, other = { target: { classList: { contains: () => false } } };'
+     ' scroll.fn(column); const a = count(); scroll.fn(other); scroll.fn({ target: null }); const b = count();'
+     ' setv("topology-render.activeView", "system"); scroll.fn(column); return [(docListeners.scroll || []).length, scroll.capture, a, b, count()]; })()',
+     '[1,true,1,1,1]',
+     "the board's columns scroll on their own (1.3.548) and an element's scroll does not bubble: the document hears it on the way down (capture), and the "
+     "cables are drawn again when the scrolling thing is a column of the board; negative: a list or a terminal inside a card, or a scroll with no target, "
+     "draws nothing; on another view nothing is drawn either"),
+    ("a_column_of_the_board_that_is_not_at_its_top_is_scrolled", '',
+     'await (async () => { await bootBoard(); const scroll = (docListeners.scroll || [])[0]; const marks = new Set();'
+     ' const column = (top) => ({ target: { scrollTop: top, classList: { contains: (c) => c === "board-scroll", toggle: (c, f) => { if (f) marks.add(c); else marks.delete(c); } } } });'
+     ' const col = column(40); scroll.fn(col); const down = [...marks]; col.target.scrollTop = 0; scroll.fn(col); const up = [...marks];'
+     ' scroll.fn({ target: { scrollTop: 40, classList: { contains: () => false, toggle: () => marks.add("WRONG") } } }); return [down, up, [...marks]]; })()',
+     '[["scrolled"],[],[]]',
+     "a column of the board that is not at its top is `scrolled` — its title, which stays at the top while the column scrolls, then has its strip (columns.css); "
+     "negative: back at the top the mark goes; a list or a terminal scrolling inside a card is not marked"),
     ("resize_observer_on_board", 'globalThis.__q[".topology-board"] = { id: "board" };', 'await (async () => { await bootBoard(); globalThis.__ro.cb(); return [globalThis.__ro.target.id, names().filter((x) => x === "drawTopologyCables").length]; })()', '["board",1]', "наблюдатель размера доски перерисовывает кабели"),
     ("classic_and_te_forms_unbound", '', 'await (async () => { await bootBoard(); return ["configForm", "MODEL_FILE", "MMPROJ_FILE", "OFFLOAD_MMPROJ", "SPEC_DRAFT_MODEL_FILE", "SPEC_ENABLED", "CHAT_TEMPLATE_FILE", "LLAMA_MODELS_DIR", "topologyLlamaEditForm", "te-MODEL_FILE", "te-MMPROJ_FILE", "te-OFFLOAD_MMPROJ", "te-SPEC_DRAFT_MODEL_FILE", "te-SPEC_ENABLED", "te-CHAT_TEMPLATE_FILE"].filter((id) => Object.keys(E(id).listeners).length); })()',
      '[]', "negative: ни поля классической формы одиночного сервера, ни поля редактора ячеек контроллера (te-) никто не слушает — обе ушли с его ячейками в шаге 6.9"),
     ("click_delegate_cloud_only", '', 'await (async () => { await bootBoard(); const n0 = names().length; const dd = { hidden: false }; globalThis.__qa[".port-dropdown:not([hidden])"] = [dd]; docFire("click", { target: { closest: (s) => s === "[data-topo-add-cloud]" ? {} : null, id: "" } }); docFire("click", { target: { closest: (s) => s === "[data-topo-edit-close]" ? {} : null, id: "" } }); docFire("click", { target: { closest: () => null, id: "topologyLlamaEditOverlay" } }); docFire("click", { target: { closest: () => null, id: "topologyLlamaEditSaveRestart" } }); await settle(); return [dd.hidden, globalThis.__calls.slice(n0)]; })()',
-     '[false,[]]', "negative: «＋ New pool» на главной доске больше ничего не открывает — новый пул делают на канбане (2026-10-12); выпадашки портов классической формы, закрытие, подложка и «сохранить и перезапустить» прежнего редактора контроллера тоже ничего не делают"),
+     '[false,[]]', "negative: «＋ New pool» на главной доске больше ничего не открывает — новый пул делают в Маршрутизации (2026-10-12); выпадашки портов классической формы, закрытие, подложка и «сохранить и перезапустить» прежнего редактора контроллера тоже ничего не делают"),
     ("action_and_view_buttons_unbound_focusout_delays", 'globalThis.__qa["[data-action]"] = [{ dataset: { action: "restart" }, listeners: {}, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); } }]; globalThis.__qa["[data-view-tab]"] = [{ dataset: { viewTab: "system" }, listeners: {}, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); } }];',
      'await (async () => { await bootBoard(); const bound = [Object.keys(globalThis.__qa["[data-action]"][0].listeners).length, Object.keys(globalThis.__qa["[data-view-tab]"][0].listeners).length]; docFire("focusout"); const before = names().includes("flushPendingTopologyRender"); tick(60); return [bound, before, names().includes("flushPendingTopologyRender")]; })()',
      '[[0,0],false,true]', "negative: кнопки действий одиночного сервера и вкладки вида не связаны — классический вид ушёл; focusout сбрасывает отложенный рендер через 60 мс, не сразу"),
@@ -181,14 +197,14 @@ PINS = [
      ' st.ui.topologyCanvasRouterId || "", n.includes("cvSetViewport") || n.includes("canvasInitialView") || n.includes("canvasOpenPositions"),'
      ' n.includes("renderTopology"), n.includes("startTopologyMonitor"), globalThis.__hidden, document.body.dataset.tState, calls(), n.includes("fetchModelPricing")]; })()',
      '[false,false,"","",false,true,true,1,"ready",["/api/auth/me","/health"],true]',
-     "канбан (2026-10-12: доска пулов, pool-board.js): без доски и монитор-ящика; рендер, монитор, лоадер спрятан, ready; версия из /health; "
+     "Маршрутизация (2026-10-12: доска пулов, pool-board.js): без доски и монитор-ящика; рендер, монитор, лоадер спрятан, ready; версия из /health; "
      "цены подгружены; negative: ?id= роутера больше ничего не называет — ни ui-идентификаторов роутера, ни вьюпорта холста"),
     ("standalone_topology_refused", 'globalThis.ROUTER_STANDALONE = true; globalThis.__stubReturns["topology-render.refreshTopology"] = async () => { throw new Error("controller is down"); };',
      'await (async () => { await bootBoard(); await settle(); return [document.body.dataset.tState, document.body.dataset.tStateDetail, globalThis.__hidden, E("toast").textContent,'
      ' names().includes("renderTopology"), names().includes("startTopologyMonitor")]; })()',
      '["error","controller is down",1,"controller is down",false,false]',
      "negative: топологию не прочитать — состояние error с причиной, лоадер спрятан, тост; ни рендера, ни монитора"),
-    ("standalone_confirm_and_escape", 'globalThis.ROUTER_STANDALONE = true;', 'await (async () => { await bootBoard(); E("confirmOverlay").hidden = false; docFire("keydown", { key: "Escape" }); fire("confirmCancel", "click"); return names().filter((x) => x === "closeConfirmModal").length; })()', '2', "канбан: общий confirm закрывается Escape и отменой"),
+    ("standalone_confirm_and_escape", 'globalThis.ROUTER_STANDALONE = true;', 'await (async () => { await bootBoard(); E("confirmOverlay").hidden = false; docFire("keydown", { key: "Escape" }); fire("confirmCancel", "click"); return names().filter((x) => x === "closeConfirmModal").length; })()', '2', "Маршрутизация: общий confirm закрывается Escape и отменой"),
 ]
 
 
@@ -240,7 +256,7 @@ def main():
         return 1
     both = json.loads(run.stdout.strip().splitlines()[-1])
     got, rev = both["out"], both["rev"]
-    print("main: загрузка доски и канбана, привязки, клавиши, перетаскивание:")
+    print("main: загрузка доски и Маршрутизации, привязки, клавиши, перетаскивание:")
     for pid, _s, _e, expected, msg in PINS:
         want, have = json.loads(expected), got.get(pid, "\0missing")
         check(have == want, msg if have == want else

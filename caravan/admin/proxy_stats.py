@@ -154,7 +154,7 @@ def _day_seen(date_text):
                     continue
                 when = int(t.group(1))
                 # A call for embeddings counts whatever its outcome: one that failed is
-                # exactly what the kanban's embeddings slot warns about (canvas.js).
+                # exactly what Routing's embeddings slot warns about (canvas.js).
                 if _EMBED_RE.search(line) and when > embeddings:
                     embeddings = when
                 # ONLY a finished 2xx counts for a port. The log also carries blocked
@@ -181,7 +181,7 @@ def _day_seen(date_text):
 def embeddings_last_called(days=7):
     """When a client last asked for /v1/embeddings over recent days — 0 for not at all.
 
-    The kanban's embeddings slot warns in red only then: an unset slot nobody asks for is
+    Routing's embeddings slot warns in red only then: an unset slot nobody asks for is
     no failure, and its standing red read as one on a cloud-only board (2026-10-08).
     """
     cutoff = time.time() - max(1, int(days)) * 86400

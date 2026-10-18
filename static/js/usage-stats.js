@@ -1,6 +1,7 @@
 // Usage & spend statistics modal, pricing edits, provider cost fetches.
 import { renderTopologyCloudProviders } from "./cloud.js";
 import { t } from "./i18n.js";
+import { Money } from "./money.js";
 import { topology, ui } from "./state.js";
 import { renderTopology } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
@@ -28,7 +29,7 @@ const FETCH_RETRY_MS = 60000;
  *  nothing when data is missing, a whole panel vanished from the card with no
  *  message and no way back short of reloading the page. */
 // Who draws again when a reading lands: the main board's cloud lane, and whoever else asked —
-// the kanban's board (pool-board.js), which has no such lane. One call where each reading ends
+// Routing's board (pool-board.js), which has no such lane. One call where each reading ends
 // (and where a reading starts again by hand, to show it being read); a read the guard below
 // skips calls nothing, so a drawing that asks for a reading cannot loop on itself.
 export const READING_LANDED = new Set();
@@ -90,6 +91,14 @@ export async function fetchProxySpend() {
   proxySpendLoading = false;
   readingLanded();
 }
+// The meter read again now, whatever its age: an account's credit was just typed, and a reading made before it counts nothing
+// from it (credit-left.js takes no figure from a reading made for another one).
+// A read already under way started before the figure was typed, so it is waited out (a few seconds at most) and the meter read after it.
+export async function refreshProxySpend() {
+  for (let waited = 0; proxySpendLoading && waited < 50; waited += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  proxySpendFetchedAt = 0;
+  return fetchProxySpend();
+}
 // Data-plane cloud failures (routed traffic that came back 4xx/5xx or died),
 // aggregated per account over 24h — the runtime twin of the API-issues panel.
 export let upstreamErrData = null, upstreamErrFetchedAt = 0, upstreamErrLoading = false;
@@ -146,11 +155,12 @@ export function compactCount(n) {
 // "30 days via the caravan": one line, the account's total. Each step's model
 // has its share in the step's head (cloud.js, cloudStepSpend). On a
 // subscription the line says whose price it is: the subscription covers it.
-export function spendCost(s) { return `$${Math.round(Number(s?.total) || 0).toLocaleString("en-US")}`; }
+// The sum is Money's (money.js): cents below a hundred dollars, and "<$0.01" for what cents cannot show — the line said "≈ $0" for $0.07 until 1.3.585.
+export function spendCost(s) { return Money.dollars(s?.total); }
 
 export function proxySpendHtml(accountId, { subscription = false, zero = false } = {}) {
   const s = (proxySpendData || {})[accountId];
-  // `zero`: a place where the line is all there is (the kanban's account details) says a month
+  // `zero`: a place where the line is all there is (Routing's account details) says a month
   // without traffic as such once the spend is read — nothing there would read as "not known".
   if (zero && proxySpendData && (!s || (!s.total && !s.requests))) {
     return `<div class="sub-usage-panel spend-panel"><div class="spend-line">`
@@ -428,38 +438,96 @@ export async function fetchSubscriptionUsage(accountId, { force = false } = {}) 
   readingLanded();
 }
 
-export function subscriptionUsageHtml(accountId, { refresh = true, step = null } = {}) {
-  const cached = subscriptionUsageCache.get(accountId);
-  if (!cached) return "";
-  // A read under way says so (the operator, 2026-10-11). The first one has nothing to show yet:
-  // a line instead of nothing, which read as "no limits".
+/** What a reading says while it has no limits to show — the first read under way (a line: nothing at all read as "no
+ *  limits", the operator, 2026-10-11) or a failed one (said, with the retry coming: a failed read is not "no subscription",
+ *  and a bar that vanished with no clue why stayed gone). A reading with limits: null, for the caller to draw them. A read
+ *  that is neither under way nor failed, and has nothing: "" — nothing read, nothing to say. */
+function readingNote(cached) {
   if (cached.loading && !cached.data?.ok) {
     return `<div class="sub-usage-panel sub-usage-loading" aria-busy="true" data-t="sub-usage-loading">`
       + `<div class="sub-usage-row"><span class="muted"><i class="sub-usage-spinner" aria-hidden="true"></i>${escapeHtml(t("usLoadingLimits"))}</span></div></div>`;
   }
-  // A failed read is not "no subscription". Silently rendering nothing is how a
-  // whole limit bar disappeared off the card and stayed gone with no clue why —
-  // say the read failed and that a retry is coming.
-  if (!cached.data?.ok) {
-    if (!cached.error) return "";
-    return `<div class="sub-usage-panel sub-usage-failed" title="${escapeHtml(cached.error)}">`
-      + `<div class="sub-usage-row"><span class="muted">⚠ ${escapeHtml(t("subUsageUnavailable"))}</span></div></div>`;
-  }
+  if (cached.data?.ok) return null;
+  if (!cached.error) return "";
+  return `<div class="sub-usage-panel sub-usage-failed" title="${escapeHtml(cached.error)}">`
+    + `<div class="sub-usage-row"><span class="muted">⚠ ${escapeHtml(t("subUsageUnavailable"))}</span></div></div>`;
+}
+
+function creditsLineHtml(credits) {
+  return credits != null ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
+}
+
+/** The panel's opening tag. A read again keeps the bars as last read — the card does not collapse under the pointer — and
+ *  marks them as being read: a light runs along them until the answer lands. */
+function panelOpen(cached, more = "") {
+  return cached.loading
+    ? `class="sub-usage-panel${more} refreshing" aria-busy="true" title="${escapeHtml(t("usLoadingLimits"))}"` : `class="sub-usage-panel${more}"`;
+}
+
+export function subscriptionUsageHtml(accountId, { refresh = true, step = null } = {}) {
+  const cached = subscriptionUsageCache.get(accountId);
+  if (!cached) return "";
+  const note = readingNote(cached);
+  if (note !== null) return note;
   const { limits = [], credits } = cached.data;
   if (!limits.length && credits == null) return "";
   const rows = limits.map((lim) => subscriptionLimitRowHtml(accountId, lim, step)).join("");
   // What the two handles mean, once under the bars that carry them.
   const legend = step?.switchMax && limits.some((l) => Number(l.windowSeconds) > 0)
     ? `<div class="sub-usage-legend" data-t="pool-levels-legend">${levelsLegendHtml()}</div>` : "";
-  const creditsHtml = credits != null
-    ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
   // A card that keeps the refresh button elsewhere (a pool rung puts it in its head) asks for none here.
   const head = refresh ? `<div class="sub-usage-head">${subscriptionRefreshHtml(accountId)}</div>` : "";
-  // A read again keeps the bars as last read — the card does not collapse under the pointer — and
-  // marks them as being read: a light runs along them until the answer lands.
-  const panel = cached.loading
-    ? `class="sub-usage-panel refreshing" aria-busy="true" title="${escapeHtml(t("usLoadingLimits"))}"` : `class="sub-usage-panel"`;
-  return `<div ${panel}>${subscriptionBannerHtml(cached.data, step)}${head}${rows}${legend}${creditsHtml}</div>`;
+  return `<div ${panelOpen(cached)}>${subscriptionBannerHtml(cached.data, step)}${head}${rows}${legend}${creditsLineHtml(credits)}</div>`;
+}
+
+/** The same limits drawn small, for a card with no room for tall bars — Routing's account card (the owner, 2026-10-14: the
+ *  Models column was to be as designed): each window one line, "5H ▬▬▬▬ 49%", two to a row. A red tick on a bar is where
+ *  a model of the card stops: `stops` is the levels by the window's length in seconds (`{"18000": [10, 20]}`), each once;
+ *  a window the reading does not name by length gets none, as no handle in subscriptionLimitRowHtml (a level on an
+ *  unnamed one would be a setting that does nothing). The windows' reset times are in each meter's hover, and under the
+ *  bars of the strip below. The provider's banner and the credits stand as on the tall panel. */
+export function subscriptionMetersHtml(accountId, { stops = {} } = {}) {
+  const cached = subscriptionUsageCache.get(accountId);
+  if (!cached) return "";
+  const note = readingNote(cached);
+  if (note !== null) return note;
+  const { limits = [], credits } = cached.data;
+  if (!limits.length && credits == null) return "";
+  const meters = limits.map((lim) => limitMeterHtml(lim, stops)).join("");
+  const grid = meters ? `<div class="sub-meters${limits.length === 1 ? " single" : ""}" data-t="sub-meters">${meters}</div>` : "";
+  return `<div ${panelOpen(cached, " sub-meters-panel")}>${subscriptionBannerHtml(cached.data)}${grid}${creditsLineHtml(credits)}</div>`;
+}
+
+/** One window as a meter: its label, its bar, what is left. What is left is the reading's `remainingPct`; a reading that
+ *  does not say it draws a dash and an empty bar, never a 0% that reads as "nothing left". */
+function limitMeterHtml(lim, stops) {
+  const share = limitShare(lim);
+  const seconds = Number(lim.windowSeconds || 0);
+  const ticks = (seconds > 0 ? stops?.[String(seconds)] || [] : []).map((level) => `<i class="sub-meter-stop" data-t="sub-meter-stop"`
+    + ` style="left:${level}%" title="${escapeHtml(t("poolStopMark", { pct: String(level) }))}"></i>`).join("");
+  const label = String(lim.label || "");
+  const said = [`${label} ${share.known ? `${share.pct}%` : "—"}`, lim.resetsAt ? formatSubUsageReset(lim.resetsAt) : ""].filter(Boolean).join(" · ");
+  // A reader that does not see the bar hears the window and what is left of it; one with no number hears that it is not known.
+  const aria = share.known ? ` role="meter" aria-label="${escapeHtml(said)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${share.pct}"`
+    : ` role="img" aria-label="${escapeHtml(`${label}: ${t("unknown")}`)}"`;
+  return `<div class="sub-meter" data-t="sub-meter" data-t-id="${escapeHtml(label)}" data-t-state="${share.known ? "known" : "unknown"}" title="${escapeHtml(said)}"${aria}>`
+    + `<span class="sub-meter-label">${escapeHtml(label)}</span>`
+    + `<span class="sub-meter-bar">${share.known ? `<i class="sub-meter-fill" style="width:${share.pct}%;background:${limitTone(share.pct)}"></i>` : ""}${ticks}</span>`
+    + `<span class="sub-meter-pct">${share.known ? `${share.pct}%` : "—"}</span></div>`;
+}
+
+/** What is left of a window, as the reading says it: `{known, pct}` with the share clamped to 0..100; a reading with no
+ *  number — not 0, which would say "nothing left" — is not known. */
+function limitShare(lim) {
+  const raw = lim?.remainingPct;
+  const known = raw !== null && raw !== undefined && raw !== "" && Number.isFinite(Number(raw));
+  return { known, pct: known ? Math.max(0, Math.min(100, Number(raw))) : 0 };
+}
+
+/** The colour of a share left: green above half, amber above 15%, red at and under it — the tall bars' and the meters', and a
+ *  key account's credit left (credit-left.js). */
+export function limitTone(pct) {
+  return pct > 50 ? "#22c55e" : pct > 15 ? "#f59e0b" : "#ef4444";
 }
 
 /** The button that re-reads an account's limits, spinning while the read is under way. It has
@@ -488,8 +556,12 @@ export function subscriptionRefreshHtml(accountId) {
  *  copy of it. Each handle spans that ceiling's share of the bar, so it stands where its hatching
  *  ends: stretched over the whole bar, a 20% level sat at 22%. */
 export function subscriptionLimitRowHtml(accountId, lim, step = null) {
-  const pct = Math.max(0, Math.min(100, lim.remainingPct ?? 0));
-  const color = pct > 50 ? "#22c55e" : pct > 15 ? "#f59e0b" : "#ef4444";
+  const share = limitShare(lim);
+  const pct = share.pct;
+  const color = limitTone(pct);
+  // A reading with no number draws a dash and an empty bar: a 0% in red reads as "nothing left".
+  const said = share.known ? `<span class="sub-usage-pct" style="color:${color}">${pct}%</span>` : `<span class="sub-usage-pct">—</span>`;
+  const fill = share.known ? `<i style="width:${pct}%;background:${color}"></i>` : "";
   const resetsLine = lim.resetsAt
     ? `<span class="sub-usage-resets">${escapeHtml(formatSubUsageReset(lim.resetsAt))}</span>` : "";
   const seconds = Number(lim.windowSeconds || 0);
@@ -501,7 +573,7 @@ export function subscriptionLimitRowHtml(accountId, lim, step = null) {
   const marks = settable ? LEVEL_MARKS.html("switch", next, stop, max) + LEVEL_MARKS.html("stop", next, stop, max) : "";
   const zones = settable
     ? `<b class="sub-usage-zone stop" style="width:${stop}%"></b><b class="sub-usage-zone switch" style="left:${stop}%;width:${next - stop}%"></b>` : "";
-  // Whose levels a handle sets: a model's, by its account and model (the kanban's right column,
+  // Whose levels a handle sets: a model's, by its account and model (Routing's right column,
   // 1.3.486 — a model's levels hold in every pool that names it), or a pool's row, by the pool and
   // the row (the main board's pool card).
   const owner = step?.accountId && step?.model
@@ -515,9 +587,9 @@ export function subscriptionLimitRowHtml(accountId, lim, step = null) {
       <div class="sub-usage-row">
         <div class="sub-usage-meta">
           <span class="sub-usage-label">${escapeHtml(lim.label)}</span>
-          <span class="sub-usage-pct" style="color:${color}">${pct}%</span>
+          ${said}
         </div>
-        <div class="sub-usage-track${settable ? " leveled" : ""}"><div class="sub-usage-bar"><i style="width:${pct}%;background:${color}"></i>${zones}</div>${handles}${marks}</div>
+        <div class="sub-usage-track${settable ? " leveled" : ""}"><div class="sub-usage-bar">${fill}${zones}</div>${handles}${marks}</div>
         ${resetsLine}
       </div>`;
 }

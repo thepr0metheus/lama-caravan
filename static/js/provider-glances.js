@@ -7,11 +7,12 @@
 // caravan/admin/board_providers.py): the board works none of it out.
 //
 // An account is one row: its name, whether it can serve, a subscription's windows as last read with
-// the small "↺ N" that opens the window of saved resets, an API key's spend through the caravan, a
-// tripped endpoint; ⚙ opens its window, where the rest of it stands. Never its models: those are the
-// kanban's (pool-board.js), where a pool's rows are cabled to them.
+// the small "↺ N" that opens the window of saved resets, an API key's spend through the caravan and, when
+// its operator typed one, the credit left (credit-left.js), a tripped endpoint; ⚙ opens its window, where
+// the rest of it stands. Never its models: those are Routing's (pool-board.js), where a pool's rows are
+// cabled to them.
 //
-// The kanban's card on this board is cabled to the machines and the accounts its pools lead to
+// Routing's card on this board is cabled to the machines and the accounts its pools lead to
 // (`PoolReach`, cables.js): a cable says requests can go there.
 import {
   CLOUD_PICKER_META,
@@ -23,6 +24,7 @@ import {
   openCloudPicker,
   removeBoardProvider,
 } from "./cloud.js";
+import { CreditLeft } from "./credit-left.js";
 import { t } from "./i18n.js";
 import { PoolCards } from "./pools.js";
 import { topology } from "./state.js";
@@ -32,15 +34,16 @@ import {
   READING_LANDED,
   fetchProxySpend,
   fetchSubscriptionUsage,
+  proxySpendData,
   proxySpendHtml,
   refreshUsageReading,
   subscriptionUsageHtml,
 } from "./usage-stats.js";
 import { escapeHtml } from "./utils.js";
 
-// Where the kanban's pools lead: the accounts their rows call, and the machines whose cells they
+// Where Routing's pools lead: the accounts their rows call, and the machines whose cells they
 // call. A row of a local model names its output ("srv:<port>", "eng:<id>"); the router's outputs say
-// where that output answers, and machineAt(that address) names the machine — the rule the kanban's
+// where that output answers, and machineAt(that address) names the machine — the rule Routing's
 // machine rows go by. A row switched off leads nowhere, and neither does a row whose output is gone:
 // no request can go there, so no cable says one can.
 export class PoolReach {
@@ -76,10 +79,12 @@ export class ProviderGlances {
 
   constructor({ readUsage = (owner) => Promise.resolve(fetchSubscriptionUsage(owner)).catch(() => {}),
     readSpend = () => Promise.resolve(fetchProxySpend()).catch(() => {}),
+    credit = (account) => CreditLeft.html(account, proxySpendData),
     edit = openCloudAccountModal, add = () => openCloudPicker(), connect = connectAccount, remove = removeBoardProvider,
     resets = null, landed = READING_LANDED } = {}) {
     this.readUsage = readUsage;
     this.readSpend = readSpend;
+    this.credit = credit;     // the credit left of a key account, when its operator typed one (credit-left.js)
     this.edit = edit;
     this.add = add;           // "＋ Add cloud provider": the picker
     this.connect = connect;   // "＋" in a block: an account of that provider
@@ -163,7 +168,7 @@ export class ProviderGlances {
 
   // One account: its name, whether it can serve, a subscription's "↺ N" and ⚙ in its head; then a
   // subscription's windows as last read (the account's: its models share them) or an API key's spend
-  // through the caravan; a faulted endpoint is said on it, as on the kanban.
+  // through the caravan; a faulted endpoint is said on it, as in Routing.
   rowHtml(account) {
     const id = escapeHtml(String(account.id));
     const name = escapeHtml(String(account.name || account.id));
@@ -181,7 +186,7 @@ export class ProviderGlances {
       body = subscriptionUsageHtml(owner, { refresh: false });
     } else if (ready) {
       this.readSpend();
-      body = proxySpendHtml(account.id, { zero: true });
+      body = proxySpendHtml(account.id, { zero: true }) + this.credit(account);
     }
     const issues = cloudApiIssuesHtml(account, subscription);
     return `

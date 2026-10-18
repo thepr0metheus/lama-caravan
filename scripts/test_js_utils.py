@@ -70,9 +70,40 @@ PINS = [
      ' m.isStaleCopy(e(409, { stale: true })), m.isStaleCopy(e(500, { stale: true, topology: {} })), m.isStaleCopy(new Error("x")), m.isStaleCopy(null)]; })()',
      '[true,false,false,false,false,false]',
      "старая копия — только 409 со `stale` и текущей топологией; negative: другой 409 (две политики очереди), 409 без топологии, другой статус, ошибка без статуса — не она"),
-    ("api_401_redirects_to_login", 'globalThis.__fetchReply["/api/x"] = { __status: 401, error: "no session" };', 'await (async () => { let msg = ""; try { await m.api("/api/x"); } catch (e) { msg = e.message; } return [globalThis.location, msg]; })()', '["/login","no session"]', "401 вне авторизации — уход на /login, и ошибка всё равно брошена"),
+    ("api_401_redirects_to_login", 'globalThis.__fetchReply["/api/x"] = { __status: 401, error: "no session" }; globalThis.__fetchReply["/api/auth/me"] = { enabled: true, authenticated: false };', 'await (async () => { let msg = ""; try { await m.api("/api/x"); } catch (e) { msg = e.message; } return [globalThis.location, msg]; })()', '["/login","no session"]', "401 вне авторизации, и «кто я» говорит «не вошёл» — уход на /login, и ошибка всё равно брошена"),
     ("api_401_no_redirect_on_auth_paths_or_login_page", '', 'await (async () => { globalThis.__fetchReply["/api/auth/login"] = { __status: 401, error: "bad password" }; try { await m.api("/api/auth/login"); } catch {} const a = globalThis.location.pathname; globalThis.location.pathname = "/login"; globalThis.__fetchReply["/api/x"] = { __status: 401, error: "x" }; try { await m.api("/api/x"); } catch {} return [a, globalThis.location.pathname]; })()', '["/board","/login"]',
      "negative: на путях авторизации и на самой странице входа 401 не уводит никуда"),
+    # 2026-10-17: one 401 while the cookie is good (a store that did not answer) threw the owner to the sign-in page.
+    ("api_401_is_believed_only_when_the_session_is_gone", '',
+     'await (async () => { const run = async (me) => { globalThis.location = { pathname: "/board" }; globalThis.__fetchReply["/api/x"] = { __status: 401, error: "slow disk" };'
+     ' globalThis.__fetchReply["/api/auth/me"] = me; let msg = ""; try { await m.api("/api/x"); } catch (e) { msg = e.message; } return [globalThis.location.pathname ?? globalThis.location, msg]; };'
+     ' return [await run({ enabled: true, authenticated: true, user: "admin", role: "admin" }), await run({ enabled: true, authenticated: false }), await run({ error: "busy", __status: 503 })]; })()',
+     '[["/board","slow disk"],["/login","slow disk"],["/board","slow disk"]]',
+     "401, а «кто я» говорит «вошёл» — остаёмся на странице (ошибка всё равно брошена); «кто я» говорит «не вошёл» — на /login; "
+     "«кто я» не ответил (503) — неизвестно, а не «вышел»: остаёмся"),
+    ("api_503_never_leads_to_login", '',
+     'await (async () => { globalThis.location = { pathname: "/board" }; globalThis.__fetchReply["/api/x"] = { __status: 503, error: "the sign-in store did not answer" }; let msg = "";'
+     ' try { await m.api("/api/x"); } catch (e) { msg = e.message + "|" + e.status; } return [globalThis.location.pathname, msg]; })()',
+     '["/board","the sign-in store did not answer|503"]',
+     "503 — не выход из сессии: на /login не уводит, ошибка со статусом брошена"),
+    ("api_401_when_the_question_itself_fails_stays", '',
+     'await (async () => { globalThis.location = { pathname: "/board" }; globalThis.__fetchReply["/api/x"] = { __status: 401, error: "slow disk" };'
+     ' globalThis.__fetchReply["/api/auth/me"] = () => { throw new TypeError("network down"); }; let msg = "";'
+     ' try { await m.api("/api/x"); } catch (e) { msg = e.message; } const direct = await m.signedOutForSure();'
+     ' return [globalThis.location.pathname, msg, direct, globalThis.__fetchCalls.filter((c) => c.path === "/api/auth/me").length]; })()',
+     '["/board","slow disk",false,2]',
+     "«кто я» не дошёл (сеть упала) — неизвестно, а не «вышел»: остаёмся на странице, ошибка брошена; спросили один раз на 401 и один раз напрямую"),
+    ("api_only_a_401_asks_who_i_am", '',
+     'await (async () => { const out = []; for (const status of [403, 404, 500, 502, 503]) { globalThis.location = { pathname: "/board" }; globalThis.__fetchCalls.length = 0;'
+     ' globalThis.__fetchReply["/api/x"] = { __status: status, error: "no" }; globalThis.__fetchReply["/api/auth/me"] = { enabled: true, authenticated: false };'
+     ' try { await m.api("/api/x"); } catch {} out.push([status, globalThis.location.pathname, globalThis.__fetchCalls.filter((c) => c.path === "/api/auth/me").length]); } return out; })()',
+     '[[403,"/board",0],[404,"/board",0],[500,"/board",0],[502,"/board",0],[503,"/board",0]]',
+     "negative: другой отказ — не вопрос «кто я» и не уход на вход, даже если бы ответ был «не вошёл»: вопрос задаёт только 401"),
+    ("signed_out_for_sure_reads_the_answer", '',
+     'await (async () => { const ask = async (me) => { globalThis.__fetchReply["/api/auth/me"] = me; return m.signedOutForSure(); };'
+     ' return [await ask({ authenticated: false }), await ask({ authenticated: true }), await ask({}), await ask({ authenticated: "no" }), await ask({ authenticated: false, __status: 503 })]; })()',
+     '[true,false,false,false,false]',
+     "«вышел» — только authenticated === false в успешном ответе; вошёл, пусто, строка «no» и ответ 503 — не «вышел»: неизвестное не выбрасывает на вход"),
     ("toast", '', '(() => { m.toast("hi"); return [F().toast.textContent, F().toast.classList.has("show"), [...globalThis.__timers]]; })()', '["hi",true,[3200]]', "тост: текст, класс show, снятие через 3.2 с"),
     ("pill", '', '[m.pill("ok", "good"), m.pill("x")]', '["<span class=\\"pill good\\">ok</span>","<span class=\\"pill \\">x</span>"]', "пилюля с видом; без вида — пустой класс"),
     ("fmt_gb_one_format", '', '[m.fmtGb(150 * 2 ** 30), m.fmtGb(100 * 2 ** 30), m.fmtGb(14.5 * 2 ** 30), m.fmtGb(8 * 2 ** 30), m.fmtGb(0)]', '["150 GB","100 GB","14.5 GB","8.00 GB","0.00 GB"]',

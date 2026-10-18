@@ -153,7 +153,7 @@ finally:
 check(routes.ROUTE_ACCESS.security("POST", "/api/topology/server-order").get("x-caravan-roles") == ["admin"],
       "only an admin account saves an order: a viewer reads the board and cannot rearrange it")
 
-print("the clients' order (1.3.503: a client card carried on the kanban):")
+print("the clients' order (1.3.503: a client card carried in Routing):")
 from caravan.admin.board_layout import ClientOrder  # noqa: E402
 
 

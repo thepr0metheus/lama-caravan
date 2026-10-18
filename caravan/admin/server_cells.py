@@ -272,7 +272,7 @@ def move_host_cells(body):
     name. Without this its cells stayed under the old name — on no node,
     with nothing to start them.
 
-    Ports are global, so routes and kanban edges (srv:<port>) are untouched;
+    Ports are global, so routes and Routing edges (srv:<port>) are untouched;
     each cell keeps its config, model, label, note and command history. The
     controller runs no cell of its own to move. Refused when
     the new machine already holds one of those ports; a scout's cell cannot
@@ -326,7 +326,7 @@ class KeptCells:
     A stopped cell is drawn from the controller's own record of it (serverSlots, topology.py): the
     scout drops a stopped cell from its report. A controller that did not start a cell had no record
     — one moved to another machine starts with none — and on 2026-10-12 every cell of a machine went
-    off the board as it was stopped: its row, its switch and the kanban's cable to it. The scout
+    off the board as it was stopped: its row, its switch and Routing's cable to it. The scout
     keeps the start request of each autostart cell and both its reports carry them
     (`autostartRequests`, scout 2.26). A record is made from each the controller lacks — the settings
     whole, the model, the cache switch — and none that exists is touched: the controller's record is

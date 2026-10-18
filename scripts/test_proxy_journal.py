@@ -3,7 +3,7 @@
 
 One reading of each day file (caravan/admin/proxy_stats.py, `_day_seen`) serves
 two answers: when each port last served a request — the board's proof that a
-route is used — and when a client last asked for /v1/embeddings: the kanban's
+route is used — and when a client last asked for /v1/embeddings: Routing's
 unset embeddings slot is red only then (2026-10-08, a cloud-only board stood
 red for a call nobody made).
 
@@ -59,7 +59,7 @@ def test_one_reading_two_answers():
     check(proxy_stats.proxy_ports_last_seen() == {23001: now - 600},
           "порт подтверждён только успешным запросом: отказ 400 на embeddings его не подтверждает")
     check(proxy_stats.embeddings_last_called() == now - 300,
-          "вызов embeddings засчитан и с отказом — именно его слот на канбане и предупреждает")
+          "вызов embeddings засчитан и с отказом — именно его слот в Маршрутизации и предупреждает")
     check(proxy_stats.embeddings_last_called() == now - 300,
           "negative: незавершённый запрос (received) — ещё не вызов: время не сдвинулось")
     with today.open("a", encoding="utf-8") as fh:

@@ -306,7 +306,7 @@ function event(dataset, { type = "click", stepId = "sub", poolId = "work", value
   await cards.remove("work");
   assert.deepEqual(offered[0][1], [{ value: "night", label: "Night" }, { value: PoolCards.CUT, label: "portCloseCut" }]);
   assert.ok(offered[0][0].includes("portCloseDefault"), "a router's default among them is said");
-  assert.ok(offered[0][0].includes("poolDeleteClients(names=Hermes)"), "the clients are named when the kanban holds it too");
+  assert.ok(offered[0][0].includes("poolDeleteClients(names=Hermes)"), "the clients are named when Routing holds it too");
   assert.deepEqual(calls[1][1], { id: "work", resolution: { moveTo: "night" } });
   assert.equal(notices.at(-1), 'poolDeletedMoved(name=Work,onto=Night,n=3)');
   cards.choose = async () => PoolCards.CUT;

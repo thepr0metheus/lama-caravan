@@ -10,10 +10,10 @@
 // transform. So nothing leaves its frame — the card keeps every style its pool gives it — and the
 // place it will land in is exactly the size of what was lifted.
 //
-// The same carrier carries the kanban's own cards — its clients, sets and pools (the owner,
+// The same carrier carries Routing's own cards — its clients, sets and pools (the owner,
 // 2026-10-12: "the order of the blocks changed by dragging", 1.3.503): what a seat, a list, a grip and
 // an id are is told it (`parts`), and so is what scrolls when the pointer leans on an edge — the
-// kanban scrolls its board, not the window, and a carry along it scrolled nothing until then.
+// Routing scrolls its board, not the window, and a carry along it scrolled nothing until then.
 
 // First (where the elements are seen), change, play (slide from there to where they now stand).
 export class Slide {
@@ -60,11 +60,12 @@ export class StepCarry {
   };
 
   constructor(root, { onSort = async () => {}, win = globalThis, doc = globalThis.document, parts = {}, scroller = null,
-    onMove = null } = {}) {
+    sway = Infinity, onMove = null } = {}) {
     this.root = root;
     this.parts = { ...StepCarry.STEPS, ...parts };
-    this.scroller = scroller;   // () → the element that scrolls, or none: the window
-    this.onMove = onMove;       // () → after each step of a carry: the kanban measures its cables again
+    this.scroller = scroller;   // (the list carried in) → the element that scrolls, or none: the window
+    this.sway = sway;           // px the card may go to either side of where it stands: a column that scrolls cuts what stands out of it
+    this.onMove = onMove;       // () → after each step of a carry: Routing measures its cables again
     this.onSort = onSort;   // (ownerId, ids) → a promise: the order a carry left behind
     this.win = win;
     this.doc = doc;
@@ -179,13 +180,14 @@ export class StepCarry {
     if (this.phase !== "carrying") return;
     this.place();
     const moved = this.rung.getBoundingClientRect().top - this.seatTop;   // the seat itself moved with the order
-    this.card().style.transform = `translate(${this.pointer.x - this.start.x}px, ${this.pointer.y - this.start.y - moved}px)`;
+    const across = Math.max(-this.sway, Math.min(this.sway, this.pointer.x - this.start.x));
+    this.card().style.transform = `translate(${across}px, ${this.pointer.y - this.start.y - moved}px)`;
     this.edge();
     this.onMove?.();
   }
 
   // Where a seat stands in its list, by the layout: its offsetTop counts from its offsetParent — the
-  // list itself when the list is positioned (the kanban's columns), else the parent both share (a
+  // list itself when the list is positioned (Routing's columns), else the parent both share (a
   // pool's ladder in its card), from which the list's own offset is taken away.
   static within(list, rung) {
     return rung.offsetParent === list ? rung.offsetTop : rung.offsetTop - list.offsetTop;
@@ -196,7 +198,8 @@ export class StepCarry {
   // send the place back and forth while it slides.
   place() {
     const others = StepCarry.rungs(this.list, this.parts).filter((rung) => rung !== this.rung);
-    const y = this.pointer.y - this.list.getBoundingClientRect().top;
+    // A list that scrolls itself (a column of Routing) is read from its scrolled top: offsetTop counts from the top of what it holds.
+    const y = this.pointer.y - this.list.getBoundingClientRect().top + (this.list.scrollTop || 0);
     const index = others.filter((rung) => y > StepCarry.within(this.list, rung) + rung.offsetHeight / 2).length;
     if (index === StepCarry.rungs(this.list, this.parts).indexOf(this.rung)) return;
     Slide.run(others, () => this.list.insertBefore(this.rung, others[index] || null));
@@ -210,10 +213,10 @@ export class StepCarry {
     Slide.run(others, () => { for (const id of this.before) if (byId.get(id)) this.list.appendChild(byId.get(id)); });
   }
 
-  // What scrolls when the pointer leans on an edge: the element given (the kanban's board), or the
-  // window — its top and bottom, and the way to scroll it.
+  // What scrolls when the pointer leans on an edge: the element given for the list carried in (Routing's
+  // column), or the window — its top and bottom, and the way to scroll it.
   scrollBox() {
-    const el = this.scroller?.();
+    const el = this.scroller?.(this.list);
     if (!el) return { top: 0, bottom: this.win.innerHeight || 0, by: (dy) => this.win.scrollBy(0, dy) };
     const box = el.getBoundingClientRect();
     return { top: box.top, bottom: box.bottom, by: (dy) => { el.scrollTop += dy; } };

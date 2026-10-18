@@ -21,6 +21,7 @@ operator is choosing between:
     tts              text → speech
     translate        text → text in another language
     speech-translate speech → text in another language
+    voice-chat       speech (or text) → speech: a model you talk to and it talks back
     robot-policy     camera frames + robot state + instruction → robot actions
 
 `embed` is separate from `llm` for the same kind of reason, and it was got
@@ -29,6 +30,12 @@ Qwen3-Embedding cell wore "💬 LLM" on the board. An embedding server answers
 /v1/embeddings and returns vectors — llama.cpp's own help says a chat model
 cannot also serve embeddings on the same instance — so an operator scanning for
 something to chat with would have picked it.
+
+`voice-chat` is a model that answers in a VOICE (PersonaPlex, Step-Audio 2, Qwen3-Omni, MiniCPM-o, 2026-10-15): a
+spoken question in, a spoken answer out. It is not `tts` — a text-to-speech cell reads out the text it is given and
+answers nothing — and not `llm`: a chat client that picked it from a list of chat models would get the words and
+never the voice, or (PersonaPlex, MiniCPM-o) a WebSocket it cannot speak. Where it also answers an ordinary chat
+(Step-Audio 2, Qwen3-Omni over vLLM's OpenAI API) it has both jobs, and the entry serves it as a chat model.
 
 `robot-policy` is a vision-language-action model (GR00T N1.7, 2026-10-13): it
 answers POST /v1/robot/predict with numbers for a robot to execute, which no
@@ -46,7 +53,7 @@ exactly the defect this rule was split into its own file to prevent.
 """
 
 #: The whole vocabulary. Order is the order chips are drawn in.
-JOBS = ("llm", "embed", "asr", "tts", "translate", "speech-translate", "robot-policy")
+JOBS = ("llm", "embed", "asr", "tts", "translate", "speech-translate", "voice-chat", "robot-policy")
 
 #: Words a cell may report in `kinds` that mean one of ours. Cell servers grew
 #: their own spellings before there was a vocabulary — whisper says
@@ -65,6 +72,7 @@ _KIND_ALIASES = {
     # out, so a chat model) or "embedding".
     "vlm": "llm",
     "embedding": "embed",
+    "voice-chat": "voice-chat",
     "robot-policy": "robot-policy",
     # A vision-language-action model, as the field calls it.
     "vla": "robot-policy",
@@ -87,6 +95,24 @@ _RUNNER_JOBS = {
     "seamless": ("speech-translate",),
     "translate": ("translate",),
     "gr00t": ("robot-policy",),
+    # The voice servers (1.3.553). LFM2.5-Audio is a speaker first (its cell says "tts" itself, and the table agrees);
+    # Step-Audio 2 and Qwen3-Omni answer a chat too, over vLLM's OpenAI API; PersonaPlex and MiniCPM-o are voice and
+    # nothing else (a page and a WebSocket).
+    "personaplex": ("voice-chat",),
+    "lfm-audio": ("tts",),
+    "step-audio2": ("llm", "voice-chat"),
+    "qwen3-omni": ("llm", "voice-chat"),
+    "minicpm-omni": ("voice-chat",),
+}
+
+#: What a safetensors folder of an architecture only one runner reads does: the claims of runner.py (`st_archs`), with
+#: that runner's jobs. The seamless and GR00T families are told by the start of their name (below), as they always were;
+#: scripts/test_launcher_runners.py holds this table to the registry.
+_ARCH_JOBS = {
+    "personaplex": ("voice-chat",),
+    "Lfm2AudioForConditionalGeneration": ("tts",),
+    "step_audio_2": ("llm", "voice-chat"),
+    "qwen3_omni_moe": ("llm", "voice-chat"),
 }
 
 
@@ -103,9 +129,9 @@ def jobs_for_artifact(kind, stt_variant="", arch="", family=""):
     | translate). A gguf ("model") is split by `stt_variant`: present means the
     file's metadata declares speech weights, and llama-server cannot load it at
     all. Safetensors ("st") are vLLM chat checkpoints except the seamless and
-    GR00T families, told apart by architecture (config.json model_type) the same
-    way the picker already tells them apart to avoid promising a ⚡ that cannot
-    start.
+    GR00T families and the voice models (_ARCH_JOBS), told apart by architecture
+    (config.json model_type, else its first architecture) the same way the picker
+    already tells them apart to avoid promising a ⚡ that cannot start.
 
     An unknown kind answers with nothing. A row whose job we cannot name must
     say nothing rather than guess "llm", which is how the silence started.
@@ -122,6 +148,8 @@ def jobs_for_artifact(kind, stt_variant="", arch="", family=""):
         arch = str(arch or "")
         if arch.startswith("seamless_m4t"):
             return ("speech-translate",)
+        if arch in _ARCH_JOBS:
+            return _ARCH_JOBS[arch]
         return ("robot-policy",) if arch.lower().startswith("gr00t") else ("llm",)
     if kind == "whisper":
         return ("asr",)

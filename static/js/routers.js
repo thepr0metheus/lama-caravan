@@ -19,7 +19,7 @@ export let topologyQuietShown = {};               // machine key -> true: its fo
 // cable to the output actually carrying traffic animates (not every output).
 // With `router`, only the requests that came in by its ports count: a pool also serves the
 // entry's free clients directly (2026-10-11), their requests carry the pool's id as well, and the
-// kanban's cable to that pool lit for traffic that never passed the kanban.
+// Routing's cable to that pool lit for traffic that never passed Routing.
 export function topologyOutputActivity(out, router = null) {
   const isCloud = String(out.upstreamType || "llama") === "cloud";
   const want = OutputCells.upstream(out);
@@ -62,7 +62,7 @@ function _poolForOut(out) {
   return (topology?.pools || []).find((p) => p.id === String(out?.providerId || "")) || null;
 }
 
-// What a pool's row on the kanban says about the pool beside its name: how many steps — their
+// What a pool's row in Routing says about the pool beside its name: how many steps — their
 // names in the hint — and a mark when a request to it cannot be served as drawn: no step
 // enabled (it is refused with "add one"), or a step whose model its provider no longer lists.
 function _poolMarks(pool) {
@@ -76,40 +76,26 @@ function _poolMarks(pool) {
   return chip;
 }
 
-// The kanban on the main board (2026-10-12): the pools stand on the kanban, and the main board keeps
+// Routing on the main board (2026-10-12): the pools stand in Routing, and the main board keeps
 // the clients, this card, the machines and the cloud providers. The clients' cables come into the
 // card on its left; from its right, cables go to the machines and the providers its pools lead to
 // (the owner, 2026-10-12; cables.js, PoolReach). It is small (the owner, 2026-10-13: "small and tidy,
 // without listing everything inside"): its name and two numbers — how many clients are cabled to a set,
-// how many pools there are. The pools' names stand on the kanban, a click opens it (topology-dnd.js).
+// how many pools there are. The pools' names stand in Routing, a click opens it (topology-dnd.js).
 // It lights while a client's request runs — a client's or a port of the old kind that feeds it.
 export function renderTopologyRouterCard(router) {
   const clients = (topology?.proxies || []).filter((p) => String(p.kind || "") === "consumer");
   const activity = topologyRouterActivity(router);
   const pools = topology?.pools || [];
   return `
-    <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" data-t="board-kanban-card" role="button" tabindex="0" title="${escapeHtml(t("rtTitleOpenKanban"))}">
+    <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" data-t="board-routing-card" role="button" tabindex="0" title="${escapeHtml(t("rtTitleOpenRouting"))}">
       <span class="topology-handle input router-input" data-topology-router-input="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleClientsIn"))}"></span>
       <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" aria-hidden="true"></span>
       <div class="topology-card-head">
-        <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>${helpTip("topologyKanbanHelp")}
-        <span class="router-meta" data-t="board-kanban-counts">${escapeHtml(t("topologyClientsSection"))} ${clients.filter((c) => c.set).length}/${clients.length} · ${escapeHtml(t("topologyLlamaServersSection"))} ${pools.length}</span>
+        <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>${helpTip("topologyRoutingHelp")}
+        <span class="router-meta" data-t="board-routing-counts">${escapeHtml(t("topologyClientsSection"))} ${clients.filter((c) => c.set).length}/${clients.length} · ${escapeHtml(t("topologyLlamaServersSection"))} ${pools.length}</span>
       </div>
     </article>`;
-}
-
-// The caravan's two model pages, under the kanban's card (the owner, 2026-10-12: "the way into them is lost";
-// 2026-10-14: "move these two buttons somewhere more fitting"): the models in its folder, and Hugging Face to
-// download more. They stood on each machine's caravan strip, then in the head of Machines among the board's tools.
-// A model belongs to the caravan, not to a machine — the kanban's card is the caravan's own place on the board, and
-// these are its other two pages. A machine's own window has them on its caravan strip (topology-nodes.js).
-export function renderBoardPageLinks() {
-  const link = (id, href, hook, title, sign, word) => `<a id="${id}" class="board-page-link" href="${href}" target="_blank" rel="noopener" data-t="${hook}" title="${escapeHtml(title)}">`
-    + `<span aria-hidden="true">${sign}</span> <span>${escapeHtml(word)}</span> <span class="board-page-arrow" aria-hidden="true">↗</span></a>`;
-  return `<div class="board-pages" data-t="board-pages">`
-    + link("boardModelsLink", "/models", "board-models-open", t("modelsPageSub"), "📦", t("topologyModelsLabel"))
-    + link("boardHfLink", "/hf", "board-hf-open", t("hfBrowserTitle"), "🤗", "Hugging Face")
-    + `</div>`;
 }
 
 // Llama servers available as router output targets.
@@ -167,9 +153,9 @@ export function routerById(routers, id) { return routers.find((s) => s.id === id
 // ── Outputs (servers) panel — the right rail of the router workspace ──
 // The machines' outputs and the pools'. Every routable target carries ONE shared radio
 // (rules.default — exactly one default across the whole panel). A pool is one output,
-// cb:<pool id>, on the kanban for as long as the pool is.
+// cb:<pool id>, in Routing for as long as the pool is.
 // A router's local outputs by the machine that serves them: [{ key, name, address, outs }].
-// One grouping for the router's panel and the kanban's servers block, which
+// One grouping for the router's panel and Routing's servers block, which
 // each held a copy. The machine is machineAt(the output's address) — two
 // addresses of one machine (loopback and its LAN address) are one group; the
 // groups go in the order of their lowest port, each group's outputs by port.
@@ -213,7 +199,7 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
     return `<span class="router-out-live live-${act}" title="${liveTitle[act] || ""}"></span>`;
   };
   const stateWord = (st) => OutputCells.WORDS[st]
-    ? `<span class="router-out-state state-${st}" data-t="kanban-out-state" data-t-state="${st}">${escapeHtml(t(OutputCells.WORDS[st]))}</span>` : "";
+    ? `<span class="router-out-state state-${st}" data-t="routing-out-state" data-t-state="${st}">${escapeHtml(t(OutputCells.WORDS[st]))}</span>` : "";
   const twinNote = (note) => {
     if (!note) return "";
     if (note.same) return `<span class="router-out-twin" title="${escapeHtml(t("rtTwinSame", { port: String(note.same) }))}">= :${escapeHtml(String(note.same))}</span>`;
@@ -261,7 +247,7 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
     // to one before the next render still has an end.
     const { shown, quiet } = cells.split(g.outs);
     const open = !!topologyQuietShown[g.key];
-    const quietHtml = quiet.length ? `<div class="router-out-quiet${open ? "" : " folded"}" data-t="kanban-quiet-cells" data-t-id="${escapeHtml(g.key)}" data-cv-group-outs="${escapeHtml(quiet.map((o) => o.id).join(","))}">
+    const quietHtml = quiet.length ? `<div class="router-out-quiet${open ? "" : " folded"}" data-t="routing-quiet-cells" data-t-id="${escapeHtml(g.key)}" data-cv-group-outs="${escapeHtml(quiet.map((o) => o.id).join(","))}">
         <div class="router-out-quiet-head" data-router-quiet-toggle="${escapeHtml(g.key)}" role="button" tabindex="0" aria-expanded="${open ? "true" : "false"}" title="${escapeHtml(t("rtQuietTip"))}">
           <span class="router-prov-caret">${open ? "▾" : "▸"}</span>
           <span class="router-out-quiet-label">${escapeHtml(t("rtQuietCells", { n: String(quiet.length) }))}</span>
@@ -270,7 +256,7 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
       html: `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(g.outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : rows(shown) + quietHtml}</div>` };
   });
 
-  // Pools: one output each (cb:<pool id>) — every pool is on the kanban for as long as it is
+  // Pools: one output each (cb:<pool id>) — every pool is in Routing for as long as it is
   // (caravan/admin/proxies_config.py, pool_output). A pool's row stands where its card stands
   // under Pools; an output whose pool the page does not know keeps its row too, so no
   // cable loses its end.
@@ -329,7 +315,7 @@ export function renderTopologyRouterDetail() {
   const bySource = router.rules?.bySource || [];
   const ruleCount = bySource.length + (router.rules?.schedule?.length || 0);
 
-  // The ports that could feed this kanban and do not, for the head's list. Only those that can
+  // The ports that could feed this router and do not, for the head's list. Only those that can
   // feed a router count: a cloud model's own port is an output of the Servers panel, and four of
   // them read as "4 unassigned" clients — a false alarm.
   const allProxies = (topology?.proxies || []).filter(feedsRouters).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
@@ -347,14 +333,14 @@ export function renderTopologyRouterDetail() {
     if (kind === "other") {
       return `<span class="router-pill other" data-router-attach="${escapeHtml(p.id)}" data-confirm="1" role="button" tabindex="0" title="${escapeHtml(t("rtTitleMoveFrom", { name: routerNameOf(p.routerId) }))}">${head}${name}<span class="router-pill-where">${escapeHtml(routerNameOf(p.routerId))}</span></span>`;
     }
-    // A free port answers 503 until a kanban takes it. A client of the entry is never listed:
+    // A free port answers 503 until a router takes it. A client of the entry is never listed:
     // it feeds no router (feedsRouters), its cable leads to a set of models.
     return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) + " :" + p.port }))}">${head}${name}<span class="router-pill-503">503</span></span>`;
   };
-  // The ports that could feed this kanban and do not: free ones (no kanban — 503 until bound)
-  // and those on another kanban. The badge opens their list, and a click on a port binds it
-  // here (topology-dnd.js binds [data-router-attach]; a port on another kanban asks first).
-  const unassignedHtml = (onOther.length + free.length) ? `<details class="rw-unassigned" data-t="kanban-unassigned">
+  // The ports that could feed this router and do not: free ones (no router — 503 until bound)
+  // and those on another Routing. The badge opens their list, and a click on a port binds it
+  // here (topology-dnd.js binds [data-router-attach]; a port on another router asks first).
+  const unassignedHtml = (onOther.length + free.length) ? `<details class="rw-unassigned" data-t="routing-unassigned">
       <summary class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</summary>
       <div class="rw-unassigned-list">${free.map((p) => pill(p, "free")).join("")}${onOther.map((p) => pill(p, "other")).join("")}</div>
     </details>` : "";
@@ -368,7 +354,7 @@ export function renderTopologyRouterDetail() {
   const cvNodeHtml = canvasNodes(router).map((n) => {
     // A drop whose save has not landed yet, else the server's place — there is no third.
     const pos = _cvPos[n.id] || n.fixed || { x: n.dx, y: n.dy };
-    return `<div class="cv-node cv-${n.type} ${n.cls || ""}" data-t="kanban-node" data-t-id="${escapeHtml(n.id)}" data-cv-node="${escapeHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px">${n.html}</div>`;
+    return `<div class="cv-node cv-${n.type} ${n.cls || ""}" data-t="routing-node" data-t-id="${escapeHtml(n.id)}" data-cv-node="${escapeHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px">${n.html}</div>`;
   }).join("");
   const cvTf = `translate(${_cvView.tx}px, ${_cvView.ty}px) scale(${_cvView.scale})`;
   const foOn = (router.rules?.failover || []).length > 0;
@@ -407,25 +393,25 @@ export function renderTopologyRouterDetail() {
           <section class="rw-pane rw-center">
             <div class="rw-palette">
               <span class="rw-palette-label">${escapeHtml(t("rtRuleNodeLabel"))} ${helpTip("rtPaletteTip")}</span>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="schedule" type="button" data-cv-add="schedule" title="${escapeHtml(t("rtTitleSchedule"))}">⏱ ${escapeHtml(t("cvNodeSchedule"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="weighted" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="roundRobin" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="failover" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="onError" type="button" data-cv-add="onError" title="${escapeHtml(t("rtTitleOnError"))}">🛟 ${escapeHtml(t("cvNodeOnError"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="requestType" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="requestSize" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
-              <span class="rw-palette-save" data-t="kanban-save-status" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="schedule" type="button" data-cv-add="schedule" title="${escapeHtml(t("rtTitleSchedule"))}">⏱ ${escapeHtml(t("cvNodeSchedule"))}</button>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="weighted" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="roundRobin" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="failover" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="onError" type="button" data-cv-add="onError" title="${escapeHtml(t("rtTitleOnError"))}">🛟 ${escapeHtml(t("cvNodeOnError"))}</button>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="requestType" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
+              <button class="cv-palette-btn" data-t="routing-palette-add" data-t-id="requestSize" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
+              <span class="rw-palette-save" data-t="routing-save-status" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>
             </div>
             ${renderRouterNodeConfig(router)}
-            <div class="cv-viewport" data-t="kanban-canvas" role="region"
+            <div class="cv-viewport" data-t="routing-canvas" role="region"
                  aria-label="${escapeHtml(t("a11yRoutingGraph"))}" data-cv-viewport>
               <div class="cv-world" data-cv-world style="transform:${cvTf}">
-                <svg class="cv-svg" data-t="kanban-cables" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
+                <svg class="cv-svg" data-t="routing-cables" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
                 ${cvNodeHtml}
                 <svg class="cv-svg cv-svg-over" data-cv-over aria-hidden="true" width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
               </div>
               <div class="rw-canvas-hint muted">${escapeHtml(t("rtCanvasHint"))}</div>
-              <button class="cv-fit-btn" type="button" data-cv-fit data-t="kanban-fit" title="${escapeHtml(t("cvFitAllTip"))}">⤢ ${escapeHtml(t("cvFitAll"))}</button>
+              <button class="cv-fit-btn" type="button" data-cv-fit data-t="routing-fit" title="${escapeHtml(t("cvFitAllTip"))}">⤢ ${escapeHtml(t("cvFitAll"))}</button>
             </div>
           </section>
           ${cvPanels.right}

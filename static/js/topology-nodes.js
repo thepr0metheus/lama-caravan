@@ -3,6 +3,9 @@ import { drawTopologyCables } from "./cables.js";
 import { BoardView } from "./board-view.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { CellEye, CellFilter, CellRow, CellWindow, EngineStrip, FoldSlot, ShelfLine } from "./card-rows.js";
+import { CellMemory } from "./cell-memory.js";
+import { CellSpeed } from "./cell-speed.js";
+import { ClientLlamaUpdate } from "./client-llama-update.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
@@ -35,7 +38,10 @@ import {
 } from "./topology-activity.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
-import { runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
+import { runnerFixedVramGb, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
+import { ModelCacheLine } from "./model-cache.js";
+import { ModelCopy } from "./model-copy.js";
+import { StartStrip } from "./start-strip.js";
 import { JOB_LABELS, JOB_MARKS, cellJobs, cellRunnerId, jobsFromKinds } from "./model-jobs.js";
 // The record rule lives beside the vocabulary (model-jobs.js); the card's modules import it from here.
 export { cellJobs, cellRunnerId };
@@ -80,6 +86,7 @@ function runnerChipHtml(runnerId) {
 const JOB_HOOKS = { llm: "cell-job-llm", embed: "cell-job-embed", asr: "cell-job-asr", tts: "cell-job-tts",
                     translate: "cell-job-translate",
                     "speech-translate": "cell-job-speech-translate",
+                    "voice-chat": "cell-job-voice-chat",
                     "robot-policy": "cell-job-robot-policy" };
 
 // What the cell DOES, beside the chip that says what RUNS it.
@@ -595,13 +602,20 @@ export function llamaBuildChipHtml(n) {
   );
   const verChipTitle = [nodeVerStr, nodeMtime].filter(Boolean).join(" · ");
   // One-click llama.cpp update (converges the machine onto the controller's
-  // commit via its scout's background job); while the scout reports a
-  // running job the button gives way to a building indicator.
+  // commit via its scout's background job — or onto the latest release when
+  // the controller has no commit, and then the words on the button say so:
+  // client-llama-update.js); while the scout reports a running job the button
+  // gives way to a building indicator. No button until the controller has said
+  // what it runs.
   const upd = n.llamaUpdate || {};
+  const update = ClientLlamaUpdate.of(state.llamaCpp);
+  const updateTitle = escapeHtml(t(update.titleKey));
   const updateBtn = nodeVerStr
     ? (upd.running
       ? `<span class="llama-ver-building" title="${escapeHtml(String(upd.lastLine || ""))}">⏳ ${escapeHtml(t("clientLlamaBuilding"))}</span>`
-      : `<button class="llama-ver-refresh" type="button" data-update-client-llama="${escapeHtml(String(n.id))}" title="${escapeHtml(t("updateClientLlama"))}" aria-label="${escapeHtml(t("updateClientLlama"))}">⇪</button>`)
+      : update.offered
+        ? `<button class="llama-ver-refresh" type="button" data-update-client-llama="${escapeHtml(String(n.id))}" title="${updateTitle}" aria-label="${updateTitle}">⇪</button>`
+        : "")
     : "";
   // Stale binary: a server that started BEFORE the binary on disk was last
   // rebuilt still runs the old build — restart it to apply.
@@ -627,16 +641,15 @@ export function llamaBuildChipHtml(n) {
 function caravanLinksHtml(n) {
   const id = escapeHtml(String(n.id));
   return `<span class="caravan-links">`
-    + `<a class="models-bar-link models-bar-models" href="/models" target="_blank" rel="noopener" title="${escapeHtml(t("modelsPageSub"))}"`
-    + ` data-t="node-caravan-models" data-t-id="${id}"><span aria-hidden="true">📦</span><span>${escapeHtml(t("topologyModelsLabel"))}</span>`
-    + `<span class="models-bar-arrow" aria-hidden="true">↗</span></a>`
-    + `<a class="models-bar-link models-bar-hf" href="/hf" target="_blank" rel="noopener" title="${escapeHtml(t("hfBrowserTitle"))}"`
-    + ` data-t="node-caravan-hf" data-t-id="${id}"><span aria-hidden="true">🤗</span><span>Hugging Face</span>`
-    + `<span class="models-bar-arrow" aria-hidden="true">↗</span></a></span>`;
+    + `<a class="models-bar-link models-bar-models" href="/models" title="${escapeHtml(t("modelsPageSub"))}"`
+    + ` data-t="node-caravan-models" data-t-id="${id}"><span aria-hidden="true">📦</span><span>${escapeHtml(t("topologyModelsLabel"))}</span></a>`
+    + `<a class="models-bar-link models-bar-hf" href="/hf" title="${escapeHtml(t("hfBrowserTitle"))}"`
+    + ` data-t="node-caravan-hf" data-t-id="${id}"><span aria-hidden="true">🤗</span><span>Hugging Face</span></a></span>`;
 }
 
 // The caravan on a machine's card (2026-09-27, round 10: the operator chose
-// A): its strip, and under it not the list of its models but one line, "+ Add
+// A): its strip, under it the model cache's line (model-cache.js, 1.3.576: how many of the last
+// models the machine's disk keeps), and then not the list of its models but one line, "+ Add
 // model". It opens the cell editor on the next free port with the model list
 // already open; the cell is made on Apply, and a change of mind leaves no port
 // taken. The line counts the models with no cell here; none at all, or none
@@ -661,7 +674,7 @@ export function nodeCaravanGroupHtml(n, servers = [], models = state.models) {
     : !models.some((m) => m && m.kind === "model")
       ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanNoModels"))}</div>`
       : (!rows.length ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanAllHaveCells"))}</div>` : "");
-  return `<div class="node-launcher-group">${strip}${add}${said}</div>`;
+  return `<div class="node-launcher-group">${strip}${ModelCacheLine.of(n).html()}${add}${said}</div>`;
 }
 
 // What the lane shows right over a machine's chips, whichever chip is pressed:
@@ -736,7 +749,25 @@ const SCOUT_EXIT_WORDS = /^(died of SIG[A-Z0-9]+|exited \(code -?\d+\)|ended wit
 
 // Parse lastError string from llama-server log into a friendly human-readable message.
 // Returns { friendly, hint, raw } where friendly is the short translated reason.
-export function classifyLlamaError(raw) {
+export function classifyLlamaError(raw, tail = "") {
+  // The cause is often NOT the line the scout picked: llama.cpp says it, then ends with "exiting due
+  // to model loading error", and that last line is what a card showed. The crashed run's last lines
+  // (scout 2.6+) hold the cause, and a cause named outranks every guess made from the other line.
+  if (String(tail || "").toLowerCase().includes("quantized v cache requires flash_attn")) {
+    return { friendly: t("llamaErrKvCache"), hint: t("llamaErrKvCacheHint"), raw: raw || "" };
+  }
+  // MTP asked of a model that has none (a draft-mtp type with no draft file, on weights without MTP layers): llama.cpp warns
+  // of it a few lines before the one it dies on, so the card named only "exiting due to model loading error" (2026-10-17, :22025).
+  if (/model doesn't contain mtp layers|failed to create mtp context/i.test(`${tail || ""}\n${raw || ""}`)) {
+    return { friendly: t("llamaErrMtp"), hint: t("llamaErrMtpHint"), raw: raw || "" };
+  }
+  // A split by rows that this llama.cpp build cannot do: "device CUDA0 does not support split buffers" stood a few lines above
+  // "exiting due to model loading error", and the card said only that (2026-10-17, :22027). It was the first choice the cell
+  // form made for two cards — "Tensor" was its default — on the machine with a 3090 and a 5090 (llama.cpp b1141).
+  if (/does not support split buffers/i.test(`${tail || ""}\n${raw || ""}`)) {
+    return { friendly: t("llamaErrSplitRow"), raw: raw || "",
+             hint: t("llamaErrSplitRowHint", { group: t("splitMode"), row: t("splitRow"), layer: t("splitLayer"), tensor: t("splitTensor") }) };
+  }
   // No reason at all is itself a fact worth stating. The log reader now returns
   // "" rather than blaming a harmless warning line, so a crash whose cause is
   // not in the log reaches here empty — and the card used to render red with no
@@ -756,9 +787,15 @@ export function classifyLlamaError(raw) {
   if (r.includes("out of memory") || r.includes("cudaerroromemoryallocation") || r.includes("failed to allocate") || r.includes("not enough memory")) {
     return { friendly: t("llamaErrOOM"), hint: t("llamaErrOOMHint"), raw };
   }
-  // Wrong mmproj
-  if (r.includes("mismatch between text model") || r.includes("wrong mmproj") || r.includes("mtmd_init_from_file")) {
+  // Wrong mmproj: the projector says it is not this model's
+  if (r.includes("mismatch between text model") || r.includes("wrong mmproj")) {
     return { friendly: t("llamaErrMmproj"), hint: t("llamaErrMmprojHint"), raw };
+  }
+  // A file given as mmproj that could not be read as a vision projector at all — damaged, not a projector, or of a newer
+  // kind than this llama.cpp knows. It was told as "embedding size does not match", which is a different fault (:22011,
+  // whose "projector" file was a part of a speech pipeline, 2026-10-17).
+  if (r.includes("failed to load clip model") || r.includes("mtmd_init_from_file")) {
+    return { friendly: t("llamaErrClip"), hint: t("llamaErrClipHint"), raw };
   }
   // Model file not found
   if (r.includes("no such file") || r.includes("failed to open") || r.includes("failed to load model")) {
@@ -929,15 +966,22 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     return `<span class="msl-prev-err" title="${escapeHtml(tip)}">⚠</span>`;
   };
   let statusRow = "";
+  // The same status for the folded line (start-strip.js): the copy's own figures, or the words of the card's line while the cell
+  // loads or warms up. The line carries the model's name already, so the strip leaves it out.
+  let startCopy = null;
+  let startLabel = "";
+  let startInner = "";
   if (isDeleting) {
     statusRow = _msl("msl-stop", `${_mslSpin(true)}<span class="msl-bar indeterminate msl-bar-stop"><span></span></span><span class="msl-text">${escapeHtml(t("removingSlotLabel"))}</span>`);
   } else if (isStopping || isCellStopping) {
     statusRow = _msl("msl-stop", `${_mslSpin(true)}<span class="msl-bar indeterminate msl-bar-stop"><span></span></span><span class="msl-text">${escapeHtml(t("stoppingLabel"))}</span>`);
   } else if (isDownloading) {
-    const done = Number(s.downloadedBytes || 0), tot = Number(s.totalBytes || 0);
-    const p = tot > 0 ? Math.round((done / tot) * 100) : null;
-    const dlFile = s.downloadingFile ? escapeHtml(s.downloadingFile) : escapeHtml(t("topologyRemoteDownloading"));
-    statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
+    // The whole model's copy, in the pages' own gigabytes (model-copy.js): not the one file the scout is on, in decimal ones.
+    const copy = ModelCopy.now(s);
+    const dlLine = ModelCopy.line(copy, s.downloadingFile || t("topologyRemoteDownloading"));
+    statusRow = _msl("", `<span class="msl-bar"><span style="width:${copy.pct ?? 0}%"></span></span><span class="msl-text" data-live-dl>${escapeHtml(dlLine)}</span>`);
+    startCopy = copy;
+    startLabel = s.downloadingFile || t("topologyRemoteDownloading");
   } else if (isWarming) {
     // "into VRAM" is a lie on a CPU cell — it loads into RAM. The full isCpuCell
     // is derived further down (it needs the live GPU list), so the two cases
@@ -946,7 +990,8 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     const _warmCpu = String(_wcfg.N_GPU_LAYERS ?? "").trim() === "0"
       || String(_wcfg.RUNNER || "").toLowerCase() === "moonshine";
     const _warmKey = _warmCpu ? "topologyRemoteWarmingRam" : "topologyRemoteWarming";
-    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t(_warmKey))}</span>${_prevErrChip(s)}`);
+    startInner = `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t(_warmKey))}</span>${_prevErrChip(s)}`;
+    statusRow = _msl("", startInner);
   } else if (isBroken) {
     // The diagnosis is the cell's own health body, a string.
     const bErr = String(s.status?.error || "");
@@ -959,7 +1004,8 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     // for minutes and a bare spinner reads as a hang. Log-derived, so shown
     // as-is (same policy as error details).
     const note = s.status?.progressNote ? ` · ${s.status.progressNote}` : "";
-    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml((phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting")) + note)}</span>${_prevErrChip(s)}`);
+    startInner = `${_mslSpin(false)}<span class="msl-text">${escapeHtml((phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting")) + note)}</span>${_prevErrChip(s)}`;
+    statusRow = _msl("", startInner);
   }
   const healthCls = running ? "running" : (isBroken ? "error" : (isStopped ? "" : "loading"));
   // Compact model block (name + quant/size/vision chips) — click to drill in.
@@ -1144,21 +1190,12 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const _vramClaim = running
     ? _gpuList.filter((g) => g.mib > 0).map((g) => `${g.i}:${g.mib}`).join(",")
     : "";
-  // An engine cell's memory is its engine's for this model: what the engine
-  // says it holds while the cell runs, the file's size while it does not.
-  const engineHeld = running && engineModel?.loaded === true
-    ? (engineModel.vramBytes ?? engineModel.memBytes ?? null) : null;
-  const engineFile = engineModel && !engineModel.remote && Number(engineModel.fileBytes) > 0
-    ? Number(engineModel.fileBytes) : 0;
-  const memBadge = engineRunner
-    ? (engineHeld != null
-        ? mbadge("vram", `${escapeHtml((Number(engineHeld) / 2 ** 30).toFixed(1))}G`, t("cellEngineMemTitle", { engine: engineName }))
-        : (engineFile ? mbadge("vram-est", `≈${escapeHtml((engineFile / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle")) : ""))
-    : (running && _vramMib)
-    ? mbadge("vram", `${escapeHtml((_vramMib / 1024).toFixed(1))}G`, `${t("vramChipTitle")}${_vramSplit ? ` — ${_vramSplit}` : ""}`)
-    : ((!running && Number(s.modelSizeBytes) > 0)
-        ? mbadge("vram-est", `≈${escapeHtml((Number(s.modelSizeBytes) / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle"))
-        : "");
+  // An engine cell's memory is its engine's for this model: what the engine says it holds while the cell runs, split into what is on the
+  // card and what is not.
+  const engineLive = running && engineModel?.loaded === true;
+  // A runner whose start takes a measured amount whatever the model file weighs says so in the registry: a
+  // stopped cell wears that figure, not the file's size (llama.cpp-omni's GGUF is 4.7 GB, its cell takes 12.5).
+  const plannedVramGb = runnerFixedVramGb(_runner);
   // One truth for the chip AND the card accent (.cpu-cell → blue instead of
   // green/amber): running with no GPU memory AND no GPU pin, or stopped with
   // CPU pinned in the config. The pin has to count — measuring VRAM alone
@@ -1171,11 +1208,21 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
   // Strata has no CPU mode at all: its engine streams experts to a card.
   const runnerDefaultsGpu = usesLlamaConfig(_runner) || _runner === "vllm" || _runner === "whisper"
-    || _runner === "transcribe" || _runner === "strata" || _runner === "gr00t";
+    || _runner === "transcribe" || !!runnerRegistry().find((r) => r.id === _runner)?.gpuOnly;
   const runnerCpuOnly = _runner === "moonshine";
   const isCpuCell = !engineRunner && ((running && !devGpuTxt && !cfgSaysGpu)
     || (!running && (cfgSaysCpu || runnerCpuOnly) && !isReserved)
     || (running && runnerCpuOnly));
+  // The two badges of the memory it holds (cell-memory.js): the RAM and the video memory, each measured, expected, none or not told. An engine
+  // cell says what its engine says: the card's share, and what is left of the total in RAM.
+  const engineVram = Number.isFinite(Number(engineModel?.vramBytes)) && engineModel?.vramBytes != null ? Number(engineModel.vramBytes) : null;
+  const engineTotal = Number.isFinite(Number(engineModel?.memBytes)) && engineModel?.memBytes != null ? Number(engineModel.memBytes) : null;
+  const memory = engineRunner
+    ? CellMemory.of({ live: engineLive, reserved: isReserved, gpuKnown: engineVram !== null, vramBytes: engineVram, heldTitle: t("cellEngineMemTitle", { engine: engineName }),
+                      ramBytes: engineVram !== null && engineTotal !== null ? Math.max(0, engineTotal - engineVram) : null })
+    : CellMemory.of({ live: running || isWarming || isBroken, reserved: isReserved, cpu: isCpuCell, gpuKnown: (node.gpus || []).length > 0,
+                      ramBytes: s.ramBytes, vramBytes: _vramMib * 2 ** 20, split: _vramSplit, plannedGb: plannedVramGb, fileBytes: Number(s.modelSizeBytes) || 0 });
+  const memBadge = memory.html();
   // Where an engine computes is the engine's to say: its cell names the engine
   // (the runner chip) and the memory it holds, not a device of its own.
   const deviceChip = engineRunner ? "" : (running && devGpuTxt)
@@ -1213,7 +1260,7 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
              WHERE it computes, how MUCH it takes, then the file's own facts, and
              warnings last. Two cards of the same kind now read in the same
              order, which is what makes a board scannable at all. */""}
-      ${statusRow || (jobChipsHtml(_runner, s.cellMeta, _scfg) || deviceChip || chips || schedChip || diskNewerChip || staleModelChip || libraryChip || crashChip ? `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml(_runner, s.cellMeta, _scfg)}${runnerChipHtml(_runner)}${deviceChip}${memBadge}${chips}${schedChip}${diskNewerChip}${staleModelChip}${libraryChip}${crashChip}</span></div>` : "")}
+      ${statusRow || (jobChipsHtml(_runner, s.cellMeta, _scfg) || deviceChip || memBadge || chips || schedChip || diskNewerChip || staleModelChip || libraryChip || crashChip ? `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml(_runner, s.cellMeta, _scfg)}${runnerChipHtml(_runner)}${deviceChip}${memBadge}${chips}${schedChip}${diskNewerChip}${staleModelChip}${libraryChip}${crashChip}</span></div>` : "")}
     </div>` : "";
   const emptyCellBlock = isReserved ? `
     <div class="node-model-block node-model-block-empty">
@@ -1395,7 +1442,29 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // board's corner. While the card is folded, the line owns it.
   const anchorHtml = `<span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
             data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>`;
-  const cardHtml = (anchor) => `
+  // What a failed cell has to say. The full card carries it at its foot; a failed cell folded into its red line
+  // (card-fold.js cellFailed) shows it FIRST in its window, over the card, and the card inside leaves it out. A broken
+  // cell (a live process around a dead engine) says its own health body, whole — the card's status row cuts it at 140.
+  const errorBlockHtml = isError ? (() => {
+    const err = classifyLlamaError(s.lastError, s.crash?.tail);
+    return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(errorBlockTitle(s))}">
+          <span class="llama-err-icon">⚠</span>
+          <span class="llama-err-body">
+            <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
+            ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
+            ${s.lastError ? `<span class="llama-err-raw">${escapeHtml(s.lastError)}</span>` : ""}
+          </span>
+        </div>`;
+  })() : "";
+  const brokenText = isBroken ? String(s.status?.error || "") : "";
+  const brokenBlockHtml = isBroken ? `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(brokenText)}">
+          <span class="llama-err-icon">💔</span>
+          <span class="llama-err-body">
+            <span class="llama-err-friendly">${escapeHtml(t("failed"))}</span>
+            ${brokenText ? `<span class="llama-err-raw">${escapeHtml(brokenText)}</span>` : ""}
+          </span>
+        </div>` : "";
+  const cardHtml = (anchor, { inWindow = false } = {}) => `
     <article class="node-server ${cardCls}"
              data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
              ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
@@ -1414,17 +1483,7 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
         const note = (topology?.cellNotes || {})[slotKey];
         return note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "";
       })()}
-      ${isError ? (() => {
-        const err = classifyLlamaError(s.lastError);
-        return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(errorBlockTitle(s))}">
-          <span class="llama-err-icon">⚠</span>
-          <span class="llama-err-body">
-            <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
-            ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
-            ${s.lastError ? `<span class="llama-err-raw">${escapeHtml(s.lastError)}</span>` : ""}
-          </span>
-        </div>`;
-      })() : ""}
+      ${inWindow ? "" : errorBlockHtml}
       ${running && s.reachable === false ? (() => {
         const fw = s.firewall || {};
         const isBlocked = fw.state === "blocked";
@@ -1435,11 +1494,21 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
         </div>`;
       })() : ""}
     </article>`;
+  // The start said in the folded line: the copy under the name, or the card's own words while the cell loads. A cell that is being
+  // stopped, deleted or has failed says that its own way (the line's spinner, its red) and has no strip.
+  // A start just asked for, or the scout's first "starting", already shows in the line: its switch is locked and spins. The strip is
+  // for what the full card used to open for — the copy, the load, the warm-up. A cell being stopped, deleted or failed has no start
+  // words to give: each of those has a status of its own above, and the branches are exclusive.
+  const startingMotion = (hasPendingStart || phase === "starting") && !isDownloading && !isWarming;
+  const startStrip = startingMotion ? ""
+    : startCopy ? StartStrip.download(startCopy, startLabel, shownName) : StartStrip.status(startInner);
   // How settled the cell is, once — the fold and the machine's eye both ask.
   const settle = {
     phase,
+    // The line can say how the start goes (the strip under it), so the full card need not open for it (card-fold.js).
+    progress: !!startStrip,
     motion: isStopping || isCtlStopping || phase === "stopping" ? "stop"
-      : (hasPendingStart || phase === "starting") && !isDownloading && !isWarming ? "start" : "",
+      : startingMotion ? "start" : "",
     deleting: isDeleting,
     failed: isError || isBroken,
     transient: isDeleting || isStopping || isCtlStopping || !!pendingCellAction || !!statusRow,
@@ -1462,16 +1531,21 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   }
   const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellFoldable(settle)) : "full";
   if (foldMode === "full") return cardHtml(anchorHtml);
+  const failedLine = CardFold.cellFailed(settle);
+  // The line breathes while the cell answers a request, and a speed it only holds is the last one: one rule (cell-speed.js), also for the live patch.
+  const speed = new CellSpeed(s, running);
   const row = new CellRow({
     key: slotKey, port, name: shownName, title: s.model ? (s.modelPath || s.model) : shownName,
-    state: running ? "running" : (isReserved ? "reserved" : "parked"),
+    // A broken cell's process is alive: its switch is ON (flipping it stops it), as red as the line.
+    state: running || isBroken ? "running" : (isReserved ? "reserved" : "parked"),
+    failed: failedLine, reason: failedLine ? (isError ? errorBlockTitle(s) : brokenText) : "",
     cpu: isCpuCell, engine: engineRunner ? engineRunner.id : "", chip: memBadge || deviceChip,
     launch: canPlay ? launchAttrs : "",
     stop: canStop ? stopAttrs : "", why: settle.motion === "stop" ? t("nodeStoppingTitle") : settle.motion === "start" ? t("topologyRemoteStarting") : running ? stopTitle : playTitle,
     motion: settle.motion,
     warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
-    tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
-    busy: running && Number(s.genTps || 0) > 0, anchor: anchorHtml,
+    tps: speed.words(formatTps), held: speed.held, tpsHint: speed.hint(),
+    busy: speed.working, anchor: anchorHtml, strip: startStrip,
   });
   // A click on the line opens the card as a window over the board. The window
   // is titled with the line's own name, and the machine's address is named
@@ -1483,7 +1557,8 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     key: slotKey, name: row.shownName(), port, address: (s.clientIp || node.ip) ? addr : "",
     via: enginePort ? `127.0.0.1:${enginePort}` : "",
     viaTitle: enginePort ? t("cellWindowViaTitle", { engine: engineName, port: String(port) }) : "",
-    engine: engineRunner ? engineRunner.id : "", card: cardHtml(""),
+    engine: engineRunner ? engineRunner.id : "", card: cardHtml("", { inWindow: true }),
+    notice: failedLine ? (errorBlockHtml || brokenBlockHtml) : "",
   });
   return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line: row.html(), card: cellWindow.html(),
                         open: CARD_FOLD.openKey === slotKey }).html();
@@ -1670,7 +1745,7 @@ export function openNodeServerDetail(nodeId, port) {
         </div>
         <div class="nsd-body">
           ${row("Status", `${topologyStatusPill(running ? "running" : (phase === "error" ? "failed" : phase))} ${firewallBadge(fw)} ${statusGpuBadges || (running ? `<span class="node-gpu-badge node-cpu-badge" title="${escapeHtml(t("topologyCpuCellsHint"))}">CPU</span>` : "")}`)}
-          ${row("Address", `<a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)} ↗</a>`)}
+          ${row("Address", `<a href="http://${escapeHtml(addr)}" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>`)}
           ${isCmd
             ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
             : _runnerRow && _runnerRow.modelField && !isLlama
@@ -1762,8 +1837,8 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 // The machine behind an address its cells answer at: { key, name, address }.
 // The name is its node's — what its scout reports, the computer's hostname — and
 // the address is the node's too (where its cells are reached); the one place
-// the board's node headers, the kanban's server groups and the nvidia-smi
-// sources name a machine from. The kanban named the controller's machine by the
+// the board's node headers, Routing's server groups and the nvidia-smi
+// sources name a machine from. Routing named the controller's machine by the
 // controller's old display name (over its own machine's cells) and every
 // other machine by its bare address. Loopback and the controller's own address
 // are the controller's machine: its node, or the name of the computer the
@@ -1885,11 +1960,12 @@ export function machinesLaneHtml() {
                role="group" aria-label="${escapeHtml(nodeGroupName(n))}" title="${opens}">
         <header class="node-head">
           <span class="node-dot ${n.online ? "on" : "off"}"></span>
-          <a class="machine-name" href="${escapeHtml(BoardView.url(n.id))}" target="${escapeHtml(BoardView.windowName(n.id))}"
+          <a class="machine-name" href="${escapeHtml(BoardView.url(n.id))}"
              data-machine-open="${id}" data-t="machine-open" data-t-id="${id}">${escapeHtml(name)}</a>
           <span class="node-role">${escapeHtml(nodeRoleWord(n))}</span>
           ${n.ip ? `<span class="topology-muted">${escapeHtml(n.ip)}</span>` : ""}
           ${scoutOldChipHtml(n)}
+          ${ModelCacheLine.of(n).diskChipHtml()}
         </header>
         ${hostSilenceHtml(n)}
         <div class="node-body">${nodeComputeHtml(n)}</div>
@@ -1985,7 +2061,7 @@ export function nodesLaneHtml(only = null) {
     // because it opens a phrase; harmless where a script has no case.
     const _roleWord = nodeRoleWord(n);
     const _groupName = nodeGroupName(n);
-    // A machine's place in the operator's order (server-order.js) — the kanban's Servers panel reads
+    // A machine's place in the operator's order (server-order.js) — Routing's Servers panel reads
     // it — and the controls that move it lead its head.
     const orderKey = ServerOrder.key("node", n.id);
     return `
@@ -1999,6 +2075,7 @@ export function nodesLaneHtml(only = null) {
           <span class="node-role">${escapeHtml(_roleWord)}</span>
           ${n.ip ? `<span class="topology-muted">${escapeHtml(n.ip)}</span>` : ""}
           ${scoutOldChipHtml(n)}
+          ${ModelCacheLine.of(n).diskChipHtml()}
           ${verChip}
           ${collapsed ? `<span class="node-meta">${servers.length} srv · ${(n.gpus||[]).length} GPU</span>` : ""}
           <span style="flex:1"></span>

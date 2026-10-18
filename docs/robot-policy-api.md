@@ -202,7 +202,7 @@ steps, on one RTX 5090, the DROID sample of Isaac-GR00T:
 3. In the cell editor pick 🦾 **GR00T**, choose the checkpoint folder, name
    the model (`MODEL_NAME`), and start. The scout brings both folders; the
    cell never asks the hub for anything.
-4. Put the machine's model into a pool on the kanban, and the pool into the
+4. Put the machine's model into a pool in Routing, and the pool into the
    client's set.
 
 Licences: the Isaac-GR00T code is Apache-2.0; the GR00T N1.7 and

@@ -5,14 +5,14 @@ The owner, 2026-10-12 (visumap scheme caravan-model-schedule, step 1): a schedul
 belongs to the model; a pool passes over the row of a model closed now; a pool with
 no row left answers 503 and the time it opens.
 
-Pinned. caravan/common/model_schedules.py — a model's key as the kanban spells it
+Pinned. caravan/common/model_schedules.py — a model's key as Routing spells it
 (an account's model, a machine's cell); the schedules as the file keeps them, a
 schedule switched off keeping its windows; what one says at a moment.
 caravan/admin/model_schedules.py — the door's reading (what is refused and why), a
 cell's schedule following its port, swapping with it, leaving with it; what the board
 is told. caravan/common/cloud_file_keys.py — one table of the kept keys, so the
 controller writes the schedules back and the proxy reads them. caravan/admin/pools.py
-— an account deleted takes its models' schedules, a model taken off the kanban keeps
+— an account deleted takes its models' schedules, a model taken out of Routing keeps
 its. caravan/proxy/pool_steps.py — a closed row passed over, with when it opens; a
 pool of closed rows refused 503 with Retry-After to the first opening. The entry's
 answer to a client, in OpenAI's shape with the time.
@@ -81,7 +81,7 @@ LLAMA, CELL = "acc:or/meta/llama", "out:srv:22011"
 
 
 def section_keys():
-    print("ключ модели — как его пишет канбан:")
+    print("ключ модели — как его пишет Маршрутизация:")
     check(ModelKey.account("or", "meta/llama") == LLAMA and ModelKey.output("srv:22011") == CELL
           and ModelKey.output("eng:abc123") == "out:eng:abc123",
           "модель аккаунта — acc:<аккаунт>/<модель> (в имени модели может быть /), ячейка — out:srv:<порт>, модель движка — out:eng:<id>")
@@ -182,7 +182,7 @@ def section_file():
 
 
 def section_pools():
-    print("аккаунт удалён — его расписания тоже; модель снята с канбана — расписание при ней:")
+    print("аккаунт удалён — его расписания тоже; модель снята из Маршрутизации — расписание при ней:")
     data = {"accounts": [{"id": "or", "type": "openrouter"}, {"id": "ant", "type": "anthropic"}], "pools": [],
             "addedModels": {"or": ["meta/llama", "x"]},
             "schedules": {LLAMA: {"enabled": True, "windows": WEEKDAYS}, "acc:or/x": {"enabled": True, "windows": WEEKDAYS},
@@ -195,7 +195,7 @@ def section_pools():
 
     desk = PoolDesk(load=store.load, save=store.save, vault=Vault())
     desk.remove_model("or", "x")
-    check("acc:or/x" in store.data["schedules"], "модель снята с канбана — расписание осталось: вернётся с ним, как уровни")
+    check("acc:or/x" in store.data["schedules"], "модель снята из Маршрутизации — расписание осталось: вернётся с ним, как уровни")
     desk.remove_account("or")
     check(store.data["schedules"] == {"acc:ant/claude": {"enabled": True, "windows": NIGHTS}},
           "аккаунт удалён — расписания его моделей ушли; чужие не тронуты")

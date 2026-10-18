@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Snapshot of static/js/output-cells.js — the cell behind each local row of the kanban.
+"""Snapshot of static/js/output-cells.js — the cell behind each local row of Routing.
 
-What a Servers row says of its cell (2026-10-04, after a look at the live kanban): its state,
+What a Servers row says of its cell (2026-10-04, after a look at the live Routing): its state,
 in words and never guessed — 24 of 30 rows were stopped and drew the same grey "idle" dot as
 the 6 that ran; its name as the cell itself is named — a moonshine cell read "en"; what sets
 two cells of one model apart; and which stopped cells nothing leads to, so the panel can fold
@@ -102,6 +102,16 @@ PINS = [
      "значки — работы ячейки, тот же список, что фишки на карточке (cellJobs): LLM, эмбеддинги по ENABLE_EMBEDDINGS, "
      "moonshine — распознавание и речь, команда — по живому kinds; negative: работу не назвать (команда без kinds) или "
      "ячейки нет — без значка"),
+    ("jobs_are_the_marks_names",
+     '',
+     '(() => { const c = cells([CTL([{ port: 22001, slotConfig: { RUNNER: "llama-server" } }, { port: 22003, slotConfig: { RUNNER: "moonshine" } },'
+     ' { port: 22006, slotConfig: { RUNNER: "seamless" } }, { port: 22004, slotConfig: { RUNNER: "custom" } }])]);'
+     ' const mm = { id: "mm:a1", upstreamType: "machine", upstreamHost: "127.0.0.1", upstreamPort: 8092, upstreamModel: "gemma", hostId: "ctl", jobs: ["llm", "asr"] };'
+     ' return [[22001, 22003, 22006, 22004, 22007].map((p) => c.jobs(OUT(p))), c.jobs(mm), c.marks(mm), [22001, 22003, 22006].map((p) => c.marks(OUT(p)))'
+     ' .every((x, i) => x === c.jobs(OUT([22001, 22003, 22006][i])).map((j) => ({ llm: "💬", asr: "🎧", tts: "🔊", "speech-translate": "🎧🌐" })[j]).join(""))]; })()',
+     '[[["llm"],["asr","tts"],["speech-translate"],[],[]],["llm","asr"],"💬🎧",true]',
+     "работы ячейки — именами (jobs), значки — те же работы (marks): строка модели в Маршрутизации берёт из имён и значок, и подсказку («Chat, …»); "
+     "модель входа машины говорит свои работы на выходе; negative: работу не назвать или ячейки нет — пустой список, а не «llm» по умолчанию"),
     ("a_cell_with_no_settings_on_record",
      '',
      '(() => { const c = cells([CTL([{ port: 22005, model: "large-v3-turbo", cellMeta: { engine: "faster-whisper", kinds: ["asr", "stt.whisper"] } },'
@@ -120,7 +130,7 @@ PINS = [
      ' return [[...c.reached()].sort(), [...cells([], {}).reached()]]; })()',
      '[["cb:x","cb:y","srv:22001","srv:22011","srv:22012","srv:22013","srv:22020","srv:22030"],[]]',
      "к выходу ведёт: канат (ребро out:), выход по умолчанию, выходы аудио и эмбеддингов, старые списки правил; ребро к "
-     "узлу правила — не выход; negative: пустой канбан — ничего"),
+     "узлу правила — не выход; negative: пустая Маршрутизация — ничего"),
     # ── the quiet fold ──
     ("split_folds_stopped_cells_nothing_leads_to",
      '',
@@ -225,7 +235,7 @@ def main():
         return 1
     both = json.loads(run.stdout.strip().splitlines()[-1])
     got, rev = both["out"], both["rev"]
-    print("ячейки за строками канбана:")
+    print("ячейки за строками Маршрутизации:")
     for pid, _s, _e, expected, msg in PINS:
         want, have = json.loads(expected), got.get(pid, "\0missing")
         check(have == want, msg if have == want else

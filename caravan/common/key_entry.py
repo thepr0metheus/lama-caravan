@@ -21,11 +21,15 @@ class KeyEntry:
 
     PORT_MIN, PORT_MAX = 1024, 65535
     URL_RE = re.compile(r"^https?://[A-Za-z0-9.\-]+(:\d{1,5})?(/[\w\-./]*)?$")
-    #: The kanban's test of a client (caravan/admin/proxy_entry.py AsConsumer) carries this header
+    #: Routing's test of a client (caravan/admin/proxy_entry.py AsConsumer) carries this header
     #: and is journaled under PROBE_CLIENT: its answers are the test's, and the client's list of
     #: errors (caravan/admin/client_misses.py) leaves them out. Heard only from this machine itself.
     PROBE_HEADER = "X-Caravan-Probe"
-    PROBE_CLIENT = "kanban-probe"
+    PROBE_CLIENT = "routing-probe"
+    #: What the journal's rows from before 1.3.582 call it (the page was named after the kanban then). The journal keeps 30 days, so those rows are
+    #: still read as the test's until 2026-11-18, and this line can go then.
+    PROBE_CLIENT_BEFORE_1_3_582 = "kanban-probe"
+    PROBE_CLIENTS = (PROBE_CLIENT, PROBE_CLIENT_BEFORE_1_3_582)
 
     @classmethod
     def clean(cls, raw):

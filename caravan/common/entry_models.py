@@ -1,7 +1,7 @@
 """What a consumer of the entry calls: the pools of its set, each by its name — OpenAI's model list.
 
 The owner, 2026-10-12, a step on (step 2 of the visumap scheme caravan-model-sets): a consumer is
-cabled to a SET on the kanban, and the set to pools — chat, speech, embeddings, each a pool. One
+cabled to a SET in Routing, and the set to pools — chat, speech, embeddings, each a pool. One
 set may serve several consumers. `GET /v1/models` lists the set's pools by name; a request's
 `model` picks the pool, as OpenAI's API picks a model, and a name the set has not is 404
 `model_not_found`. Below, the history of the one cable to one pool that came before.
@@ -9,7 +9,7 @@ set may serve several consumers. `GET /v1/models` lists the set's pools by name;
 The owner, 2026-10-11: the caravan speaks the OpenAI API the way the gateways
 of companies do. A consumer knows one address and its own key; `GET /v1/models`
 lists what that key may call. The owner, 2026-10-12: a consumer is cabled to
-one pool on the kanban — "only one cable goes on from a client" — so every
+one pool in Routing — "only one cable goes on from a client" — so every
 request of its key went to that pool, whatever `model` it named, until the
 sets above (1.3.497). The pool is
 listed by the name the operator gave it on the board; the providers, accounts

@@ -3,9 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kanban board — Lama Caravan</title>
+  <title>Routing — Lama Caravan</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4">
   <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/cables.css">
+  <link rel="stylesheet" href="/css/columns.css">
   <link rel="stylesheet" href="/css/topology-board.css">
   <link rel="stylesheet" href="/css/canvas.css">
   <link rel="stylesheet" href="/css/modals.css">
@@ -29,7 +31,7 @@
       font-size: 13px;
     }
 
-    /* ── standalone kanban header ── */
+    /* ── standalone Routing header ── */
     .rw-head-standalone {
       background: var(--surface);
       padding: 10px 18px !important;
@@ -82,33 +84,54 @@
     }
   </style>
 </head>
-<body data-t-page="kanban" data-t-state="loading" aria-busy="true">
+<body data-t-page="routing" data-t-state="loading" aria-busy="true">
   <script>
   /* Inline ON PURPOSE, and it must stay inline. Every other line of this app
      arrives over its own HTTP request; when one of those never lands, nothing
      runs — no router, no readiness flag, no error handler — and the page shows
      its empty shell forever. This is the only code that is already here.
 
-     Two failures it names. A <script>/<link> that fails outright reports itself
-     at once. A load that merely never finishes has nothing to report, so a
-     timer settles it: still "loading" after 20s means the boot did not happen.
-     Either way data-t-state reaches "error", which is what the contract in
-     docs/testability.md promises and could not previously deliver — the code
-     that would have set it was the code that failed to arrive. */
+     Three failures it names. A <script>/<link> that fails outright reports itself
+     at once. A script that runs and throws, or a module that cannot be linked (a
+     file of another version, a name it does not export), reports itself to the
+     window and not to its element: the guard keeps the first words of it, and a
+     module that cannot be linked fails the page at once, since nothing of the
+     page ran and nothing more will come. A load that merely never finishes has
+     nothing to report, so a timer settles it: still "loading" after 20s means the
+     boot did not happen. The banner then says where it stopped: window.__bootWaiting
+     is what the boot was last waiting for (static/js/utils.js, bootWaitsFor) — none
+     reported means the boot has not got as far as saying. Either way data-t-state
+     reaches "error", which is what the contract in docs/testability.md promises
+     and could not previously deliver — the code that would have set it was the
+     code that failed to arrive.
+
+     A page that was slow and not dead finishes: the banner goes when the page says
+     "ready" (until 1.3.542 it stayed, red, over a board that worked). */
   (function () {
-    var dead = [], done = false;
+    var dead = [], errs = [], done = false;
+    function said(e) {
+      var err = e.error || e.reason, text = (err && err.message) || e.message || (err ? String(err) : "");
+      return String(text).slice(0, 160);
+    }
     addEventListener("error", function (e) {
       var el = e.target;
       if (el && (el.tagName === "SCRIPT" || el.tagName === "LINK")) {
         dead.push((el.src || el.href || "").replace(location.origin, ""));
         if (/\/js\/main\.js/.test(el.src || "")) fail();
+      } else if (said(e)) {
+        errs.push(said(e));
+        if (e.error && e.error.name === "SyntaxError" && !window.__bootWaiting) fail();
       }
     }, true);
+    addEventListener("unhandledrejection", function (e) { if (said(e)) errs.push(said(e)); });
     function fail() {
       if (done || document.body.dataset.tState !== "loading") return;
       done = true;
+      var waiting = window.__bootWaiting;
       var why = dead.length ? "assets did not load: " + dead.join(", ")
-                            : "scripts did not initialise";
+                            : "scripts did not initialise"
+                              + (errs.length ? ": " + errs[0] + (errs.length > 1 ? " (+" + (errs.length - 1) + " more)" : "") : "")
+                              + (waiting ? " (the boot was waiting for: " + waiting + ")" : " (no step reported)");
       document.body.dataset.tState = "error";
       document.body.dataset.tStateDetail = why;
       document.body.setAttribute("aria-busy", "false");
@@ -127,6 +150,11 @@
       b.appendChild(r);
       document.body.appendChild(b);
     }
+    new MutationObserver(function () {
+      if (document.body.dataset.tState !== "ready") return;
+      var b = document.querySelector('[data-t="boot-error"]');
+      if (b) b.remove();
+    }).observe(document.body, { attributes: true, attributeFilter: ["data-t-state"] });
     setTimeout(fail, 20000);
   })();
   </script>
@@ -237,16 +265,19 @@
     </script>
   </div>
 
+  <!-- header:begin — made by scripts/gen_header.py from its template; change the template, never one page -->
   <header class="topbar" data-t="header">
     <div class="topbar-brand">
-      <a class="sys-back" data-t="kanban-back-link" href="/board"><span aria-hidden="true">←</span> <span data-i18n="boardPageName">Main board</span></a>
+      <a class="sys-back topbar-back" data-t="header-back" href="/board"><span aria-hidden="true">←</span> <span data-i18n="boardPageName">Main board</span></a>
       <div class="brand-title">
         <img src="/favicon.svg?v=4" alt="" aria-hidden="true">
-        <span class="brand-name-wrap"><span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span></span>
+        <span class="brand-name-wrap">
+          <span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span>
+        </span>
+        <span id="projectGitBranch" class="project-git-branch" data-title-i18n="projectGitBranchTitle" title="Project git branch" data-t="header-version-branch">branch n/a</span>
       </div>
-      <span id="projectGitBranch" class="project-git-branch" data-title-i18n="projectGitBranchTitle" title="Project git branch" data-t="header-version-branch">branch n/a</span>
     </div>
-      <h1 class="page-title" data-t="header-page-title" data-i18n="topologyRouterTitle">Kanban board</h1>
+    <h1 class="page-title" data-t="header-page-title" data-i18n="topologyRouterTitle">Routing</h1>
     <div class="actions">
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
         <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
@@ -261,15 +292,14 @@
         <span class="ob-q">?</span><span id="obBtnLabel" data-i18n="tourBtnLabel">Tour</span>
       </button>
       <div class="lang-select" id="langSelect">
-        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false"
-                data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-open">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-open">
           <span class="lang-emoji" id="langTriggerEmoji">☕</span><span class="lang-code" id="langTriggerCode" data-t="header-lang-current">EN</span><span class="lang-caret" aria-hidden="true">▾</span>
         </button>
-        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden
-            data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-menu"></ul>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden data-t="header-lang-menu" data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language"></ul>
       </div>
     </div>
   </header>
+  <!-- header:end -->
   <div id="topologyProxies"></div>
 
   <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">

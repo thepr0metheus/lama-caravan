@@ -27,7 +27,7 @@ class CellOutputs:
     """The names of a cell — `srv:<port>` — following it when its port changes, and leaving with it."""
 
     def __init__(self, load=None, save=None, routers_move=None, routers_swap=None, log=print):
-        # cloud.py and proxies_config.py import the kanban's modules at the top; taken here.
+        # cloud.py and proxies_config.py import Routing's modules at the top; taken here.
         from caravan.admin.cloud import load_cloud_data, save_cloud_data
         from caravan.admin.proxies_config import remap_router_output_refs, swap_router_output_refs
         self.load, self.save = load or load_cloud_data, save or save_cloud_data

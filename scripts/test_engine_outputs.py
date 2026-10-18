@@ -278,12 +278,7 @@ def test_proxy_pieces():
 
 # ── the proxy for real, in front of a stand-in engine ─────────────────────────
 
-def free_port():
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
+from _ports import free_port  # noqa: E402
 
 
 ENGINE = free_port()

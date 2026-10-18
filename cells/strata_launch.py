@@ -6,8 +6,9 @@ from Strata itself — its setup.py's tables (models, families, draft
 vocabularies, the KV-streaming rule) and its tools (iq_pack.py, mtp_rt.py,
 gguf_reader) — instead of copied here, where they would drift with every
 Strata release. Settled against Strata v0.1.42. The parts of its setup this
-does not do it refuses by name: the low-RAM mode, Unsloth's RAM-budget files,
-several cards.
+does not do it refuses by name: the low-RAM mode and several cards. Unsloth's
+~4-bit packs (UD-IQ4_XS, UD-Q4_K_XL) run with the RAM budget of their experts
+that Strata's own rule recommends for the machine (`--resident-budget-gib`).
 
 What it makes goes to CARAVAN_CELL_SCRATCH, the scout's scratch folder of the
 cell: kept with the cell's models when it caches them, gone with them when it
@@ -74,7 +75,7 @@ class StrataLaunch:
         except Exception as exc:  # noqa: BLE001 — any failure is "cannot read it"
             raise self.Refusal(f"cannot read Strata's setup.py at {path}: {exc}")
         need = ("MODELS", "FAMILIES", "DRAFT_VOCABS", "EXE", "gguf_choice", "kv_streaming_wanted",
-                "low_ram_wanted", "ram_gb")
+                "kv_streaming_ram_gb", "low_ram_wanted", "ram_gb", "resident_budget_gib")
         missing = [name for name in need if not hasattr(module, name)]
         if missing:
             raise self.Refusal(f"this Strata has no setup.{missing[0]} — the caravan's launcher knows v0.1.42")
@@ -112,10 +113,6 @@ class StrataLaunch:
             raise self.Refusal(f"Strata does not know the file {first.name}: it runs the published "
                                f"Qwen3.8-Flash-Next GGUFs, by their names")
         family, size = found
-        model = self.strata().MODELS[size]
-        if model.get("budget"):
-            raise self.Refusal(f"{size} keeps a RAM budget of its experts (--resident-budget-gib), "
-                               f"which the caravan's Strata cell does not set up yet")
         if self.strata().low_ram_wanted(size, self.strata().ram_gb()):
             raise self.Refusal(f"{size} needs Strata's low-RAM mode on this machine "
                                f"({self.strata().ram_gb():.0f} GB of RAM), which the caravan's Strata cell "
@@ -213,6 +210,34 @@ class StrataLaunch:
             whole = whole and (self.work / "mtp" / "rt" / "experts.bin").is_file()
         return last == made and whole
 
+    def card_arch(self, gpu: int) -> int | None:
+        """The architecture of card `gpu` as Strata's engine counts them (RTX 3090: 86, RTX 5090: 120), from the compute
+        capability nvidia-smi names; None when it does not say (no nvidia-smi, no such card)."""
+        try:
+            out = subprocess.run(["nvidia-smi", "--query-gpu=index,compute_cap", "--format=csv,noheader"],
+                                 capture_output=True, text=True, timeout=10, env=self.env).stdout
+        except (OSError, subprocess.SubprocessError):
+            return None
+        for line in out.splitlines():
+            index, _, cap = (part.strip() for part in line.partition(","))
+            if index == str(gpu) and re.fullmatch(r"\d+\.\d+", cap):
+                return int(cap.replace(".", ""))
+        return None
+
+    def has_code_for(self, build: dict, gpu: int) -> None:
+        """Refuses when the engine was compiled for other architectures than the card's: a CUDA kernel image of another
+        architecture does not run, and the cell would die at its first kernel with "no kernel image" a minute into the
+        start. The engine says what it was built for (BUILD.json `archs`, and `ptx` when it carries PTX for newer
+        cards); a card nvidia-smi does not name is not refused (2026-10-17: an engine built for the RTX 5090 alone
+        met a cell pinned to the RTX 3090 that came to stand beside it)."""
+        archs = sorted(int(a) for a in build.get("archs") or [])
+        arch = self.card_arch(gpu) if archs else None
+        if arch is None or arch in archs or (build.get("ptx") and arch > max(archs)):
+            return
+        raise self.Refusal(f"Strata's engine has code for {', '.join(f'sm_{a}' for a in archs)} and GPU {gpu} is sm_{arch}: "
+                           f"pin the cell to a card the engine has code for, or build it for this card too "
+                           f"(Strata's setup.sh --gpus <the cards>)")
+
     def gpu(self) -> int:
         """The card, numbered as nvidia-smi numbers them: the one the cell's
         environment pins, else the first. Strata's server sets the engine's
@@ -243,6 +268,12 @@ class StrataLaunch:
             args += ["--kv", a.kv]
         if strata.kv_streaming_wanted(size, a.context, a.kv, strata.ram_gb()):
             args += ["--kv-resident", self.KV_RESIDENT]
+        if strata.MODELS[size].get("budget"):
+            # Unsloth's ~4-bit packs hold more experts than the RAM does: the engine keeps a budget of them in RAM and reads
+            # the rest from the file. The size is Strata's own recommendation for this machine (the RAM less 24 GiB for the
+            # system and the file cache the rest is read through, less the RAM a streamed KV cache takes), as setup writes it.
+            kv_ram = strata.kv_streaming_ram_gb(a.context, a.kv) if "--kv-resident" in args else 0.0
+            args += ["--resident-budget-gib", f"{strata.resident_budget_gib(size, strata.ram_gb(), kv_ram):g}"]
         if a.vram_reserve_mib:
             args += ["--vram-reserve-mib", str(a.vram_reserve_mib)]
         return args
@@ -253,6 +284,7 @@ class StrataLaunch:
         shards = self.shards()
         family, size = self.choice(shards[0])
         gpu = self.gpu()
+        self.has_code_for(build, gpu)
         self.work.mkdir(parents=True, exist_ok=True)
         ple = self.ple(shards)
         made = self.made_from(shards[0], build, family)

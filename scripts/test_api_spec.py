@@ -244,6 +244,40 @@ def test_access():
         check(guard("GET", "/openapi.json") == (True, []), "/openapi.json открыт без входа")
         check(guard("GET", "/api/topology") == (False, [(401, "authentication required")]),
               "negative: API без сессии — 401")
+
+        def store_down(h):
+            raise routes.auth_mod.SessionStoreUnavailable("database is locked")
+        routes.auth_mod.session_from_handler = store_down
+        check(guard("GET", "/api/topology") == (False, [(503, "the sign-in store did not answer, try again in a moment")])
+              and guard("POST", "/api/pools/save") == (False, [(503, "the sign-in store did not answer, try again in a moment")]),
+              "хранилище сессий не ответило — 503, а не 401: страница принимает 401 за выход, и доска выкидывала владельца на вход среди копирования на NAS (2026-10-17)")
+        refused_post = FakeHandler()
+        routes._auth_guard(refused_post, "/api/pools/save", "POST")
+        check(refused_post.close_connection is True,
+              "отказ 503 закрывает соединение, как и прочие отказы охраны: тело POST не прочитано, и на живом соединении оно стало бы началом следующего запроса")
+        check(guard("GET", "/openapi.json") == (True, []) and guard("GET", "/api/cell-assets", headers={"X-Caravan-Token": "T"}) == (True, []),
+              "negative: открытые пути и путь машины с токеном флота хранилище сессий не спрашивают — они проходят и когда оно молчит")
+        class Recording(FakeHandler):
+            def __init__(self, **kw):
+                super().__init__(**kw)
+                self.payloads = []
+
+            def send_json(self, payload, status=200):
+                self.payloads.append((status, payload))
+
+        def asked(handler, session=None):
+            h = Recording(session=session)
+            handler(h, None)
+            return h.payloads
+        refused = [(503, {"error": "the sign-in store did not answer, try again in a moment"})]
+        check(asked(routes._get_auth_me) == refused and asked(routes._get_auth_overview) == refused,
+              "«кто я» и обзор безопасности тоже говорят 503, когда хранилище молчит: страница спрашивает «кто я» перед уходом на вход, "
+              "и ответ «не вошёл» при молчащем хранилище отправил бы на вход так же, как 401")
+        routes.auth_mod.session_from_handler = lambda h: h.session
+        check(asked(routes._get_auth_me, session={}) == [(200, {"enabled": True, "authenticated": False, "user": "", "role": ""})]
+              and asked(routes._get_auth_me, session={"user": "ann", "role": "admin"})
+              == [(200, {"enabled": True, "authenticated": True, "user": "ann", "role": "admin"})],
+              "negative: хранилище ответило «никого» — «кто я» по-прежнему отвечает 200 и authenticated: false (так страница узнаёт о выходе по-настоящему)")
         check(guard("GET", "/board") == (False, [(302, None)]) and where("GET", "/board") == "/login",
               "страница без сессии — на форму входа")
         check(guard("GET", "/api/cell-assets") == (False, [(401, "fleet token required (X-Caravan-Token)")])

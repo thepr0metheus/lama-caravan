@@ -70,6 +70,10 @@ STORE_MOVES_DIR = Path(os.environ.get("CARAVAN_STORE_MOVES_DIR")
 # this process is what model_stores.py forbids.
 LIBRARY_META_FILE = Path(os.environ.get("CARAVAN_LIBRARY_META")
     or _default("state/library-meta.json", Path.home() / ".local/state/llamacpp-easy-admin/library-meta.json"))
+# What the headers of the GGUF files under the models folder said (caravan/admin/header_memory.py), kept from one
+# start to the next: the first /api/state after every start used to read them all again, 51 s for 56 models.
+GGUF_HEADERS_FILE = Path(os.environ.get("CARAVAN_GGUF_HEADERS")
+    or _default("state/gguf-headers.json", Path.home() / ".local/state/llamacpp-easy-admin/gguf-headers.json"))
 MONITOR_SAMPLE_INTERVAL = float(os.environ.get("LLAMA_MONITOR_SAMPLE_INTERVAL", "1"))
 MONITOR_RETENTION_DEFAULT = int(os.environ.get("LLAMA_MONITOR_RETENTION_SECONDS", "600"))
 INCIDENT_RETENTION_SECONDS = int(os.environ.get("LLAMA_INCIDENT_RETENTION_SECONDS", str(30 * 24 * 60 * 60)))
@@ -101,7 +105,7 @@ ADMIN_SERVICE_NAME = os.environ.get("LLAMA_ADMIN_SERVICE_NAME", "lama-caravan.se
 HOST_REPORT_TTL = int(os.environ.get("CARAVAN_HOST_REPORT_TTL", "180"))
 MODEL_PRICING_CACHE_PATH = Path(_default("logs/model-pricing-cache.json",
     PROJECT_ROOT / "logs" / "model-pricing-cache.json"))
-# The Artificial Analysis scores the kanban's server list looks models up by
+# The Artificial Analysis scores Routing's server list looks models up by
 # (caravan/admin/benchmarks.py). Beside the pricing cache, for the same reason:
 # in the container PROJECT_ROOT is the image, where the app's user cannot write,
 # and the save was swallowed as a best-effort cache — so every restart fetched

@@ -41,6 +41,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
+from pace_cases import expected as eta_expected, inputs_js as eta_inputs  # noqa: E402
 
 # The same neighbours the models page stubs: the real i18n.js and utils.js pull
 # the rest of the app in behind them.
@@ -214,11 +215,10 @@ PINS = [
      'negative: байты ещё в очереди, а скорость не измерена (страницу только что открыли, работник стоит у сверенной копии) — остатка НЕТ, а не «~20 с»: '
      'живьём так читалось 17 файлов и 324 ГБ работы; как только скорость есть — остаток честный: 19 с ожидания + 328 ГБ работы по 200 МБ/с ≈ 29 мин'),
     ("time_left_and_speed_in_words", '',
-     r"""(() => [[0, -1, NaN, 3, 40, 58, 60, 185, 3599, 3900, 7260].map((s) => m.MoveTracker.eta(s)), [0, 5e5, 107374182.4, 2 ** 31].map((b) => m.MoveTracker.speed(b))])()""",
-     json.dumps([["", "", "", en("moveEtaSeconds", n=5), en("moveEtaSeconds", n=40), en("moveEtaMinutes", n=1), en("moveEtaMinutes", n=1),
-                  en("moveEtaMinutes", n=4), en("moveEtaHours", h=1, m=0), en("moveEtaHours", h=1, m=5), en("moveEtaHours", h=2, m=1)],
-                 ["", "1 MB/s", "102 MB/s", "2.0 GB/s"]], ensure_ascii=False),
-     'остаток словами: неизвестно — ничего; секунды — шагом 5, от минуты — минуты вверх, от часа — часы и минуты; скорость — МБ/с, от 1 ГБ/с — ГБ/с'),
+     r"""(() => [""" + eta_inputs() + r""".map((s) => m.MoveTracker.eta(s)), [0, 5e5, 107374182.4, 2 ** 31].map((b) => m.MoveTracker.speed(b))])()""",
+     json.dumps([eta_expected(en), ["", "1 MB/s", "102 MB/s", "2.0 GB/s"]], ensure_ascii=False),
+     'остаток словами: неизвестно — ничего; секунды — шагом 5, от минуты — минуты вверх, от часа — часы и минуты, суток нет; скорость — МБ/с, от 1 ГБ/с — ГБ/с; '
+     'случаи — таблица scripts/pace_cases.py, одна на /models и /hf (правило в static/js/pace-rule.js)'),
     ("waiting_says_why_and_turns_red", '',
      r"""await (async () => { const { p } = await mount([JOB({ status: "waiting", reason: "OSError: [Errno 5] Input/output error" })]);
        const q = p.rowHtml("Qwen/unsloth/Q4/q.gguf"); const g = p.rowHtml("gemma/g.gguf");

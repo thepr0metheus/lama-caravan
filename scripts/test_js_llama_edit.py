@@ -491,6 +491,27 @@ PINS = [
      'le.buildVllmCommandPreview("te-")',
      '"$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m"',
      'boundary: граница: " 1 " тримится до "1" и --tensor-parallel-size опускается'),
+    ('vllm_trust_remote_code_flag',
+     'F({});',
+     '[{ checked: true }, { checked: false }, undefined].map((box) => { F({ "te-VLLM_MODEL": { value: "m" }, ...(box ? { "te-TRUST_REMOTE_CODE": box } : {}) }); return le.buildVllmCommandPreview("te-"); })',
+     '["$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m --trust-remote-code","$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m","$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m"]',
+     'positive: отмеченный TRUST_REMOTE_CODE печатает --trust-remote-code в самом конце, как у сервера; negative: неотмеченный и отсутствующий — без флага'),
+    # The three flags a model's recipe asks for (Nemotron 3 Nano Omni), in the order VllmRunner.command writes them: the
+    # preview is the server's line, and test_vllm_shell_line.py pins the same strings on the server.
+    ('vllm_recipe_flags_in_the_servers_order',
+     'F({ "te-VLLM_MODEL": { value: "m" }, "te-MAX_NUM_SEQS": { value: " 8 " }, "te-KV_CACHE_DTYPE": { value: " FP8 " },'
+     ' "te-REASONING_PARSER": { value: " nano_v3 " }, "te-TENSOR_PARALLEL": { value: "2" }, "te-TRUST_REMOTE_CODE": { checked: true } });',
+     'le.buildVllmCommandPreview("te-")',
+     '"$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m --tensor-parallel-size 2 --max-num-seqs 8 --kv-cache-dtype fp8'
+     ' --reasoning-parser nano_v3 --trust-remote-code"',
+     'positive: три флага рецепта — после --tensor-parallel-size и перед --trust-remote-code (он остаётся последним); значения обрезаны, тип KV — строчными, как у сервера'),
+    ('vllm_recipe_flags_alone_and_empty',
+     'F({});',
+     '[{ "te-MAX_NUM_SEQS": { value: "16" } }, { "te-KV_CACHE_DTYPE": { value: "fp8_e5m2" } }, { "te-REASONING_PARSER": { value: "deepseek_r1" } },'
+     ' { "te-MAX_NUM_SEQS": { value: "  " } }, { "te-KV_CACHE_DTYPE": { value: "auto" } }, { "te-KV_CACHE_DTYPE": { value: " AUTO " } }, { "te-REASONING_PARSER": { value: "" } }]'
+     '.map((fields) => { F({ "te-VLLM_MODEL": { value: "m" }, ...fields }); return le.buildVllmCommandPreview("te-").split(" --served-model-name m")[1]; })',
+     '[" --max-num-seqs 16"," --kv-cache-dtype fp8_e5m2"," --reasoning-parser deepseek_r1","","","",""]',
+     'positive: каждое поле само по себе даёт свой флаг и только его; negative: пустое (и из одних пробелов) поле, auto и AUTO у типа KV — флага нет, как у сервера'),
     ('vllm_tp_ws_two_kept',
      'F({ "te-VLLM_MODEL": { value: "m" }, "te-TENSOR_PARALLEL": { value: " 2 " } });',
      'le.buildVllmCommandPreview("te-")',
@@ -1053,6 +1074,20 @@ PINS = [
      'le.runnerRegistry()',
      '[{"id":"moonshine","icon":"🌙","artifacts":["moonshine-lang"]}]',
      'negative: runnerRegistry: непустой state.runners возвращается как есть, без встроенной пары'),
+    # The VRAM a start takes whatever the model files weigh, read off the registry's fixed plan (runner.py vram_plan): the
+    # form's estimate bar and the stopped cell's chip both ask here. GB, not MiB; 0 where the registry has no fixed figure.
+    ('fixed_vram_gb',
+     'st.setState({runners:[{id:"minicpm-omni",vramPlan:{fixedMiB:12800}},{id:"personaplex",vramPlan:{fixedMiB:20480}},'
+     '{id:"strata",vramPlan:{takesFree:true,floorMiB:6144}},{id:"zero",vramPlan:{fixedMiB:0}},{id:"llama-server"}]});',
+     '["minicpm-omni","personaplex","strata","zero","llama-server","unknown"].map((id) => le.runnerFixedVramGb(id))',
+     '[12.5,20,0,0,0,0]',
+     'positive: фиксированный план реестра — в ГБ (12800 МиБ → 12.5, 20480 → 20); negative: план «берёт свободное» (Strata), нулевая цифра, '
+     'раннер без плана и неизвестный id дают 0, а не догадку'),
+    ('fixed_vram_gb_fallback_registry',
+     'st.state.runners = undefined;',
+     'le.runnerFixedVramGb("llama-server")',
+     '0',
+     'boundary: реестр ещё не пришёл (встроенная пара) — плана нет, ноль, без ошибки'),
     ('cp_table',
      '',
      'le.COMMAND_PRESETS.map((p) => [p.id, p.COMMAND, p.HEALTH_PATH])',
@@ -1068,6 +1103,12 @@ PINS = [
      'le.COMMAND_PRESETS.map((p) => p.label)',
      '[null,"whisper · faster-whisper (large-v3)","tts · XTTS-v2 (voice clone) — non-commercial","tts · F5-TTS (voice clone) — MIT code, NC base model","tts · CosyVoice2 (voice clone) — Apache-2.0"]',
      'positive: COMMAND_PRESETS: подписи пресетов с лицензией в тексте; у плейсхолдера label отсутствует (null в JSON)'),
+    ('cp_no_voice_presets',
+     '',
+     'le.COMMAND_PRESETS.filter((p) => String(p.id).startsWith("voice-") || /personaplex|lfm|omni|step-audio|qwen3/i.test(String(p.COMMAND))).map((p) => p.id)',
+     '[]',
+     'negative: голосовых серверов среди пресетов командной ячейки нет — это раннеры (PersonaPlex, LFM2.5-Audio, Step-Audio 2, '
+     'Qwen3-Omni, llama.cpp-omni, 1.3.553), и «кнопка-команда» вместо сервера в списке — ровно то, что владелец отверг 2026-10-15'),
     ('cap_h200',
      '',
      'le.gpuComputeCap("NVIDIA H200")',
@@ -1323,6 +1364,14 @@ PINS += [
      '["",""]',
      'defect-history: язык перевода seamless виден в форме любой машины — до 1.3.512 только на машине контроллера, '
      'а с контроллером на NAS такой формы нет вовсе; папку модели скаут приносит сам (2.30)'),
+    ('env_block_belongs_to_custom_and_vllm',
+     _ON + ' const shown = (runner) => { onMachine(true); F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: runner }, "tr-envFields": { style: {} }, "tr-vllmFields": { style: {} }, "tr-commandFields": { style: {} } });'
+     ' try { le.applyCellKindUI("tr-"); } catch (e) {} const f = globalThis.__fields; const r = [f["tr-envFields"].style.display, f["tr-vllmFields"].style.display, f["tr-commandFields"].style.display]; off(); return r; };',
+     '["vllm", "custom", "llama-server", "whisper", "strata"].map(shown)',
+     '[["","","none"],["","none",""],["none","none","none"],["none","none","none"],["none","none","none"]]',
+     'ENV (переменные запуска) виден у vLLM и у custom — vLLM без него не обойти сломанный FlashInfer и не задать HF_HOME; панель vLLM не показывает панель custom и наоборот; '
+     'negative: у llama.cpp, whisper и Strata блока ENV нет'),
     ('frcm_seamless_tab',
      _ON + ' const tabs = (flag) => { onMachine(flag); st.setState({ ...st.state, runners: ['
      '{ id: "llama-server", labelKey: "runnerLlama", artifacts: ["llm-gguf"] }, { id: "seamless", labelKey: "runnerSeamless", artifacts: ["seamless-st"] }] });'
@@ -1341,6 +1390,31 @@ PINS += [
      '["gemma-chat",""]',
      'MODEL_NAME (1.3.507) — имя ячейки на входе машины, у любого раннера; negative: у ячейки его нет — поле пустое, а не имя, '
      'оставшееся от другой ячейки, и не алиас'),
+    ('vllm_recipe_fields_load_the_cells_own',
+     '',
+     '(() => { const load = (config) => { F({ "tr-MAX_NUM_SEQS": { value: "left" }, "tr-KV_CACHE_DTYPE": { value: "left" }, "tr-REASONING_PARSER": { value: "left" } });'
+     ' try { le.applyConfigToForm(config, "tr-"); } catch (e) {} const f = globalThis.__fields; return [f["tr-MAX_NUM_SEQS"].value, f["tr-KV_CACHE_DTYPE"].value, f["tr-REASONING_PARSER"].value]; };'
+     ' return [load({ RUNNER: "vllm", MAX_NUM_SEQS: "8", KV_CACHE_DTYPE: "fp8", REASONING_PARSER: "nano_v3" }), load({ RUNNER: "vllm" })]; })()',
+     '[["8","fp8","nano_v3"],["","",""]]',
+     'три поля рецепта vLLM открываются как сохранены; negative: у ячейки их нет — поля пусты, а не значения, оставшиеся от другой ячейки'),
+    ('vllm_recipe_fields_have_a_tip',
+     '',
+     '(() => { const made = []; const real = document.createElement; const names = ["MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "NOT_A_FIELD"];'
+     ' document.createElement = () => { const b = { className: "", type: "", innerHTML: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, querySelector: () => b.tip, tip: { textContent: "" } }; made.push(b); return b; };'
+     ' const labels = {}; names.forEach((f) => { labels[f] = { parentElement: { querySelector: () => null }, after(btn) { this.btn = btn; } }; });'
+     ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelectorAll: () => [],'
+     ' querySelector: (q) => { const m = q.match(/^label\\[for="tr-([A-Z_]+)"\\]$/); return q === ".runner-tabs" ? { innerHTML: "" } : (m ? (labels[m[1]] || null) : null); } } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} document.createElement = real;'
+     ' return names.map((f) => [f, labels[f].btn ? labels[f].btn.tip.textContent.slice(0, 24) : null]); })()',
+     '[["MAX_NUM_SEQS","How many requests vLLM w"],["KV_CACHE_DTYPE","Data type of the KV cach"],["REASONING_PARSER","Splits a reasoning model"],["NOT_A_FIELD",null]]',
+     'три поля рецепта vLLM получают (?) с подсказкой из словаря (_STATIC_TIP_FIELDS); negative: имя без подсказки в словаре метки не получает'),
+    ('trust_remote_code_loads_the_cells_own',
+     '',
+     '(() => { const load = (config) => { F({ "tr-TRUST_REMOTE_CODE": { checked: true } }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
+     ' return globalThis.__fields["tr-TRUST_REMOTE_CODE"].checked; };'
+     ' return [load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "1" }), load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "true" }), load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "" }), load({ RUNNER: "vllm" }), load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "0" })]; })()',
+     '[true,true,false,false,false]',
+     'TRUST_REMOTE_CODE ячейки открывается как сохранён: «1» и «true» — отмечено; negative: пусто, нет поля и «0» — не отмечено, а не флажок, оставшийся отмеченным от другой ячейки (код авторов модели без слова оператора не запускается)'),
     ('runner_tab_not_for_engines',
      ' const tabsOf = (runners) => { st.setState({ ...st.state, runners }); const wrap = { innerHTML: "" };'
      ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
@@ -1459,9 +1533,11 @@ PINS += [
     ('strata_panel_no_draft',
      _S_REG + ' F({ "tr-strataDraft": { textContent: "", dataset: {} }, "tr-SPEC_DRAFT_MODEL_FILE": { value: "" } });',
      '(() => { le.syncStrataDraftNote("tr-"); const n = globalThis.__fields["tr-strataDraft"];'
-     ' return [n.dataset.state, n.textContent.length > 0]; })()',
-     '["off",true]',
-     'negative: черновика рядом с моделью нет — панель говорит это вслух, а не молчит: без него Strata вдвое медленнее'),
+     ' return [n.dataset.state, n.textContent.includes("Q2_0"), n.textContent.includes("an IQ pack does not start")]; })()',
+     '["off",true,true]',
+     'negative: слоя черновика в библиотеке нет — панель говорит это вслух, а не молчит, и говорит обе правды: пакет Q2_0 идёт без него вдвое '
+     'медленнее, пакет IQ не стартует (defect-history 2026-10-17: строка уверяла, что Strata работает без него, а IQ1_M после копирования '
+     '54 GiB падал с «native (IQ) pack needs --spec»)'),
 ]
 
 from caravan.domain.runner import registry_json as _registry_json  # noqa: E402
@@ -1504,6 +1580,135 @@ PINS += [
      '"gr00t-st"',
      'positive: папка GR00T в выборе модели — своего вида, кнопка GR00T берёт её, а vLLM — нет'),
 ]
+
+# The five voice servers (1.3.553): the launcher runners. The preview is held to the server's line over the table the
+# runners' own test keeps (test_launcher_runners.py CASES), and the tabs to the kinds the registry names.
+import test_launcher_runners as _lr  # noqa: E402
+
+_L_NOTE = "# the launcher installs its engine at the first start (minutes); the scout brings the model's folder"
+
+
+def _launcher_fields(runner, cfg):
+    pairs = {**cfg, "RUNNER": runner, "PORT": "22012"}
+    return "F({" + ", ".join(f'"tr-{k}": {{ value: {json.dumps(v)} }}' for k, v in pairs.items()) + "});"
+
+
+for _i, (_name, _rid, _cfg, _line) in enumerate(_lr.CASES):
+    PINS.append((f'launcher_preview_{_i}_{_rid.replace("-", "_")}', _REG + _launcher_fields(_rid, _cfg),
+                 'le._buildCommandExecPreview("tr-")',
+                 json.dumps("export PORT=22012\n" + _L_NOTE + "\nexec " + _line),
+                 f"the preview is the line the server builds (LauncherCellMixin.command): {_name}"))
+
+_MINI_SHALLOW = "MiniCPM-o-4_5-gguf/model.gguf"
+_VOICE_ROWS = [{"path": "personaplex-7b-v1/nvidia/SAFETENSORS", "arch": "personaplex"},
+               {"path": "Step-Audio-2-mini/stepfun-ai/SAFETENSORS", "arch": "step_audio_2"},
+               {"path": "Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit/cyankiwi/AWQ", "arch": "qwen3_omni_moe"},
+               {"path": "LFM2.5-Audio-1.5B/LiquidAI/SAFETENSORS", "arch": "Lfm2AudioForConditionalGeneration"},
+               {"path": "Qwen3-8B/Qwen/BF16", "arch": "qwen3"}]
+
+
+_VOICE_MODELS = [{"path": "MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf", "ggufMeta": {"architecture": "qwen3"}}]
+
+
+def _tabs_expr(runner, model):
+    return ('(() => { const h = norm(globalThis.__wrap.innerHTML);'
+            ' const b = (id) => h.match(new RegExp(`<button[^>]*data-runner="${id}"[^>]*>`))[0];'
+            ' return Object.fromEntries(["personaplex", "lfm-audio", "step-audio2", "qwen3-omni", "minicpm-omni", "vllm", "llama-server"]'
+            '.map((id) => [id, b(id).includes(" disabled")])); })()')
+
+
+PINS += [
+    ('launcher_preview_no_model', _REG + _launcher_fields("personaplex", {}),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22012\n" + _L_NOTE + "\nexec bash $HOME/run_personaplex.sh \"$PORT\" …"),
+     'a runner with no model yet says so with «…», as the others do'),
+    ('launcher_preview_shallow_path', _REG + _launcher_fields("minicpm-omni", {"MODEL_FILE": _MINI_SHALLOW}),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22012\n" + _L_NOTE + "\n# MODEL_FILE must be a file of a library model laid out as <model>/<author>/<variant>/<file>"),
+     'negative: llama.cpp-omni with a file that has no model folder above it: the preview says the start refuses it, and prints no exec line'),
+    ('launcher_preview_not_for_other_runners', _REG + _launcher_fields("gr00t", {"MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16"}),
+     '!le._buildCommandExecPreview("tr-").includes("run_personaplex") && le._buildCommandExecPreview("tr-").includes("run_gr00t.sh")',
+     'true', 'negative: the launcher preview does not touch runners that have a builder of their own'),
+    ('launcher_panel_personaplex', _REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: "personaplex" }, "tr-llamaFields": { style: {} }, "tr-llamaAside": { style: {} },'
+     ' "tr-commandAside": { style: {} }, "tr-commandFields": { style: {} }, "tr-vllmFields": { style: {} } });'
+     ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-llamaFields"].style.display, f["tr-llamaAside"].style.display,'
+     ' f["tr-commandAside"].style.display, f["tr-commandFields"].style.display, f["tr-vllmFields"].style.display]; })()',
+     json.dumps(["none", "none", "", "none", "none"]),
+     'a voice runner: llama.cpp\'s flags and estimate are hidden, the command preview is shown, and the custom-command and vLLM panels stay shut — '
+     'the registry says it has no llama flags (llamaConfig), no chain of ids was extended for it'),
+    ('launcher_panel_llama_keeps_its_flags', _REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: "llama-server" }, "tr-llamaFields": { style: {} }, "tr-llamaAside": { style: {} },'
+     ' "tr-commandAside": { style: {} } });'
+     ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-llamaFields"].style.display, f["tr-llamaAside"].style.display, f["tr-commandAside"].style.display]; })()',
+     json.dumps(["", "", "none"]),
+     'negative: llama.cpp keeps its flags and its estimate, and has no command preview'),
+    ('launcher_model_folder_rules', _REG,
+     '[le.launcherModelFolder({ folderRule: "picked" }, "a/b/c/"), le.launcherModelFolder({ folderRule: "entry" }, "m/o/v/f.gguf"),'
+     ' le.launcherModelFolder({ folderRule: "entry" }, "m/f.gguf"), le.launcherModelFolder({ folderRule: "entry" }, "/f.gguf"),'
+     ' le.launcherModelFolder({ folderRule: "entry" }, ""), le.launcherModelFolder(null, " x/y ")]',
+     json.dumps(["a/b/c", "m/o", "", "", "", "x/y"]),
+     'the folder rules: picked is the path itself (no trailing slash), entry is two steps up, and a path with nothing above it has no folder'),
+    ('launcher_artifact_kinds', _REG + " st.state.artifacts = " + json.dumps(_VOICE_ROWS) + ";",
+     '[' + ", ".join(f'le.artifactKind("{row["path"]}")' for row in _VOICE_ROWS) + ']',
+     json.dumps(["personaplex-st", "step-audio2-st", "qwen3-omni-st", "lfm-audio-st", "safetensors"]),
+     'a folder of a voice model has the kind of its runner, by the architecture the registry names (stArchs); an ordinary Qwen3 folder stays a safetensors checkpoint'),
+] + [
+    (f'launcher_tabs_{rid.replace("-", "_")}',
+     _REG + ' st.state.artifacts = ' + json.dumps(_VOICE_ROWS) + '; st.state.models = ' + json.dumps(_VOICE_MODELS) + ';'
+     ' const wrap = { innerHTML: "" }; F({ llamaRemoteEditOverlay: { hidden: false, dataset: {},'
+     ' querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "' + rid + '" }, "tr-MODEL_FILE": { value: ' + json.dumps(path) + ' } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} globalThis.__wrap = wrap;',
+     _tabs_expr(rid, path), json.dumps(want), note)
+    for rid, path, want, note in (
+        ("personaplex", "personaplex-7b-v1/nvidia/SAFETENSORS",
+         {"personaplex": False, "lfm-audio": True, "step-audio2": True, "qwen3-omni": True, "minicpm-omni": True, "vllm": False, "llama-server": True},
+         "PersonaPlex's folder picked: its tab is open; the other voice engines, llama.cpp-omni and llama.cpp are grey (they cannot read a checkpoint folder); vLLM accepts anything"),
+        ("qwen3-omni", "Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit/cyankiwi/AWQ",
+         {"personaplex": True, "lfm-audio": True, "step-audio2": True, "qwen3-omni": False, "minicpm-omni": True, "vllm": False, "llama-server": True},
+         "Qwen3-Omni's folder picked: its tab is open and Step-Audio 2's is grey — one launcher, two recipes, and each folder has ONE"),
+        ("lfm-audio", "LFM2.5-Audio-1.5B/LiquidAI/SAFETENSORS",
+         {"personaplex": True, "lfm-audio": False, "step-audio2": True, "qwen3-omni": True, "minicpm-omni": True, "vllm": False, "llama-server": True},
+         "LFM2.5-Audio's folder (its config.json has no model_type: its architecture is the family): its tab is open, the others grey"),
+        ("vllm", "Qwen3-8B/Qwen/BF16",
+         {"personaplex": True, "lfm-audio": True, "step-audio2": True, "qwen3-omni": True, "minicpm-omni": True, "vllm": False, "llama-server": True},
+         "negative: an ordinary Qwen3 folder opens vLLM and no voice engine, llama.cpp-omni included (it reads a GGUF)"),
+        ("llama-server", "MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf",
+         {"personaplex": True, "lfm-audio": True, "step-audio2": True, "qwen3-omni": True, "minicpm-omni": False, "vllm": False, "llama-server": False},
+         "MiniCPM-o's GGUF picked: llama.cpp and llama.cpp-omni are both open (its main file is a plain qwen3 GGUF, no file claims it), the checkpoint-folder engines are grey"),
+    )
+] + [
+    ('launcher_why_grey', _REG + ' st.state.artifacts = ' + json.dumps(_VOICE_ROWS) + ';'
+     ' const { t: tr } = await import(pathToFileURL(process.env.JS_ROOT + "/i18n.js").href);'
+     ' const unesc = (x) => x.replace(/&quot;/g, \'"\').replace(/&#39;/g, "\'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");'
+     ' const wrap = { innerHTML: "" }; F({ llamaRemoteEditOverlay: { hidden: false, dataset: {},'
+     ' querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "personaplex" }, "tr-MODEL_FILE": { value: "personaplex-7b-v1/nvidia/SAFETENSORS" } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} globalThis.__wrap = wrap; globalThis.__tr = tr; globalThis.__unesc = unesc;',
+     '(() => { const h = globalThis.__unesc(globalThis.__wrap.innerHTML); const tr = globalThis.__tr;'
+     ' const b = (id) => h.match(new RegExp(`<button[^>]*data-runner="${id}"[^>]*>`))[0];'
+     ' return [b("step-audio2").includes(tr("runnerNeedsStepAudio2St")), b("llama-server").includes(tr("runnerNeedsLlmGguf")),'
+     ' b("personaplex").includes(tr("runnerNeedsPersonaplexSt")), b("step-audio2").includes(tr("runnerNeedsLlmGguf"))]; })()',
+     json.dumps([True, True, False, False]),
+     'a grey tab says WHY in its own words (the registry\'s needsKey, no table in the browser): Step-Audio 2 needs its folder, '
+     'llama.cpp a GGUF; negative: the open tab says nothing of the kind, and a grey tab does not say another runner\'s reason'),
+    ('tip_has_the_registrys_costs', _REG + ' const { t: tr } = await import(pathToFileURL(process.env.JS_ROOT + "/i18n.js").href);'
+     ' const unesc = (x) => x.replace(/&quot;/g, \'"\').replace(/&#39;/g, "\'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");'
+     ' const wrap = { innerHTML: "" }; F({ llamaRemoteEditOverlay: { hidden: false, dataset: {},'
+     ' querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] }, "tr-RUNNER": { value: "gr00t" } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} globalThis.__wrap = wrap; globalThis.__tr = tr; globalThis.__unesc = unesc;',
+     '(() => { const h = globalThis.__unesc(globalThis.__wrap.innerHTML); const tr = globalThis.__tr;'
+     ' const b = (id) => h.match(new RegExp(`<button[^>]*data-runner="${id}"[^>]*>`))[0];'
+     ' return [b("gr00t").includes(tr("runnerGr00tMinus")), b("qwen3-omni").includes(tr("runnerQwen3OmniMinus")),'
+     ' b("custom").includes(tr("runnerCustomMinus")), b("gr00t").includes(tr("runnerQwen3OmniMinus"))]; })()',
+     json.dumps([True, True, True, False]),
+     'every tab carries ITS costs in the tip, from the registry: an older runner (whose table moved out of the browser), a new one and custom; '
+     'negative: not another runner\'s'),
+]
+
 
 def main():
     if len(PINS) < 40:

@@ -28,6 +28,12 @@ keys of `en` with the same {placeholders}, translated by the same rules
 check_messages_i18n.py holds the shared dictionary to. Nothing else reads it,
 and a language missing a key would quietly show English on that one line.
 
+The words the rule of "time left" asks (static/js/pace-rule.js, `say("moveEtaMinutes", …)`)
+are held to a fourth account: the board words them from the shared dictionary, /hf from its
+own table, and the rule hands the word over by name, so no t("…") or hfT("…") call names
+it. Each must exist in both tables, and /hf must say what the shared dictionary says, in
+every language: one wait must not read two ways on two screens.
+
 Dynamic keys (t(someVar), t(`x${y}`)) cannot be checked and are skipped: this
 looks only at plain string literals.
 """
@@ -48,11 +54,14 @@ JS_DIRS = [ROOT / "static" / "js", ROOT / "static"]
 
 HF = ROOT / "static" / "js" / "hf-text.js"
 LANGS_SRC = ROOT / "static" / "js" / "i18n-data.js"
+PACE_RULE = ROOT / "static" / "js" / "pace-rule.js"
 
 # A literal key, and NOT the head of a built one: t("period_" + n) is dynamic
 # and unknowable from here, so the trailing `+` disqualifies the match.
 CALL = re.compile(r'\bt\(\s*"([A-Za-z][\w.]*)"(?!\s*\+)')
 HF_CALL = re.compile(r'\bhfT\(\s*"([A-Za-z][\w.]*)"(?!\s*\+)')
+#: A phrase the rule of "time left" asks for by name: say("moveEtaMinutes", …).
+SAY_CALL = re.compile(r'\bsay\(\s*"([A-Za-z]\w*)"')
 PLACEHOLDER = re.compile(r"\{\w+\}")
 #: /hf words that are the same in every language by design: names, units.
 HF_SAME_EVERYWHERE = {
@@ -156,6 +165,35 @@ def check_hf_table(blocks) -> list:
     return problems
 
 
+def shared_block(code) -> dict:
+    """One language of the shared dictionary: key → text, for the lines that hold one string."""
+    text = (ROOT / "static" / "js" / "i18n" / f"{code}.js").read_text(encoding="utf-8")
+    return {k: json_text(v) for k, v in re.findall(r'^\s{2}([A-Za-z]\w*):\s*("(?:[^"\\]|\\.)*"),?$', text, re.M)}
+
+
+def check_pace_words(blocks) -> list:
+    """The phrases of the one rule of "time left" read the same on every screen.
+
+    The rule asks `say("moveEtaMinutes", …)`. The board words it from the shared dictionary (pace.js), /hf from the
+    table of its own (HfFormat.eta). A phrase one of them lacks shows its key as the label, and a phrase that differs
+    puts the same wait in two wordings: both are found here, language by language. The keys are read off the rule, so
+    a phrase it learns tomorrow is held to the same account."""
+    keys = sorted(set(SAY_CALL.findall(PACE_RULE.read_text(encoding="utf-8"))))
+    if not keys:
+        return ['pace-rule.js: no say("…") call found, so the guard would read nothing']
+    problems = []
+    for code in re.findall(r'code: "(\w+)"', LANGS_SRC.read_text(encoding="utf-8")):
+        shared, own = shared_block(code), blocks.get(code, {})
+        for key in keys:
+            if key not in shared:
+                problems.append(f"i18n/{code}.js: no `{key}`, which pace-rule.js asks for")
+            elif key not in own:
+                problems.append(f"HFS.{code}: no `{key}`, which pace-rule.js asks for")
+            elif shared[key] != own[key]:
+                problems.append(f"HFS.{code}.{key}: says {own[key]!r}, the shared dictionary says {shared[key]!r}")
+    return problems
+
+
 def main() -> int:
     # English is its own module since the split — and it is still the canonical
     # set, because t() falls back to it for every key another language lacks.
@@ -215,6 +253,7 @@ def main() -> int:
 
     wiring = check_lang_wiring()
     table = check_hf_table(blocks)
+    pace = check_pace_words(blocks)
 
     if missing:
         print(f"i18n: {len(missing)} key(s) asked for but not defined:", file=sys.stderr)
@@ -229,7 +268,11 @@ def main() -> int:
         print(f"i18n /hf table: {len(table)} problem(s):", file=sys.stderr)
         for problem in table[:40]:
             print(f"  - {problem}", file=sys.stderr)
-    if missing or wiring or table:
+    if pace:
+        print(f"i18n time-left words: {len(pace)} problem(s):", file=sys.stderr)
+        for problem in pace[:40]:
+            print(f"  - {problem}", file=sys.stderr)
+    if missing or wiring or table or pace:
         return 1
     print(f"i18n calls OK: {checked} lookups resolve — t(\"…\") in JS, "
           f"[data-i18n*] in HTML, hfT(\"…\") on /hf "

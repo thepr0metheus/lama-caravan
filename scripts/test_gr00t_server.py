@@ -230,10 +230,7 @@ def section_answer():
 
 # ── the cell over HTTP ───────────────────────────────────────────────────────
 
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from _ports import free_port  # noqa: E402
 
 
 def call(port, path, body=None, raw=None):

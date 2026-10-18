@@ -280,15 +280,28 @@ def fleet_token_verify(candidate: str) -> bool:
 
 # ── request-side helpers (used by the dispatcher) ────────────────────────────
 
+class SessionStoreUnavailable(Exception):
+    """The accounts database did not answer: locked, a disk that stalled, an I/O error. The session is then UNKNOWN,
+    which is not "nobody is signed in": the first read as the second threw the owner to the sign-in page from the
+    board in the middle of a big copy to the NAS (2026-10-17, one /api/topology poll answered 401 while the same
+    cookie was good a second later)."""
+
+
 def session_from_handler(handler) -> dict:
-    """{'user','role'} for the request's cookie session, or {}."""
+    """{'user','role'} for the request's cookie session, or {} when the request has none: no cookie, a cookie that does
+    not parse, a session the store does not know or has expired. A store that does not answer raises
+    SessionStoreUnavailable (the dispatcher answers 503 to it, which no page takes for a sign-out)."""
     raw = handler.headers.get("Cookie") or ""
     try:
-        jar = http_cookies.SimpleCookie(raw)
-        morsel = jar.get(SESSION_COOKIE)
-        return validate_session(morsel.value) if morsel else {}
-    except Exception:
+        morsel = http_cookies.SimpleCookie(raw).get(SESSION_COOKIE)
+    except http_cookies.CookieError:
         return {}
+    if not morsel:
+        return {}
+    try:
+        return validate_session(morsel.value)
+    except (sqlite3.Error, OSError) as exc:
+        raise SessionStoreUnavailable(str(exc)) from exc
 
 
 def session_cookie_header(token: str, clear: bool = False) -> str:

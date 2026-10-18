@@ -1,6 +1,7 @@
-// Entry point: DOMContentLoaded wiring and the standalone kanban page init.
+// Entry point: DOMContentLoaded wiring and the standalone Routing page init.
+import { BootStep } from "./boot-step.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
-import { BOARD_VIEW, BoardView } from "./board-view.js";
+import { BOARD_VIEW } from "./board-view.js";
 import { CARD_FOLD, FoldPeek } from "./card-fold.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
 import { drawCanvasConnectors } from "./canvas.js";
@@ -25,7 +26,7 @@ import { activeView, flushPendingTopologyRender, refreshTopology, renderAll, ren
 import { openUsageStatsModal, refreshUsageOnReturn } from "./usage-stats.js";
 import { $, api, bindTooltips, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
 
-// The pixel-llama page loader is inline in index.html/kanban.html so it shows
+// The pixel-llama page loader is inline in index.html/routing.html so it shows
 // before the modules download; window.__plHide is defined there.
 function hideAppLoader() { try { window.__plHide?.(); } catch { /* already gone */ } }
 
@@ -39,8 +40,9 @@ function initRouterStandalonePage() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("confirmOverlay").hidden) closeConfirmModal();
   });
-  // The kanban page is the pools' board (pool-board.js): it draws what the topology says, and the
+  // Routing page is the pools' board (pool-board.js): it draws what the topology says, and the
   // monitor keeps the topology fresh. A `?id=` from the routers' days names nothing any more.
+  BootStep.waitsFor("/api/topology");
   refreshTopology().then(() => {
     renderTopology();
     startTopologyMonitor();
@@ -51,7 +53,7 @@ function initRouterStandalonePage() {
 
 // Account chip + language picker: the header trio every page carries.
 // This used to live inline in the board's boot path, which is why the
-// standalone kanban — returning before it — had neither.
+// standalone Routing — returning before it — had neither.
 function bindUserChip() {
   const doLogout = async () => {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }
@@ -105,6 +107,7 @@ function bindUsageRefreshOnReturn() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  BootStep.waitsFor("the language files");
   // Which board this is — the main one, or a machine's own window — before anything draws:
   // the styles show each its own parts (board-view.js).
   BOARD_VIEW.mark();
@@ -114,19 +117,20 @@ document.addEventListener("DOMContentLoaded", async () => {
   // to arrive before the first render — otherwise the page paints English
   // and only repaints on the next language change.
   await initLanguage();
+  BootStep.waitsFor("the page's own setup");
   applyLanguage();
   applyTheme();
   initOnboarding();
 
   if (window.ROUTER_STANDALONE) {
-    // The kanban page draws the graph itself and has no board to repaint.
+    // Routing page draws the graph itself and has no board to repaint.
     onLangChange(renderTopology);
     setupLangSelect();
     bindUserChip();
     fillVersionChipFromHealth();
     initRouterStandalonePage();
     // The standalone boot exits before the shared boot tail below — fetch the
-    // pricing map here too, or the kanban's $/1M tags stay empty forever.
+    // pricing map here too, or Routing's $/1M tags stay empty forever.
     fetchModelPricing().catch(() => {});
     return;
   }
@@ -148,22 +152,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     busy: () => !!topologyPointerDrag,
     changed: () => { renderTopology(); requestAnimationFrame(drawTopologyCables); },
   }).bind(document);
-  // A click on a machine's glance opens the machine's own window (board-view.js), one window a
-  // machine, brought forward on the next click (the owner, 2026-10-12: the card itself opens, no
-  // "↗ Open"). What has a click of its own keeps it: a history chart opens its chart, a button is a
-  // button. The machine's name is the card's link: a click with a modifier, and a browser that
-  // refuses the window, follow it instead — a click on the card the browser refused goes to that
-  // link, rather than doing nothing. Bound once, on the lane, which is static.
+  // A click on a machine's glance opens the machine's page (board-view.js) in this tab (the owner,
+  // 2026-10-12: the card itself opens, no "↗ Open"; 2026-10-17: in this tab, not in a window of
+  // its own). The machine's name is the card's link, and a link is the browser's: a click on it,
+  // with a modifier or without, goes where the browser takes it. A click on the card's body follows
+  // that link. What has a click of its own keeps it: a history chart opens its chart, a button is a
+  // button. Bound once, on the lane, which is static.
   $("topologyLlamaServers")?.addEventListener("click", (e) => {
     if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const link = e.target.closest?.("[data-machine-open]");
-    if (link) {
-      if (BoardView.open(link.dataset.machineOpen)) e.preventDefault();
-      return;
-    }
     const card = e.target.closest?.(".machine-glance[data-node-id]");
     if (!card || e.target.closest?.("[data-open-chart],[data-open-route-activity],a,button,input,select,textarea")) return;
-    if (!BoardView.open(card.dataset.nodeId)) card.querySelector?.("[data-machine-open]")?.click?.();
+    card.querySelector?.("[data-machine-open]")?.click?.();
   });
 
   // Remote llama-server modal buttons
@@ -248,11 +247,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   // The router card is sticky (stays centred on scroll) → redraw cables so they
   // keep tracking it. rAF-throttled; only on the topology view.
   let _scrollCablePending = false;
-  window.addEventListener("scroll", () => {
+  const redrawCablesOnScroll = () => {
     if (activeView !== "topology" || _scrollCablePending) return;
     _scrollCablePending = true;
     requestAnimationFrame(() => { _scrollCablePending = false; drawTopologyCables(); });
-  }, { passive: true });
+  };
+  window.addEventListener("scroll", redrawCablesOnScroll, { passive: true });
+  // The board's columns scroll on their own (1.3.548): an element's scroll does not bubble, so it is heard on the way down.
+  // Only a column of the board counts — a list or a terminal scrolling inside a card would redraw the cables for nothing.
+  // A body that is not at its top is `scrolled`: the line under its column's title, which stands over it, then shows (columns.css).
+  document.addEventListener("scroll", (event) => {
+    const column = event.target;
+    if (!column?.classList?.contains?.("board-scroll")) return;
+    column.classList.toggle("scrolled", Number(column.scrollTop) > 0);
+    redrawCablesOnScroll();
+  }, { capture: true, passive: true });
   if (typeof ResizeObserver !== "undefined") {
     const board = document.querySelector(".topology-board");
     if (board) {
@@ -291,7 +300,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   boardReady.then(hideAppLoader);
   try {
+    BootStep.waitsFor("/api/state");
     await loadState();
+    BootStep.waitsFor("/api/topology");
     setActiveView(activeView);
     // Readiness is NOT marked here. loadState() brings /api/state — service,
     // cpu, gpu — but the board's own content is /api/topology, and marking

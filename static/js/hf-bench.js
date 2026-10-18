@@ -254,7 +254,7 @@ export class HfBench {
     else if (key === "aa_intelligence") pct = Math.round((value / this.scale(value)) * 100);
     else pct = Math.min(100, Math.max(0, Math.round(value)));
     const shown = key === "mt_bench" ? `${Number(value).toFixed(1)}/10` : `${value}${String(scale).includes("%") ? " %" : ""}`;
-    const nameHtml = url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>` : escapeHtml(name);
+    const nameHtml = url ? `<a href="${escapeHtml(url)}">${escapeHtml(name)}</a>` : escapeHtml(name);
     return `<div class="hfp-bench-row${key === "arena_elo" ? " is-elo" : ""}">`
       + `<span class="hfp-bench-name">${nameHtml}</span><span class="hfp-bench-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>`
       + `<span class="hfp-bench-bar"><i style="width:${pct}%"></i></span><span class="hfp-bench-val">${escapeHtml(shown)}</span></div>`;
@@ -284,6 +284,6 @@ export class HfBench {
       + `<button type="button" class="hfp-icon-btn" data-act="frontier-refresh" data-t="hf-frontier-refresh" title="${escapeHtml(hfT("a11yRefreshBench"))}" aria-label="${escapeHtml(hfT("a11yRefreshBench"))}">🔄</button>`
       + `<button type="button" class="hfp-icon-btn" data-act="frontier-close" aria-label="${escapeHtml(hfT("frontierClose"))}">✕</button></div>`
       + `<div class="hfp-front-list">${body}</div>`
-      + `<div class="hfp-front-foot">AA Intelligence Index · <a href="https://artificialanalysis.ai/leaderboards/models" target="_blank" rel="noopener">artificialanalysis.ai</a>${snapshot}</div>`;
+      + `<div class="hfp-front-foot">AA Intelligence Index · <a href="https://artificialanalysis.ai/leaderboards/models">artificialanalysis.ai</a>${snapshot}</div>`;
   }
 }

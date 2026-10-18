@@ -197,13 +197,13 @@ export function clientNeedsCaption(agentCount) {
   return agentCount !== 1;
 }
 
-// Kanban clients come from the SOURCE OF TRUTH — the main board — not from the
-// list of ports. The kanban used to enumerate routes, so it held rows the main
+// Routing clients come from the SOURCE OF TRUTH — the main board — not from the
+// list of ports. Routing used to enumerate routes, so it held rows the main
 // board never had (a host with a port number for a name, an app's label) — two
 // pictures of one fleet, and the screen could not say which one was true.
 //
 // A port wired into the graph but owned by nobody on the main board is NOT
-// hidden: it comes back separately, so the kanban says it out loud. Silently
+// hidden: it comes back separately, so Routing says it out loud. Silently
 // dropping a routed input is exactly absence rendered as normality.
 export function canvasBoardClients(proxies) {
   const byPort = new Map();
@@ -383,10 +383,10 @@ export function topologyProxyRoutes() {
     // Same preservation rule as connectTopologyProxyToLlama: a consumer keeps
     // kind="consumer" and its intentional empty router binding.
     kind: proxy.kind || "",
-    // An explicit "" is a port detached from every kanban on purpose (the server keeps it free:
+    // An explicit "" is a port detached from every router on purpose (the server keeps it free:
     // 503 until bound); only an ABSENT binding is a fresh port's, which the default takes. With
     // `||` the rebuild sent "" back as router:default, so saving or deleting ANY port quietly
-    // bound every detached port to the default kanban again (2026-10-04).
+    // bound every detached port to the default Routing again (2026-10-04).
     routerId: !feedsRouters(proxy) ? "" : (proxy.routerId ?? "router:default"),
     // A client's set is given by its own door (POST /api/consumers/set): the list goes back
     // without it, and the controller keeps the stored one (PolicyOwnedFields).
@@ -505,9 +505,9 @@ export function readTopologyProxyForm() {
 }
 
 // What the port form shows, and so all an edit may change. Everything else a route carries —
-// its kanban, owner and role, window, wait budget, upstream kind, whether it is switched on —
+// its router, owner and role, window, wait budget, upstream kind, whether it is switched on —
 // stays as it was: the edited route used to be rebuilt from the form alone, so a detached port
-// came back bound to the default kanban, a port lost its owner, its window and its wait budget,
+// came back bound to the default Routing, a port lost its owner, its window and its wait budget,
 // and a port someone had switched off came back on (2026-10-04).
 const PROXY_FORM_FIELDS = ["label", "port", "upstreamHost", "upstreamPort", "mode", "apiKey"];
 

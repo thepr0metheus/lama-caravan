@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Snapshot of static/js/board-view.js — which board a page is (the owner, 2026-10-11).
 
-The main board shows each machine at a glance; ↗ opens the machine's own window, the same
-index.html at /machine?host=<id>, which shows that machine's whole card. Pinned by value,
-with the module loaded for real: the page's address and window.open are parameters, so no
-browser is needed — the path decides, the id is read and trimmed, a window that names no
-machine is not the main board, the address and the window's name survive an odd id, the
-mark lands on <html>, and a refused window is said, not assumed.
+The main board shows each machine at a glance; a click opens the machine's own page, the same
+index.html at /machine?host=<id>, which shows that machine's whole card — in THIS tab, not in a
+window of its own (the owner, 2026-10-17). Pinned by value, with the module loaded for real: the
+page's address is a parameter, so no browser is needed — the path decides, the id is read and
+trimmed, a page that names no machine is not the main board, the address survives an odd id, the
+mark lands on <html>, and the class opens nothing and names no window: the link is the browser's.
 
 Run: python3 scripts/test_js_board_view.py
 """
@@ -29,17 +29,13 @@ out.paths = [at("/board").machine, at("/board", "?host=x").machine, at("/machine
   at("/machine", "?host=%20box%20").machine, at("/machine").machine, at("/machine", "?host=").machine, at("/machine/", "?host=box").machine];
 out.names = [at("/board").name, at("/machine", "?host=box").name, at("/machine").name, at("/board").isMachine, at("/machine").isMachine];
 out.urls = [V.url("box"), V.url("a&b <c>"), V.url(7)];
-out.windows = [V.windowName("box"), V.windowName("a&b <c>"), V.windowName("sierra-pc")];
+out.noWindow = [typeof V.open, typeof V.windowName, Object.getOwnPropertyNames(V).filter((k) => /open|window/i.test(k))];
 const root = { dataset: {} };
 at("/machine", "?host=box").mark(root);
 const main = { dataset: {} };
 at("/board").mark(main);
 at("/board").mark(null);
 out.marks = [root.dataset.boardView, main.dataset.boardView];
-const calls = [];
-const win = { focused: 0, focus() { this.focused += 1; } };
-out.open = [V.open("box", (...a) => { calls.push(a); return win; }), calls, win.focused,
-  V.open("box", () => null), V.open("box", undefined), V.open("box", "not a function")];
 console.log(JSON.stringify(out));
 """
 
@@ -79,17 +75,11 @@ def main():
           f"метка вида: main / machine; окно без машины — всё равно окно машины (получено {got['names']})")
     check(got["urls"] == ["/machine?host=box", "/machine?host=a%26b%20%3Cc%3E", "/machine?host=7"],
           f"адрес окна машины; странный id закодирован, а не ломает адрес (получено {got['urls']})")
-    check(got["windows"] == ["caravan-machine-box", "caravan-machine-a_b__c_", "caravan-machine-sierra-pc"],
-          f"имя окна — одно на машину (второй щелчок поднимает его, а не плодит окна); всё, кроме букв, цифр, _ и -, — в _ "
-          f"(получено {got['windows']})")
+    check(got["noWindow"] == ["undefined", "undefined", []],
+          "negative: класс ничего не открывает и окон не именует — машина открывается в этой же вкладке (2026-10-17: была отдельным окном "
+          f"с именем на машину); страницей владеет ссылка, а не скрипт (получено {got['noWindow']})")
     check(got["marks"] == ["machine", "main"],
           "метка ложится на <html> как data-board-view (у main#topologyView свой data-view); negative: без корня — молча ничего")
-    opened = got["open"]
-    check(opened[0] is True and opened[1] == [["/machine?host=box", "caravan-machine-box", "popup=yes,width=1180,height=920"]]
-          and opened[2] == 1,
-          "↗ открывает отдельное окно машины по её адресу и имени и поднимает его")
-    check(opened[3:] == [False, False, False],
-          "negative: браузер окно не дал (или открывать нечем) — сказано false, и ссылка откроет адрес обычным путём")
     print()
     if _fail:
         print(f"FAILED ({len(_fail)}):")

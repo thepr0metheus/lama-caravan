@@ -6,7 +6,7 @@ subscription pool above a machine, or a machine between two providers (2026-10-0
 The order is the operator's, and it is kept here, in the admin document's
 `topology.layout` section — seeded since the first board and empty until now — so
 every browser and every account that opens the board sees the same one, and the
-kanban's Servers panel follows it.
+Routing's Servers panel follows it.
 
 What is kept is a list of card keys, `node:<machine id>` and `cloud:<account id>`,
 with a revision that grows by one on every save. The board places the cards it has

@@ -65,6 +65,21 @@ const out = {
     .map((v) => [`[${v}]`, new SplitMode(v).known])),
   isParallel: Object.fromEntries(["", "none", "layer", "row", "tensor", "raw"]
     .map((v) => [`[${v}]`, new SplitMode(v).parallel])),
+  even: Object.fromEntries(["", "none", "layer", "row", "tensor", "raw", "TENSOR", " tensor "]
+    .map((v) => [`[${v}]`, new SplitMode(v).evenByDefault])),
+  suggested: (() => {
+    const gb = (n) => ({ memoryTotalMiB: n * 1024 });
+    const unlike = [{ memoryTotalMiB: 24576 }, { memoryTotalMiB: 32607 }];      // a 3090 and a 5090, as the machine reports them
+    const s = (mode, cards) => new SplitMode(mode).suggestedSplit(cards);
+    return {
+      unlike: s("tensor", unlike), reordered: s("tensor", [...unlike].reverse()),
+      equal: s("tensor", [gb(24), gb(24)]), withinTenth: s("tensor", [gb(24), gb(26)]), pastTenth: s("tensor", [gb(24), gb(27)]),
+      three: s("tensor", [gb(24), gb(32), gb(48)]),
+      rowMode: s("row", unlike), layerMode: s("layer", unlike), emptyMode: s("", unlike), unknownMode: s("raw", unlike),
+      oneCard: s("tensor", [gb(24)]), noCards: s("tensor", []), nullCards: s("tensor", null), undefinedCards: s("tensor", undefined),
+      unknownSize: s("tensor", [{ memoryTotalMiB: 24576 }, {}]), zeroSize: s("tensor", [gb(24), gb(0)]),
+    };
+  })(),
   // The label/hint must come from THOSE keys — pinning the English text here
   // would pin a copy of it, and the copy is what drifts.
   fromKeys: {
@@ -73,7 +88,9 @@ const out = {
     labelTensor: new SplitMode("tensor").label() === en.splitTensor,
     labelUnknown: new SplitMode("raw").label(),
     hintLayer: new SplitMode("layer").hint() === en.splitHintLayer,
-    hintRow: new SplitMode("row").hint() === en.splitHintParallel,
+    hintRow: new SplitMode("row").hint() === en.splitHintRow.replace("{layer}", en.splitLayer).replace("{tensor}", en.splitTensor),
+    hintRowNamesTheOthers: (() => { const h = new SplitMode("row").hint(); return h.includes(en.splitLayer) && h.includes(en.splitTensor) && !h.includes("{"); })(),
+    hintRowIsNotTheParallelOne: new SplitMode("row").hint() !== en.splitHintParallel,
     hintTensor: new SplitMode("tensor").hint() === en.splitHintParallel,
     hintNone: new SplitMode("none").hint(),
     hintEmpty: new SplitMode("").hint(),
@@ -120,21 +137,44 @@ check(tab["values"] == ["none", "layer", "row", "tensor"],
 check(tab["shown"] == ["layer", "row", "tensor"],
       "на плитке три: «none» = «только одна карта» противоречит выбранным двум и живёт в поле")
 check(tab["parallel"] == ["row", "tensor"], "одновременно считают row и tensor")
-check(tab["fallback"] == "row",
-      "умолчание — тензорный row, а НЕ помеченный llama.cpp как EXPERIMENTAL tensor")
+check(tab["fallback"] == "layer",
+      "умолчание — конвейер layer: собственный выбор llama.cpp, стартует на любой сборке. Было row (просьба 2026-09-21) — на машине "
+      "с 3090 и 5090 (llama.cpp b1141) каждый старт с row умирал на «device CUDA0 does not support split buffers» (2026-10-17); "
+      "и не EXPERIMENTAL tensor")
 
 print("forCards — что записать при N выбранных картах:")
 fc = got["forCards"]
 check(fc["|0"] == "" and fc["|1"] == "", "одна карта и ноль карт — пусто: делить нечего, флаг не печатается")
-check(fc["|2"] == "row" and fc["|5"] == "row", "пустое поле на двух и пяти картах — тензорный по умолчанию")
+check(fc["|2"] == "layer" and fc["|5"] == "layer", "пустое поле на двух и пяти картах — конвейер по умолчанию")
 check(fc["layer|2"] == "layer", "уже выбранный конвейер переживает перещёлкивание карты")
 check(fc["layer|1"] == "", "две карты свели к одной — флаг снимается, а не остаётся врать")
 check(fc["tensor|3"] == "tensor", "выбранный экспериментальный режим не подменяется на умолчание")
-check(fc["raw|2"] == "row", "опечатка не уезжает в команду — заменяется умолчанием")
-check(fc["none|2"] == "row",
+check(fc["raw|2"] == "layer", "опечатка не уезжает в команду — заменяется умолчанием")
+check(fc["none|2"] == "layer",
       "as-is: «none» при двух выбранных картах ТОЖЕ заменяется — значение противоречит самому выбору")
-check(fc["  ROW  |2"] == "row", "регистр и пробелы вокруг значения не считаются другим режимом")
-check(fc["null|2"] == "row" and fc["undefined|2"] == "row", "нет поля вовсе — то же умолчание, без падения")
+check(fc["  ROW  |2"] == "row",
+      "negative: выбранный нарочно Tensor (row) умолчанием не подменяется — регистр и пробелы вокруг значения не считаются другим режимом")
+check(fc["null|2"] == "layer" and fc["undefined|2"] == "layer", "нет поля вовсе — то же умолчание, без падения")
+
+print("evenByDefault / suggestedSplit — как режим делит модель без --tensor-split:")
+ev, sg = got["even"], got["suggested"]
+check(ev["[tensor]"] and ev["[TENSOR]"] and ev["[ tensor ]"],
+      "tensor режет веса на ровные части, какая бы память ни была у карт (замер: 21,1 + 21,4 ГБ на 24 и 32 ГБ); регистр и пробелы — как у остальных")
+check(not any(ev[f"[{v}]"] for v in ("", "none", "layer", "row", "raw")),
+      "negative: layer и row делят по свободной памяти карт сами, пустое и незнакомое — ничего не утверждают")
+check(sg["unlike"] == "24,32",
+      f"3090 и 5090 — доли по размерам карт, в ГБ: 24,32 (получено {sg['unlike']!r}); с ними 70B пошла с 32,0 на 36,0 ток/с")
+check(sg["reordered"] == "32,24", "порядок — как карты пришли: так их видит llama.cpp, вызывающий сортирует по номеру")
+check(sg["equal"] == "" and sg["withinTenth"] == "",
+      "negative: две одинаковые карты и разница в пределах десятой доли — доли не нужны, «1,1» — шум в команде")
+check(sg["pastTenth"] == "24,27", "boundary: разница больше десятой доли (3 из 27) — доли пишутся")
+check(sg["three"] == "24,32,48", "три карты — три доли")
+check(all(sg[k] == "" for k in ("rowMode", "layerMode", "emptyMode", "unknownMode")),
+      "negative: режим, который делит по свободной памяти сам, и пустой/незнакомый — доли не пишутся")
+check(all(sg[k] == "" for k in ("oneCard", "noCards", "nullCards", "undefinedCards")),
+      "negative: одна карта, ни одной, нет списка — делить нечего, доли нет, падения нет")
+check(sg["unknownSize"] == "" and sg["zeroSize"] == "",
+      "negative: размер карты неизвестен или 0 — доли не выдумываются (выдуманные доли хуже ровного деления)")
 
 print("known / parallel:")
 kn, par = got["known"], got["isParallel"]
@@ -151,7 +191,10 @@ fk = got["fromKeys"]
 check(fk["labelLayer"] and fk["labelRow"] and fk["labelTensor"], "три подписи — из splitLayer/splitRow/splitTensor")
 check(fk["labelUnknown"] == "raw", "незнакомое значение показывается как есть, а не переводится в пустоту")
 check(fk["hintLayer"], "у конвейера своя подсказка — splitHintLayer")
-check(fk["hintRow"] and fk["hintTensor"], "у row и tensor одна подсказка на двоих — splitHintParallel")
+check(fk["hintRow"] and fk["hintTensor"],
+      "у tensor — splitHintParallel, у row — своя, splitHintRow: с июля 2026 (llama.cpp #24216) в CUDA-сборках row нет, и плитка говорит это сама")
+check(fk["hintRowNamesTheOthers"] and fk["hintRowIsNotTheParallelOne"],
+      "подсказка row называет две плитки, что работают, — по их подписям на экране («Pipeline», «Tensor + KV»), без нерасставленных {…}")
 check(fk["hintNone"] == "" and fk["hintEmpty"] == "",
       "у «none» и пустого подсказки нет — пустая строка, а не пустой абзац на экране")
 check(fk["warnNamesValue"], "предупреждение называет само значение, а не «неверное значение»")

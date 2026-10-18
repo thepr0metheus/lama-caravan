@@ -456,6 +456,32 @@ kinds a pool's refusal is recorded under, `OWN_KINDS` with the names before
 - Key names: `PoolSteps` (`resolve`, `failed`, `snapshot`, `clear`), `OwnAnswer`,
   `PoolRefusal`, `PoolContextRefusal`.
 
+## caravan/proxy/pool_watch.py
+
+A pool edited on the board is decided again at once (1.3.547; the owner, 2026-10-14: he carried
+luna above sol and the card went on saying that sol serves). The board's "Serving now" and its
+lit cable are `pool_steps`'s word about its last choice, and a choice is made when a request comes
+or when the idle probe asks (at most every five minutes, and only for a pool a backup node leads
+to). An edit sends no request, so the word stayed with the step that served before, which was no
+longer the one that would serve next. `PoolWatch` looks every second at the stamps (mtimes) of the
+cloud file and of the vault — two stats; when one moved it reads every pool as `load_cloud_provider`
+hands it to a request (the pool, the models' levels, their schedules) and decides again, with
+`PoolSteps.resolve`, each pool whose reading is not the one last decided by: a pool carried,
+switched off or added, a level moved. The state file is rewritten after such a pass and the board
+takes the word at its next poll (a second for the proxy, then the board's 1.5–5 s). The first look
+decides nothing (a restarted proxy says nothing until it is asked, as before); a decision sends
+nothing to a provider (it may read a subscription's limit windows, as a request's decision does);
+a pool that cannot be decided is named in the log and left until it changes again; a look that
+fails is repeated. It runs in a thread of its own (`PoolWatch.start`, from `main`), since a
+decision may wait for a usage answer. The decision is the selector's own, so the word is what the
+next request does: a step carried first but below its switch level gives way, and the word stays
+on the step that would serve. A switch it makes is a `pool_switch` event like any other, with no
+reasons when nothing was wrong with the step it left.
+
+- Owns: the readings of the pools last decided by.
+- Key names: `PoolWatch` (`sweep`, `run`, `standard`, `start`, `mtime`).
+- Pinned by `scripts/test_pool_watch.py`.
+
 ## caravan/proxy/translate.py
 
 Protocol translation between the OpenAI chat-completions dialect the clients
@@ -477,11 +503,21 @@ did not ask for a stream; `finished()` says whether the stream reached its last
 word, and a stream cut before it is a failure, not half an answer handed out
 as whole.
 
+`AnthropicUsage` (1.3.585) gathers what an Anthropic answer says it used, from where it says it: the input — `input_tokens` (the part not served
+from the cache), `cache_creation_input_tokens`, `cache_read_input_tokens` — in `message_start`, the output in `message_delta` (the newer API repeats
+the input there), or all of it in a whole answer. The counts are cumulative, so a figure is taken only by being larger than the one before. It
+answers in OpenAI's shape: `prompt_tokens` is ALL the input, the cached part is `prompt_tokens_details.cached_tokens`, the part written to the cache
+`cache_creation_input_tokens`. Until 1.3.585 the stream's translation read only `message_delta` and wrote `prompt_tokens: 0`, and an answer that
+was not streamed was never summarized for the journal: Anthropic's input was recorded as 0. The usage rides the LAST chunk, which a stream the
+client cuts off, or the provider drops, never reaches — so the stream's translator takes the caller's `AnthropicUsage` (`used=`), and the handler
+keeps it for the journal: where no chunk carried the usage, what the provider had said by then — the input, billed all the same, and the output as
+far as it was told — is what the journal row holds (1.3.586). Pinned by `scripts/test_anthropic_usage.py` and `scripts/test_proxy_forward.py`.
+
 - Key functions: `model_named`, `classify_proxy_error`,
   `_chat_to_responses_body`, `_iter_responses_as_completions_sse`,
   `is_responses_request`, `_responses_passthrough_body`, `iter_responses_passthrough`,
   `_chat_to_anthropic_body`, `_iter_anthropic_as_completions_sse`,
-  `_anthropic_to_completions_json`, `_extract_chatgpt_account_id`.
+  `_anthropic_to_completions_json`, `_extract_chatgpt_account_id`; class `AnthropicUsage`.
 
 ## caravan/proxy/summarize.py
 
@@ -690,7 +726,7 @@ Per-route listener lifecycle. `reconcile_listeners` diffs the set of bound
 ports against `load_enabled_routes()`: it opens a `ThreadingHTTPServer` (one
 daemon thread per listener) for new ports, shuts down listeners for removed
 ports off-thread (shutdown joins the serve loop), and refreshes the fallback
-route object on survivors — so adding or removing a client in the Kanban
+route object on survivors — so adding or removing a client in the Routing
 graph opens/closes its port with **no daemon restart**. `listener_watcher`
 re-runs the reconcile whenever `agent-proxies.json`'s mtime changes (polled
 every 2s) or a previous bind failed (`_pending_rebind`, rebound here — keep
@@ -722,7 +758,7 @@ Then two kinds of consumer:
 
 - **A consumer of the entry** (a route of kind `"consumer"`, since 1.3.466) is
   served as a company's gateway serves its clients. Its key calls the pools of
-  the set a cable on the kanban leads it to (`set`, since 1.3.497;
+  the set a cable in Routing leads it to (`set`, since 1.3.497;
   `caravan/common/entry_models.py`, `caravan/admin/model_sets.py`) — and no
   router ever decides for it. `GET /v1/models` lists the set's pools by their
   names, in the set's order and OpenAI's model shape (each window the pool's
@@ -737,7 +773,7 @@ Then two kinds of consumer:
   until the controller rewrites it (`SetDesk.migrate`). A consumer of the form before 1.3.486 (`models`, the pools it might
   call) calls the first of them until the controller rewrites it
   (`ConsumerDesk.migrate`). The pool found, the request is the consumer's
-  route overlaid onto the pool's output (`cb:<id>`, the kanban's id for it)
+  route overlaid onto the pool's output (`cb:<id>`, Routing's id for it)
   and served by `ProxyHandler.proxy` with the consumer's dialect
   (`dialect.OpenAIDialect`). Only inference paths are routed
   (`caravan/common/request_kind.py`); any other path is 404
@@ -766,14 +802,14 @@ Then two kinds of consumer:
   which Hermes asks for a model's window — the consumer's pool in Ollama's
   shape, the window under `model_info` `caravan.context_length` and as
   `num_ctx` in `parameters`, both absent when the pool states none. The
-  entry's refusals carry the request's method in the journal: the kanban's
+  entry's refusals carry the request's method in the journal: Routing's
   client card lists a client's errors of the last 30 days from it
-  (`caravan/admin/client_misses.py`). The kanban's own tests of a client
+  (`caravan/admin/client_misses.py`). Routing's own tests of a client
   carry `X-Caravan-Probe` (`KeyEntry.PROBE_HEADER`); heard from this machine
   itself, not through the DSM's proxy, such a request is journaled under the
-  client `kanban-probe`, and the client's errors list leaves it out.
+  client `routing-probe`, and the client's errors list leaves it out.
 - **An agent of the old kind**, moved here with its port's key (1.3.442), is
-  still its port's: its request goes through its kanban graph as if it had
+  still its port's: its request goes through its Routing graph as if it had
   come to the port, because `ProxyHandler` reads the route only through its
   `route` property. Its `model` chooses nothing.
 
@@ -863,8 +899,9 @@ before it (2026-10-12).
 
 The entry point: ensure the state directory exists, record which code this
 process runs, start the `stop_request_watcher` thread, bind the current
-config's ports via `reconcile_listeners`, start the `listener_watcher` thread,
-then park the main thread. All work happens on daemon threads.
+config's ports via `reconcile_listeners`, start the `listener_watcher` thread, the idle
+probe (`start_probe_thread`) and the pool watch (`PoolWatch.start`), then park the main
+thread. All work happens on daemon threads.
 
 The record is `StartRecord` (`caravan/proxy/started.py`): the commit the
 process started from and its pid, written into `agent-proxy-state.json` as

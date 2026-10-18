@@ -14,6 +14,7 @@
 //     tts               text → speech
 //     translate         text → text in another language
 //     speech-translate  speech → text in another language
+//     voice-chat        speech (or text) → speech: a model you talk to, and it talks back
 //     robot-policy      camera frames + robot state + instruction → robot actions
 //
 // `speech-translate` is separate from `asr` on purpose: SeamlessM4T returns the
@@ -22,7 +23,7 @@
 // transcription.
 
 //: The whole vocabulary. Order is the order chips are drawn in.
-export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translate", "robot-policy"];
+export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translate", "voice-chat", "robot-policy"];
 
 //: How a job is drawn: the mark and the i18n key of its label. Here, beside the
 //: vocabulary itself, because BOTH surfaces draw it — the picker row and the
@@ -34,12 +35,12 @@ export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translat
 export const JOB_MARKS = {
   llm: "\u{1F4AC}", embed: "\u{1F9EC}", asr: "\u{1F3A7}", tts: "\u{1F50A}",
   translate: "\u{1F310}", "speech-translate": "\u{1F3A7}\u{1F310}",
-  "robot-policy": "\u{1F9BE}",
+  "voice-chat": "\u{1F5E3}\uFE0F", "robot-policy": "\u{1F9BE}",
 };
 export const JOB_LABELS = {
   llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
   translate: "jobTranslate", "speech-translate": "jobSpeechTranslate",
-  "robot-policy": "jobRobotPolicy",
+  "voice-chat": "jobVoiceChat", "robot-policy": "jobRobotPolicy",
 };
 
 //: Words a cell may report in `kinds` that mean one of ours. Cell servers grew
@@ -58,6 +59,7 @@ const KIND_ALIASES = {
   // "embedding".
   vlm: "llm",
   embedding: "embed",
+  "voice-chat": "voice-chat",
   "robot-policy": "robot-policy",
   // A vision-language-action model, as the field calls it.
   vla: "robot-policy",
@@ -77,6 +79,21 @@ const RUNNER_JOBS = {
   seamless: ["speech-translate"],
   translate: ["translate"],
   gr00t: ["robot-policy"],
+  // The voice servers (1.3.553): twin of _RUNNER_JOBS in model_jobs.py.
+  personaplex: ["voice-chat"],
+  "lfm-audio": ["tts"],
+  "step-audio2": ["llm", "voice-chat"],
+  "qwen3-omni": ["llm", "voice-chat"],
+  "minicpm-omni": ["voice-chat"],
+};
+
+//: What a safetensors folder of an architecture only one runner reads does: twin of _ARCH_JOBS in model_jobs.py,
+//: held to the registry's claims (stArchs) by scripts/test_launcher_runners.py.
+const ARCH_JOBS = {
+  personaplex: ["voice-chat"],
+  Lfm2AudioForConditionalGeneration: ["tts"],
+  step_audio_2: ["llm", "voice-chat"],
+  qwen3_omni_moe: ["llm", "voice-chat"],
 };
 
 // The vocabulary's order, not the caller's — so two cells reporting the same
@@ -100,6 +117,7 @@ export function jobsForArtifact(kind, sttVariant = "", arch = "", family = "") {
   if (k === "st") {
     const a = String(arch || "");
     if (a.startsWith("seamless_m4t")) return ["speech-translate"];
+    if (Object.prototype.hasOwnProperty.call(ARCH_JOBS, a)) return [...ARCH_JOBS[a]];
     return a.toLowerCase().startsWith("gr00t") ? ["robot-policy"] : ["llm"];
   }
   if (k === "whisper") return ["asr"];
@@ -133,7 +151,7 @@ export function jobsForCell(runnerId, kinds = []) {
 }
 
 // The runner that launches a cell: its RUNNER, a command cell's "custom", or
-// llama-server. One rule for the cell card, its detail window and the kanban's
+// llama-server. One rule for the cell card, its detail window and Routing's
 // rows — the card and the window each held a copy, written differently. Here,
 // beside the vocabulary, since the controller tells the proxy what each cell does
 // by the same rule (caravan/common/model_jobs.py cell_runner_id, one table of
@@ -144,7 +162,7 @@ export function cellRunnerId(cfg) {
     || (String(c.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server");
 }
 
-// What a cell DOES, from its record — the card's job chips, the kanban's row
+// What a cell DOES, from its record — the card's job chips, Routing's row
 // marks and, through the controller's twin (cell_jobs), the kind a pool tells
 // its clients in /v1/models.
 //

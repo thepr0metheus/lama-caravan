@@ -268,7 +268,7 @@ assert.deepEqual(ServerOrder.merged(["node:x"], ["cloud:a", "cloud:b"]), ["node:
   try {
     await k.step({ target: q.card("cloud:p").down, currentTarget: q.root, stopPropagation() {} });
     assert.deepEqual(saves.at(-1), ["node:a", "cloud:q", "node:b", "cloud:p"],
-      "↓ on a pool under Pools: the pools swap, and the machines keep their places in the order the kanban reads (negative: they are not dropped)");
+      "↓ on a pool under Pools: the pools swap, and the machines keep their places in the order Routing reads (negative: they are not dropped)");
   } finally {
     globalThis.document = realDocument;
   }

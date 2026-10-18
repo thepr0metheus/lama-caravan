@@ -52,6 +52,9 @@ OUTPUTS = {
     "srv:22009": {"id": "srv:22009", "jobs": ["llm"], "inputs": ["text"], "contextLength": 8192},
     "srv:22010": {"id": "srv:22010"},
     "srv:22011": {"id": "srv:22011", "jobs": ["robot-policy"]},
+    # The voice servers (1.3.553): PersonaPlex speaks a page and a WebSocket; Qwen3-Omni also answers a chat over vLLM's OpenAI API.
+    "srv:22021": {"id": "srv:22021", "jobs": ["voice-chat"]},
+    "srv:22023": {"id": "srv:22023", "jobs": ["llm", "voice-chat"], "inputs": ["text"]},
 }
 
 
@@ -104,7 +107,7 @@ def section_pools():
           "negative: одно ухо о языках молчит — языки не обещаны: «не знаю» не равно «никаких»")
     mixed = kind(acc("sub"), cell("srv:22003"))
     check(mixed.mixed and mixed.models_entry() == {} and mixed.state() == {"mixed": True} and mixed.serves("/v1/chat/completions"),
-          "чат и ухо в одном пуле — mixed: канбан говорит, список молчит, решают строки")
+          "чат и ухо в одном пуле — mixed: Маршрутизация говорит, список молчит, решают строки")
     check(kind(cell("srv:22003"), cell("srv:22010")) is None and kind(cell("srv:22003"), cell("srv:99999")).jobs == ("asr",),
           "строка, которая о себе молчит, — пул неизвестен; negative: строка к пропавшей ячейке — не в счёт")
     check(kind(cell("srv:22003"), cell("srv:22007", enabled=False), {"id": "open", "kind": "open", "enabled": True},
@@ -149,6 +152,30 @@ def section_said():
           "робот делает /v1/robot/predict; negative: чат роботу и робот чату — отказ входа, и не «/predict» по хвосту")
     check(kind(cell("srv:22011"), cell("srv:22007")).state() == {"mixed": True},
           "negative: робот и чат в одном пуле — у строк нет общей работы, пул «mixed», а не робот и не чат")
+
+
+def section_voice():
+    print("голосовые серверы (1.3.553): голос — своя работа, чат — только там, где сервер его отдаёт:")
+    page = kind(cell("srv:22021"))
+    check(page.models_entry() == {
+        "architecture": {"modality": "audio+text->audio+text", "input_modalities": ["audio", "text"], "output_modalities": ["audio", "text"]},
+        "caravan": {"jobs": ["voice-chat"]}},
+          "PersonaPlex в /v1/models — речь и слова на входе, речь и слова на выходе, работа voice-chat")
+    check([page.serves(p) for p in ("/v1/chat/completions", "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/responses")] == [False] * 4,
+          "negative: пул из PersonaPlex отказывает любому запросу, для которого у входа есть путь: у него страница и WebSocket")
+    omni = kind(cell("srv:22023"))
+    check(omni.jobs == ("llm", "voice-chat") and omni.serves("/v1/chat/completions") and not omni.serves("/v1/audio/speech"),
+          "Qwen3-Omni — и чат, и голос: чат вход отдаёт, голос приходит в message.audio этого же ответа")
+    check(omni.architecture() is None and omni.models_entry() == {"caravan": {"jobs": ["llm", "voice-chat"]}},
+          "negative: две работы — architecture одной строкой не сказать, работы названы по порядку словаря")
+    check(kind(cell("srv:22023"), cell("srv:22009")).jobs == ("llm",),
+          "negative: Qwen3-Omni и обычный чат в одном пуле — обещан чат, голос нет: его делает не каждая строка")
+    check(kind(cell("srv:22021"), cell("srv:22023")).jobs == ("voice-chat",) and kind(cell("srv:22021"), cell("srv:22007")).mixed,
+          "PersonaPlex с Qwen3-Omni — общий голос; с обычным чатом — нет общей работы, пул mixed")
+    check(ModelKind.clean_facts({"jobs": ["voice-chat", "llm", "voice"]}) == {"jobs": ["llm", "voice-chat"]},
+          "копия в файле: слово из словаря остаётся, чужое («voice») выброшено, порядок — словаря")
+    check(ModelKind.WORK["voice-chat"] == (("audio", "text"), ("audio", "text")) and ModelKind.PATHS["voice-chat"] == (),
+          "работа в таблицах входа: что берёт и что отдаёт, и ни одного пути OpenAI")
 
 
 def section_windows():
@@ -229,7 +256,7 @@ def section_about():
 
 
 def main():
-    for fn in (section_cell_facts, section_pools, section_said, section_windows, section_controller, section_about):
+    for fn in (section_cell_facts, section_pools, section_said, section_voice, section_windows, section_controller, section_about):
         fn()
     if _fail:
         print(f"\nmodel kinds FAILED: {len(_fail)}")

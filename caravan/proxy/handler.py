@@ -63,6 +63,7 @@ from caravan.proxy.summarize import (
 )
 from caravan.proxy.upstream_pool import upstream_pool
 from caravan.proxy.translate import (
+    AnthropicUsage,
     ChunkFold,
     _anthropic_to_completions_json,
     _chat_to_anthropic_body,
@@ -681,6 +682,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
         first_byte_ms = None
         response = {}
         stream = {"events": 0, "deltaTextChars": 0, "finishReasons": [], "usage": {}, "done": False}
+        # What an Anthropic stream has said it used, kept here so that a stream that is cut still has it for the journal (see where `_u` is chosen).
+        _anthropic_used = None
         last_state_write = 0
         conn = None
         upstream = None
@@ -1408,7 +1411,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self.send_header("Connection", "close")
                         _on_client(self.end_headers)
                         _sse_open[0] = True
-                    for chunk in _iter_anthropic_as_completions_sse(upstream, completion_id, _amodel):
+                    _anthropic_used = AnthropicUsage()
+                    for chunk in _iter_anthropic_as_completions_sse(upstream, completion_id, _amodel, used=_anthropic_used):
                         if first_byte_ms is None:
                             first_byte_ms = round((time.time() - started) * 1000)
                         bytes_out += len(chunk)
@@ -1445,6 +1449,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         raw += buf
                     translated = _anthropic_to_completions_json(raw, completion_id, _amodel)
                     bytes_out = len(translated)
+                    # The journal reads the usage of what the client got (until 1.3.585 this answer left `response` empty and was recorded as
+                    # 0 tokens in, 0 out: a request that is not streamed was never counted).
+                    response = response_summary(parse_json_bytes(translated))
                     if not headers_sent:
                         self.send_response(200, "OK")
                         self.send_header("Content-Type", "application/json")
@@ -1701,10 +1708,24 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 _u = response["usage"]
             elif isinstance(stream, dict) and isinstance(stream.get("usage"), dict):
                 _u = stream["usage"]
+            if not _u and _anthropic_used is not None and _anthropic_used.known():
+                # A stream that was cut — the client left, the provider dropped it — never reached the last chunk, where the usage rides. What
+                # the provider had said by then is what the journal keeps: the input, billed all the same, and the output as far as it was told.
+                _u = _anthropic_used.openai()
             result["usage"] = {
                 "prompt": int(_u.get("prompt_tokens") or _u.get("input_tokens") or 0),
                 "completion": int(_u.get("completion_tokens") or _u.get("output_tokens") or 0),
             }
+            # The cached part of the prompt, and the part written to the cache: priced apart (the table says how much each costs; for Anthropic a
+            # read is a fraction of the plain input and a write a quarter more). `prompt` holds them already (OpenAI's meaning); only what there
+            # is, so a journal row of no cache stays as it was.
+            _details = _u.get("prompt_tokens_details") if isinstance(_u.get("prompt_tokens_details"), dict) else {}
+            _cached = int(_details.get("cached_tokens") or _u.get("cache_read_input_tokens") or 0)
+            _written = int(_u.get("cache_creation_input_tokens") or 0)
+            if _cached > 0:
+                result["usage"]["cacheRead"] = _cached
+            if _written > 0:
+                result["usage"]["cacheWrite"] = _written
             # Exact per-request timings (llama upstreams) — top-level for the admin
             # to build per-consumer token history keyed by this route's port.
             _tm = {}

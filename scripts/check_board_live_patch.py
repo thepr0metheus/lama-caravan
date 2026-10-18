@@ -38,12 +38,19 @@ SHARED_FACTS = {
         "static/js/topology-nodes.js",
         "hostAgeText",
     ),
+    # 1.3.588: whether a cell's line breathes or holds a speed. The builder and the patch both ask the class; a copy of the rule in either
+    # would let the ring and the word `last` disagree after one poll tick.
+    "число запросов ячейки (дыхание строки)": (
+        re.compile(r"\.requestsProcessing\b"),
+        "static/js/cell-speed.js",
+        "CellSpeed",
+    ),
 }
 
 #: Files that draw the board: the builder, the patcher, and everything in between.
 BOARD_FILES = ("static/js/topology-render.js", "static/js/topology-activity.js",
                "static/js/topology-proxies.js", "static/js/remote-cells.js",
-               "static/js/topology-nodes.js")
+               "static/js/topology-nodes.js", "static/js/charts.js")
 
 
 def main():
@@ -54,8 +61,8 @@ def main():
             problems.append(f"{fact}: источник {source_rel} исчез — охранять нечего")
             continue
         text = source.read_text(encoding="utf-8")
-        if f"function {func}" not in text:
-            problems.append(f"{fact}: в {source_rel} нет функции «{func}» — источник переехал "
+        if not re.search(rf"\b(?:function|class) {re.escape(func)}\b", text):
+            problems.append(f"{fact}: в {source_rel} нет функции или класса «{func}» — источник переехал "
                             f"или переименован, и правило больше ничего не проверяет")
             continue
         if not pattern.search(text):

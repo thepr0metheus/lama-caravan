@@ -54,8 +54,8 @@
 html.river-on { background: #0b1110; }
 html.river-on body { background: transparent; }
 /* A page whose ground is a full-page block, not the body, lets the water through it too. */
-html.river-on .pb { background: transparent; }                                  /* /kanban */
-/* /kanban's column heads and empty-column notes stand on that ground with no card under them. */
+html.river-on .pb { background: transparent; }                                  /* /routing */
+/* /Routing's column heads and empty-column notes stand on that ground with no card under them. */
 html.river-on .pb-col-head { text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9); }
 html.river-on .pb-add { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); text-shadow: none; }
 html.river-on .pb-empty { background: var(--panel); }
@@ -67,7 +67,7 @@ html.river-on .hfp-repo > .hfp-empty { text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9)
 /* The panels keep base.css's colours with a little of the water showing through. */
 html.river-on { --panel: rgba(24, 33, 37, 0.86); --topbar: rgba(16, 24, 26, 0.76); }
 html.river-on[data-theme="llm"] { --panel: rgba(13, 15, 20, 0.86); --topbar: rgba(8, 9, 12, 0.78); }
-/* The kanban's strip stands over cards, not over water: with the panels' share of water the dimmed cards under it showed
+/* Routing's strip stands over cards, not over water: with the panels' share of water the dimmed cards under it showed
    through its words. Solid, in the panels' own colour. */
 html.river-on .pb-dock { background: color-mix(in srgb, rgb(24, 33, 37) 94%, #000); }
 html.river-on[data-theme="llm"] .pb-dock { background: color-mix(in srgb, rgb(13, 15, 20) 94%, #000); }
@@ -93,18 +93,13 @@ html.river-on[data-theme="llm"] .pb-dock { background: color-mix(in srgb, rgb(13
   transition: background 0.6s ease;
 }
 
-/* Cables on the board: idle ones are dimmed hard for a plain dark ground and would vanish over
-   moving water, so they stay brighter, with a dark halo. */
+/* Cables on the board: a calm line would vanish over moving water, so the main board's have a dark halo. */
 html.river-on .topology-cable { filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.85)); }
-html.river-on .topology-cable.primary.idle,
-html.river-on .topology-cable.fallback.idle,
-html.river-on .topology-cable.consumer.idle { opacity: 0.5; }
-html.river-on .topology-cable.router.idle { opacity: 0.62; }
 /* Text that stands on the ground itself, with no card under it, gets a dark halo. */
 html.river-on .section-title h2,
-html.river-on .topology-lane-head h2,
+html.river-on .board-col-title h2,
+html.river-on .board-sub-title h2,
 html.river-on .cv-entry,                                                          /* the board */
-html.river-on .board-page-link,                                                   /* the board: Models, Hugging Face */
 html.river-on .sys-foot { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85), 0 0 2px rgba(0, 0, 0, 0.9); }   /* /system */
 
 /* ── the dock: brightness, pause, sound — under the switch, opened by its ▾. No backdrop blur:

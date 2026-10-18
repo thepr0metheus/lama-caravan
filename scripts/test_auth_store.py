@@ -188,6 +188,101 @@ print(json.dumps({
     else:
         check("expiry and revocation", False, out.stderr.strip()[-300:])
 
+    # ── a request's session: "nobody is signed in" and "the store did not answer" are two answers ──
+    out, _ = run('''
+import sqlite3
+class Req:                                  # all session_from_handler reads of a request: its Cookie header
+    def __init__(self, cookie=None):
+        self.headers = {} if cookie is None else {"Cookie": cookie}
+auth.create_user("ann", "correct horse battery")
+uid = auth.verify_login("ann", "correct horse battery")["id"]
+tok = auth.create_session(uid)
+mine = auth.SESSION_COOKIE + "=" + tok
+def seen(cookie):
+    try:
+        return {"session": auth.session_from_handler(Req(cookie))}
+    except auth.SessionStoreUnavailable as exc:
+        return {"unavailable": type(exc.__cause__).__name__}
+    except Exception as exc:
+        return {"other": type(exc).__name__}
+def cold(cookie):                           # the session cache holds a token five seconds: ask the store itself
+    auth._SESSION_CACHE.clear()
+    return seen(cookie)
+healthy = {
+  "good": cold(mine),
+  "no header": cold(None),
+  "another cookie only": cold("theme=dark"),
+  "an unknown token": cold(auth.SESSION_COOKIE + "=nonsense"),
+  "an empty token": cold(auth.SESSION_COOKIE + "="),
+  "a cookie the parser refuses": cold("a(b=c"),
+  "ours beside one the parser refuses": cold(mine + "; a(b=c"),
+}
+real_db = auth._db
+def failing(exc):
+    def _db():
+        raise exc
+    return _db
+store_down = {}
+for label, exc in (("locked", sqlite3.OperationalError("database is locked")),
+                   ("malformed", sqlite3.DatabaseError("database disk image is malformed")),
+                   ("an I/O error", OSError(5, "Input/output error"))):
+    auth._db = failing(exc)
+    store_down[label] = cold(mine)
+auth._db = failing(ValueError("a bug of ours"))
+store_down["a bug is not a store error"] = cold(mine)
+auth._db = failing(sqlite3.OperationalError("database is locked"))
+store_down["no cookie, store down"] = cold(None)
+store_down["another cookie only, store down"] = cold("theme=dark")
+auth._SESSION_CACHE.clear()
+auth._db = real_db
+seen(mine)                                  # warm the cache with the store up ...
+auth._db = failing(sqlite3.OperationalError("database is locked"))
+store_down["within the cache time"] = seen(mine)    # ... and the store goes away: memory answers
+auth._db = real_db
+after = cold(mine)                          # nothing the failures left behind spoils the next good answer
+with open(auth.AUTH_DB, "wb") as f:         # the real thing, not a stand-in: a file that is not a database
+    f.write(b"this is not a database " * 200)
+real_garbage = cold(mine)
+kind = {"an Exception": issubclass(auth.SessionStoreUnavailable, Exception),
+        "not a refusal with a status": not issubclass(auth.SessionStoreUnavailable, AppError)}
+print(json.dumps({"healthy": healthy, "down": store_down, "after": after, "garbage": real_garbage, "kind": kind}))
+''')
+    if out.returncode == 0:
+        got = json.loads(out.stdout)
+        healthy, down = got["healthy"], got["down"]
+        check("a request with a live session names its user and role",
+              healthy["good"] == {"session": {"user": "ann", "role": "admin"}}, str(healthy["good"]))
+        for label, key in (("no Cookie header", "no header"), ("only cookies that are not ours", "another cookie only"),
+                           ("a token nobody holds", "an unknown token"), ("an empty token", "an empty token")):
+            check(f"{label} is a plain nobody ({{}}), not an error",
+                  healthy[key] == {"session": {}}, str(healthy[key]))
+        check("a jar the standard parser refuses is nobody too (as-is: one odd cookie on the host then hides ours)",
+              healthy["a cookie the parser refuses"] == {"session": {}}
+              and healthy["ours beside one the parser refuses"] == {"session": {}},
+              f"{healthy['a cookie the parser refuses']} {healthy['ours beside one the parser refuses']}")
+        for label, key, cause in (("a locked database", "locked", "OperationalError"),
+                                  ("a malformed database", "malformed", "DatabaseError"),
+                                  ("an I/O error on the disk", "an I/O error", "OSError")):
+            check(f"{label} is SessionStoreUnavailable, not nobody (the cause stays attached: {cause})",
+                  down[key] == {"unavailable": cause}, str(down[key]))
+        check("a bug of ours is not taken for the store being away: it surfaces as itself",
+              down["a bug is not a store error"] == {"other": "ValueError"}, str(down["a bug is not a store error"]))
+        check("a request with no session cookie never touches the store, so a down store changes nothing for it",
+              down["no cookie, store down"] == {"session": {}} and down["another cookie only, store down"] == {"session": {}},
+              f"{down['no cookie, store down']} {down['another cookie only, store down']}")
+        check("a session the cache holds is answered from memory while the store is away (as-is, 5 s)",
+              down["within the cache time"] == {"session": {"user": "ann", "role": "admin"}},
+              str(down["within the cache time"]))
+        check("the failures leave nothing behind: the next answer, store back, is the session again",
+              got["after"] == {"session": {"user": "ann", "role": "admin"}}, str(got["after"]))
+        check("a file that is not a database is the same refusal as a locked one",
+              got["garbage"] == {"unavailable": "DatabaseError"}, str(got["garbage"]))
+        check("the store's silence is an Exception (a handler that catches Exception still answers) and no AppError "
+              "(an AppError carries a status of its own; this one is for the dispatcher to answer)",
+              got["kind"] == {"an Exception": True, "not a refusal with a status": True}, str(got["kind"]))
+    else:
+        check("a request's session", False, out.stderr.strip()[-300:])
+
     # ── ending ONE session ───────────────────────────────────────────────────
     # revoke_session used to match `token_hash.startswith(id)`: an empty id — a
     # body with no `id`, a button that lost its data attribute — ended the first

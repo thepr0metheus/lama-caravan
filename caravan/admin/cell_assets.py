@@ -19,6 +19,7 @@ protocol beyond that.
 """
 import hashlib
 import os
+import re
 
 from caravan.common.errors import AppError
 
@@ -51,6 +52,11 @@ CELL_ASSETS = (
     "run_strata.sh",
     "gr00t_server.py",
     "run_gr00t.sh",
+    "lfm_audio_server.py",
+    "run_lfm_audio.sh",
+    "run_personaplex.sh",
+    "run_vllm_omni.sh",
+    "run_minicpm_omni.sh",
 )
 
 # Which assets a runner needs in $HOME before its command can run. The command
@@ -78,7 +84,24 @@ RUNNER_ASSETS = {
     # share it, and a scout that finds it under ollama fetches the same files.
     "ollama": ("run_engine.sh", "cell_base.py", "engine_cell_server.py"),
     "lmstudio": ("run_engine.sh", "cell_base.py", "engine_cell_server.py"),
+    # The servers that answer in a voice (1.3.553: runners of their own — LauncherCellMixin in runner.py; in 1.3.551 they
+    # were custom commands with presets, whose files were a GROUP named after the launcher, and the groups kept their names).
+    # The scout asks the manifest which group a cell's runner id names and fetches it — no scout release for a new one.
+    # The board's stale-source check follows the same group (cell_source_state): LFM's server is not the TTS server
+    # that "custom" stands for.
+    "lfm-audio": ("run_lfm_audio.sh", "cell_base.py", "lfm_audio_server.py"),
+    # PersonaPlex serves itself (NVIDIA's moshi.server and its page): the launcher is all that is ours.
+    "personaplex": ("run_personaplex.sh",),
+    # vLLM-Omni serves itself (`vllm serve --omni`): the launcher installs it and writes the deploy file, and that is all.
+    # One engine, one runner per model family (each its own recipe and footprint): the same launcher under both ids.
+    "step-audio2": ("run_vllm_omni.sh",),
+    "qwen3-omni": ("run_vllm_omni.sh",),
+    # llama.cpp-omni builds and serves itself: the launcher builds the server and links the model folder.
+    "minicpm-omni": ("run_minicpm_omni.sh",),
 }
+
+#: The launcher a command line names: run_<stem>.sh. The scout reads the same pattern (cell_assets.py there).
+LAUNCHER_RE = re.compile(r"\brun_([a-z0-9_]+)\.sh\b")
 
 
 def _asset_path(name: str) -> str:
@@ -151,6 +174,21 @@ def assets_for_runner(runner: str):
     return RUNNER_ASSETS.get(str(runner or "").strip().lower(), ())
 
 
+def group_for_command(command: str) -> str:
+    """The asset group whose launcher a command names, "" when it names none of ours.
+
+    A custom command hosts any of several servers, and the runner id "custom" stands for only one of them
+    (the TTS server): the version a cell should be running is the version of the files of ITS launcher. A cell of
+    the launcher runners names its launcher too, and gets its own runner's group: where two runners share a
+    launcher (the vLLM-Omni families) the files are the same under either.
+    """
+    found = LAUNCHER_RE.search(str(command or ""))
+    if not found:
+        return ""
+    launcher = f"run_{found.group(1)}.sh"
+    return next((group for group, names in RUNNER_ASSETS.items() if launcher in names), "")
+
+
 def server_stamp(runner: str) -> str:
     """The stamp a cell of this runner reports in /health when it is running the
     version we currently ship — the first 12 hex of the server's sha256.
@@ -180,19 +218,22 @@ def server_stamp(runner: str) -> str:
     return hashlib.sha256(b"\n".join(parts)).hexdigest()[:12]
 
 
-def cell_source_state(runner: str, reported: str) -> str:
+def cell_source_state(runner: str, reported: str, command: str = "") -> str:
     """Compare what a running cell says it loaded against what we ship.
 
       "current" — the running process holds the version in cells/
       "stale"   — it holds an older one; a restart picks the new one up
       "unknown" — the cell does not report a stamp at all
 
+    `command` is the cell's launch command: when it names a launcher of ours, that launcher's group of
+    files is what the cell should be running, not the runner id's.
+
     "unknown" is a real answer and deliberately not folded into "stale". A cell
     server predating this mechanism cannot report, so a stamp we cannot read
     means "nobody can tell" — which is the honest thing to show, and which
     stopped being true for everything shipped after 1.3.147.
     """
-    want = server_stamp(runner)
+    want = server_stamp(group_for_command(command) or runner)
     got = str(reported or "").strip()
     if not want or not got:
         return "unknown"

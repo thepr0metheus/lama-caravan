@@ -188,6 +188,30 @@ out.cellQuiet = Object.fromEntries([
   ["runningTransient", { phase: "running", transient: true }], ["stoppedCrashed", { phase: "stopped", crashed: true }],
   ["runningUnreachable", { phase: "running", unreachable: true }], ["nothing", {}], ["undefinedArg", undefined],
 ].map(([k, f]) => [k, CardFold.cellQuiet(f)]));
+// A failed cell folds into a red line (2026-10-17, the owner): the rule that lets it, and what still keeps the full card.
+out.cellFailed = Object.fromEntries([
+  ["failed", { failed: true }], ["failedDeleting", { failed: true, deleting: true }], ["notFailed", {}], ["undefinedArg", undefined],
+].map(([k, f]) => [k, CardFold.cellFailed(f)]));
+out.cellFoldable = Object.fromEntries([
+  ["running", { phase: "running" }], ["stopped", { phase: "stopped" }], ["error", { phase: "error", failed: true }],
+  ["broken", { phase: "broken", failed: true, transient: true }], ["errorDeleting", { phase: "error", failed: true, deleting: true }],
+  ["errorRestarting", { phase: "error", failed: true, motion: "start" }], ["starting", { phase: "starting", motion: "start" }],
+  ["stopping", { phase: "stopping", motion: "stop" }], ["runningCrashed", { phase: "running", crashed: true }],
+  ["runningUnreachable", { phase: "running", unreachable: true }], ["warming", { phase: "warming" }], ["downloading", { phase: "downloading" }],
+  // A start the line can say (2026-10-18, the owner: "when I start a cell, do not widen it by itself"): the card tells it can by `progress`.
+  ["downloadingStrip", { phase: "downloading", progress: true, transient: true }], ["warmingStrip", { phase: "warming", progress: true, transient: true }],
+  ["loadingStrip", { phase: "loading", progress: true, transient: true }],
+  ["stripDeleting", { phase: "downloading", progress: true, deleting: true }], ["stripCrashed", { phase: "downloading", progress: true, crashed: true }],
+  ["stripUnreachable", { phase: "running", progress: true, unreachable: true }], ["progressFalse", { phase: "downloading", progress: false }],
+  ["nothing", {}], ["undefinedArg", undefined],
+].map(([k, f]) => [k, CardFold.cellFoldable(f)]));
+out.stripNeverHides = Object.fromEntries([
+  ["downloading", { phase: "downloading", progress: true, transient: true }], ["warming", { phase: "warming", progress: true, transient: true }],
+  ["loading", { phase: "loading", progress: true, transient: true }],
+].map(([k, f]) => [k, CardFold.cellIdle(f)]));
+out.failedNeverHides = Object.fromEntries([
+  ["error", { phase: "error", failed: true }], ["broken", { phase: "broken", failed: true, transient: true }],
+].map(([k, f]) => [k, CardFold.cellIdle(f)]));
 out.agentQuiet = Object.fromEntries([
   ["one", { routes: 1 }], ["two", { routes: 2 }], ["none", { routes: 0 }], ["asText", { routes: "2" }],
   ["oldStale", { routes: 1, stale: true }], ["incident", { routes: 1, incident: true }], ["missing", {}],
@@ -434,6 +458,30 @@ check(not cq["runningTransient"], "работает, но идёт действ�
 check(not cq["stoppedCrashed"], "стоит, но падала — не тихо: счётчик падений должен быть виден")
 check(not cq["runningUnreachable"], "работает, но недостижима (файрвол) — не тихо")
 check(not cq["nothing"] and not cq["undefinedArg"], "нет фактов — не тихо: незнание не сворачивается")
+
+print("упавшая ячейка — красная строка:")
+cf_ = got["cellFailed"]
+check(cf_["failed"] is True and cf_["failedDeleting"] is False and cf_["notFailed"] is False and cf_["undefinedArg"] is False,
+      "упала — да; удаляется (это движение) — нет; не упала и фактов нет — нет")
+fd = got["cellFoldable"]
+check(fd["running"] and fd["stopped"] and fd["error"] and fd["broken"],
+      "работает, стоит, в ошибке, сломана (процесс жив, движок нет) — сворачиваются: упавшая — красной строкой (2026-10-17)")
+check(fd["errorRestarting"] and fd["starting"] and fd["stopping"],
+      "запуск или остановка по просьбе остаются строкой, и упавшая, которую запускают снова, — тоже")
+check(not fd["errorDeleting"], "negative: удаляется — не сворачивается, это движение")
+check(not any(fd[k] for k in ("runningCrashed", "runningUnreachable", "warming", "downloading", "nothing", "undefinedArg")),
+      "negative: работает, но падала; работает, но недостижима; прогрев и загрузка, о которых строка ничего сказать не может; "
+      "нет фактов — полная карточка, как было")
+check(fd["downloadingStrip"] and fd["warmingStrip"] and fd["loadingStrip"],
+      "positive (2026-10-18, владелец: «когда запускаю ячейку — не расширять её»): копирование модели, загрузка и прогрев, о которых "
+      "строка говорит сама (progress), остаются строкой — полная карточка сама не раскрывается")
+check(not (fd["stripDeleting"] or fd["stripCrashed"] or fd["stripUnreachable"]),
+      "negative: удаляется, падала или недостижима — полотно с полосой не спасает: полная карточка, как было")
+check(not fd["progressFalse"], "negative: progress: false — то же, что без него: строке сказать нечего, карточка полная")
+check(got["failedNeverHides"] == {"error": False, "broken": False},
+      "глаз машины упавшую не прячет: красная строка остаётся на виду")
+check(got["stripNeverHides"] == {"downloading": False, "warming": False, "loading": False},
+      "глаз машины не прячет и запускаемую: строка с полосой — движение, а «стоит и ничего не делает» только у тихой")
 
 print("глаз машины — что прячется:")
 la = got["launcher"]

@@ -36,11 +36,12 @@ class ClientMisses:
     def miss_of(row):
         """(port, method, path, status, reason, when) of a journal row that told a client an
         error, or None: a refusal of the entry or a request finished with 4xx/5xx, under a port —
-        not the kanban's test of the client, whose answers are the test's (KeyEntry.PROBE_CLIENT)."""
+        not Routing's test of the client, whose answers are the test's (KeyEntry.PROBE_CLIENTS: the name it has now and the one
+        the journal's rows from before 1.3.582 carry)."""
         if not isinstance(row, dict):
             return None
         item = row.get("item") if isinstance(row.get("item"), dict) else {}
-        if item.get("client") == KeyEntry.PROBE_CLIENT:
+        if item.get("client") in KeyEntry.PROBE_CLIENTS:
             return None
         if row.get("event") == "blocked":
             status = item.get("status")

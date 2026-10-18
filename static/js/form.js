@@ -20,7 +20,7 @@ import {
 } from "./favorites.js";
 import { bindCommandLocator, renderConfigSearch } from "./config-locator.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { _commandCellSlot, ggufKind, gpuComputeCap, renderCellPreviews, runnerRegistry, stKind, stOwner } from "./llama-edit.js";
+import { ggufKind, gpuComputeCap, renderCellPreviews, runnerRegistry, stKind, stOwner } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -39,9 +39,10 @@ import {
   offloadSplit,
   refreshAsidePanels,
   vramFitForPfx,
+  cellHolds,
 } from "./memory.js";
 import { JOB_LABELS, JOB_MARKS, jobsForArtifact } from "./model-jobs.js";
-import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
+import { _modelBenchKey, fetchPickerBenchBatch, repoOnlyWords, serverBenchCache } from "./model-meta.js";
 import { _trCachedModels, _trClientCpu, formOnControllerMachine } from "./remote-cells.js";
 import { state, topology } from "./state.js";
 import { $, api, escapeHtml, formatBool, formatCtxTokens, toast } from "./utils.js";
@@ -251,6 +252,7 @@ export function badge(text, kind) {
 const JOB_HOOKS = { llm: "model-job-llm", embed: "model-job-embed", asr: "model-job-asr", tts: "model-job-tts",
                     translate: "model-job-translate",
                     "speech-translate": "model-job-speech-translate",
+                    "voice-chat": "model-job-voice-chat",
                     "robot-policy": "model-job-robot-policy" };
 
 // What the model DOES, said in words at the head of its row.
@@ -474,9 +476,8 @@ export function mcUpdateTrigger(selectEl) {
       const hfBtn = document.createElement("a");
       hfBtn.className = "mc-hf-link";
       hfBtn.href = `/hf?q=${encodeURIComponent(repoId)}`;
-      hfBtn.target = "_blank";
       hfBtn.title = `Open ${repoId} in HF Browser`;
-      hfBtn.textContent = "HF ↗";
+      hfBtn.textContent = "HF";
       hfBtn.addEventListener("click", e => e.stopPropagation());
       trigger.appendChild(hfBtn);
     }
@@ -588,6 +589,8 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         if (item.langs && item.langs.length) badges += mbadge("it", item.langs.join(" "));
       } else if (item.kind === "model") {
         if (/[_-](it|instruct|chat|instruction)(?:[_-]|$)/i.test(fname)) badges += mbadge("it", "🤖 it");
+        // A word only the repository's name carries (model-meta.js): the chip's tip is the repository.
+        for (const word of repoOnlyWords(item.value)) badges += mbadge("repo", `💻 ${escapeHtml(word)}`, parts[0]);
         if (item.capability === "vision_likely" || item.suggestedMmproj) badges += mbadge("mmproj", "📷 mmproj");
         if (item.suggestedDraft || item.hasMtpBuiltin) badges += mbadge("mtp", "⚡ mtp");
         if (item.aaScore != null) badges += mbadge("bench", `🧠 ${item.aaScore}`);
@@ -633,7 +636,54 @@ export function modelChoiceOf(pfx = "") {
   };
 }
 
+/**
+ * The projector and the speculative draft a model may launch with — one rule for what the pickers offer and for
+ * which saved companion is stale, so the form cannot offer a file it then drops.
+ *
+ * The server names them (models.py: the model's own quant folder, then default/, then the repository's other
+ * quant folders — an HF repository ships ONE projector and ONE sidecar for the whole model, and the downloader
+ * files each under the quant folder it was named for — and, for a draft, last, the drafts whose header says they
+ * are made for the model's architecture wherever the library keeps them: Strata's one draft layer serves the
+ * packs of every repository, DraftPairing). The form offers exactly those. A model the server does
+ * not list (a path typed by hand, or a reply from before the lists existed) keeps the one rule left: its own folder.
+ *
+ * Until 2026-10-17 the pickers kept only the model's own folder while the server suggested from the others: the
+ * suggested draft had no option, a <select> drops a value it has no option for, the field stayed empty, and the
+ * speculative type — set from the suggestion — stayed "draft-mtp": a cell that asked llama.cpp for MTP layers its
+ * model does not have (gemma-4-12B Q5_K_M, "model doesn't contain MTP layers").
+ */
+export class ModelCompanions {
+  constructor(row, model) {
+    this.row = row || null;
+    const parts = String(model || "").split("/");
+    this.folder = parts.length >= 2 ? `${parts.slice(0, -1).join("/")}/` : "";
+  }
+
+  /** The server's list of `kind` ("mmproj" or "draft") for this model, or null when it gave none. */
+  listed(kind) {
+    const list = this.row?.[kind === "mmproj" ? "compatibleMmprojs" : "compatibleDrafts"];
+    return Array.isArray(list) ? list : null;
+  }
+
+  allows(kind, path) {
+    const list = this.listed(kind);
+    if (list) return list.includes(path);
+    return !this.folder || String(path).startsWith(this.folder);
+  }
+}
+
 export function renderModelSelects(pfx = "") {
+  if (!drawModelPickers(pfx)) return;
+  renderChatTemplateOptions(pfx);
+  renderChatTemplateHint(pfx);
+  syncCompanionMuting(pfx);
+
+  renderModelInsight(pfx);
+}
+
+// The model, projector and draft pickers drawn for the model the form holds: the options of THIS model first, then
+// each field's value. False when the form has no such pickers (nothing drawn).
+function drawModelPickers(pfx = "") {
   const models = state.models || [];
   // Preserve the form's current selection if the element already has a value (e.g. after
   // cache-list arrives and we re-render without losing what the user picked).
@@ -644,7 +694,7 @@ export function renderModelSelects(pfx = "") {
   const currentModel = choice.model;
   let currentMmproj = choice.mmproj;
   let currentDraft = choice.draft;
-  if (!modelEl || !mmprojEl) return;
+  if (!modelEl || !mmprojEl) return false;
 
   // Init custom dropdowns (idempotent — wraps once, updates on subsequent calls)
   makeModelCombobox(modelEl);
@@ -664,6 +714,10 @@ export function renderModelSelects(pfx = "") {
     .map((row) => ({
       value: row.path,
       sizeGb: row.sizeGb,
+      // A split model is ONE choice, its first part, and says how big the whole is and how many parts it has: "93.68 GB ×3". A
+      // part the list did not find is said too ("×2/3"): that model cannot start, and it must not look whole.
+      sizeLabel: row.parts > 1
+        ? `${row.sizeGb} GB ×${Number(row.partsFound) < Number(row.parts) ? `${row.partsFound}/` : ""}${row.parts}` : undefined,
       mtime: row.mtime,
       kind: row.kind,
       capability: row.capability,
@@ -810,19 +864,18 @@ export function renderModelSelects(pfx = "") {
   modelItems.forEach((item) => modelEl.appendChild(option(item.value, item.value, item.value === currentModel)));
   updateModelComboboxItems(modelEl, modelItems, currentModel);
 
-  // Same-folder filter: companion files must live in the exact same directory as the model
-  const _modelParts = currentModel.split("/");
-  const repoPrefix = _modelParts.length >= 2 ? _modelParts.slice(0, -1).join("/") + "/" : "";
+  // The companions this model may launch with (ModelCompanions): the server's lists.
+  const selectedRow = models.find((row) => row.kind === "model" && row.path === currentModel);
+  const companions = new ModelCompanions(selectedRow, currentModel);
 
-  // Auto-correct stale companions that don't belong to the selected model's folder
-  if (repoPrefix) {
-    const _selectedRow = (state.models || []).find(m => m.path === currentModel);
-    if (currentMmproj && !currentMmproj.startsWith(repoPrefix)) {
-      currentMmproj = _selectedRow?.suggestedMmproj || "";
+  // Auto-correct stale companions: files that are not this model's companions.
+  if (currentModel) {
+    if (currentMmproj && !companions.allows("mmproj", currentMmproj)) {
+      currentMmproj = selectedRow?.suggestedMmproj || "";
       if (mmprojEl) mmprojEl.value = currentMmproj;
     }
-    if (currentDraft && !currentDraft.startsWith(repoPrefix)) {
-      currentDraft = _selectedRow?.suggestedDraft || "";
+    if (currentDraft && !companions.allows("draft", currentDraft)) {
+      currentDraft = selectedRow?.suggestedDraft || "";
       if (draftEl) draftEl.value = currentDraft;
     }
   }
@@ -831,7 +884,7 @@ export function renderModelSelects(pfx = "") {
   const mmprojItems = [
     { value: "", label: t("textOnlyOption"), kind: "mmproj" },
     ...models
-      .filter((row) => row.kind === "mmproj" && (!repoPrefix || row.path.startsWith(repoPrefix)))
+      .filter((row) => row.kind === "mmproj" && companions.allows("mmproj", row.path))
       .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "mmproj", libraryOnly: !!row.libraryOnly, store: row.store || null })),
   ];
   if (currentMmproj && !mmprojItems.find((i) => i.value === currentMmproj)) {
@@ -846,9 +899,9 @@ export function renderModelSelects(pfx = "") {
   // Spec draft items
   if (draftEl) {
     const draftItems = [
-      { value: "", label: t("textOnlyOption"), kind: "draft" },
+      { value: "", label: t("noDraftOption"), kind: "draft" },
       ...models
-        .filter((row) => row.kind === "draft" && (!repoPrefix || row.path.startsWith(repoPrefix)))
+        .filter((row) => row.kind === "draft" && companions.allows("draft", row.path))
         .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "draft", libraryOnly: !!row.libraryOnly, store: row.store || null })),
     ];
     if (currentDraft && !draftItems.find((i) => i.value === currentDraft)) {
@@ -860,12 +913,7 @@ export function renderModelSelects(pfx = "") {
     );
     updateModelComboboxItems(draftEl, draftItems, currentDraft);
   }
-
-  renderChatTemplateOptions(pfx);
-  renderChatTemplateHint(pfx);
-  syncCompanionMuting(pfx);
-
-  renderModelInsight(pfx);
+  return true;
 }
 
 export function renderChatTemplateOptions(pfx = "") {
@@ -907,7 +955,11 @@ export function renderChatTemplateHint(pfx = "") {
 // hard, cards, vramNote: a start with an exact rule (memory.js FreeVramStart) —
 // it overflows at the first MiB short, not past the 1 GB grace an estimate gets;
 // it lands on these cards alone; and the VRAM pool says how it takes memory.
-export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false, { hard = false, cards = null, vramNote = "" } = {}) {
+// ramPlan (ram-plan.js RamPlan): a runner that keeps its weights in the machine's
+// memory (Strata) — its promise is drawn on the RAM pool as the VRAM's is on the
+// VRAM pool, by the scout's own rule: no more than what is free less the room the
+// scout leaves the system. A cell that runs already holds it, in the used figure.
+export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false, { hard = false, cards = null, vramNote = "", ramPlan = null } = {}) {
   const el = $(pfx + "asideVramBar");
   if (!el) return;
   if (!runtimeSizeGb && !allowEmpty) {
@@ -938,15 +990,16 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false, { har
   //   running → "this cell IS COSTING x" — its share is ALREADY inside the used
   //             figure, so it gets carved out of that block and highlighted
   //             rather than added; appending it would count the cell twice.
-  const pool = (icon, label, totalGb, freeGb, addGb, ownGb, note = "", { exact = false, plan = "" } = {}) => {
+  const pool = (icon, label, totalGb, freeGb, addGb, ownGb, note = "", { exact = false, plan = "", headroomGb = 0 } = {}) => {
     if (!totalGb) return "";
     const usedGb = Math.max(0, totalGb - freeGb);
     const mine = Math.min(ownGb, usedGb);            // never wider than the used block
     const othersPct = Math.min(100, ((usedGb - mine) / totalGb) * 100);
     const minePct = Math.min(100 - othersPct, (mine / totalGb) * 100);
-    const overflow = addGb > freeGb + (exact ? 0 : 1);
+    // headroomGb: what the scout leaves the system beyond a promise — it refuses at the first MiB past free less this.
+    const overflow = addGb > freeGb - headroomGb + (exact ? 0 : 1);
     const addPct = Math.min(100 - othersPct - minePct, (addGb / totalGb) * 100);
-    const kind = overflow ? "bad" : (freeGb - addGb < 1 ? "warn" : "good");
+    const kind = overflow ? "bad" : (freeGb - headroomGb - addGb < 1 ? "warn" : "good");
     const head = mine
       ? `<span class="aside-pool-mine">this cell <strong>${formatSizeGb(mine)}</strong></span>`
       : (addGb ? `<span>≈ <strong>${formatSizeGb(addGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : "");
@@ -975,10 +1028,15 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false, { har
   // worker counts too). RAM has no equally honest source — llama.cpp mmaps its
   // weights, so RSS tracks page cache more than the cell's own cost — hence RAM
   // keeps the estimate, only moved inside the used block once the cell is live.
-  const slot = _commandCellSlot(pfx);
-  const live = !!slot && ["running", "warming"].includes(String(slot.phase || ""));
-  const ownVram = live ? Object.values(slot.gpuMem || {}).reduce((a, v) => a + Number(v || 0), 0) / 1024 : 0;
-  el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, (onCpu && !live) ? runtimeSizeGb : 0, (onCpu && live) ? runtimeSizeGb : 0)
+  const { live, totalGb: ownVram } = cellHolds(pfx);
+  // A promised weight on the RAM pool: the GPU runners that keep their weights in memory (a CPU target's own figure is the sum above).
+  const promised = (ramPlan && !onCpu && !live) ? ramPlan : null;
+  const ramOpts = promised
+    ? { exact: true, headroomGb: promised.headroomGb,
+        plan: t("ramKeepsResident", { gb: formatSizeGb(promised.addGb), room: formatSizeGb(promised.headroomGb) }) }
+    : {};
+  el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, (onCpu && !live) ? runtimeSizeGb : (promised ? promised.addGb : 0),
+                      (onCpu && live) ? runtimeSizeGb : 0, "", ramOpts)
     + pool("🎮", "VRAM", vramTotal, vramFree, (!onCpu && !live) ? runtimeSizeGb : 0, ownVram, cardNote,
            { exact: hard, plan: vramNote });
 }
@@ -1359,6 +1417,10 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
     updateCtxYarnHint(pfx);
   }
 
+  // The pickers' options are those of the model the form held a moment ago: a <select> drops a value it has no
+  // option for, so the companions are written only after the options of THIS model are drawn.
+  drawModelPickers(pfx);
+
   // MMPROJ — always overwrite (clear if none found).
   const mmprojEl = $(pfx + "MMPROJ_FILE");
   if (mmprojEl) {
@@ -1384,13 +1446,16 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
     const wantedDraft = selected?.suggestedDraft || "";
     const draftChanged = draftEl.value !== wantedDraft;
     if (draftChanged) { draftEl.value = wantedDraft; mcUpdateTrigger(draftEl); }
+    // What the field HOLDS is the fact, not what was asked of it: a type set from the wish alone left the cell asking
+    // llama.cpp for MTP layers its model does not have (gemma-4-12B Q5_K_M, 2026-10-17).
+    const heldDraft = draftEl.value || "";
     if (specTypeEl) {
-      const hasMtp = !!(wantedDraft || selected?.hasMtpBuiltin);
+      const hasMtp = !!(heldDraft || selected?.hasMtpBuiltin);
       // The type must come from the SIDECAR, not from the family default: a
       // DFlash sidecar launched as draft-mtp starts happily and drafts nothing,
       // which is how a cell ends up at a third of its throughput while the panel
       // looks correct. Family defaults only get to speak for a built-in MTP head.
-      const wantedSpec = hasMtp ? DraftFile.cellType(wantedDraft, selected?.familyDefaults?.SPEC_TYPE) : "";
+      const wantedSpec = hasMtp ? DraftFile.cellType(heldDraft, selected?.familyDefaults?.SPEC_TYPE) : "";
       if (specTypeEl.value !== wantedSpec) specTypeEl.value = wantedSpec;
       const specEnabledEl = $(pfx + "SPEC_ENABLED");
       if (specEnabledEl) { specEnabledEl.checked = !!hasMtp; syncToggleLabel(specEnabledEl); }
@@ -1405,8 +1470,8 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
       // form last held wins and silently caps the new drafter. A deliberate value
       // still survives everything except swapping the drafter underneath it.
       const nMaxEl = $(pfx + "SPEC_DRAFT_N_MAX");
-      const blockSize = Number(modelsByPath().get(wantedDraft)?.ggufMeta?.specBlockSize || 0);
-      if (nMaxEl && wantedDraft) {
+      const blockSize = Number(modelsByPath().get(heldDraft)?.ggufMeta?.specBlockSize || 0);
+      if (nMaxEl && heldDraft) {
         // Upstream's own ceiling: n_draft_max = block_size for dspark, one less
         // for dflash (the block's first slot holds the last real token, not a
         // draft). Asking for the full block starts fine but logs "exceeds the
@@ -1709,12 +1774,14 @@ export function readConfigForm(pfx = "") {
   // The model's name at the machine's entry (1.3.507): every runner's, not a flag of any.
   config.MODEL_NAME = ($(pfx + "MODEL_NAME")?.value || "").trim();
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
+   "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
    "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
    "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
    "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });
+  // vLLM's --trust-remote-code: "1" when ticked, "" when not (a cell of another runner keeps no stray "0").
+  config.TRUST_REMOTE_CODE = $(pfx + "TRUST_REMOTE_CODE")?.checked ? "1" : "";
   if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine") {
     // Not a llama-server — don't carry a stale model/mmproj/draft into the slot.
     config.MODEL_FILE = "";

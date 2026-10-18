@@ -436,6 +436,17 @@ PINS = [
      J([[["g-Q4_K_M.gguf", "mmproj-g-bf16.gguf"], False, True, True], ["mmproj-g-bf16.gguf"], ["mmproj-g-bf16.gguf"], 1]),
      "галочка: выбирает файлы, которые называет (чужих имён нет в списке репозитория — не берёт), док появляется с размером, галочка отмечена; снятая — убирает; не галочка и без выбранного репозитория — ничего"),
 
+    ("page_follows_the_servers_downloads", "",
+     r"""await (async () => { await boot();
+        const armed = timers.map((t) => t.ms);
+        replies["/api/hf/download/jobs"] = { ok: true, jobs: [{ jobId: "x1", status: "running", repo: G, title: G, total_files: 2 }] };
+        replies["/api/hf/download/status?job=x1"] = { ok: true, status: "running", total_bytes: 100, total_bytes_done: 10, current_idx: 0, total_files: 2, current_file: "a.gguf", file_bytes_total: 50, file_bytes_done: 10 };
+        globalThis.__fetchCalls.length = 0; await runTimers();
+        return [armed, calls().map(([, path]) => path), page.downloads.jobs.map((j) => [j.jobId, j.repoId, j.totalFiles]), timers.map((t) => t.ms).sort((a, b) => a - b)]; })()""",
+     J([[10000], ["/api/hf/download/jobs", "/api/hf/download/status?job=x1"], [["x1", G, 2]], [600, 10000]]),
+     "страница сама следит за заданиями сервера: после старта в очереди таймер на 10000 мс; когда он сработал, страница спросила список заданий, "
+     "подхватила чужое задание x1 (запущено не с этой страницы) и стала опрашивать его (600 мс); сверка осталась и сама ставит следующую"),
+
     ("verify_polls_by_bytes", "",
      r"""await (async () => { await boot({ [FILES_URL(G)]: FILES(), [LOCAL_URL(G)]: { ok: true, localNames: ["g-Q8_0.gguf"], localFiles: {} } }); const e = page.el; page.catalog.setResults(REPOS()); await page.select(G); await settle(); globalThis.__fetchCalls.length = 0;
         replies["/api/hf/verify"] = { ok: true, jobId: "v1" }; replies["/api/hf/verify?job=v1"] = { ok: true, job: { done: false, bytesDone: 50, totalBytes: 200, files: { "g-Q8_0.gguf": { state: "running" } } } };
@@ -449,10 +460,10 @@ PINS = [
         for (const reply of [{ ok: false, error: "busy" }, { ok: false }]) { replies["/api/hf/verify"] = reply; await page.verify(G); await settle(); toasts.push([doc.els.hfToast.textContent, page.stateFor(G).verify]); }
         throws["/api/hf/verify"] = "offline"; await page.verify(G); await settle(); toasts.push([doc.els.hfToast.textContent, page.stateFor(G).verify]);
         return [running, done, failedJob, gone, toasts]; })()""",
-     J([[[["POST", "/api/hf/verify", {"repo": G}], ["GET", "/api/hf/verify?job=v1", None]], {"running": True, "pct": 25}, {"g-Q8_0.gguf": {"state": "running"}}, [700], True],
-        [None, {"g-Q8_0.gguf": {"state": "ok"}}, 0, ""], "hash mismatch", None,
+     J([[[["POST", "/api/hf/verify", {"repo": G}], ["GET", "/api/hf/verify?job=v1", None]], {"running": True, "pct": 25}, {"g-Q8_0.gguf": {"state": "running"}}, [10000, 700], True],
+        [None, {"g-Q8_0.gguf": {"state": "ok"}}, 1, ""], "hash mismatch", None,
         [["busy", None], ["Verification could not start", None], ["network error", None]]]),
-     "проверка sha256: запуск, опрос раз в 700 мс с долей по байтам, кнопка выключена; итог — по файлам без тоста; ошибка задания — тост; задание пропало — проверка снята; отказ запуска — тост с причиной, без причины и при сбое сети — свой"),
+     "проверка sha256: запуск, опрос раз в 700 мс с долей по байтам (рядом с ним — вечный таймер сверки списка заданий с сервером, 10000 мс: он остаётся и после прохода), кнопка выключена; итог — по файлам без тоста; ошибка задания — тост; задание пропало — проверка снята; отказ запуска — тост с причиной, без причины и при сбое сети — свой"),
 
     ("verify_keeps_the_checkpoint_section", "",
      r"""await (async () => { const ST = { format: "BF16", totalSize: 100, files: [{ name: "m.safetensors", path: "m.safetensors", size: 100 }] };
@@ -595,6 +606,16 @@ PINS = [
         [["POST", "/api/hf/download/cancel", {"jobId": "j1"}]], ["j1"],
         [[["POST", "/api/hf/download/resume", {"destDir": "gemma-4-12B-it-GGUF/bartowski/Q4_K_M", "name": "g-Q4_K_M.gguf"}]], "no manifest"], 0]),
      "док: подробности, ✕ у файла (док прячется), очистка, «скачать» (задание в списке), свернуть/развернуть задания, отмена, ✕ у ошибки, «продолжить» — всё доходит до загрузок; клик мимо — ничего"),
+
+    ("dock_open_page_button_opens_the_hubs_page", "",
+     r"""await (async () => { await boot(); const e = page.el; const d = page.downloads; const went = []; const opened = []; const real = globalThis.location.assign; const realOpen = globalThis.open;
+        globalThis.location.assign = (url) => { went.push(url); }; globalThis.open = (url) => { opened.push(url); return {}; };
+        try { const job = d.addJob({ jobId: "j7", state: "error", error: "HTTP Error 403: Forbidden",
+                access: { kind: "gated", url: "https://huggingface.co/nvidia/personaplex-7b-v1", repo: "nvidia/personaplex-7b-v1", status: 403, tokenSet: true } });
+          await fire(node(e.dock, { act: "job-open-page", uid: job.uid }), "click"); await fire(node(e.dock, { act: "job-open-page", uid: "dlj404" }), "click");
+          return [went, opened]; } finally { globalThis.location.assign = real; globalThis.open = realOpen; } })()""",
+     J([["https://huggingface.co/nvidia/personaplex-7b-v1"], []]),
+     "кнопка «Open the page» у отказа закрытого репозитория доходит до загрузок и ведёт на страницу репозитория в ЭТОЙ ЖЕ вкладке (location.assign), окон не открывает; чужой uid — ничего"),
 
     ("tour_steps_and_languages", "",
      r"""await (async () => { await boot(); page.startTour(); const config = tourCalls.find((c) => c[0] === "create")[1];

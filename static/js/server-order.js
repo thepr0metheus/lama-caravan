@@ -9,7 +9,7 @@ import { api, escapeHtml, toast } from "./utils.js";
  * list in the operator's order — a machine below the subscription pool, or between two
  * providers. The order is kept on the controller (POST /api/topology/server-order, read
  * back as topology.layout), so every browser and account sees the same board, and the
- * kanban's Servers panel follows it.
+ * Routing's Servers panel follows it.
  *
  * The two lanes stay two containers: every binding and test of a lane addresses its own.
  * The list they make is one CSS flex column over both (`display: contents` takes their
@@ -17,7 +17,7 @@ import { api, escapeHtml, toast } from "./utils.js";
  * its index; a card it does not name — a new machine, a new provider, every card while
  * nothing is stored — stands after them, in the order the lanes draw them: the machines
  * as their scouts came, then the cloud. One rule, `rank`, places the board's cards and
- * the kanban's groups.
+ * Routing's groups.
  *
  * A card moves by the ↑ and ↓ buttons first in its head, one place a click; the page
  * scrolls with the card, so the button stays under the pointer and a few clicks walk a card
@@ -32,7 +32,7 @@ import { api, escapeHtml, toast } from "./utils.js";
  * Since 2026-10-11 the main board shows its machines apart, each at a glance, in a section of
  * their own (board-view.js), and the list under Pools held the pools only. A pool moved there
  * moved among the pools, and the machines kept the places the stored order gives them
- * (`merged`). Since 2026-10-12 the pools stand on the kanban (pool-board.js) in their own order:
+ * (`merged`). Since 2026-10-12 the pools stand in Routing (pool-board.js) in their own order:
  * the main board has no list under Pools, and nothing binds this class there any more.
  */
 export class ServerOrder {

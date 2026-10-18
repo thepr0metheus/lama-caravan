@@ -2,116 +2,43 @@
 import hashlib
 import json
 import re
+import threading
 import time
 from pathlib import Path
-from struct import calcsize, unpack
 
 from caravan.admin.config_builder import models_dir_from_config, parse_config
+from caravan.admin.gguf_header import GgufHeader
+from caravan.admin.header_memory import header_memory
 from caravan.admin.paths import LLAMA_HOME
 from caravan.common.draft_file import DraftFile
-
-
-GGUF_VALUE_TYPES = {
-    0: "B",
-    1: "b",
-    2: "H",
-    3: "h",
-    4: "I",
-    5: "i",
-    6: "f",
-    7: "?",
-    10: "Q",
-    11: "q",
-    12: "d",
-}
-
-_GGUF_META_CACHE = {}
+from caravan.common.draft_pairing import DraftPairing
 
 
 def read_gguf_metadata_cached(path):
     """read_gguf_metadata keyed by (path, mtime, size): each /api/state used to
     re-parse EVERY model header; a dozen concurrent pollers serialized on the
     GIL and the whole API crawled (live incident, 2026-07-05). The header of an
-    unchanged file never changes — cache it forever."""
+    unchanged file never changes — remember it. It is remembered across starts
+    too (header_memory.py): the first /api/state after each start used to read
+    all of them again, 51 s for the 56 models of the NAS (2026-10-14)."""
     try:
         st = path.stat()
-        key = (str(path), int(st.st_mtime), st.st_size)
     except OSError:
         return read_gguf_metadata(path)
-    hit = _GGUF_META_CACHE.get(key)
+    memory = header_memory()
+    mtime = int(st.st_mtime)
+    hit = memory.recall(path, mtime, st.st_size)
     if hit is None:
         hit = read_gguf_metadata(path)
-        # Drop stale generations of the same path so the cache cannot grow
-        # unboundedly on re-downloaded files.
-        for old in [k for k in _GGUF_META_CACHE if k[0] == key[0] and k != key]:
-            _GGUF_META_CACHE.pop(old, None)
-        _GGUF_META_CACHE[key] = hit
+        memory.remember(path, mtime, st.st_size, hit)
     return hit
 
 
 def read_gguf_metadata(path, limit_keys=256):
-    wanted_suffixes = (
-        "block_count",
-        # Speculative sidecars carry <arch>.block_size — the number of tokens a
-        # block-diffusion drafter denoises per pass, and therefore the draft
-        # depth worth asking for. Without it here the key is filtered out
-        # before extract_runtime_meta ever sees it.
-        "block_size",
-        "context_length",
-        "embedding_length",
-        "attention.head_count",
-        "attention.head_count_kv",
-        "attention.key_length",
-        "attention.value_length",
-        "pooling_type",
-    )
-    # `stt.variant` is what makes a speech GGUF self-identifying. The
-    # architecture name alone cannot: transcribe.cpp has arches called granite,
-    # cohere and moss, and so does llama.cpp — a Granite CHAT model and a
-    # Granite SPEECH model both say "granite". Every speech GGUF the engine
-    # reads carries the stt.* namespace (stt.variant, stt.frontend.*); no chat
-    # model does. general.languages then says which languages it was trained
-    # for, which is the thing an operator actually needs when picking one.
-    wanted = {"general.architecture", "stt.variant", "general.languages"}
-    meta = {}
-    try:
-        with path.open("rb") as handle:
-            if handle.read(4) != b"GGUF":
-                return meta
-            version = unpack("<I", handle.read(4))[0]
-            if version < 2:
-                return meta
-            _tensor_count = unpack("<Q", handle.read(8))[0]
-            kv_count = unpack("<Q", handle.read(8))[0]
+    """The facts of a GGUF file's header that the controller wants, `{}` for a file that says none
+    (caravan/admin/gguf_header.py: what is read, and what is passed over)."""
+    return GgufHeader.read(path, limit_keys)
 
-            def read_string():
-                length = unpack("<Q", handle.read(8))[0]
-                return handle.read(length).decode("utf-8", errors="replace")
-
-            def read_value(value_type):
-                if value_type == 8:
-                    return read_string()
-                if value_type == 9:
-                    item_type = unpack("<I", handle.read(4))[0]
-                    length = unpack("<Q", handle.read(8))[0]
-                    values = [read_value(item_type) for _ in range(min(length, 32))]
-                    for _ in range(max(0, length - 32)):
-                        read_value(item_type)
-                    return values
-                fmt = GGUF_VALUE_TYPES.get(value_type)
-                if not fmt:
-                    return None
-                return unpack("<" + fmt, handle.read(calcsize("<" + fmt)))[0]
-
-            for _ in range(min(kv_count, limit_keys)):
-                key = read_string()
-                value_type = unpack("<I", handle.read(4))[0]
-                value = read_value(value_type)
-                if key in wanted or key.endswith(wanted_suffixes):
-                    meta[key] = value
-            return meta
-    except Exception:
-        return {}
 
 def extract_runtime_meta(meta):
     arch = meta.get("general.architecture", "")
@@ -280,14 +207,22 @@ def _freshness_by_path():
     return out
 
 
-def _gguf_kind(rel):
-    """A GGUF's role by its path: "model", "mmproj" or "draft" — or None for a
-    vocab or template file, which is no model at all."""
+def _gguf_kind(rel, architecture=""):
+    """A GGUF's role by its path and, once its header was read, by the architecture the header names: "model",
+    "mmproj" or "draft" — or None for a vocab or template file, or a part of a pipeline that no engine loads on
+    its own.
+
+    The architecture outranks the name for a projector, because the name misleads. MiniCPM-o's repository ships
+    `…-projector-F16.gguf` whose architecture is `projector` (four tensors of its speech pipeline, nothing
+    llama-server loads with --mmproj) and, named like any weights, `…-vision-F16.gguf` whose architecture is
+    `clip` — the file the cell needs. By the name the cell was offered the first and never the second, and it
+    died on "Failed to load CLIP model" (2026-10-17, :22011). A name says "mmproj" only where the header does
+    not say otherwise; with no header (a file only a library holds, never read) the name stays the whole answer."""
     name = Path(rel).name.lower()
     parts = Path(rel).parts
+    arch = str(architecture or "").lower()
     if "vocab" in name or (parts and parts[0] in ("vocabs", "templates")):
         return None
-    is_mmproj = any(token in name for token in ["mmproj", "mm-proj", "projector"])
     # Draft: a speculative sidecar by its name or its mtp/ folder — the rule
     # the type is read by, so a file offered as a draft is launched as the one
     # it is (DraftFile). Only "mtp-" was recognised until b10357, so a
@@ -296,9 +231,19 @@ def _gguf_kind(rel):
     # its path by hand. That is what kept Muse Glimmer at a third of its speed.
     if DraftFile(rel).sidecar_type:
         return "draft"
-    if is_mmproj:
+    if arch == "clip" or any(token in name for token in ["mmproj", "mm-proj"]):
         return "mmproj"
+    if "projector" in name:
+        return None if arch else "mmproj"
     return "model"
+
+
+def _kind_of(path, rel, size, store):
+    """_gguf_kind with the header's architecture: read only for a file the name does not rule out already (a header
+    read once is remembered, header_memory.py)."""
+    if _gguf_kind(rel) is None:
+        return None
+    return _gguf_kind(rel, _header(path, rel, size, store).get("architecture") or "")
 
 
 def _header(path, rel, size, store):
@@ -344,9 +289,6 @@ def list_models(config=None, locations=None):
             continue
         rel = str(path.relative_to(models_dir))
         name = path.name.lower()
-        kind = _gguf_kind(rel)
-        if kind is None:
-            continue
         try:
             st = path.stat()
             size = st.st_size
@@ -354,19 +296,34 @@ def list_models(config=None, locations=None):
         except OSError:
             size = 0
             mtime = 0
+        kind = _kind_of(path, rel, size, None)
+        if kind is None:
+            continue
         ggufs.append((path, rel, name, kind, size, mtime, None))
     # What only a library holds joins the list, marked with its library: the
     # picker must offer a model that moved to the NAS, since a cell can start
     # from there. This disk wins when it has the file too.
     local_rels = {entry[1] for entry in ggufs}
     for rel, store, f in locations.library_entries():
-        kind = _gguf_kind(rel)
-        if kind is None or rel in local_rels:
+        if rel in local_rels:
             continue
-        ggufs.append((None, rel, Path(rel).name.lower(), kind, int(f.get("size") or 0), int(f.get("mtime") or 0), store))
+        size = int(f.get("size") or 0)
+        kind = _kind_of(None, rel, size, store)
+        if kind is None:
+            continue
+        ggufs.append((None, rel, Path(rel).name.lower(), kind, size, int(f.get("mtime") or 0), store))
     # One order for both, by path parts — the order the directory walk gave —
     # so a library file sits beside its siblings from this disk.
     ggufs.sort(key=lambda entry: entry[1].split("/"))
+
+    # A split model's FIRST part is what the picker offers for the whole model, so its row carries the size of all the parts
+    # the list finds: the rule the models page and the ≈VRAM badge already follow (model_locator.py). With the part's own size
+    # a 93 GB model read "0.01 GB" (its first part holds only the header) and the form's estimate said it fits anywhere.
+    split_sizes: dict = {}
+    for _path, rel, _name, kind, size, _mtime, _store in ggufs:
+        split = locations.split_part(rel) if kind == "model" else None
+        if split:
+            split_sizes.setdefault(split[0], {})[split[1]] = size
 
     # Index companions (mmproj, draft) by their quant directory — same dir as the model.
     companions_by_dir: dict = {}
@@ -377,10 +334,21 @@ def list_models(config=None, locations=None):
         if parent not in companions_by_dir:
             companions_by_dir[parent] = {"mmproj": [], "draft": []}
         companions_by_dir[parent][kind].append(rel)
+    # …and the drafts by the architecture of the model each is made for, wherever it lies (DraftPairing): a draft is found
+    # by its folder first, and a model with none there by what its header says.
+    pairing = DraftPairing()
+    for path, rel, name, kind, size, mtime, store in ggufs:
+        if kind == "draft":
+            pairing.add(rel, _header(path, rel, size, store).get("architecture"))
 
     for path, rel, name, kind, size, mtime, store in ggufs:
         if kind != "model":
             continue
+
+        # `size` stays this file's own: the header lookup keys on it. The row says the whole model's.
+        split = locations.split_part(rel)
+        whole = split_sizes.get(split[0]) if split and split[1] == 1 else None
+        total = sum(whole.values()) if whole else size
 
         parts = Path(rel).parts
         top = parts[0] if parts else ""
@@ -409,15 +377,18 @@ def list_models(config=None, locations=None):
             seen = set()
             return [x for g in groups for x in companions_by_dir.get(g, {}).get(key, [])
                     if not (x in seen or seen.add(x))]
+        gguf_meta = _header(path, rel, size, store)
         compatible = _merge("mmproj")[:5]
-        suggested_draft = (_merge("draft") or [""])[0]
+        # The folders' drafts first, then the ones made for this architecture that lie elsewhere in the library.
+        by_folder = _merge("draft")
+        compatible_drafts = [*by_folder, *(d for d in pairing.of(gguf_meta.get("architecture")) if d not in by_folder)][:5]
+        suggested_draft = (compatible_drafts or [""])[0]
 
         haystack = re.sub(r"[^a-z0-9]+", " ", rel.lower())
         name_hints = any(tok in haystack.split() for tok in ["vision", "vl", "mm", "multimodal", "llava", "minicpmv"])
         capability = "vision_likely" if (compatible or name_hints) else "text"
 
         family_defaults = FAMILY_DEFAULTS.get(family, {})
-        gguf_meta = _header(path, rel, size, store)
 
         # Speech-to-text weights: the file says so itself (stt.variant). They
         # are GGUF and would otherwise sit in the picker looking exactly like a
@@ -443,14 +414,19 @@ def list_models(config=None, locations=None):
             "path": rel,
             "name": Path(rel).name,
             "kind": kind,
-            "size": size,
-            "sizeGb": round(size / (1024 ** 3), 2),
+            "size": total,
+            "sizeGb": round(total / (1024 ** 3), 2),
+            # Only the first part of a split model: how many parts the name says, and how many of them the list found (here or in a library).
+            **({"parts": split[2], "partsFound": len(whole)} if whole else {}),
             "mtime": mtime,
             # "" means not checked: the panel must tell that apart from "matches".
             "fresh": fresh_by_path.get(rel, ""),
             "capability": capability,
             "compatibleMmprojs": compatible,
             "suggestedMmproj": compatible[0] if compatible else "",
+            # The picker offers exactly these (form.js ModelCompanions): the server decides which files are a
+            # model's companions, the form does not guess from the folder a second time.
+            "compatibleDrafts": compatible_drafts,
             "suggestedDraft": suggested_draft,
             "hasMtpBuiltin": has_mtp_builtin,
             "detectedFamily": family,
@@ -486,6 +462,8 @@ def list_models(config=None, locations=None):
         row.update(_where(store))
         rows.append(row)
 
+    # What the walk read of the headers goes to the disk, once, at its end: a start that follows finds it.
+    header_memory().flush()
     return rows
 
 
@@ -495,16 +473,26 @@ _ST_FORMAT_HINTS = ("NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
 
 _ST_ARCH_CACHE = {}
 
+#: A config.json bigger than this is not read: the answer is "no architecture", never a guess from a prefix. The biggest
+#: one met is an AWQ checkpoint's, 649 KB (the quantisation block lists every module it leaves alone). Its model_type
+#: stands near the top, but 64 KiB of a JSON is not a JSON: it did not parse, the answer was empty, and the folder
+#: reached no runner that claims by architecture (Qwen3-Omni AWQ, found on the board). 16 MiB is 25 times the biggest
+#: and still parses in a blink, once.
+_ST_ARCH_MAX_BYTES = 16 * 1024 * 1024
+
 
 def _st_arch(directory):
-    """model_type from a checkpoint's config.json, cached by (path, mtime).
+    """model_type from a checkpoint's config.json, cached by (path, mtime); the first of `architectures` when the
+    file has no model_type (LFM2.5-Audio's has none: "Lfm2AudioForConditionalGeneration").
 
     list_st_artifacts deliberately reads no files — it runs on every /api/state.
     But the runner picker needs to tell a SeamlessM4T checkpoint from any other
     safetensors folder, and guessing from the directory NAME is the kind of
-    list that drifts the first time somebody renames a download. One small JSON
-    per directory, cached the same way GGUF headers are, keeps the answer
-    measured without paying for it on every poll.
+    list that drifts the first time somebody renames a download. One JSON per
+    directory, cached the same way GGUF headers are, keeps the answer
+    measured without paying for it on every poll. The file is read whole (up to
+    _ST_ARCH_MAX_BYTES): a JSON cut short does not parse, and the keys that
+    answer sit anywhere among nested blocks.
     """
     try:
         cfg = directory / "config.json"
@@ -515,9 +503,12 @@ def _st_arch(directory):
     hit = _ST_ARCH_CACHE.get(key)
     if hit is None:
         try:
+            if st.st_size > _ST_ARCH_MAX_BYTES:
+                raise ValueError("config.json is too big to read")
             with open(cfg, "rb") as fh:
-                hit = str(json.loads(fh.read(65536).decode("utf-8", "replace")
-                                     ).get("model_type") or "")
+                doc = json.loads(fh.read().decode("utf-8", "replace"))
+            archs = doc.get("architectures")
+            hit = str(doc.get("model_type") or (archs[0] if isinstance(archs, list) and archs else "") or "")
         except Exception:  # noqa: BLE001
             hit = ""
         for old in [k for k in _ST_ARCH_CACHE if k[0] == key[0] and k != key]:
@@ -784,13 +775,31 @@ class ModelList:
         self.clock = clock
         self._rows = None
         self._at = 0.0
+        self._walking = threading.Lock()
 
     def rows(self):
-        now = self.clock()
-        if self._rows is None or now - self._at >= self.TTL:
-            self._rows = self.lister()
-            self._at = now
+        """One walk at a time. The first list is waited for by everyone who asks before it is there: a dozen pages
+        that open together walked the folder a dozen times, each reading every header the others were reading
+        (2026-10-14). A list that has gone stale is made anew by one caller, and the others are given the old one
+        meanwhile: the board never waits for a walk it already has a list of."""
+        rows = self._rows
+        if rows is not None and self.clock() - self._at < self.TTL:
+            return rows
+        if rows is None:
+            with self._walking:
+                if self._rows is None:
+                    self._walk()
+                return self._rows
+        if self._walking.acquire(blocking=False):
+            try:
+                self._walk()
+            finally:
+                self._walking.release()
         return self._rows
+
+    def _walk(self):
+        self._rows = self.lister()
+        self._at = self.clock()
 
     def current(self):
         """The rows and their stamp, of the same list: read apart, the cache

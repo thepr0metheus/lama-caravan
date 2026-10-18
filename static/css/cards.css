@@ -575,204 +575,85 @@
 
 /* A cable's anchor, not a control: cables come from the assignments, and nothing drags them
    on the main board. It used to take the clickable row's pointer, and a drag from it selected
-   the text of the whole page (2026-10-08). */
-.topology-handle {
-  position: absolute;
-  z-index: 4;
-  width: 20px;
-  height: 34px;
-  border: 1px solid var(--line);
-  background: var(--field);
-  box-shadow: var(--shadow);
-  cursor: default;
-  -webkit-user-select: none;
-  user-select: none;
-}
-
+   the text of the whole page (2026-10-08). Its look is the dot of cables.css, Routing's too (the owner, 2026-10-14);
+   here is what the main board adds: a target for the pointer bigger than the dot, and the dot's states. */
 .topology-agent-route > .topology-handle,
 .topology-card > .topology-handle {
   position: absolute !important;
 }
 
-.topology-handle::after {
+.topology-handle {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Hovering a handle lights its cable (cables.js): the dot is 12px, the pointer's target 26px. */
+.topology-handle::before {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 8px;
-  height: 8px;
+  inset: -7px;
   border-radius: 50%;
-  background: var(--accent);
-  transform: translate(-50%, -50%);
 }
 
-.topology-handle.output {
-  right: -24px;
-  top: 50%;
-  transform: translateY(-50%);
-  border-radius: 0 8px 8px 0;
+.topology-handle.primary {
+  border-color: var(--accent);
 }
 
-.topology-handle.input {
-  left: -24px;
-  top: 50%;
-  transform: translateY(-50%);
-  border-radius: 8px 0 0 8px;
-}
-
-.topology-handle.proxy-output {
-  right: -24px;
-  top: 50%;
-  transform: translateY(-50%);
-  border-radius: 0 8px 8px 0;
-}
-
-.topology-handle.server-input {
-  left: -24px;
-  top: 50%;
-  transform: translateY(-50%);
-  border-radius: 8px 0 0 8px;
-}
-
-.topology-handle.primary::after,
-.topology-cable.primary {
-  background: var(--accent);
-}
-
-.topology-handle.fallback::after {
-  background: var(--fallback);
+.topology-handle.fallback {
+  border-color: var(--fallback);
 }
 
 .topology-handle.drag-over {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
-.topology-handle.activity-active {
-  border-color: var(--accent);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent),
-    0 0 18px color-mix(in srgb, var(--accent) 30%, transparent);
+.topology-handle.health-degraded {
+  border-color: var(--warn);
 }
 
-.topology-cable {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 1;
-  stroke-linecap: round;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
-  opacity: 0.36;
+.topology-handle.health-failed {
+  border-color: var(--bad);
 }
 
+/* The main board's cables: the line and its two colours are cables.css (Routing's, 1.3.549). What the main board has
+   of its own is the role of a route — the agents' cables of the old kind — and the state of its upstream. A request that
+   runs through a cable lights it in the accent, and its drops run (cable-flow.js); a cable that is not in use stays as calm
+   as the others: how many cables converge on one input no longer decides how faint each one is. */
 .topology-cable.fallback {
-  stroke: var(--fallback);
-  stroke-width: 1;
+  stroke: color-mix(in srgb, var(--fallback) 45%, var(--line));
   /* Dash encodes the ROLE, matching the dashed border every fallback row wears
      in the agent card. It was previously only added by state (muted) — so an
      unverified fallback rendered solid while its card bar was dashed, and the
-     two surfaces disagreed. Opacity carries state; animation carries activity. */
+     two surfaces disagreed. Colour carries activity; the drops run over the dashes. */
   stroke-dasharray: 6 5;
 }
 
 .topology-cable.priority {
-  stroke: var(--priority);
-  opacity: 0.95;
+  stroke: color-mix(in srgb, var(--priority) 55%, var(--line));
 }
 
-.topology-cable.proxy {
-  stroke: color-mix(in srgb, var(--accent) 48%, var(--muted));
-  stroke-width: 0.8;
-  opacity: 0.28;
-}
-
-.topology-cable.activity-active {
-  stroke: var(--accent);
-  stroke-width: 4;
-  stroke-dasharray: 10 7;
-  /* Static brightness parity with .router (0.8): the base .topology-cable
-     opacity is 0.36 and the pulse animation is the only thing that raised it,
-     so an active client→router cable read as "not highlighted" whenever the
-     animation didn't kick in (redraws, reduced motion). */
-  opacity: 0.95;
-  animation:
-    topologyCablePulse 2.2s ease-in-out infinite,
-    topologyCableFlow 100s ease-in-out infinite;
-}
-
-.topology-cable.priority.activity-active {
-  stroke: var(--priority);
-  filter:
-    drop-shadow(0 0 5px color-mix(in srgb, var(--priority) 42%, transparent))
-    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
-}
-
-.topology-cable.fallback.activity-active {
+.topology-cable.fallback.activity-active,
+.topology-cable.fallback.activity-recent {
   stroke: var(--fallback);
-  stroke-dasharray: 10 7;
 }
 
+.topology-cable.priority.activity-active,
+.topology-cable.priority.activity-recent,
 .topology-cable.fallback.priority.activity-active {
   stroke: var(--priority);
 }
 
-.topology-cable.proxy.activity-active {
-  stroke: color-mix(in srgb, var(--accent) 82%, #dbeafe);
-  stroke-width: 3.2;
-  stroke-dasharray: 12 9;
-  opacity: 0.95;
-}
-
-.topology-cable.proxy.priority,
-.topology-cable.proxy.priority.activity-active {
-  stroke: var(--priority);
-}
-
-.topology-cable.proxy.cloud {
-  stroke: #a78bfa;
-}
-
-.topology-cable.proxy.cloud.activity-active {
-  stroke: #c4b5fd;
-  stroke-width: 3.2;
-  stroke-dasharray: 12 9;
-  animation:
-    topologyCablePulse 2.2s ease-in-out infinite,
-    topologyCableFlow 100s ease-in-out infinite;
-}
-
-.topology-cable.activity-recent {
-  opacity: 0.82;
-}
-
-/* Idle client→router cables: many converge on one input, so dim them hard so
-   the one actually carrying a request (activity-active, width 4 + flow) stands out.
-   A client of the entry's cables too (cables.js): a free one has one to each pool it may call. */
-.topology-cable.primary.idle,
-.topology-cable.fallback.idle,
-.topology-cable.consumer.idle {
-  opacity: 0.13;
-  stroke-width: 1;
-}
-
 .topology-cable.health-degraded {
   stroke: var(--warn);
-  stroke-width: 2.2;
-  opacity: 0.95;
+  stroke-width: var(--cable-lit-width);
 }
 
 .topology-cable.health-failed,
 .topology-cable.activity-error {
   stroke: var(--bad);
-  stroke-width: 2.2;
-  opacity: 0.95;
-}
-
-.topology-handle.health-degraded::after {
-  background: var(--warn);
-}
-
-.topology-handle.health-failed::after {
-  background: var(--bad);
+  stroke-width: var(--cable-lit-width);
 }
 
 @keyframes topologyCablePulse {
@@ -810,15 +691,16 @@
   }
 }
 
+/* The cable in the hand, as Routing's. */
 .topology-cable.live {
-  stroke: var(--accent-strong);
-  stroke-width: 3;
-  stroke-dasharray: 8 5;
+  stroke: var(--cable-lit);
+  stroke-width: var(--cable-lit-width);
+  stroke-dasharray: 6 4;
 }
 
 .topology-cable.hovered {
-  stroke-width: 4;
-  opacity: 1;
+  stroke: var(--cable-lit);
+  stroke-width: 2px;
 }
 
 .topology-cable.muted-by-hover {

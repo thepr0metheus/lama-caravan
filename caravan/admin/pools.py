@@ -1,4 +1,4 @@
-"""The pools on the controller's files: what the kanban edits and what it shows.
+"""The pools on the controller's files: what Routing edits and what it shows.
 
 A pool is an ordered list of rows — an account with one model, a local model,
 or nothing yet (caravan/common/cloud_pools.py) — and what a client's cable goes
@@ -39,7 +39,7 @@ class PoolDesk:
     MIGRATION = "pools-of-steps-2026-10"
     #: The steps' own levels moved onto their models (1.3.486), stamped once.
     ROWS_MIGRATION = "pools-of-rows-2026-10"
-    #: The models the rows name added to the kanban's column (1.3.491), stamped once.
+    #: The models the rows name added to Routing's column (1.3.491), stamped once.
     ADDED_MIGRATION = "added-models-2026-10"
     NAME_MAX = 80
     #: The name of a pool made with "+ Pool" before the operator names it.
@@ -58,7 +58,7 @@ class PoolDesk:
     def migrate(self):
         """Rewrite a file of the old form as pools of steps, once. A model
         block becomes a pool with its id (caravan/common/cloud_pools.py) when
-        it is on the kanban or anything points at it; the rest were copies of a
+        it is in Routing or anything points at it; the rest were copies of a
         provider's list, and go. The accounts' reserves became their steps'
         switch levels. Answers {"pools": ids, "dropped": block ids}, or None
         when there is nothing to rewrite."""
@@ -109,7 +109,7 @@ class PoolDesk:
         return {"models": sum(len(models) for models in data["levels"].values()), "steps": moved}
 
     def migrate_added(self):
-        """Add the models the pools' rows name to the kanban's column, once
+        """Add the models the pools' rows name to Routing's column, once
         (1.3.491): until then it showed every model an account offers, and the
         ones in use stay on it. Answers {"models": count} — the models added —
         or None when it was done before, or while the file is of the old form
@@ -213,7 +213,7 @@ class PoolDesk:
     def _new_step(self, data, pool, account_id, model):
         """A step of `account_id` with `model`, under an id the pool does not
         use yet. Its levels are its model's (caravan/common/model_levels.py),
-        and its model is on the kanban's column (_keep)."""
+        and its model is on Routing's column (_keep)."""
         account = self._account(data, account_id)
         step = {"id": CloudPools.step_id(account["id"], {s["id"] for s in pool["steps"]}),
                 "accountId": account["id"], "model": self._model(model), "enabled": True}
@@ -222,7 +222,7 @@ class PoolDesk:
 
     @staticmethod
     def _keep(data, target):
-        """A model a row is cabled to is one the kanban's column shows
+        """A model a row is cabled to is one Routing's column shows
         (caravan/admin/added_models.py): added with the cable, so a cable taken
         away later leaves its model in place. A local output is not a model of
         an account, and adds nothing."""
@@ -254,7 +254,7 @@ class PoolDesk:
     # ── pools ───────────────────────────────────────────────────────────
 
     def create(self, name="", account_id="", model="", target=None, name_after=""):
-        """A new pool. "+ Pool" on the kanban makes it empty, under "Pool" — or
+        """A new pool. "+ Pool" in Routing makes it empty, under "Pool" — or
         "Pool 2", "Pool 3" when that name is taken; given an account and a
         model, or a `target` as a row takes it (an account's model or a local
         output), it starts with that row, named after its model — `name_after`,
@@ -313,7 +313,7 @@ class PoolDesk:
         return kept
 
     def order(self, ids):
-        """The pools in the order the kanban's column shows them, from the board's drag: `ids` names
+        """The pools in the order Routing's column shows them, from the board's drag: `ids` names
         every pool once. A list that does not is refused 409 — the board drew pools another page has
         since added or deleted, and must draw them again."""
         data = self.load()
@@ -498,7 +498,7 @@ class PoolDesk:
                 cut = refs.cut(pool["id"])
             else:
                 raise AppError(f"pool {pool['id']}: {held['cables']} cable(s) and rules {held['rules']} lead to it "
-                               "on the kanban — move them onto another pool, or disconnect them", 409)
+                               "in Routing — move them onto another pool, or disconnect them", 409)
         else:
             onto = ""
         routes = payload.get("routes") or []
@@ -577,7 +577,7 @@ class PoolDesk:
     # ── the models on the right ─────────────────────────────────────────
 
     def add_model(self, account_id, model):
-        """Put one of an account's models on the kanban's column ("＋ model"),
+        """Put one of an account's models on Routing's column ("＋ model"),
         last. One that is there already stays where it is. Any id is taken, the
         list's or a typed one: a list lags behind its provider. Answers the
         account's models, in their order."""
@@ -590,7 +590,7 @@ class PoolDesk:
         return added.of(account["id"])
 
     def remove_model(self, account_id, model):
-        """Take a model off the kanban's column (its ✕). Refused while a pool's
+        """Take a model off Routing's column (its ✕). Refused while a pool's
         row names it: the row's cable would have no model to land on, so that
         cable goes first. Its levels and its schedule stay
         (caravan/common/model_levels.py, model_schedules.py): put back, it has
@@ -611,7 +611,7 @@ class PoolDesk:
         return added.of(account["id"])
 
     def added_models(self):
-        """The models on the kanban's column, by account, in the order they were
+        """The models on Routing's column, by account, in the order they were
         added (caravan/admin/added_models.py)."""
         return AddedModels(self.load()).stored()
 
@@ -633,7 +633,7 @@ class PoolDesk:
         return {"available": True, "pools": rows.get("pools", {}), "events": rows.get("events", [])}
 
     def model_levels(self):
-        """The levels of the subscription models as the kanban's right column draws
+        """The levels of the subscription models as Routing's right column draws
         them (caravan/common/model_levels.py): `set` — the pairs the operator
         set, by account and model; `default` — the pair of a model nobody set;
         `max` — the highest share a level may take. A model is drawn with its
@@ -646,7 +646,7 @@ class PoolDesk:
         """Every pool as the board draws it: its steps, each with the levels
         its subscription's windows have reached now — the proxy's last reading,
         judged by the rule the proxy enforces (caravan/common/usage_reserve.py) —
-        and what holds the pool on the kanban."""
+        and what holds the pool in Routing."""
         data = self.load()
         sources = CloudSources(data, load_provider_secrets())
         state = self._state() or {}

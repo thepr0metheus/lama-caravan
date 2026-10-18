@@ -90,11 +90,42 @@ def _record_cpu_history(node_id, cpu):
 
 _tps_history: dict = {}  # "nodeId:port" -> [[t, promptTps, genTps]]
 
-def _record_tps_history(key, prompt_tps, gen_tps):
+
+class TokenRates:
+    """The token rates a cell has NOW, as the history of the machine's token speed records them.
+
+    A scout keeps the last request's rates while its cell is idle (the cell's line says `last` before them, cell-speed.js). A history that
+    took them for the cell's own would draw a plateau at the last speed through every idle minute, and the machine's graph would say the
+    cell generates when it does not. A cell that says it answers no request does nothing now: its rates are 0, a measurement and not a
+    gap. A cell that does not say — an older scout, a server without the number — is taken as it reports: nothing tells idle from held.
+
+    `count` is the same rule as `CellSpeed.count` (static/js/cell-speed.js), in the other language; both are run against one table of cases
+    (scripts/cell_speed_cases.py, COUNTS), so they cannot drift apart.
+    """
+
+    @staticmethod
+    def count(value):
+        """How many requests a cell says it answers: a whole number from 0. None for anything else — not told, never a 0 in its place."""
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        if value != value or value in (_INF, -_INF) or value < 0 or value != int(value):
+            return None
+        return int(value)
+
+    @classmethod
+    def now(cls, prompt, gen, requests):
+        """(prompt, gen) as the history records them: zeros for a cell that says it answers no request, else as reported."""
+        return (0, 0) if cls.count(requests) == 0 else (prompt, gen)
+
+
+def _record_tps_history(key, prompt_tps, gen_tps, requests=None):
     """Per-server token-speed history (admin-side, accumulates for every node —
     including remote clients — so the GPU telemetry rows are universal). The
-    current t/s already arrive in each heartbeat; we just keep a ring buffer."""
+    current t/s already arrive in each heartbeat; we just keep a ring buffer.
+    `requests` is how many requests the cell answers now, as its scout says it
+    (None: not told): a cell that answers none records zeros, not the rates it holds."""
     now = int(time.time())
+    prompt_tps, gen_tps = TokenRates.now(prompt_tps, gen_tps, requests)
 
     def num(v):
         try:

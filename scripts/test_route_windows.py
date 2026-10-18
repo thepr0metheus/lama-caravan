@@ -282,7 +282,7 @@ def main():
     finally:
         models_mod.read_gguf_metadata_cached, models_mod.extract_runtime_meta = real_read, real_extract
 
-    print("the window each pool states to its clients (the kanban's «Pool settings» says it):")
+    print("the window each pool states to its clients (Routing's «Pool settings» says it):")
     pools = [dict(p, steps=[dict(s) for s in p["steps"]]) for p in POOLS] + [
         {"id": "blk:none", "name": "nothing stated", "contextAuto": False, "steps": []},
         {"id": "blk:unnamed", "name": "a model the provider names no window for", "contextAuto": True,

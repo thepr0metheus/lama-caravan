@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Actual provider-glances.js: the cloud providers on the main board, and where the kanban's pools lead.
+"""Actual provider-glances.js: the cloud providers on the main board, and where Routing's pools lead.
 
 The owner, 2026-10-12: the main board's third column holds the machines and, under them, the cloud
-providers — each a block of its accounts, added there and never with its models (the kanban has
-them). The kanban's card is cabled to the machines and accounts its pools lead to: PoolReach says
+providers — each a block of its accounts, added there and never with its models (Routing has
+them). Routing's card is cabled to the machines and accounts its pools lead to: PoolReach says
 which — an account a row calls, a machine one of whose cells a row calls — by value, with the
 negatives a cable must not be drawn for. ProviderGlances draws each provider the controller puts on
 the board: its name, its accounts as rows — whether each can serve, a subscription's windows (no ⟳)
@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PROBE = r'''
 import assert from "node:assert/strict";
 const landed = new Set();
-globalThis.__stubValues = { "usage-stats.READING_LANDED": landed,
+globalThis.__stubValues = { "usage-stats.READING_LANDED": landed, "usage-stats.proxySpendData": null,
   "cloud.CLOUD_PICKER_META": { "openai-subscription": { color: "#22c55e" }, openrouter: { color: "#a78bfa" } } };
 globalThis.__stubReturns = {
   "i18n.t": (k) => k,
@@ -44,7 +44,7 @@ const st = await import("../static/js/state.js");
 const pass = [];
 const pin = (cond, why) => { assert.ok(cond, why); pass.push(why); };
 
-// ── where the kanban's pools lead ──
+// ── where Routing's pools lead ──
 {
   const top = {
     routers: [
@@ -125,7 +125,7 @@ const row = (html, id) => {
   pin(s.includes('<bars owner="sub" refresh="false"></bars>') && s.includes("<chip sub>") && s.includes("cloudConnected")
       && s.includes('data-t-state="ready"') && s.includes('data-provider-edit="sub"') && s.includes("Sub &lt;A>") && !s.includes("Sub <A>"),
     "a signed-in subscription's row: its windows as last read, no ⟳; the small ↺ of its saved resets; connected; ⚙; its name escaped");
-  pin(!s.includes("<spend") && !/gpt|model/i.test(s), "negative: no spend line and no model on a subscription's row — its models are the kanban's");
+  pin(!s.includes("<spend") && !/gpt|model/i.test(s), "negative: no spend line and no model on a subscription's row — its models are Routing's");
   const a = row(html, "sub-test");
   pin(a.includes('<bars owner="sub"') && a.includes("<chip sub>") && a.includes('data-provider-edit="sub"'),
     "a test alias reads its original's windows and resets, and ⚙ opens the original's window");
@@ -151,6 +151,30 @@ const row = (html, id) => {
     "boundary: an id the accounts lack (one deleted between the two readings) draws no row");
   assert.deepEqual([reads, spends.length, resets.reads], [["sub", "sub"], 2, ["sub", "sub-test"]]);
   pin(true, "the windows are read for each signed-in subscription (the alias by its original), the resets for each, the spend once per API key with its key (two here)");
+}
+
+// ── the credit left of a key (credit-left.js; the owner, 2026-10-17) ──
+{
+  // The meter itself is pinned in test_js_credit_left.py; here, where a row asks for it and where it does not.
+  const asked = [];
+  const credit = (account) => { asked.push(account.id); return `<credit id="${account.id}"></credit>`; };
+  const claude = { id: "an", name: "Claude", type: "anthropic", hasCredential: true, creditUsd: 200, creditAsOf: 1800000000 };
+  const claudeNoKey = { id: "an2", name: "Claude 2", type: "anthropic", hasCredential: false, creditUsd: 50, creditAsOf: 1800000000 };
+  const subWithFigure = { ...sub, id: "sub9", creditUsd: 10, creditAsOf: 1 };
+  const top = { cloudAccounts: [claude, claudeNoKey, subWithFigure], boardProviders: [
+    { kind: "anthropic", accounts: ["an", "an2"] }, { kind: "openai-subscription", accounts: ["sub9"] }] };
+  const glances = new ProviderGlances({ readUsage() {}, readSpend() {}, credit, resets: { read() {}, chipHtml: () => "" }, landed });
+  const html = glances.html(top);
+  const c = row(html, "an");
+  pin(c.includes('<spend id="an" zero="true"></spend><credit id="an"></credit>') && c.includes("cloudConnected"),
+    "a key that can serve: its spend through the caravan, and right after it the credit left, when its operator typed one");
+  pin(!row(html, "an2").includes("<credit") && !row(html, "sub9").includes("<credit") && JSON.stringify(asked) === JSON.stringify(["an"]),
+    "negative: a key not entered yet and a subscription draw no credit and are not asked for one — the credit is a key's");
+  const plain = new ProviderGlances({ readUsage() {}, readSpend() {}, resets: { read() {}, chipHtml: () => "" }, landed });
+  const bare = row(plain.html(top), "an");
+  pin(bare.includes('data-t="credit-left"') && bare.includes('data-t-state="unread"') && !bare.includes("sub-meter") && !row(plain.html(top), "sub9").includes("credit-left"),
+    "by default the credit is drawn by CreditLeft against the spend reading: before the first reading landed it says the spend is not read, "
+    + "with no bar; a subscription still draws none");
 }
 
 // ── the column: the "＋"s, ✕, ↺ and ⚙ delegated; a reading draws the blocks again ──
@@ -183,7 +207,7 @@ const row = (html, id) => {
   pin(new ProviderGlances({ landed: new Set(), resets: {} }).redraw() === false, "boundary: nothing mounted — nothing drawn, said as false");
 }
 for (const why of pass) console.log("  ok  " + why);
-console.log(`js provider-glances OK: ${pass.length} pins — where the kanban's pools lead, each provider a block of its accounts, its ＋ and ✕, a reading draws again`);
+console.log(`js provider-glances OK: ${pass.length} pins — where Routing's pools lead, each provider a block of its accounts, its ＋ and ✕, a reading draws again`);
 '''
 
 

@@ -39,7 +39,6 @@
 }
 .models-bar-link:hover { border-color: var(--tint); background: color-mix(in srgb, var(--tint) 20%, transparent); }
 .models-bar-hf { --tint: #f5b72b; }
-.models-bar-arrow { color: var(--muted,#888); font-weight: 400; }
 
 /* ── Topology edit modal: OK button (cell config, no restart) ─────────────── */
 .topo-ok-btn {

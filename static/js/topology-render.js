@@ -1,6 +1,8 @@
 // Render orchestration: renderAll/renderTopology, structure fingerprint, live sync.
 import { BOARD_VIEW } from "./board-view.js";
 import { CARD_FOLD } from "./card-fold.js";
+import { CellSpeed } from "./cell-speed.js";
+import { ClientLlamaUpdate } from "./client-llama-update.js";
 import { drawTopologyCables, topologyAccentStyle } from "./cables.js";
 import { _cvDrag, bindCanvasInteractions, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyGpuHistory } from "./charts.js";
@@ -11,8 +13,11 @@ import {
   renderTopologyCloudProviders,
 } from "./cloud.js";
 import { CONSUMER_CARDS, ConsumerCards } from "./consumers.js";
-import { appConfirm, appPrompt } from "./dialogs.js";
+import { appConfirmTyped } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
+import { ModelCacheLine } from "./model-cache.js";
+import { ModelCopy } from "./model-copy.js";
+import { StartStrip } from "./start-strip.js";
 import { MODEL_LIST } from "./model-list.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
 import {
@@ -45,7 +50,7 @@ import {
 } from "./remote-cells.js";
 import { POOL_BOARD } from "./pool-board.js";
 import { PROVIDER_GLANCES } from "./provider-glances.js";
-import { renderBoardPageLinks, renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
+import { renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
 import { SERVER_ORDER } from "./server-order.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { SUSPECT_BANNER } from "./suspect-banner.js";
@@ -218,14 +223,14 @@ export function renderTopology() {
     renderTopologyCloudAccountModal(),
     topologyRouteDetailHtml(),
     renderTopologyProxyForm(),
-    // The kanban page is the pools' board (pool-board.js; the owner, 2026-10-12): clients, pools
+    // Routing page is the pools' board (pool-board.js; the owner, 2026-10-12): clients, pools
     // and models joined by cables. The main board keeps its router card.
     window.ROUTER_STANDALONE ? POOL_BOARD.html(topology) : renderTopologyRouterDetail(),
     renderTopologyScheduleModal(),
     // Routing layer: a single router. The proxy is the client's
     // primary/fallback row (left); its handle drags to the router input.
     window.ROUTER_STANDALONE ? ""
-      : `<div class="router-stack">${(topology.routers || []).filter((s) => s.id === "router:default").map(renderTopologyRouterCard).join("")}${BOARD_VIEW.isMachine ? "" : renderBoardPageLinks()}</div>`,
+      : `<div class="router-stack">${(topology.routers || []).filter((s) => s.id === "router:default").map(renderTopologyRouterCard).join("")}</div>`,
   ].join("");
   if (window.ROUTER_STANDALONE) POOL_BOARD.mount($("topologyProxies"));
 
@@ -430,34 +435,24 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-ctrl-stats-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => toggleCtrlServerStats(btn));
   });
-  // Client nodes: update llama.cpp on the client to the controller's commit.
-  // The scout runs it as a background job; its heartbeat flips the chip to a
-  // "building…" indicator on the next topology poll.
-  $("topologyLlamaServers")?.querySelectorAll("[data-update-client-llama]").forEach((btn) => {
-    btn.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const hostId = btn.getAttribute("data-update-client-llama") || "";
-      const tag = state.llamaCpp?.git?.head || "";
-      if (!window.confirm(t("updateClientLlamaConfirm"))) return;
-      try {
-        await api("/api/fleet/llama-update", { method: "POST", body: JSON.stringify({ hostId, tag }) });
-        toast(t("clientLlamaBuilding"));
-      } catch (err) {
-        toast(err.message);
-      }
-    });
-  });
-  // Power-cycle a host. Confirmed with the host's own name spelled out, because
-  // the two headers look alike and rebooting the controller takes the board down
-  // with it. Reboot only — nothing here can switch a headless box back on.
+  // Client nodes: update llama.cpp on the client to the controller's commit
+  // (or to the latest release when the controller has none — the confirm
+  // window says which). The scout runs it as a background job; its heartbeat
+  // flips the chip to a "building…" indicator on the next topology poll.
+  ClientLlamaUpdate.bind($("topologyLlamaServers"));
+  // A machine's model cache: how many of the last models it keeps (scout 2.34+), and the files in it that the scout did not download.
+  ModelCacheLine.bind($("topologyLlamaServers"), refreshTopology);
+  // Power-cycle a host. Confirmed with the host's own name TYPED (appConfirmTyped), because
+  // the two headers look alike, rebooting the controller takes the board down with it, and
+  // every cell of the machine goes with it. Reboot only — nothing here can switch a headless box back on.
   $("topologyLlamaServers")?.querySelectorAll("[data-reboot-host]").forEach((btn) => {
     btn.addEventListener("click", async (event) => {
       event.stopPropagation();
       const hostId = btn.getAttribute("data-reboot-host") || "";
       const isCtrl = isControllerMachine(hostId);
-      const ok = await appConfirm(
-        t(hostPowerTextKey(hostId, "reboot")).replace("{host}", hostId),
-        { confirmLabel: t("hostRebootOk"), scene: "stop" });
+      const ok = await appConfirmTyped(
+        t(hostPowerTextKey(hostId, "reboot")).replace("{host}", hostId), hostId,
+        { confirmLabel: t("hostRebootOk"), scene: "stop", detail: hostId });
       if (!ok) return;
       try {
         const res = await api("/api/host/reboot", {
@@ -475,28 +470,18 @@ export function renderTopology() {
 
   // Power off. Everything about this is one step heavier than reboot, because
   // the board cannot undo it: no button here switches a machine back on, so a
-  // wrong click ends with someone walking to the rack.
-  //
-  // The gate is TYPING the host's name, not clicking through a warning. A
-  // confirm dialog is one keystroke from a reflex; spelling out the name cannot
-  // be done by muscle memory, and it forces the operator to read which host
-  // they are on — the two node headers look alike, which is the mistake worth
-  // preventing.
+  // wrong click ends with someone walking to the rack. The name is typed here as
+  // for a reboot, and the warning stands in the question.
   $("topologyLlamaServers")?.querySelectorAll("[data-poweroff-host]").forEach((btn) => {
     btn.addEventListener("click", async (event) => {
       event.stopPropagation();
       const hostId = btn.getAttribute("data-poweroff-host") || "";
       const isCtrl = isControllerMachine(hostId);
-      const typed = await appPrompt(
-        t(hostPowerTextKey(hostId, "poweroff")).replace("{host}", hostId),
-        { text: t("hostPowerOffWarning").replace("{host}", hostId),
-          placeholder: hostId, confirmLabel: t("hostPowerOffOk"), scene: "stop" });
-      // Cancel resolves null; an inexact answer is treated as cancel rather
-      // than as an error, because the operator has already decided by then.
-      if ((typed || "").trim() !== hostId) {
-        if (typed != null) toast(t("hostPowerOffNameMismatch").replace("{host}", hostId));
-        return;
-      }
+      const ok = await appConfirmTyped(
+        t(hostPowerTextKey(hostId, "poweroff")).replace("{host}", hostId) + "\n\n"
+          + t("hostPowerOffWarning").replace("{host}", hostId), hostId,
+        { confirmLabel: t("hostPowerOffOk"), scene: "stop", detail: hostId });
+      if (!ok) return;
       try {
         const res = await api("/api/host/poweroff", {
           method: "POST", body: JSON.stringify({ hostId }),
@@ -633,11 +618,14 @@ export function topologyStructureParts() {
   // appearing, or going silent, adds or removes a node's banner — structure.
   // Its age is not; the live patcher moves that.
   // What a machine's next boot does to its card (driver_outlook.py) is said on
-  // it: a warning coming or going rebuilds the card.
+  // it: a warning coming or going rebuilds the card. So do its model cache's setting and
+  // the foreign files in it (model-cache.js); what it holds and what the disk has left move
+  // with every download and are patched in place.
   const hosts = (topology.nodes || [])
     .map((n) => `${n.id}:${n.online ? 1 : 0}:${n.scoutVersion ? 1 : 0}:`
       + (Array.isArray(n.driverWarnings) ? n.driverWarnings : [])
-        .map((w) => `${w?.kind || ""}${w?.reason || ""}${w?.kernel || ""}${w?.installed || ""}${w?.loaded || ""}`).join("+"))
+        .map((w) => `${w?.kind || ""}${w?.reason || ""}${w?.kernel || ""}${w?.installed || ""}${w?.loaded || ""}`).join("+")
+      + `:${ModelCacheLine.of(n).fingerprint()}`)
     .sort().join(",");
   // Autostart is a setting of the card like the model: while ↟ was not here,
   // pressing it left the button spinning until something else changed — the
@@ -668,8 +656,8 @@ export function topologyStructureParts() {
           + `${m.action?.op || ""}${m.actionError?.at || ""}${m.staysLoaded === true ? "∞" : ""}`)
         .join("|")))
     .sort().join(",");
-  // The kanban a port feeds is structure too: binding a port from the "unassigned" list
-  // changed only routerId, and the kanban kept the old clients and the old badge.
+  // Routing a port feeds is structure too: binding a port from the "unassigned" list
+  // changed only routerId, and Routing kept the old clients and the old badge.
   // A client's set is its one cable (2026-10-12): moved from another tab, the board redraws it,
   // and when the models of its set change.
   // So do its errors of the last 30 days, which its card lists.
@@ -677,16 +665,16 @@ export function topologyStructureParts() {
     .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}@${p.routerId || ""}~${p.set || ""}=${(p.models || []).join("+")}`
       + `!${p.misses ? (p.misses.items || []).map((m) => `${m.method} ${m.path} ${m.status}x${m.count}`).join(";") + `+${p.misses.more}` : "?"}`)
     .sort().join(",");
-  // The pools are outputs on the kanban: their names and rows label it — a row of a local model by
+  // The pools are outputs in Routing: their names and rows label it — a row of a local model by
   // its output, and an open row as open. Their settings say the window each states to its clients:
   // the number, the switch and the controller's word on what it states now (`window`).
-  // The sets (the kanban's «Набор»): their names and the pools each holds, in order.
+  // The sets (Routing's «Набор»): their names and the pools each holds, in order.
   const sets = (topology.sets || []).map((x) => `${x.id}:${x.name}:${(x.pools || []).join("+")}`).join(",");
   const cloud = (topology.pools || [])
     .map((p) => `${p.id}:${p.name}:${(p.steps || []).map((s) => `${s.id}=${s.accountId || ""}/${s.model || ""}/${s.output || ""}${s.enabled === false ? "-" : ""}${s.unlisted ? "!" : ""}`).join("+")}`
       + `#${p.contextLength ?? ""}${p.contextAuto ? "A" : ""}=${"window" in p ? p.window ?? "none" : "?"}`)
     .sort().join(",");
-  // The levels of the subscription models: their handles stand on the kanban's models. Which
+  // The levels of the subscription models: their handles stand on Routing's models. Which
   // models stand there is the accounts' added models (pool-board.js): one added or taken off — from
   // this page or another — redraws the column.
   // The models' schedules and what each says now (model-schedule.js): a model opening or closing
@@ -700,7 +688,7 @@ export function topologyStructureParts() {
     .map((a) => `${a.id}:${a.name || ""}:${a.hasCredential ? 1 : 0}:${a.type || ""}:${a.accountType || ""}:${a.testAliasOf || ""}`)
     .join(",") + `|${Object.keys(topology.cloudApiHealth?.endpoints || {}).sort().join(",")}`
     + `|${(topology.boardProviders || []).map((p) => `${p.kind}=${(p.accounts || []).join("+")}`).join(",")}`;
-  // On the kanban, the proxy's word on each pool — which row served, why the others did not — is
+  // In Routing, the proxy's word on each pool — which row served, why the others did not — is
   // what its rows say; its time is not (it moves with every request).
   const decided = window.ROUTER_STANDALONE
     ? Object.entries(topology.poolsRuntime?.pools || {}).map(([id, st]) => `${id}>${st?.selectedStepId || ""}:`
@@ -720,7 +708,7 @@ export function topologyStructureParts() {
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  // The order of the server cards: the kanban's Servers panel is built in that
+  // The order of the server cards: Routing's Servers panel is built in that
   // order, and a new order — from this page or another — rebuilds it (server-order.js).
   const order = SERVER_ORDER.current().join(",");
   return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, sets, cloud, levels, providers, decided, llamaVer, models, view, pendingCells, modals, order };
@@ -791,6 +779,9 @@ export function syncTopologyLive() {
     // A silent scout's age grows every tick; the banner itself comes and goes
     // with a full render (the host's state is in the fingerprint).
     _liveSet(nodeEl, "[data-live-hostage]", hostAgeText(n));
+    // What its model cache holds and what the disk has left move with every download.
+    _liveSet(nodeEl, "[data-live-cachefigures]", ModelCacheLine.of(n).figures());
+    _liveSet(nodeEl, "[data-live-diskpct]", ModelCacheLine.of(n).diskWords());
 
     // Header now carries only the platform. Live CPU load% and RAM moved into
     // the CPU block below the GPUs, mirroring a GPU row's util/VRAM.
@@ -824,13 +815,28 @@ export function syncTopologyLive() {
       if (!card) return;
       const running = topologyServerPhase(s) === "running";
       // A folded cell's line carries the one live number it shows — generation
-      // speed — and breathes while it generates; the card behind it is patched
-      // below as always, for the moment it floats open.
+      // speed — and breathes while the cell answers a request; the card behind
+      // it is patched below as always, for the moment it floats open. The
+      // builder asks the same class (cell-speed.js), so the two cannot disagree.
       const line = nodeEl.querySelector(`.cell-row[data-llama-port="${CSS.escape(String(s.port))}"]`);
       if (line) {
-        const gen = running ? Number(s.genTps || 0) : 0;
-        _liveSet(line, "[data-live-rowtps]", gen > 0 ? `${formatTps(gen)} t/s` : "");
-        line.classList.toggle("busy", gen > 0);
+        const speed = new CellSpeed(s, running);
+        const tpsEl = _liveSet(line, "[data-live-rowtps]", speed.words(formatTps));
+        line.classList.toggle("busy", speed.working);
+        if (tpsEl) {
+          tpsEl.classList.toggle("held", speed.held);
+          const hint = speed.hint();
+          if (hint) tpsEl.setAttribute("title", hint);
+          else tpsEl.removeAttribute("title");
+        }
+        // The copy under the line's name (start-strip.js): the same figures as the card's, without the model's name.
+        if (topologyServerPhase(s) === "downloading") {
+          const copy = ModelCopy.now(s);
+          const words = line.querySelector("[data-live-rowdl]");
+          const stripBar = line.querySelector(".fr-strip .msl-bar > span");
+          if (stripBar) stripBar.style.width = `${copy.pct ?? 0}%`;
+          if (words) _liveSet(line, "[data-live-rowdl]", StartStrip.words(copy, s.downloadingFile || t("topologyRemoteDownloading"), words.dataset.stripName));
+        }
       }
       if (running) {
         const tpsEl = card.querySelector("[data-live-tps]");
@@ -844,12 +850,13 @@ export function syncTopologyLive() {
           _liveShow(ctxEl, !!s.ctxMax);
         }
       } else if (topologyServerPhase(s) === "downloading") {
-        const done = Number(s.downloadedBytes || 0), tot = Number(s.totalBytes || 0);
-        const p = tot > 0 ? Math.round((done / tot) * 100) : null;
-        const bar = card.querySelector(".remote-dl-bar > span");
-        if (bar) bar.style.width = `${p ?? 0}%`;
-        const dlLabel = s.downloadingFile || t("topologyRemoteDownloading");
-        _liveSet(card, "[data-live-dl]", `${dlLabel} · ${(done / 1e9).toFixed(1)}/${(tot / 1e9).toFixed(1)} GB${p != null ? ` · ${p}%` : ""}`);
+        const copy = ModelCopy.now(s);
+        // The bar of the card's status line is `.msl-bar` (the old `.remote-dl-bar` is the progress panel's): the words moved live
+        // and the bar stood where the card was first drawn — 12 % said, a sliver shown (the owner's screenshot, 2026-10-18).
+        for (const bar of card.querySelectorAll(".remote-dl-bar > span, .model-status-line .msl-bar:not(.indeterminate) > span")) {
+          bar.style.width = `${copy.pct ?? 0}%`;
+        }
+        _liveSet(card, "[data-live-dl]", ModelCopy.line(copy, s.downloadingFile || t("topologyRemoteDownloading")));
       }
     });
 

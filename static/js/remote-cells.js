@@ -1,8 +1,9 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
 import { CARD_FOLD } from "./card-fold.js";
-import { appConfirm, appPrompt } from "./dialogs.js";
+import { appConfirm, appConfirmTyped, appPrompt } from "./dialogs.js";
 import { DraftFile } from "./draft-file.js";
 import { refreshFavoritesPanel } from "./favorites.js";
+import { KvCache } from "./kv-cache.js";
 import {
   badge,
   maybeAutofillModelHelpersPfx,
@@ -29,7 +30,7 @@ import {
   suggestedSnapshotName,
   wireCellKindToggle,
 } from "./llama-edit.js";
-import { refreshComputeTarget } from "./memory.js";
+import { cellHolds, machineGpuLabel, refreshComputeTarget } from "./memory.js";
 import { startMonitor } from "./polling.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
@@ -539,7 +540,7 @@ export async function renameTopologyAgent(clientId, agentId, current) {
 }
 
 // A route's wait budget. Edited HERE, on the client's card: the field used
-// to live only on the kanban, while the card showed a different number —
+// to live only in Routing, while the card showed a different number —
 // from the agent's config — and a client created by hand has no config, so
 // the row didn't exist at all.
 export async function editRouteWait(proxyId, current) {
@@ -610,7 +611,9 @@ export async function disconnectScout(hostId) {
   const question = silent
     ? t("dlgForgetSilentScout", { name, ago: hostAgeText(host) })
     : t("dlgDisconnectScout", { name });
-  if (!(await appConfirm(question, { confirmLabel: t("nodeDisconnectScout") }))) return;
+  // Not a click: the machine's name is typed. It leaves the board and its scout forgets the controller; getting it
+  // back is the pairing again, by hand (the owner, 2026-10-14).
+  if (!(await appConfirmTyped(question, name, { confirmLabel: t("nodeDisconnectScout"), detail: name }))) return;
   try {
     const res = await api("/api/topology/scout/disconnect", { method: "POST", body: JSON.stringify({ hostId }) });
     toast(res?.unpaired ? t("scoutDisconnected", { name }) : t("scoutForgottenSilent", { name }));
@@ -1162,6 +1165,12 @@ export function findSlotEntry(hostId, port) {
 // inside the form. It said "Add llama server" for every cell, a Strata cell
 // already configured included (live check, 2026-10-13). A form opened with no
 // port (none of today's doors does) is a new cell's, and draws no empty ":".
+// "<machine> · <its cards>", what the form's title names: every card of the machine, not the first one's name.
+export function cellFormMachine(hostId, gpus, fallbackName = "") {
+  const cards = machineGpuLabel(gpus) || String(fallbackName || "");
+  return `${hostId}${cards ? " · " + cards : ""}`;
+}
+
 export function cellFormTitle(host, port, existing) {
   if (!port) return t("remoteNewCellTitleNoPort", { host });
   return t(existing ? "remoteCellTitle" : "remoteNewCellTitle", { port, host });
@@ -1204,7 +1213,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     $("llamaRemoteEditForm")?.addEventListener("change", (e) => {
       if (e.target.id === "tr-MODEL_FILE") return; // handled above
       const bareId = (e.target?.id || "").replace(/^tr-/, "");
-      if (["N_GPU_LAYERS", "DEVICE", "THREADS"].includes(bareId)) refreshComputeTarget("tr-");
+      if (["N_GPU_LAYERS", "DEVICE", "THREADS", "TENSOR_PARALLEL", "ENV"].includes(bareId)) refreshComputeTarget("tr-");
       renderModelInsight("tr-");
       renderCellPreviews("tr-");
       renderChatTemplateHint("tr-");
@@ -1240,7 +1249,11 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     N_GPU_LAYERS:         skynetCfg.N_GPU_LAYERS     || "999",
     CACHE_TYPE_K:         skynetCfg.CACHE_TYPE_K     || "q8_0",
     CACHE_TYPE_V:         skynetCfg.CACHE_TYPE_V     || "q8_0",
-    ENABLE_FLASH_ATTN:    skynetCfg.ENABLE_FLASH_ATTN    || "",
+    // ON for a new cell, with the q8_0 caches above: that is the pair every family's recommendation
+    // sets, and the other one — flash attention off with a quantized V cache — is the pair llama.cpp
+    // stops at ("quantized V cache requires flash_attn to be enabled"): a new cell was offered it
+    // and crashed four times on its first start (2026-10-14).
+    ENABLE_FLASH_ATTN:    skynetCfg.ENABLE_FLASH_ATTN    || "1",
     ENABLE_CONT_BATCHING: skynetCfg.ENABLE_CONT_BATCHING || "",
     ENABLE_METRICS:       skynetCfg.ENABLE_METRICS   || "",
     OFFLOAD_MMPROJ:       skynetCfg.OFFLOAD_MMPROJ   || "",
@@ -1347,7 +1360,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   const remTitleEl = $("llamaRemoteEditTitle");
   if (remTitleEl) {
-    remTitleEl.textContent = cellFormTitle(`${hostId}${gpuName ? " · " + gpuName : ""}`, _trCellPort, existingCell);
+    remTitleEl.textContent = cellFormTitle(cellFormMachine(hostId, _trClientGpus, gpuName), _trCellPort, existingCell);
     if (!remTitleEl.parentElement.querySelector(".topo-edit-mode-badge")) {
       const b = document.createElement("span");
       b.className = "topo-edit-mode-badge remote";
@@ -1404,8 +1417,16 @@ export async function submitRemoteLlamaStart() {
   if (isCommand) {
     if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return; }
   } else if (runnerId === "vllm") {
-    if (!(config.VLLM_MODEL || "").trim()) { toast(t("selectModel")); return; }
+    // A model picked in the list and no path: the path is derived from the pick only on the controller's own machine, and
+    // for another one it is typed — "Select a model" said the opposite of what the picker shows (2026-10-17, Qwen3-Omni AWQ).
+    if (!(config.VLLM_MODEL || "").trim()) { toast(t(($("tr-MODEL_FILE")?.value || "").trim() ? "vllmPathNeeded" : "selectModel")); return; }
   } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return; }
+  // A pair llama.cpp does not start with is said now, with the way out — not after the cell
+  // has crashed four times and given up (the fields of the llama form mean nothing to the others).
+  if (!isCommandPath) {
+    const refused = KvCache.refusedType(config);
+    if (refused) { toast(t("kvCacheNeedsFlash", { type: refused })); return; }
+  }
   if (!(await appConfirm(_startMsg, {
     danger: false,
     confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),
@@ -1414,6 +1435,7 @@ export async function submitRemoteLlamaStart() {
 
   // Cell mode: save config without starting (same as controller "Apply")
   if (_trCellPort) {
+    const held = cellHolds("tr-");        // does the cell run? — asked before the request, while the form still names it
     const btn = $("llamaRemoteEditStart");
     const orig = btn.textContent;
     btn.textContent = t("savingConfig");
@@ -1425,7 +1447,9 @@ export async function submitRemoteLlamaStart() {
         body: JSON.stringify({ hostId: _trHostId, port, config, cacheModels }),
       });
       $("llamaRemoteEditOverlay").hidden = true;
-      toast(t("saved"));
+      // Saved is not applied: a running cell keeps the settings it started with until it restarts, and the window used to
+      // close on "Saved." as if the change had landed (2026-10-17: a split mode picked on the running 70B, nothing happened).
+      toast(held.live ? t("savedKeepsRunning") : t("saved"));
       // A cell this editor saves is the caravan's: a chip that hides the
       // caravan's cells gives way, or a cell just made from a shelf's "+" would
       // be saved out of sight.

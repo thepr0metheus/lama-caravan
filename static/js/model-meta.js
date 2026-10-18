@@ -37,6 +37,21 @@ export function parseModelName(path) {
   return { file, label, quant, size, variant };
 }
 
+// The words that tell a model from its sibling and stand only in its repository's name, not in the file's (the repository is the first folder of
+// the path: `<repo>/<author>/<quant>/<file>`). ISTA-DASLab's Coder repository (`Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF`) names its package after
+// the base model — `Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf` — so the one word that tells the Coder from the base stood in the grey
+// folder line only, and the owner (2026-10-18: "I do not see the Coder model for Strata") looked for it on the name's line and did not find it.
+// Only the words listed here: a repository's name holds many that its files leave out (the author's, GGUF, the size), and each of them as a
+// chip would be noise. A word counts whole (`Coder`, not `Decoder`), in any case.
+const REPO_WORDS = ["Coder"];
+export function repoOnlyWords(path) {
+  const parts = String(path || "").split("/");
+  const file = parts.pop() || "";
+  const repo = parts.length ? parts[0] : "";
+  const has = (text, word) => new RegExp(`(?:^|[^a-z0-9])${word}(?:[^a-z0-9]|$)`, "i").test(text);
+  return REPO_WORDS.filter((word) => has(repo, word) && !has(file, word));
+}
+
 export function _modelBenchKey(modelPath) {
   const parsed = parseModelName(modelPath);
   if (!parsed?.file) return null;

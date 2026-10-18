@@ -56,6 +56,8 @@ const toastText = () => globalThis.__fields.toast.textContent;
 const laneEl = () => ({ innerHTML: "", dataset: {}, addEventListener() {}, querySelector: () => null });
 const lane = () => globalThis.__fields.topologyCloudProviders.innerHTML;
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body === null ? null : JSON.parse(c.body) }));
+// A reading that lands draws the lane again, and the lane reads the subscriptions' limits: those calls are the lane's, not a save's.
+const mine = () => calls().filter((x) => !x.path.includes("subscription-usage"));
 const PRESETS = () => [
   { type: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", authModes: ["apiKey"] },
   { type: "openai-subscription", name: "ChatGPT Plus", baseUrl: "https://chatgpt.com/backend-api", authModes: ["oauth"], accountType: "openai-subscription", oauth: { clientId: "cid" }, deviceLogin: true },
@@ -68,6 +70,9 @@ const ACCOUNTS = () => [
     usedIn: [{ poolId: "work", poolName: "Work", stepId: "ollama" }, { poolId: "night", poolName: "Night", stepId: "ollama" }] },
   { id: "bare", type: "custom", name: "Bare", baseUrl: "http://10.0.0.9:8000/v1", authMode: "apiKey", hasCredential: false, usedIn: [] },
 ];
+// The accounts with the credit the operator typed on two of them (ollama: 200, counted from 2027-01-15; zero: used up); `bare` has none.
+const CREDITED = () => [...ACCOUNTS().map((a) => (a.id === "ollama" ? { ...a, creditUsd: 200, creditAsOf: 1800000000 } : a)),
+  { id: "zero", type: "ollama", name: "Spent", baseUrl: "https://ollama.com", authMode: "apiKey", hasCredential: true, credentialKind: "apiKey", keyLast4: "zz00", usedIn: [], creditUsd: 0, creditAsOf: 1800000000 }];
 const STEP = (id, accountId, model, extra = {}) => ({ id, accountId, model, enabled: true, switchAt: {}, stopAt: {}, ...extra });
 const POOLS = () => [
   { id: "work", name: "Work", contextAuto: true, ports: [23009], switchMax: 90,
@@ -126,6 +131,12 @@ PINS = [
      "занятый id получает суффикс -2, -3…; свободный остаётся как есть"),
     ("preset_by_type", '', '[m.topologyCloudPresetByType("openai")?.name, m.topologyCloudPresetByType("nope")]', '["OpenAI",null]',
      "пресет по типу; неизвестный тип — null, не {}"),
+    # 2026-10-17, the owner: the Anthropic block must look good. Its sign was a triangle with a bar: a warning.
+    ("provider_icons_are_distinct", '',
+     '(() => { const icons = ["openai-subscription", "openai", "anthropic", "openrouter", "ollama", "custom"].map((k) => m.cloudPickerTileIcon(k)); const a = m.cloudPickerTileIcon("anthropic");'
+     ' return [new Set(icons).size, icons.every((x) => x.startsWith("<svg") && x.endsWith("</svg>")), a.includes("M12 2L2 19.5h20L12 2z"), (a.match(/M/g) || []).length, m.cloudPickerTileIcon("nope") === m.cloudPickerTileIcon("")]; })()',
+     '[6,true,false,4,true]',
+     "у шести провайдеров шесть разных знаков; знак Anthropic — искра из четырёх лучей (4 штриха), а не треугольник с чертой, который читался предупреждением; negative: неизвестный провайдер — общий знак"),
     # ── account window: opening ──
     ("select_type_fills_form_from_preset", '',
      '(() => { m.selectCloudProviderType("openai-subscription"); const f = st.ui.topologyCloudForm; return [f.isNew, f.name, f.baseUrl, f.authMode, f.oauthConfig.clientId, st.ui.topologyCloudModalOpen, st.ui.topologyCloudPickerOpen]; })()',
@@ -256,7 +267,7 @@ PINS = [
        return [sub.includes('data-t="cloud-account-plan">Plus</span>'), unknown.includes("cloud-account-plan"), key.includes('data-t="cloud-provider-word"'), other.includes("cloud-provider-word")]; })()''',
      '[true,false,true,false]',
      "окно подписки называет план, который назвало последнее чтение лимитов (Plus); окно ключа OpenRouter — слово провайдера "
-     "(до 2026-10-12 оно было под ⋯ канбана); negative: план не прочитан — слова нет, а не догадка; у Ollama слова провайдера нет"),
+     "(до 2026-10-12 оно было под ⋯ Маршрутизации); negative: план не прочитан — слова нет, а не догадка; у Ollama слова провайдера нет"),
     # ── the pools' lane ──
     # 2026-09-28: while a switch-level slider on a limit bar is being dragged, the lane is not
     # rebuilt under the pointer — the redraw waits for the release.
@@ -435,6 +446,69 @@ PINS = [
      'm.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.apiKey = "k2"; globalThis.__fetchReply["/api/cloud-accounts/key"] = { ok: true };',
      'await (async () => { await m.saveCloudAccount(); const c = calls(); return [c.map((x) => x.path), c[0].body]; })()',
      '[["/api/cloud-accounts/key"],{"id":"ollama","apiKey":"k2"}]', "правка с ключом: только /key, без save и автосоздания"),
+    # ── the credit left of a key (credit-left.js; the owner, 2026-10-17: "why can't I see how much money is left on this API?") ──
+    ("credit_window_carries_the_figure",
+     'st.setTopology(TOPO({ cloudAccounts: CREDITED() }));',
+     '(() => { m.openCloudAccountModal("ollama"); const typed = st.ui.topologyCloudForm.creditUsd; m.openCloudAccountModal("bare"); const none = st.ui.topologyCloudForm.creditUsd;'
+     ' m.openCloudAccountModal("zero"); const zero = st.ui.topologyCloudForm.creditUsd; return [typed, none, zero]; })()',
+     '["200","","0"]',
+     "окно ключа открывается с суммой, как её вписали (строкой); у ключа без суммы — пустое поле, а не «0»; «0» — израсходованный кредит, он остаётся «0»"),
+    ("credit_field_stands_in_a_keys_window_only",
+     'st.setTopology(TOPO({ cloudAccounts: CREDITED() }));',
+     '(() => { const win = (open) => { open(); const h = m.renderTopologyCloudAccountModal(); m.closeCloudProviderModal(); return h; };'
+     ' const key = win(() => m.openCloudAccountModal("ollama")); const noKey = win(() => m.openCloudAccountModal("bare"));'
+     ' const sub = win(() => m.openCloudAccountModal("openai-subscription")); const fresh = win(() => m.selectCloudProviderType("openai"));'
+     ' const has = (h) => h.includes(\'data-cloud-field="creditUsd"\');'
+     ' return [has(key), key.includes(\'value="200"\') && key.includes(\'inputmode="decimal"\') && key.includes(">" + en.creditField) && key.includes(esc(en.creditHint)), has(noKey), has(sub), has(fresh)]; })()',
+     '[true,true,false,false,false]',
+     "поле «кредит» — в окне аккаунта с ключом: с суммой, с десятичной клавиатурой, с подписью и словами, что провайдер остатка не отдаёт; "
+     "negative: нет у ключа, которого ещё нет, у подписки (у неё лимиты) и у новой учётки (сумму вписывают, когда ключ уже есть)"),
+    ("credit_meter_in_window_unread_then_known",
+     'st.setTopology(TOPO({ cloudAccounts: CREDITED() })); globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { ok: true, spend: {} };',
+     'await (async () => { await us.refreshProxySpend(); m.openCloudAccountModal("ollama"); const unread = m.renderTopologyCloudAccountModal();'
+     ' globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { ok: true, spend: { ollama: { total: 99, requests: 9, sinceCredit: { asOf: 1800000000, total: 16.6, requests: 4, unpriced: 2, partial: false } } } };'
+     ' await us.refreshProxySpend(); const known = m.renderTopologyCloudAccountModal();'
+     ' globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { ok: true, spend: { ollama: { total: 99, requests: 9, sinceCredit: { asOf: 1799999999, total: 0, requests: 0, unpriced: 0, partial: false } } } };'
+     ' await us.refreshProxySpend(); const stale = m.renderTopologyCloudAccountModal();'
+     ' return [unread.includes(\'data-t-state="unread"\'), unread.includes("sub-meter"), known.includes(\'data-t-state="known"\'), known.includes(esc(fill(en.creditLeft, { left: "$183" }))),'
+     ' known.includes(esc(fill(en.creditUnpriced, { n: "2" }))), stale.includes(\'data-t-state="unread"\')]; })()',
+     '[true,false,true,true,true,true]',
+     "в окне тот же счётчик, что на доске: пока расход не прочитан — «не прочитан», без полосы; прочитан — «≈ $183 left» и предупреждение о запросах без цены; "
+     "negative: чтение, посчитанное с другой суммы (до того, как эту вписали), не считается — снова «не прочитан»"),
+    ("credit_save_posts_the_typed_figure_and_reads_the_meter_again",
+     'st.setTopology(TOPO({ cloudAccounts: ACCOUNTS() })); m.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.creditUsd = " 200,5 ";'
+     ' globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: true };',
+     'await (async () => { await m.saveCloudAccount(); await settle(); const c = mine(); return [c.map((x) => x.path), c[0].body.account, toastText() === en.cloudAccountSaved, st.ui.topologyCloudModalOpen]; })()',
+     '[["/api/cloud-accounts/save","/api/cloud-accounts/proxy-spend"],{"id":"ollama","type":"ollama","name":"Ollama cloud","baseUrl":"https://ollama.com","authMode":"apiKey","creditUsd":"200,5"},true,false]',
+     "сумма, вписанная в окно, уходит на сервер как набрана (обрезанной; запятую читает сервер) — одной правкой, без других полей; "
+     "и расход читается заново сразу: чтение до этой суммы её не считает"),
+    ("credit_save_unchanged_sends_nothing",
+     'st.setTopology(TOPO({ cloudAccounts: CREDITED() })); m.openCloudAccountModal("ollama");',
+     'await (async () => { await m.saveCloudAccount(); await settle(); return [calls().length, toastText() === en.cloudAccountSaved]; })()',
+     '[0,true]', "negative: сумма та же, что сохранена, и ничего больше не менялось — на провод ничего (сервер хранит момент суммы, и лишний запрос его бы не сдвинул, но и не нужен)"),
+    ("credit_save_blank_takes_it_away",
+     'st.setTopology(TOPO({ cloudAccounts: CREDITED() })); m.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.creditUsd = "  ";'
+     ' globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: true };',
+     'await (async () => { await m.saveCloudAccount(); await settle(); const c = mine(); return [c.map((x) => x.path), c[0].body.account.creditUsd]; })()',
+     '[["/api/cloud-accounts/save","/api/cloud-accounts/proxy-spend"],""]', "пустое поле вместо сохранённой суммы — на сервер уходит пустая строка: кредит снимается"),
+    ("credit_save_rename_sends_no_credit",
+     'st.setTopology(TOPO({ cloudAccounts: CREDITED() })); m.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.name = "Ollama (home)";'
+     ' globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: true };',
+     'await (async () => { await m.saveCloudAccount(); await settle(); const c = calls(); return [c.map((x) => x.path), Object.keys(c[0].body.account)]; })()',
+     '[["/api/cloud-accounts/save"],["id","type","name","baseUrl","authMode"]]',
+     "negative: правка имени при той же сумме не шлёт суммы (иначе сервер сдвинул бы её момент) и не перечитывает расход"),
+    ("credit_save_subscription_has_no_credit_to_send",
+     'm.openCloudAccountModal("openai-subscription"); st.ui.topologyCloudForm.name = "Plus";'
+     ' globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: true };',
+     'await (async () => { await m.saveCloudAccount(); const c = calls(); return [c.map((x) => x.path), Object.keys(c[0].body.account)]; })()',
+     '[["/api/cloud-accounts/save"],["id","type","name","baseUrl","authMode"]]',
+     "negative: у подписки суммы нет — её правка имени не шлёт поля «кредит» (сервер отказал бы: у подписки лимиты)"),
+    ("credit_save_refused_keeps_the_window",
+     'st.setTopology(TOPO({ cloudAccounts: ACCOUNTS() })); m.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.creditUsd = "lots";'
+     ' globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: false, error: "credit must be a number of dollars", __status: 400 };',
+     'await (async () => { await m.saveCloudAccount(); await settle(); return [calls().map((x) => x.path), toastText(), m.topologyCloudBusy, st.ui.topologyCloudModalOpen, st.ui.topologyCloudForm.creditUsd]; })()',
+     '[["/api/cloud-accounts/save"],"credit must be a number of dollars",false,true,"lots"]',
+     "negative: сервер не принял сумму — причина сказана тостом, окно открыто с тем, что вписано, расход не перечитывается, busy снят"),
     ("save_account_no_form_is_noop", '', 'await (async () => { await m.saveCloudAccount(); return calls().length; })()', '0', "negative: без формы — ничего"),
     ("delete_account_posts_and_closes",
      'm.openCloudAccountModal("bare");',
@@ -455,8 +529,8 @@ PINS = [
      '[["/api/cloud-accounts/oauth/device-start"],"device sign-in failed",null,0]', "negative: ответ без кода — тост, опроса нет"),
     ("window_waiting_shows_code_and_one_way_on",
      'm.selectCloudProviderType("openai-subscription"); Object.assign(st.ui.topologyCloudForm, { isNew: false, connecting: true, accountId: "openai-subscription", deviceLogin: { state: "d1", userCode: "ABCD-12345", verifyUrl: "https://auth.openai.com/codex/device", expiresAt: 1800000600 } });',
-     '(h => [m.cloudAccountWindowState(st.ui.topologyCloudForm, null), h.includes(">" + fill(en.cloudConnectTitle, { name: en.cloudNameSubscription }) + "<"), h.includes(`<code class="cloud-device-code" role="button" tabindex="0" title="${en.cloudCodeCopyTip}" data-cloud-device-code data-t="cloud-device-code">ABCD-12345</code>`), h.includes(`<a class="primary-mini-action cloud-open" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer" data-cloud-device-open`), h.includes(fill(en.cloudWaitingUntil, { time: "08:10 AM" })), h.includes(">" + en.cloudNewCode + "<"), h.includes("Device code authorization"), h.includes(en.cloudSignInChatgpt), h.includes("data-cloud-save")])(m.renderTopologyCloudAccountModal())',
-     '["waiting",true,true,true,true,true,true,false,false]', "ждём код: заголовок «Подключить» не сменился на правку; код — кнопка «скопировать» с подсказкой, одна кнопка «скопировать и открыть», срок по часам, ссылка «новый код»; negative: ни второй кнопки входа, ни Save"),
+     '(h => [m.cloudAccountWindowState(st.ui.topologyCloudForm, null), h.includes(">" + fill(en.cloudConnectTitle, { name: en.cloudNameSubscription }) + "<"), h.includes(`<code class="cloud-device-code" role="button" tabindex="0" title="${en.cloudCodeCopyTip}" data-cloud-device-code data-t="cloud-device-code">ABCD-12345</code>`), h.includes(`<a class="primary-mini-action cloud-open" href="https://auth.openai.com/codex/device" data-cloud-device-open data-t="cloud-device-open">${en.cloudCopyAndOpen}</a>`), /<a [^>]*cloud-open[^>]*target=/.test(h), /↗/.test(h), h.includes(fill(en.cloudWaitingUntil, { time: "08:10 AM" })), h.includes(">" + en.cloudNewCode + "<"), h.includes("Device code authorization"), h.includes(en.cloudSignInChatgpt), h.includes("data-cloud-save")])(m.renderTopologyCloudAccountModal())',
+     '["waiting",true,true,true,false,false,true,true,true,false,false]', "ждём код: заголовок «Подключить» не сменился на правку; код — кнопка «скопировать» с подсказкой, одна кнопка «скопировать и открыть» — обычная ссылка на страницу OpenAI, срок по часам, ссылка «новый код»; negative: у ссылки нет target и нет стрелки ↗ (страница идёт в этой же вкладке, 2026-10-17), ни второй кнопки входа, ни Save"),
     ("window_endings_say_why",
      'm.openCloudAccountModal("openai-subscription");',
      '(() => { const f = st.ui.topologyCloudForm; const say = (ended) => { f.loginEnded = ended; const h = m.renderTopologyCloudAccountModal(); return [m.cloudAccountWindowState(f, null), h.includes(\'data-t-state="\' + (ended.reason || "failed") + \'"\'), h.includes("data-cloud-oauth-login")]; }; return [say({ reason: "replaced" }), say({ reason: "expired" }), say({ reason: "unknown" }), say({ reason: "removed" }), say({ reason: "", error: "OpenAI refused the sign-in (HTTP 400 x)" }), m.renderTopologyCloudAccountModal().includes(fill(en.cloudSignInFailed, { error: "OpenAI refused the sign-in (HTTP 400 x)" }))]; })()',

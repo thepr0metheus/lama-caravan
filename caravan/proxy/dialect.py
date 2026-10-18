@@ -1,6 +1,6 @@
 """How a request is routed and told its failures: a port's way, or the entry's for a consumer.
 
-A port has always routed by its kanban graph and answered in its own words:
+A port has always routed by its Routing graph and answered in its own words:
 the upstream's status, headers and body as they came, the caravan's own
 failures as `{"error", "kind"}`. A consumer of the entry (the owner,
 2026-10-11) is served by the one pool its cable leads to (2026-10-12) and is
@@ -66,7 +66,7 @@ class OpenAIDialect:
 
     def resolve(self, route, ctx):
         """The consumer's route onto its pool. The output id is the
-        one the kanban gives a pool (`cb:<id>`, caravan/admin/proxies_config.py
+        one Routing gives a pool (`cb:<id>`, caravan/admin/proxies_config.py
         pool_output), so the board colours the same cable for both ways in."""
         return _overlay_output(route, {"id": f"cb:{self.pool['id']}", "name": self.model,
                                        "upstreamType": "cloud", "providerId": self.pool["id"]})

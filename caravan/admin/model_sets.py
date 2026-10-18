@@ -1,4 +1,4 @@
-"""The sets of models the entry's clients call — the kanban's «Набор».
+"""The sets of models the entry's clients call — Routing's «Набор».
 
 The owner, 2026-10-12 (step 2 of the visumap scheme caravan-model-sets): a client of the entry is
 cabled to a set, and the set to pools — chat, speech, embeddings, each a pool. A set may serve
@@ -28,7 +28,7 @@ class SetDesk:
     NAME_MAX = 80
 
     def __init__(self, load=None, save=None, proxies=None, save_proxies=None):
-        # cloud.py and proxies_config.py import the kanban's modules at the top; taken here.
+        # cloud.py and proxies_config.py import Routing's modules at the top; taken here.
         from caravan.admin.cloud import load_cloud_data, save_cloud_data
         from caravan.admin.proxies_config import read_agent_proxy_payload, write_agent_proxy_payload
         self.load, self.save = load or load_cloud_data, save or save_cloud_data
@@ -62,7 +62,7 @@ class SetDesk:
 
     def _name(self, sets, name, but=None):
         """A name the operator gave: required, and not another set's — two sets alike could not be
-        told apart on the kanban."""
+        told apart in Routing."""
         name = str(name or "").strip()[:self.NAME_MAX]
         if not name:
             raise AppError("a set needs a name", 400)
@@ -115,7 +115,7 @@ class SetDesk:
         return found
 
     def order(self, ids):
-        """The sets in the order the kanban's column shows them, from the board's drag (1.3.503):
+        """The sets in the order Routing's column shows them, from the board's drag (1.3.503):
         `ids` names every set once. A list that does not is refused 409 — the board drew sets
         another page has since made or deleted, and must draw them again."""
         data = self.load()

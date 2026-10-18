@@ -1,7 +1,7 @@
 # Pools
 
-A pool is what a client's requests go to (the owner, 2026-10-12): built on the kanban, an ordered
-list of **rows**. Each row is an output, cabled to a model in the kanban's right column — a
+A pool is what a client's requests go to (the owner, 2026-10-12): built in Routing, an ordered
+list of **rows**. Each row is an output, cabled to a model in Routing's right column — a
 subscription's or a key's model (an account and one model), a model of a machine's entry (`mm:<id>`,
 1.3.506), or a machine's cell or engine's model (a local output, `srv:<port>` or `eng:<id>`). A row
 with no cable yet is open. The proxy tries the rows
@@ -18,10 +18,10 @@ has not is 404 `model_not_found`, a request with no model is 400 (caravan/common
 caravan/admin/model_sets.py, operations.md "One entry with keys"). A client no cable reaches calls
 nothing: its requests are refused with 404 `model_not_found`.
 
-## On the kanban
+## In Routing
 
-The kanban (`/kanban`, pool-board.js) is four columns joined by cables: the clients, the sets, the
-pools and the models. A card says its name and what is news about it (a client refused, a row serving,
+Routing (`/routing`, pool-board.js) is four columns joined by cables: the clients, the sets ("ID sets"), the
+pools ("ID (Pools)": a pool's name is the id of a model that a client puts in `model`, and its card says `id:` before the name) and the models. A card says its name and what is news about it (a client refused, a row serving,
 a cell off) and no more: the rest stands in **the strip** under the columns (1.3.531–538; the owner,
 2026-10-13: "crowded and motley", and of three mockups he chose "details in a strip below"). The strip
 says what the pointer is on — or the card pinned by a click: its name, its route across the four
@@ -73,14 +73,16 @@ cable cannot be drawn to a cell off the screen; pools of one model and of severa
   pool, it makes a pool of its own, named after the model. A pool still under the board's name
   ("Pool", "Pool 2"…) takes the name of the model its first cable reaches (" 2" when the name is
   taken); a name the operator typed is never taken over, and a pool once cabled keeps its name.
-- A pool of one row is drawn as one line, "= the model". A pool of two rows and more is a ladder in a
-  brighter frame, "N in turn" in its head. When the pool goes on from a row to the next one stands in
-  the pool's strip, under the row: a subscription's model when its switch level is left in a window
-  ("next when 30% (5h) is left"), a cell when it is busy or silent, anything else when it refuses.
-- A row says its state by a pill only when the state is news — serving, a level reached, closed, off,
-  missing, a sign-in asked for, a proxy that is silent. A row that is fit and waits its turn, or that the
-  proxy has not asked yet, is a bare dot (filled, hollow), with the words in its title and, in full,
-  in the strip. A silent proxy and a reason nobody knows keep their pill: they are not "no news".
+- A pool of one row is drawn as one line under its name, with no box and no rank (1.3.543). A pool of two rows and
+  more is a ladder of rows in boxes, "N in turn" in its head, each row a number, the model, where it stands and how
+  it is. When the pool goes on from a row to the next one stands in the pool's strip, under the row: a
+  subscription's model when its switch level is left in a window ("next when 30% (5h) is left"), a cell when it is
+  busy or silent, anything else when it refuses.
+- A row says its state by a dot and a word, in the state's colour, only when the state is news — serving (green), a level
+  reached, closed, off (amber), missing (red), a sign-in asked for, a proxy that is silent. A row that is fit and waits
+  its turn, or that the proxy has not asked yet, is a bare dot (filled, hollow), with the words in its title and, in
+  full, in the strip. A silent proxy and a reason nobody knows keep their word: they are not "no news". The row's
+  grip and ✕ take no room until the row is pointed at, so the model's name and place are not cut for them.
 - "⇅ Arrange" puts the pools in the order the sets name them and each account's models in the order the
   pools' rows name them: the cables then run alongside one another more than across.
 - The cards of Clients, Sets and Pools are carried to another place by the ⠿ in their head (Alt+↑/↓
@@ -115,27 +117,29 @@ not run now says so before the proxy's word (1.3.504): "cell off", starting or s
 in red — as the controller sees the cell at this moment; its cable stays.
 
 The right column lists each account's models — only the ones added to it (the owner, 2026-10-12:
-"only the ones I added"), never its whole catalogue. "＋ model" under an account's models opens the
-account's list in its card, searched as it is typed; a press puts a model on the card, and an id the
+"only the ones I added"), never its whole catalogue. "＋ model" in an account's head (quiet until the card is
+pointed at) opens the account's list in its card, searched as it is typed; a press puts a model on the card, and an id the
 search does not find can be added as it is typed. A model a row is cabled to is added with the cable
 and stays when the cable goes; ✕ (on hover) takes a model no row names off the card, and its levels
 stay for when it comes back. The models the rows named before 1.3.491 were added once, at the first
 start. The column also lists each machine's cells, the stopped ones no row names folded under one
 button. A machine's head says how many of its cells are in which state ("3 running · 5 stopped").
-A model's card is a line — its ⠿, its name, its ⏱ and, when its pool has stepped aside or stopped it, a
-pill saying so — and "in no pool" when none uses it; the pools that do are its route in the strip. An
-account's card on the kanban sets nothing of the account up (the owner, 2026-10-12): it says the
-account's state, its limits once — the provider's word when a limit is reached, and each window with what
-is left and when it resets — its tripped endpoints and the last day's routed errors. The account's window
+A model's card is a line — its name and, at the right, what is news: its switch level ("switch 20% (7d)"),
+a chip when its pool has stepped aside ("↓ yielding") or stopped it ("■ stopped"), its ⏱ while a schedule is on,
+"in no pool" when none uses it; its ⠿, ✕ and a quiet ⏱ show when the line is pointed at. The pools that use it are its
+route in the strip. An account's card in Routing sets nothing of the account up (the owner, 2026-10-12): it says the
+account's state, its limits once — the provider's word when a limit is reached, and each window as one small
+bar with what is left, a red tick where a model of the card stops (when the window resets: in the bar's hover
+and in the strip) — its tripped endpoints and the last day's routed errors. The account's window
 ⚙ and its saved resets (`↺ N`, below) stand on the main board, in its provider's block.
 
 ## The levels: on the model
 
 A subscription's model has **two levels** on each of its account's windows (the owner, 2026-10-12: the
 levels stand on the models, not in a pool), two triangle handles to drag (a red one up for the stop, a
-yellow one down for the switch). The account's card draws the 5H and WEEKLY bars once; the same bars
+yellow one down for the switch). The account's card draws the 5H and WEEKLY windows once, small; the same bars
 with the model's own handles stand in the **model's strip** (1.3.534), and a model whose pool has stepped
-aside or stopped it wears a pill on its card:
+aside or stopped it wears a chip on its card:
 
 - ▲ **stop**, red, under the bar: the share of the window the model never spends. When only that much is left, its rows
   do not serve until the window resets; with no other row, the caravan answers 429 itself.
@@ -149,9 +153,9 @@ Dragging the stop past the switch takes the switch along; the switch rests on th
 
 ## When a model is open: its schedule
 
-Each model in the kanban's right column has a ⏱ beside its name (the owner, 2026-10-12, visumap
+Each model in Routing's right column has a ⏱ beside its name (the owner, 2026-10-12, visumap
 scheme caravan-model-schedule): a click opens a window with a switch, a week of hours painted with
-the pointer, as the old kanban's schedule node had them, and the same hours as windows with exact
+the pointer, as the schedule node of the old router canvas had them, and the same hours as windows with exact
 times. A window is days of the week and a time from–to; one that runs past midnight belongs to the
 day it starts on (Friday 22:00–08:00 is Friday night), and from equal to to is a whole day. The
 hours are the caravan's own — the zone the controller runs in, named in the window — not the
@@ -217,7 +221,7 @@ models at one address by OpenAI's API and picks a running copy of the model a re
 (caravan/admin/machine_models.py). The id holds no port, so a cell moved to another port, or a second
 copy started, leaves such a row as it is. A model with no running copy answers 503 at once, and the
 pool goes on to its next row; a busy one gives way like a cell, by the places its scout says
-(docs/backend-proxy.md). On the kanban a machine's card lists its models first, by name — no port —
+(docs/backend-proxy.md). In Routing a machine's card lists its models first, by name — no port —
 with the state its scout says and how many copies serve it (×2), then its cells. A model's name there
 is its cell's `MODEL_NAME` — the cell editor's row under the runner, for every runner (1.3.507) — else
 the cell's `ALIAS`, else one made of its model; two cells with one name are one model's copies. A new
@@ -266,7 +270,7 @@ A legacy TEST account displays its original account’s credits, not another bal
 
 One door leads to the spend (since 1.3.464; the rows under a step's fold that drew the same list
 are gone — the operator, 2026-10-11). On the subscription's row of the main board (since 1.3.492;
-before, in the head of its card on the kanban, and until 1.3.486 in a pool step's head on the main
+before, in the head of its card in Routing, and until 1.3.486 in a pool step's head on the main
 board), the number of saved resets (`↺ 3`) — read by the counter itself, at most once a minute,
 `↺ ?` with the reason when the read failed — is a
 button: it opens one window that lists the resets that can be spent —

@@ -60,6 +60,8 @@ const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], mode
   for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
 const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "host", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
 const mk = (extra) => ({ port: 22001, isSlot: true, model: "a.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
+// The two memory badges of a card or a line (cell-memory.js): [which, class, state, text] each.
+const MEM = (h) => [...String(h).matchAll(/<span class="mbadge mbadge-([\w-]+)" data-t="cell-(ram|gpu)" data-t-state="(\w+)" title="[^"]*">([^<]*)<\/span>/g)].map((x) => [x[2], x[1], x[3], x[4]]);
 // An engine next to the cells (scout 2.12+) and one of its models, as the
 // host record keeps them (caravan/domain/engine.py).
 const ENG = (extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3",
@@ -78,12 +80,12 @@ PINS = [
     ('card_anchor_stopped_configured_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
-     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" data-node-cell-model=\\"a\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" data-node-cell-model=\\"a\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'positive: Якорь: полная карточка остановленной сконфигурированной ячейки (Start активен, кнопка смены порта, ⚙ configure активна)'),
     ('card_anchor_running_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
-     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'as-is: Якорь: полная карточка running без gpuIndexes — as-is получает класс cpu-cell и чип 🧮 CPU; uptime в lifecycle-баре не передаётся никогда'),
     ('card_cls_stopped_configured',
      'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1];',
@@ -215,6 +217,16 @@ PINS = [
      'ERRBLK(m.nodeServerCardHtml(node, mk({ phase: "error", lastError: "CUDA out of memory" })))',
      '"<div class=\\"topology-remote-unreachable llama-err-block\\" title=\\"CUDA out of memory\\"> <span class=\\"llama-err-icon\\">⚠</span> <span class=\\"llama-err-body\\"> <span class=\\"llama-err-friendly\\">Not enough VRAM</span> <span class=\\"llama-err-hint\\">Try a lower quantization, reduce CTX_SIZE, or enable CPU offload.</span> <span class=\\"llama-err-raw\\">CUDA out of memory</span> </span> </div>"',
      'positive: error с lastError → классификация OOM, title=raw, появляется span llama-err-raw'),
+    ('card_error_block_names_the_cause_found_in_the_crash_lines',
+     'const ERRBLK = (h) => (norm(h).match(/<div class="topology-remote-unreachable llama-err-block".*?<\\/span> <\\/div>/) || [null])[0];',
+     '(() => { const last = "E srv llama_server: exiting due to model loading error";'
+     ' const tail = "0.00.39 E llama_init_from_model: quantized V cache requires flash_attn to be enabled\\n0.01.67 " + last;'
+     ' const withTail = ERRBLK(m.nodeServerCardHtml(node, mk({ phase: "error", lastError: last, crash: { tail } })));'
+     ' const noTail = ERRBLK(m.nodeServerCardHtml(node, mk({ phase: "error", lastError: last })));'
+     ' return [withTail.includes(">Quantized V cache needs flash attention<"), withTail.includes("llama-err-raw\\">" + last), withTail.includes("title=\\"" + last),'
+     ' noTail.includes(">Model loading failed<"), noTail.includes("Quantized")]; })()',
+     '[true,true,true,true,false]',
+     '2026-10-14: ячейка упала на «quantized V cache requires flash_attn», карточка писала «Model loading failed» и последнюю строку; с последними строками лога прогона (скаут 2.6+) карточка называет причину, строка скаута остаётся как raw; negative: без строк лога — как прежде'),
     ('card_error_no_status_error_no_row',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "error" })))',
@@ -318,6 +330,20 @@ PINS = [
      'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", cellMeta: { kinds: ["tts", "asr"] } })))',
      '["data-t=\\"cell-job-asr\\"","data-t=\\"cell-job-tts\\""]',
      'две работы — два чипа, в порядке словаря, а не в порядке отчёта'),
+    ('card_voice_runners_have_a_job_and_a_runner_chip',
+     'const REG = [{ id: "personaplex", labelKey: "runnerPersonaplex", icon: "🗣️", gpuOnly: true }, { id: "qwen3-omni", labelKey: "runnerQwen3Omni", icon: "🎭", gpuOnly: true },'
+     ' { id: "lfm-audio", labelKey: "runnerLfmAudio", icon: "🔊", gpuOnly: true }];'
+     ' st.setState({ config: {}, runners: REG, artifacts: [], models: [], paths: {} });'
+     ' const one = (runner, extra = {}) => norm(m.nodeServerCardHtml(node, mk({ phase: "stopped", slotConfig: { RUNNER: runner, MODEL_FILE: "personaplex-7b-v1/nvidia/SAFETENSORS" }, ...extra })));'
+     ' globalThis.__one = one;',
+     '(() => { const one = globalThis.__one; const jobs = (h) => (h.match(/data-t="cell-job-[a-z-]+"/g) || []).map((x) => x.slice(8, -1));'
+     ' const runner = (h) => (h.match(/<span class="mbadge mbadge-cmd node-runner-chip">([^<]*)<\\/span>/) || [])[1] ?? null;'
+     ' const dev = (h) => (h.match(/<span class="mbadge mbadge-(?:gpu|cpu|dev)"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null;'
+     ' const a = one("personaplex"), b = one("qwen3-omni"), c = one("lfm-audio", { cellMeta: { kinds: ["tts", "tts.lfm-audio"] } });'
+     ' return [jobs(a), runner(a), dev(a), jobs(b), runner(b), jobs(c), runner(c), a.includes("🪟")]; })()',
+     '[["cell-job-voice-chat"],"🗣️ PersonaPlex","⚡ GPU",["cell-job-llm","cell-job-voice-chat"],"🎭 Qwen3-Omni",["cell-job-tts"],"🔊 LFM2.5-Audio",false]',
+     'positive: ячейка PersonaPlex — «речь → речь» и своя метка движка, карточка говорит ⚡ GPU до старта (у раннера нет CPU-режима) и не рисует окно в токенах; '
+     'Qwen3-Omni — и чат, и голос, в порядке словаря; LFM2.5-Audio называет себя сама (tts). Метка движка — из реестра (иконка и ключ слов): таблицы в браузере для неё нет'),
     ('card_job_chip_silent_when_unknown',
      'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
      'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })))',
@@ -355,17 +381,17 @@ PINS = [
      'positive: _deletingSlots → строка «Removing…» и Delete-кнопка со спиннером; Start заблокирован'),
     ('card_downloading_row_50pct',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
-     'ROW(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 1.5e9, totalBytes: 3e9 })))',
+     'ROW(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 3 * 2 ** 30 })))',
      '"<div class=\\"node-model-row2 model-status-line\\"><span class=\\"msl-bar\\"><span style=\\"width:50%\\"></span></span><span class=\\"msl-text\\" data-live-dl>downloading model · 1.5/3.0 GB · 50%</span></div>"',
-     'positive: downloading 1.5/3 ГБ → width:50%, текст «downloading model · 1.5/3.0 GB · 50%»'),
+     'positive: скачивание 1.5/3 GB (двоичных, как в списке моделей) → width:50%, текст «downloading model · 1.5/3.0 GB · 50%»'),
     ('card_downloading_total0_width0_no_pct',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
-     'ROW(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 1.5e9, totalBytes: 0 })))',
+     'ROW(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 0 })))',
      '"<div class=\\"node-model-row2 model-status-line\\"><span class=\\"msl-bar\\"><span style=\\"width:0%\\"></span></span><span class=\\"msl-text\\" data-live-dl>downloading model · 1.5/0.0 GB</span></div>"',
      'boundary: totalBytes 0 → width:0% и без процента (as-is «1.5/0.0 GB»)'),
     ('card_downloading_file_name',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
-     'ROW(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadingFile: "m.gguf", downloadedBytes: 3e9, totalBytes: 3e9 })))',
+     'ROW(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadingFile: "m.gguf", downloadedBytes: 3 * 2 ** 30, totalBytes: 3 * 2 ** 30 })))',
      '"<div class=\\"node-model-row2 model-status-line\\"><span class=\\"msl-bar\\"><span style=\\"width:100%\\"></span></span><span class=\\"msl-text\\" data-live-dl>m.gguf · 3.0/3.0 GB · 100%</span></div>"',
      'positive: downloadingFile заменяет метку «downloading model»; 100% при равных байтах'),
     ('card_warming_vram',
@@ -706,13 +732,18 @@ PINS = [
      'norm(h).includes("data-node-cell-runner")',
      'false',
      'negative: running → Start заглушён, атрибут data-node-cell-runner не эмитится'),
+    ('card_copy_counts_the_whole_model',
+     'const P1 = 29608446496, P2 = 28800138432;\nconst ROWS = (first = {}, second = {}) => [\n  { path: "S/IQ1/s-00001-of-00002.gguf", kind: "model", size: P1 + P2, parts: 2, partsFound: 2, ...first },\n  { path: "S/IQ1/s-00002-of-00002.gguf", kind: "model", size: P2, ...second }];\nconst LINE = (extra, models = ROWS(), file = "S/IQ1/s-00001-of-00002.gguf") => {\n  st.setState({ ...st.state, models });\n  const n = norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, model: "s", slotConfig: { RUNNER: "strata", MODEL_FILE: file }, phase: "downloading", ...extra }));\n  return [n.match(/<span class="msl-bar"><span style="width:([^"]*)"/)[1], n.match(/<span class="msl-text" data-live-dl>([^<]*)<\\/span>/)[1]]; };',
+     '[LINE({ downloadingFile: "s-00001-of-00002.gguf", downloadedBytes: 28500000000, totalBytes: P1 }),\n  LINE({ downloadingFile: "s-00002-of-00002.gguf (2/2)", downloadedBytes: 25920124589, totalBytes: P2 }),\n  LINE({ downloadingFile: "s-00001-of-00002.gguf", downloadedBytes: 28500000000, totalBytes: P1 }, ROWS({ partsFound: 1 })),\n  LINE({ downloadingFile: "s-00001-of-00002.gguf", downloadedBytes: 28500000000, totalBytes: P1 }, ROWS({ size: P1 + P2 + 1000 })),\n  LINE({ downloadingFile: "s-00001-of-00002.gguf", downloadedBytes: 28500000000, totalBytes: P1 }, ROWS(), "other/x-00001-of-00002.gguf"),\n  LINE({ downloadingFile: "s-00001-of-00002.gguf", downloadedBytes: 28500000000, totalBytes: P1 }, ROWS({}, { size: 1 })),\n  LINE({ downloadingFile: "mmproj-s.gguf (3/3)", downloadedBytes: 104857600, totalBytes: 209715200 }),\n  LINE({ downloadedBytes: 28500000000, totalBytes: P1 })]',
+     '[["49%","s-00001-of-00002.gguf · 26.5/54.4 GB · 49%"],["95%","s-00002-of-00002.gguf (2/2) · 51.7/54.4 GB · 95%"],["96%","s-00001-of-00002.gguf · 26.5/27.6 GB · 96%"],["96%","s-00001-of-00002.gguf · 26.5/27.6 GB · 96%"],["96%","s-00001-of-00002.gguf · 26.5/27.6 GB · 96%"],["96%","s-00001-of-00002.gguf · 26.5/27.6 GB · 96%"],["50%","mmproj-s.gguf (3/3) · 0.1/0.2 GB · 50%"],["96%","downloading model · 26.5/27.6 GB · 96%"]]',
+     'карточка при копировании модели из частей: строка про ВСЮ модель, а не про файл, на котором скаут: первая часть 28.5 ГБ из 29.6 — «26.5/54.4 GB · 49%», вторая на 90 % — «51.7/54.4 GB · 95%» (до 1.3.566: «28.5/29.6 GB · 96%», а у второй части счёт шёл с нуля, в десятичных гигабайтах вместо двоичных); negative: список знает не все части (partsFound 1) / размер строки не сходится с размером файла у скаута (список устарел) / модели ячейки в списке нет — цифры одного файла, но в тех же GB; negative: у второй части в списке другой размер (1 байт) — размер первой части, выведенный из итога, не сходится с тем, что называет скаут, и список не принимается; файл без номера части (mmproj) — цифры своего файла; скаут имени не назвал — «downloading model» и цифры файла'),
     ('card_downloading_33pct_rounding',
-     'const h = m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 1e9, totalBytes: 3e9 })); const n = norm(h);',
+     'const h = m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 2 ** 30, totalBytes: 3 * 2 ** 30 })); const n = norm(h);',
      '[n.match(/<span class="msl-bar"><span style="width:([^"]*)"/)[1], n.match(/<span class="msl-text" data-live-dl>([^<]*)<\\/span>/)[1]]',
      '["33%","downloading model · 1.0/3.0 GB · 33%"]',
      'boundary: Скачивание 1/3: Math.round(33.33) → width 33% и «· 33%»'),
     ('card_downloading_67pct_rounding_up',
-     'const h = m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 2e9, totalBytes: 3e9 })); const n = norm(h);',
+     'const h = m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadedBytes: 2 * 2 ** 30, totalBytes: 3 * 2 ** 30 })); const n = norm(h);',
      '[n.match(/<span class="msl-bar"><span style="width:([^"]*)"/)[1], n.match(/<span class="msl-text" data-live-dl>([^<]*)<\\/span>/)[1]]',
      '["67%","downloading model · 2.0/3.0 GB · 67%"]',
      'boundary: Скачивание 2/3: Math.round(66.67) округляет вверх → 67%'),
@@ -1094,9 +1125,9 @@ PINS = [
      'positive: работает на GPU0 → чип ⚡ GPU0, класс без cpu-cell'),
     ('dev_running_two_gpus',
      'const h = norm(m.nodeServerCardHtml(node, mk({ phase: "running", gpuIndexes: [0, 1], gpuMem: { "0": 4096, "1": 2048 } })));',
-     '[(h.match(/<span class="mbadge mbadge-gpu"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null, h.match(/<span class="mbadge mbadge-vram" title="([^"]*)">([^<]*)<\\/span>/).slice(1, 3), h.match(/data-cell-vram="([^"]*)"/)[1]]',
-     '["⚡ GPU0 · GPU1",["VRAM held by this cell&#39;s processes (live) — GPU0: 4.0 GiB · GPU1: 2.0 GiB","6.0G"],"0:4096,1:2048"]',
-     'positive: две GPU: чип «GPU0 · GPU1», VRAM-бэйдж суммирует 6.0G с раскладкой в title, data-cell-vram перечисляет claim'),
+     '[(h.match(/<span class="mbadge mbadge-gpu"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null, h.match(/<span class="mbadge mbadge-vram" data-t="cell-gpu" data-t-state="held" title="([^"]*)">([^<]*)<\\/span>/).slice(1, 3), h.match(/data-cell-vram="([^"]*)"/)[1]]',
+     '["⚡ GPU0 · GPU1",["VRAM held by this cell&#39;s processes (live) — GPU0: 4.0 GiB · GPU1: 2.0 GiB","GPU 6.0G"],"0:4096,1:2048"]',
+     'positive: две GPU: чип «GPU0 · GPU1», значок GPU суммирует «GPU 6.0G» с раскладкой в title (по картам), data-cell-vram перечисляет claim'),
     ('dev_running_nogpu_nopin_cpu',
      'const h = norm(m.nodeServerCardHtml(node, mk({ phase: "running" })));',
      '[h.match(/<article class="([^"]*)"/)[1], (h.match(/<span class="mbadge mbadge-(?:gpu|cpu|dev)"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null]',
@@ -1153,7 +1184,7 @@ PINS = [
      '["node-server configured-cell","⚡ GPU"]',
      'boundary: N_GPU_LAYERS="1" — граница: не CPU, llama по умолчанию GPU → чип ⚡ GPU'),
     ('dev_stopped_strata_gpu',
-     'st.setState({ config: {}, runners: [{ id: "strata", labelKey: "runnerStrata", icon: "🪨", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ slotConfig: { RUNNER: "strata", MODEL_FILE: "q-00001-of-00002.gguf" } })));',
+     'st.setState({ config: {}, runners: [{ id: "strata", labelKey: "runnerStrata", icon: "🪨", tokenContext: true, gpuOnly: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ slotConfig: { RUNNER: "strata", MODEL_FILE: "q-00001-of-00002.gguf" } })));',
      '[h.match(/<article class="([^"]*)"/)[1], (h.match(/<span class="mbadge mbadge-(?:gpu|cpu|dev)"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null]',
      '["node-server configured-cell","⚡ GPU"]',
      'остановленная ячейка Strata — ⚡ GPU: без видеокарты Strata не работает; до 1.3.512 её команда рисовалась «⚙ auto», '
@@ -1191,7 +1222,7 @@ PINS = [
     ('mem_stopped_estimate',
      'const h = norm(m.nodeServerCardHtml(node, mk({ modelSizeBytes: 8e9 })));',
      '(h.match(/<span class="mbadge mbadge-vram-est"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null',
-     '"≈7.5G"',
+     '"GPU ≈7.5G"',
      'positive: остановлена с modelSizeBytes 8e9 → оценка ≈7.5G (GiB, одна цифра)'),
     ('mem_stopped_no_size_none',
      'const h = norm(m.nodeServerCardHtml(node, mk({})));',
@@ -1236,17 +1267,17 @@ PINS = [
     ('vllm_stats_running_waiting_tps',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", phase: "running", vllmStats: { requestsRunning: 2, requestsWaiting: 3, genTps: 45.678 }, slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 2 ⏳3</span><span class=\\"mbadge mbadge-bench\\">45.68 t/s</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 2 ⏳3</span><span class=\\"mbadge mbadge-bench\\">45.68 t/s</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'positive: vLLM работает: тот же порядок ряда, дальше свои чипы — ▶ 2 ⏳3, 45.68 t/s, ❤ /v1/models, :port (и 🧮 CPU, т.к. VRAM не замерена)'),
     ('vllm_stats_no_waiting_no_tps',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", phase: "running", vllmStats: { requestsRunning: 0, requestsWaiting: 0, genTps: null }, slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 0</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 0</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'negative: requestsWaiting=0 → без ⏳; genTps=null → без t/s-чипа'),
     ('vllm_no_stats_stopped_row',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B", MAX_MODEL_LEN: "32768" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">🪟 32.8k</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">🪟 32.8k</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'positive: остановленный vLLM: ⚡ GPU по умолчанию, MAX_MODEL_LEN → 🪟 32.8k, без stats-чипов'),
     ('vllm_name_hf_repo_last',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
@@ -1336,12 +1367,12 @@ PINS = [
     ('chips_quant_size_variant_token',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "gemma-3-27B-it-Q4_K_M.gguf" })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-quant\\">🎛 Q4_K_M</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span><span class=\\"mbadge mbadge-it\\">🤖 it</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-quant\\">🎛 Q4_K_M</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span><span class=\\"mbadge mbadge-it\\">🤖 it</span>"',
      'positive: токенная llama-ячейка: один ряд в ПОСТОЯННОМ порядке — работа, движок, устройство, память, затем факты о файле (🎛 квант, ⚖ размер, 🤖 вариант). Две карточки одного вида читаются одинаково, иначе доску не просмотреть глазами'),
     ('chips_size_only_non_token',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "gemma-3-27B-it-Q4_K_M.gguf", slotConfig: { RUNNER: "translate" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-translate\\">🌐 translation</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🔄 nllb</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-translate\\">🌐 translation</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🔄 nllb</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span>"',
      'defect-history: 61022e0: нетокенный translate с тем же именем — только ⚙ auto и ⚖ 27B; quant/variant скрыты'),
     ('chips_lang_from_cellmeta',
      'const h = norm(m.nodeServerCardHtml(node, mk({ cellMeta: { targetLang: "rus_Cyrl" }, slotConfig: { RUNNER: "translate" } })));',
@@ -1356,12 +1387,12 @@ PINS = [
     ('cmd_health_path_chip',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "exec python srv.py", HEALTH_PATH: "/healthz" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-cmd\\">❤ /healthz</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-cmd\\">❤ /healthz</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'positive: command-ячейка с HEALTH_PATH → чип ❤ /healthz между устройством и :port, в том же общем порядке ряда'),
     ('cmd_no_health_path',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'negative: без HEALTH_PATH — только ⚙ auto и :port'),
     ('cmd_name_strips_exec',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "  exec python srv.py --x" } })));',
@@ -1579,6 +1610,28 @@ PINS = [
      '[m.classifyLlamaError("llama_model_load: error loading model; then died of SIGSEGV").friendly, m.classifyLlamaError("cudaMalloc failed: out of memory").friendly]',
      '["Model loading failed","Not enough VRAM"]',
      'negative: строка лога, где эти слова внутри, — классифицируется как прежде; причины из лога по-прежнему сильнее'),
+    ('err_cause_in_the_crash_lines',
+     '',
+     '[m.classifyLlamaError("E srv  llama_server: exiting due to model loading error", "0.00.391.781 E llama_init_from_model: quantized V cache requires flash_attn to be enabled\\n0.01.678.400 E srv  llama_server: exiting due to model loading error"), m.classifyLlamaError("", "E llama_init_from_model: QUANTIZED V CACHE REQUIRES FLASH_ATTN to be enabled"), m.classifyLlamaError("died of SIGSEGV", "quantized V cache requires flash_attn to be enabled").friendly]',
+     '[{"friendly":"Quantized V cache needs flash attention","hint":"Flash attention is off, but the V cache is quantized: llama.cpp does not start with that pair. Turn flash attention on in the cell\'s settings, or set the V cache type to f16.","raw":"E srv  llama_server: exiting due to model loading error"},'
+     '{"friendly":"Quantized V cache needs flash attention","hint":"Flash attention is off, but the V cache is quantized: llama.cpp does not start with that pair. Turn flash attention on in the cell\'s settings, or set the V cache type to f16.","raw":""},"Quantized V cache needs flash attention"]',
+     '2026-10-14: ячейка Qwen3-Omni упала 4 раза с «quantized V cache requires flash_attn…»; карточка показывала последнюю строку лога («exiting due to model loading error»). Причина названа по последним строкам лога прогона, в любом регистре, и сильнее и пустого reason, и «died of SIGSEGV»'),
+    ('err_cause_not_in_the_crash_lines',
+     '',
+     '[m.classifyLlamaError("E srv  llama_server: exiting due to model loading error", "E llama_init_from_model: something else entirely").friendly, m.classifyLlamaError("E srv  llama_server: exiting due to model loading error", "").friendly, m.classifyLlamaError("E srv  llama_server: exiting due to model loading error").friendly, m.classifyLlamaError("cudaMalloc failed: out of memory", "").friendly]',
+     '["Model loading failed","Model loading failed","Model loading failed","Not enough VRAM"]',
+     'negative: чужие последние строки, пустые и отсутствующие — всё как прежде (общий отказ); прежний разбор по строке reason не тронут'),
+    ('err_split_buffers_in_the_crash_lines',
+     '',
+     '[m.classifyLlamaError("0.00.752.674 E srv  llama_server: exiting due to model loading error", "0.00.592.165 E llama_model_load: error loading model: device CUDA0 does not support split buffers\\n0.00.592.183 E llama_model_load_from_file_impl: failed to load model\\n0.00.752.299 E cmn  common_init_: failed to load model\\n0.00.752.674 E srv  llama_server: exiting due to model loading error"), m.classifyLlamaError("device CUDA0 does not support split buffers").friendly, m.classifyLlamaError("E llama_model_load: error loading model: DEVICE CUDA1 DOES NOT SUPPORT SPLIT BUFFERS").friendly]',
+     '[{"friendly":"This llama.cpp cannot split a model by rows","hint":"The \\"Tensor\\" split (--split-mode row) does not start on this machine: its CUDA build has no split buffers. Under \\"Split across cards\\" pick \\"Pipeline\\" (starts everywhere) or \\"Tensor + KV\\" (experimental, faster on two cards), then start again.","raw":"0.00.752.674 E srv  llama_server: exiting due to model loading error"},"This llama.cpp cannot split a model by rows","This llama.cpp cannot split a model by rows"]',
+     'defect-history (2026-10-17, :22027): «Tensor» (--split-mode row) было умолчанием формы для двух карт, а llama.cpp b1141 на машине с 3090 и 5090 отвечал «device CUDA0 does not support split buffers» '
+     'и умирал на «exiting due to model loading error»; карточка называла только последнее. Причина — в строках упавшего запуска (и в самой причине), регистр не важен; подсказка называет плитки как на экране: «Pipeline» и «Tensor + KV»'),
+    ('err_split_buffers_only_that_phrase',
+     '',
+     '[m.classifyLlamaError("E srv  llama_server: exiting due to model loading error", "E llama_model_load: error loading model: device CUDA0 does not support flash attention").friendly, m.classifyLlamaError("E srv  llama_server: exiting due to model loading error", "E split buffers are fine").friendly, m.classifyLlamaError("E srv  llama_server: exiting due to model loading error", "").friendly]',
+     '["Model loading failed","Model loading failed","Model loading failed"]',
+     'negative: другой отказ устройства, фраза без «does not support» и пустой хвост — общий «Model loading failed», как прежде'),
     ('err_corrupt_a',
      '',
      'm.classifyLlamaError("tensor data is not within the file bounds")',
@@ -1627,8 +1680,26 @@ PINS = [
     ('err_mmproj_c',
      '',
      'm.classifyLlamaError("mtmd_init_from_file: failed")',
-     '{"friendly":"Wrong mmproj for this model","hint":"The vision projector embedding size does not match the model. Select the correct mmproj.","raw":"mtmd_init_from_file: failed"}',
-     'positive: classifyLlamaError «mtmd_init_from_file» → mmproj'),
+     '''{"friendly":"The vision projector could not be loaded","hint":"The file chosen as mmproj is damaged, is not a vision projector, or belongs to another model. Choose the mmproj of this model's own repository, or clear the field to run text-only.","raw":"mtmd_init_from_file: failed"}''',
+     'positive: classifyLlamaError «mtmd_init_from_file» → проектор не загрузился (не «размер эмбеддинга не тот»: это другая поломка, 2026-10-17)'),
+    ('err_clip_failed_to_load',
+     '',
+     '[m.classifyLlamaError("0.01.050.051 E mtmd_init_from_file: error: Failed to load CLIP model from /m/x-projector-F16.gguf").friendly, m.classifyLlamaError("Failed to load CLIP model").friendly]',
+     '["The vision projector could not be loaded","The vision projector could not be loaded"]',
+     'positive: «Failed to load CLIP model» — проектор не загрузился, с именем файла и без'),
+    ('err_mmproj_mismatch_stays_embedding_size',
+     '',
+     '[m.classifyLlamaError("mismatch between text model and mmproj").friendly, m.classifyLlamaError("wrong mmproj").friendly]',
+     '["Wrong mmproj for this model","Wrong mmproj for this model"]',
+     'negative: «mismatch between text model» и «wrong mmproj» — по-прежнему «не тот mmproj» с подсказкой про размер эмбеддинга'),
+    ('err_mtp_without_layers',
+     '',
+     '[m.classifyLlamaError("0.02.308.140 E srv  llama_server: exiting due to model loading error", "0.02.308.145 W llama_init_from_model: context type MTP requested but model doesn\'t contain MTP layers\\n0.02.308.149 E srv    load_model: failed to create MTP context").friendly,'
+     ' m.classifyLlamaError("context type MTP requested but model doesn\'t contain MTP layers").friendly, m.classifyLlamaError("failed to create MTP context").hint,'
+     ' m.classifyLlamaError("exiting due to model loading error", "").friendly, m.classifyLlamaError("exiting due to model loading error", "0.01 I main: loading model").friendly]',
+     '["This model has no MTP layers","This model has no MTP layers","Speculative decoding (MTP) is on, but the model has no MTP layers and no draft file is chosen. Turn it off, or choose the model\'s mtp-*.gguf as the draft file.","Model loading failed","Model loading failed"]',
+     'positive: MTP у модели без слоёв MTP — причина стоит в последних строках лога (строка, на которой упало, говорит лишь «exiting due to model loading error»), и в самой причине; '
+     'negative: без этих слов в хвосте — прежнее общее «Model loading failed», а не догадка про MTP'),
     ('err_notfound_a',
      '',
      'm.classifyLlamaError("No such file or directory")',
@@ -1662,8 +1733,8 @@ PINS = [
     ('err_prec_mmproj_over_notfound',
      '',
      'm.classifyLlamaError("mtmd_init_from_file: no such file")',
-     '{"friendly":"Wrong mmproj for this model","hint":"The vision projector embedding size does not match the model. Select the correct mmproj.","raw":"mtmd_init_from_file: no such file"}',
-     'positive: classifyLlamaError приоритет: mmproj побеждает not-found'),
+     '''{"friendly":"The vision projector could not be loaded","hint":"The file chosen as mmproj is damaged, is not a vision projector, or belongs to another model. Choose the mmproj of this model's own repository, or clear the field to run text-only.","raw":"mtmd_init_from_file: no such file"}''',
+     'positive: classifyLlamaError приоритет: проектор, который не загрузился, побеждает not-found'),
     ('err_prec_notfound_over_generic',
      '',
      'm.classifyLlamaError("segfault: failed to open")',
@@ -2272,26 +2343,38 @@ PINS = [
      "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], /<button type=\"button\" class=\"fr-switch\" role=\"switch\" aria-checked=\"true\" data-node-cell-stop=\"h1\" data-node-cell-port=\"22001\" data-node-cell-model=\"a\" data-t=\"cell-row-stop\" data-t-id=\"h1:22001\"/.test(h), (h.match(/data-topology-llama-input/g) || []).length])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
      "[\"line\",\"fold-row cell-row running cpu\",true,1]",
      "positive: работающая — строка с точкой, без ▶; CPU-ячейка — класс cpu, как акцент карточки"),
-    ("fold_running_busy",
+    ("fold_running_request_class",
      "",
-     "(h => [(h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], (h.match(/data-live-rowtps>([^<]*)</) || [])[1]])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\", genTps: 41.7 }), { fold: true })))",
+     "(h => [(h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], (h.match(/data-live-rowtps>([^<]*)</) || [])[1]])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\", genTps: 41.7, requestsProcessing: 1 }), { fold: true })))",
      "[\"fold-row cell-row running cpu busy\",\"41.70 t/s\"]",
-     "positive: генерирует — busy и скорость тем же formatTps, что у карточки"),
-    ("fold_error_full",
+     "positive: a request runs — busy, and the speed written by the same formatTps as the card's (the cases of the table follow, below)"),
+    # 2026-10-17, the owner, shown the big card of a cell that failed to load its projector: "red, but thin, like the usual
+    # one — and the description of the error when the window opens". A failed cell is a red line; the window opens on
+    # the reason, over the card, and the card inside leaves its own copy out.
+    ("fold_error_red_line",
      "",
-     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/data-topology-llama-input/g) || []).length])(norm(m.nodeServerCardHtml(node, mk({ phase: \"error\" }), { fold: true })))",
-     "[\"card\",1]",
-     "negative: ошибка не сворачивается даже в свёрнутой ленте — полная карточка со своей ручкой"),
+     "(h => { const win = h.slice(h.indexOf('<div class=\"cell-window')); return [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"),"
+     " (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], /data-t=\"cell-row-failed\"/.test(h), /data-t-state=\"failed\"/.test(h),"
+     " (h.match(/data-topology-llama-input/g) || []).length, (h.match(/llama-err-block/g) || []).length,"
+     " win.indexOf(\"llama-err-block\") > 0 && win.indexOf(\"llama-err-block\") < win.indexOf(\"<article\"),"
+     " /<article[^>]*>(?:(?!<\\/article>).)*llama-err-block/.test(win), /llama-err-raw\">boom</.test(win)]; })(norm(m.nodeServerCardHtml(node, mk({ phase: \"error\", lastError: \"boom\" }), { fold: true })))",
+     "[\"line\",\"fold-row cell-row parked failed\",true,true,1,1,true,false,true]",
+     "positive: ошибка в свёрнутой ленте — тонкая красная строка (класс failed, метка «failed», data-t-state=failed), ручка каната одна, на строке; "
+     "блок ошибки ОДИН — первым в окне, над карточкой, с сырой причиной; negative: в самой карточке окна своей копии блока нет"),
     ("fold_starting_full",
      "",
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"line\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"starting\" }), { fold: true })))",
      "\"line\"",
      "positive: обычный запуск остаётся компактной строкой со спиннером"),
-    ("fold_broken_full",
+    ("fold_broken_red_line",
      "",
-     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"broken\", status: { error: \"engine init failed\" } }), { fold: true })))",
-     "\"card\"",
-     "negative: сломанная (процесс жив, движок нет) — полная карточка"),
+     "(h => { const win = h.slice(h.indexOf('<div class=\"cell-window')); return [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"),"
+     " (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], /aria-checked=\"true\" data-node-cell-stop=/.test(h),"
+     " win.indexOf(\"llama-err-block\") > 0 && win.indexOf(\"llama-err-block\") < win.indexOf(\"<article\"), ((win.match(/llama-err-raw\">(x+)</) || [])[1] || \"\").length,"
+     " /cell-broken-error/.test(win)]; })(norm(m.nodeServerCardHtml(node, mk({ phase: \"broken\", status: { error: \"x\".repeat(200) } }), { fold: true })))",
+     "[\"line\",\"fold-row cell-row running failed\",true,true,200,true]",
+     "positive: сломанная (процесс жив, движок нет) — тоже красная строка; её переключатель ВКЛЮЧЁН и несёт ⏹ (процесс жив: выключить можно, запустить нельзя); "
+     "окно открывается на причине целиком (200 знаков в видимой строке, не только в подсказке; строка состояния карточки режет на 140), а своя строка состояния в карточке остаётся"),
     ("fold_crashed_full",
      "",
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\", crash: { count: 2, at: \"12:00\", reason: \"Xid 8\" } }), { fold: true })))",
@@ -2356,8 +2439,8 @@ PINS = [
     ("hide_on_keeps_what_matters",
      "cf.CARD_FOLD.hideIdle.add(\"h1\");",
      "[mk({ phase: \"running\" }), mk({ phase: \"error\" }), mk({ phase: \"stopped\", crash: { count: 1, at: \"12:00\", reason: \"Xid 8\" } })].map((c) => (h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : h.startsWith(\"<span hidden\") ? \"hidden\" : \"?\"))(norm(m.nodeServerCardHtml(node, c, { fold: true }))))",
-     "[\"line\",\"card\",\"card\"]",
-     "negative: работающая, в ошибке, падавшая — не прячутся"),
+     "[\"line\",\"line\",\"card\"]",
+     "negative: работающая, в ошибке, падавшая — не прячутся; в ошибке теперь красная строка, не карточка (2026-10-17), но на виду"),
     ("hide_on_keeps_fresh_reserved",
      "cf.CARD_FOLD.hideIdle.add(\"h1\"); rc._newReservedCells.add(\"h1:22001\");",
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : h.startsWith(\"<span hidden\") ? \"hidden\" : \"?\"))(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: \"reserved\" }, { fold: true })))",
@@ -2431,6 +2514,21 @@ PINS = [
      "[\"draft-mtp\",\"draft-dflash\",\"draft-simple\",\"draft-eagle3\",null]",
      "positive: окно ячейки называет тип черновика по правилу сервера — голова из папки mtp/ — draft-mtp, DFlash — DFlash; "
      "negative: обычный файл — draft-simple, тип оператора не угадывается заново, без файла и без типа флага нет"),
+    # 2026-10-17: the cell's address in its window is a plain link in this tab — no target, no ↗ (the arrow promised a new tab).
+    ("server_detail_address_is_a_plain_link",
+     "",
+     "(() => { const made = document.createElement; const put = document.body.appendChild; let html = '';"
+     " document.createElement = () => ({ style: {}, dataset: {}, setAttribute() {}, appendChild() {},"
+     " set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } });"
+     " document.body.appendChild = () => {};"
+     " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" })] }] });"
+     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {}"
+     " try { const a = html.match(/<a href=\"([^\"]*)\"([^>]*nsd-addr-link[^>]*)>([^<]*)<\\/a>/);"
+     " return a ? [a[1] === 'http://' + a[3], /target=/.test(a[2]), a[3].includes('\\u2197'), /:22001$/.test(a[3]), (html.match(/nsd-addr-link/g) || []).length] : null; }"
+     " finally { document.createElement = made; document.body.appendChild = put; } })()",
+     "[true,false,false,true,1]",
+     "positive: адрес ячейки в её окне — обычная ссылка на тот же адрес (в этой же вкладке); "
+     "negative: у ссылки нет target и нет стрелки ↗, ссылка одна"),
 ]
 
 
@@ -2451,6 +2549,156 @@ def _esc(text):
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
             .replace("'", "&#39;"))
 
+
+# The start of a cell in its folded line (2026-10-18, the owner: "when I start a cell, do not widen it by itself — only in the same thin
+# line say the same as the card says, without the name of the model, so it comes out shorter"). A copy, a load and a warm-up used to open
+# the full card; the line keeps the cell, a strip under its name carries the card's own status line, and the window holds the card whole.
+STRIP_OF = (' const mode = (h) => (h.match(/data-fold-mode="([a-z]+)"/) || [])[1] || (h.startsWith("<article") ? "card" : "?");'
+            ' const lineOf = (h) => h.slice(h.indexOf(\'<div class="fold-row cell-row\'), h.indexOf(\'<div class="cell-window-backdrop"\'));'
+            ' const winOf = (h) => h.slice(h.indexOf(\'<div class="cell-window\'));')
+
+PINS += [
+    ("fold_downloading_strip",
+     STRIP_OF,
+     '(h => [mode(h), (lineOf(h).match(/<span class="msl-text" data-live-rowdl[^>]*>([^<]*)</) || [])[1], (lineOf(h).match(/<span class="msl-bar"><span style="width:([^"]*)"/) || [])[1],'
+     ' (winOf(h).match(/<span class="msl-text" data-live-dl>([^<]*)</) || [])[1], (h.match(/class="fr-strip/g) || []).length,'
+     ' (lineOf(h).match(/data-strip-name="([^"]*)"/) || [])[1]])'
+     '(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadingFile: "a-Q4_K_M-00001-of-00002.gguf (1/2)", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 3 * 2 ** 30 }), { fold: true })))',
+     json.dumps(["line", "Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%", "50%", "a-Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%", 1, "a"]),
+     "positive: копируемая модель в свёрнутой ленте остаётся СТРОКОЙ, а не раскрывается сама; под её именем — полоса и слова карточки без имени модели "
+     "(«Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%», ширина полосы 50%); окно хранит карточку с полной подписью файла; полоска одна"),
+    ("fold_downloading_strip_whole_model",
+     STRIP_OF + ' const GB = 2 ** 30;',
+     '(h => (lineOf(h).match(/<span class="msl-text" data-live-rowdl[^>]*>([^<]*)</) || [])[1])'
+     '(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadingFile: "a-Q4_K_M-00002-of-00002.gguf (2/2)", downloadedBytes: 1 * GB, totalBytes: 2 * GB,'
+     ' slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a/a-Q4_K_M-00001-of-00002.gguf" } }), { fold: true })))',
+     json.dumps("Q4_K_M-00002-of-00002.gguf (2/2) · 1.0/2.0 GB · 50%"),
+     "boundary: вторая часть — те же слова, что у карточки (цифры по части, раз список моделей частей не знает), имя модели опущено"),
+    ("fold_warming_strip",
+     STRIP_OF,
+     '(h => [mode(h), (lineOf(h).match(/<div class="fr-strip model-status-line" data-t="cell-row-strip">(.*?)<\\/div>/) || [])[1], lineOf(h).includes("msl-bar indeterminate"), (h.match(/class="fr-strip/g) || []).length])'
+     '(norm(m.nodeServerCardHtml(node, mk({ phase: "warming" }), { fold: true })))',
+     json.dumps(["line", '<span class="topology-spinner" aria-hidden="true"></span><span class="msl-bar indeterminate"><span></span></span><span class="msl-text">loading model into VRAM…</span>', True, 1]),
+     "positive: прогрев (модель грузится в память) — строка, под ней те же слова карточки «loading model into VRAM…» со спиннером и бегущей полосой"),
+    ("fold_loading_strip",
+     STRIP_OF,
+     '(h => [mode(h), (lineOf(h).match(/<span class="msl-text">([^<]*)</) || [])[1], (h.match(/class="fr-strip/g) || []).length])'
+     '(norm(m.nodeServerCardHtml(node, mk({ phase: "loading" }), { fold: true })))',
+     json.dumps(["line", _en("topologyRemoteLoading"), 1]),
+     "positive: загрузка (не копирование и не прогрев) — тоже строка со словами карточки"),
+    ("fold_no_strip_when_quiet",
+     STRIP_OF,
+     '["running", "stopped", "reserved"].map((phase) => { const h = norm(m.nodeServerCardHtml(node, mk({ phase }), { fold: true })); return [mode(h), h.includes("fr-strip"), h.includes("data-live-rowdl")]; })',
+     json.dumps([["line", False, False], ["line", False, False], ["line", False, False]]),
+     "negative: работает, стоит, зарезервирована — строка прежняя, без полоски: ей нечего сказать"),
+    ("fold_no_strip_when_starting_line",
+     STRIP_OF,
+     '(h => [mode(h), h.includes("fr-strip"), h.includes(\'disabled aria-busy="true"\')])(norm(m.nodeServerCardHtml(node, mk({ phase: "starting" }), { fold: true })))',
+     json.dumps(["line", False, True]),
+     "negative: «starting» уже сказан самой строкой — её заблокированный тумблер крутится; полоски со вторым спиннером нет (она — для того, ради чего "
+     "раскрывалась полная карточка: копирование, загрузка, прогрев)"),
+    ("fold_no_strip_when_failed",
+     STRIP_OF,
+     '["error", "broken"].map((phase) => { const h = norm(m.nodeServerCardHtml(node, mk({ phase, lastError: "boom", status: { error: "dead" } }), { fold: true })); return [mode(h), (lineOf(h).match(/<div class="(fold-row cell-row[^"]*)"/) || [])[1], h.includes("fr-strip")]; })',
+     json.dumps([["line", "fold-row cell-row parked failed", False], ["line", "fold-row cell-row running failed", False]]),
+     "negative: упавшая и сломанная — красная строка, как была, без полоски запуска"),
+    ("fold_downloading_crashed_full",
+     STRIP_OF,
+     '(h => [mode(h), h.includes("fr-strip")])(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading", crash: { count: 2, at: "12:00", reason: "Xid 8" } }), { fold: true })))',
+     json.dumps(["card", False]),
+     "negative: копируется, но падала — полная карточка со счётчиком падений: беда не сворачивается в строку"),
+    ("fold_downloading_deleting_full",
+     STRIP_OF + ' rc._deletingSlots.add("h1:22001");',
+     '(h => [mode(h), h.includes("fr-strip")])(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading" }), { fold: true })))',
+     json.dumps(["card", False]),
+     "negative: удаляется — это движение со своей строкой «Removing…» в карточке: полоски запуска нет, карточка полная"),
+    ("fold_downloading_unfolded_lane_same_card",
+     STRIP_OF,
+     '(h => [mode(h), h.includes("fr-strip"), (h.match(/<span class="msl-text" data-live-dl>([^<]*)</) || [])[1]])'
+     '(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading", downloadingFile: "a-Q4_K_M-00001-of-00002.gguf (1/2)", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 3 * 2 ** 30 }), { fold: false })))',
+     json.dumps(["card", False, "a-Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%"]),
+     "negative: лента «full» (или автотест) — карточка та же, что была: с полной подписью файла, без полоски"),
+    ("fold_machine_eye_keeps_starting_cell",
+     STRIP_OF + ' cf.CARD_FOLD.hideIdle.add("h1");',
+     '(h => [h.includes("data-cell-hidden"), h.includes("fr-strip")])(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading" }), { fold: true })))',
+     json.dumps([False, True]),
+     "positive: глаз машины («прятать не запущенные») запускаемую ячейку не прячет — она в движении, и строка с полоской видна"),
+]
+
+# The chip of a STOPPED cell says how much memory a start takes. llama.cpp-omni's GGUF weighs 4.7 GB and its cell takes
+# 12.5 (the audio, speech and vision parts, the engine's own memory): the chip sized it by the file, the form's bar beside
+# it said 12.5. The registry holds the measured figure (vramPlan.fixedMiB); the chip reads it, and only a runner that has
+# one: a plain llama.cpp cell, and a runner with no fixed plan, still say "≈ the file's size".
+_PLAN_SETUP = (
+    r'st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "minicpm-omni", gpuOnly: true, vramPlan: { fixedMiB: 12800 } },'
+    r' { id: "personaplex", gpuOnly: true, vramPlan: { fixedMiB: 20480 } }, { id: "gr00t", gpuOnly: true }], artifacts: [], models: [], paths: {} });'
+    r' const chip = (h) => { const x = h.match(/<span class="mbadge mbadge-(vram-est|vram)" data-t="cell-gpu" data-t-state="\w+"(?: title="([^"]*)")?>([^<]*)<\/span>/); return x ? [x[1], x[3], x[2] ?? null] : null; };'
+    r' globalThis.__card = (extra) => chip(norm(m.nodeServerCardHtml(node, mk({ phase: "stopped", ...extra }))));'
+    r' globalThis.__line = (extra) => { const row = (norm(m.nodeServerCardHtml(node, mk({ phase: "stopped", ...extra }), { fold: true })).match(/<div class="fold-row[^>]*>.*?<\/div>/) || [""])[0];'
+    r' const x = row.match(/<span class="mbadge mbadge-([a-z-]+)" data-t="cell-gpu"[^>]*>([^<]*)<\/span>/); return x ? [x[1], x[2]] : null; };'
+)
+_PLAN_GGUF = (r'{ slotConfig: { RUNNER: "minicpm-omni", MODEL_FILE: "MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf" },'
+              r' modelSizeBytes: 5025725440 }')
+
+PINS += [
+    ("plan_chip_stopped_cell_wears_the_registry_figure",
+     _PLAN_SETUP,
+     r'(() => { const gguf = ' + _PLAN_GGUF + r', folder = { slotConfig: { RUNNER: "personaplex", MODEL_FILE: "personaplex-7b-v1/nvidia/SAFETENSORS" } };'
+     r' return [globalThis.__card(gguf), globalThis.__card(folder), globalThis.__line(gguf), globalThis.__line(folder)]; })()',
+     json.dumps([["vram-est", "GPU ≈12.5G", _esc(_en("vramPlanChipTitle"))], ["vram-est", "GPU ≈20.0G", _esc(_en("vramPlanChipTitle"))],
+                 ["vram-est", "GPU ≈12.5G"], ["vram-est", "GPU ≈20.0G"]], ensure_ascii=False),
+     "positive: стоящая ячейка llama.cpp-omni — значок GPU ≈12.5G из плана реестра, а не ≈4.7G по файлу в 4,7 ГБ; ячейка PersonaPlex (папка, размера файла нет) — "
+     "≈20.0G вместо одного «⚡ GPU»; в строке тот же значок; подсказка называет замер, а не размер файла"),
+    ("plan_chip_only_where_the_registry_has_a_plan",
+     _PLAN_SETUP,
+     r'(() => { const size = 5025725440; return [globalThis.__card({ modelSizeBytes: size }),'
+     r' globalThis.__card({ phase: "running", gpuIndexes: [0], gpuMem: { "0": 13000 }, modelSizeBytes: size, slotConfig: { RUNNER: "minicpm-omni" } }).slice(0, 2),'
+     r' globalThis.__card({ modelSizeBytes: size, slotConfig: { RUNNER: "gr00t" } }), globalThis.__line({ modelSizeBytes: size }),'
+     r' globalThis.__card({ phase: "running", modelSizeBytes: size, slotConfig: { RUNNER: "minicpm-omni" } })]; })()',
+     json.dumps([["vram-est", "GPU ≈4.7G", _esc(_en("vramEstChipTitle"))], ["vram", "GPU 12.7G"], ["vram-est", "GPU ≈4.7G", _esc(_en("vramEstChipTitle"))],
+                 ["vram-est", "GPU ≈4.7G"], None], ensure_ascii=False),
+     "negative: обычная ячейка llama.cpp и раннер без фиксированного плана — по-прежнему ≈ размер файла со старой подсказкой; "
+     "работающая ячейка со своим планом показывает ЖИВУЮ видеопамять (12.7G), а не план; boundary: работающая, у которой память ещё не замерена, — "
+     "значка «≈» нет: GPU 0 без оценки (план — оценка до старта, а не замена замера)"),
+]
+
+PINS += [
+    ("mem_running_says_ram_and_gpu",
+     "",
+     'MEM(norm(m.nodeServerCardHtml(node, mk({ phase: "running", gpuIndexes: [0], gpuMem: { "0": 4096 }, ramBytes: 3e9 }))))',
+     json.dumps([["ram", "ram", "held", "RAM 2.8G"], ["gpu", "vram", "held", "GPU 4.0G"]]),
+     "positive: работающая ячейка говорит память двумя значками — сколько держит в RAM (то, что сказал скаут: 3e9 байт = 2.8G) и сколько на карте (4096 МиБ = 4.0G); RAM первым"),
+    ("mem_running_old_scout_has_no_ram",
+     "",
+     'MEM(norm(m.nodeServerCardHtml(node, mk({ phase: "running", gpuIndexes: [0], gpuMem: { "0": 4096 } }))))',
+     json.dumps([["ram", "mem-unknown", "unknown", "RAM —"], ["gpu", "vram", "held", "GPU 4.0G"]]),
+     "negative: скаут старше 2.35 не говорит память ячейки — «RAM —», прочерк, а не 0 (ноль сказал бы, что ячейка ничего не держит); GPU это не трогает"),
+    ("mem_running_cards_not_read",
+     "",
+     'MEM(norm(m.nodeServerCardHtml({ ...node, gpus: [] }, mk({ phase: "running", ramBytes: 3e9 }))))',
+     json.dumps([["ram", "ram", "held", "RAM 2.8G"], ["gpu", "mem-unknown", "unknown", "GPU —"]]),
+     "negative: машина, у которой карты не прочитаны (нет драйвера NVIDIA, macOS), не даёт GPU-цифры — «GPU —», а не 0, который сказал бы «на карте ничего»"),
+    ("mem_running_cpu_cell_holds_zero_on_the_card",
+     "",
+     'MEM(norm(m.nodeServerCardHtml(node, mk({ phase: "running", ramBytes: 13e9 }))))',
+     json.dumps([["ram", "ram", "held", "RAM 12.1G"], ["gpu", "mem-zero", "none", "GPU 0"]]),
+     "positive: работающая CPU-ячейка на машине с прочитанными картами — «GPU 0» без цвета (замер: на карте ничего), RAM 12.1G"),
+    ("mem_parked_cpu_cell_expects_ram",
+     "",
+     'MEM(norm(m.nodeServerCardHtml(node, mk({ modelSizeBytes: 13e9, slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf", N_GPU_LAYERS: "0" } }))))',
+     json.dumps([["ram", "ram-est", "expected", "RAM ≈12.1G"], ["gpu", "mem-zero", "none", "GPU 0"]]),
+     "positive: стоящая CPU-ячейка (N_GPU_LAYERS=0): веса лягут в RAM — оценка по размеру файла «RAM ≈12.1G» (пунктир), на карте ничего — «GPU 0»; а не «≈12.1G» без слова, куда"),
+    ("mem_line_of_a_warming_cell_holds_what_the_process_holds",
+     "",
+     'MEM(norm(m.nodeServerCardHtml(node, mk({ phase: "warming", gpuIndexes: [0], gpuMem: { "0": 2048 }, ramBytes: 1e9, modelSizeBytes: 8e9 }), { fold: true })))',
+     json.dumps([["ram", "ram", "held", "RAM 0.9G"], ["gpu", "vram", "held", "GPU 2.0G"]]),
+     "positive: строка ячейки, что прогревается (процесс уже держит память: видеокарта и RAM растут), говорит замеры, а не оценку по файлу (≈7.5G): процесс есть — это то, что он держит сейчас"),
+    ("mem_reserved_port_has_no_badges",
+     "",
+     'MEM(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true })))',
+     "[]",
+     "negative: зарезервированный порт без модели — ни RAM, ни GPU: нечего сказать (ни «—», ни нуля)"),
+]
 
 PINS += [
     ("fold_switch_words",
@@ -2615,7 +2863,7 @@ PINS += [
      f"st.setTopology({{ ...st.topology, nodes: [{GLANCE}] }});",
      "(h => [h.includes('<section class=\"node-card machine-glance online\" data-node-id=\"h2\" data-t=\"machine-glance\" data-t-id=\"h2\"'),"
      f" h.includes('title=\"{_esc(_en("machineOpenTitle").replace("{name}", "Box"))}\">'),"
-     " h.includes('<a class=\"machine-name\" href=\"/machine?host=h2\" target=\"caravan-machine-h2\" data-machine-open=\"h2\" data-t=\"machine-open\" data-t-id=\"h2\">Box</a>')"
+     " h.includes('<a class=\"machine-name\" href=\"/machine?host=h2\" data-machine-open=\"h2\" data-t=\"machine-open\" data-t-id=\"h2\">Box</a>')"
      " && h.includes('<span class=\"topology-muted\">10.0.0.6</span>') && !h.includes('data-live-nodemeta'),"
      f" h.includes(norm(m.nodeComputeHtml({GLANCE}))) && h.includes('▶ 22001'),"
      " ['↗', 'class=\"machine-open\"', 'data-scout-disconnect', 'node-disconnect', 'node-servers', 'data-server-card', 'node-reboot', 'data-node-cell-port', 'node-caravan', 'node-collapse'].filter((x) => h.includes(x))])"
@@ -2647,10 +2895,11 @@ PINS += [
      "панель Compute одна на обе карточки: целая карточка в окне машины несёт её ровно такой же, ровно один раз"),
     ("machine_glance_escapes_its_id",
      f"st.setTopology({{ ...st.topology, nodes: [{{ ...{HOST}, id: \"a&b <c>\", name: \"Odd\" }}] }});",
-     "(h => [h.includes('href=\"/machine?host=a%26b%20%3Cc%3E\"'), h.includes('target=\"caravan-machine-a_b__c_\"'), h.includes('data-machine-open=\"a&amp;b &lt;c&gt;\"'),"
+     "(h => [h.includes('href=\"/machine?host=a%26b%20%3Cc%3E\"'), h.includes('target='), h.includes('data-machine-open=\"a&amp;b &lt;c&gt;\"'),"
      " h.includes('<c>')])(m.machinesLaneHtml())",
-     "[true,true,true,false]",
-     "negative: странное имя машины не ломает ни адрес окна, ни имя окна, ни разметку"),
+     "[true,false,true,false]",
+     "negative: странное имя машины не ломает ни адрес страницы, ни разметку; у ссылки нет target — страница машины открывается в этой же вкладке, "
+     "а не в окне с именем (2026-10-17)"),
 ]
 
 # The engines next to the cells (scout 2.12+) and the memory their processes
@@ -3003,14 +3252,14 @@ PINS += [
 PINS += [
     # ── a machine's llama.cpp build (2026-09-27: moved from its header to the caravan's strip) ──
     ('llama_build_chip_in_sync',
-     'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });',
+     'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)", git: { head: "abc1234" } } });',
      'norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "2026-08-11T12:00:00", servers: [] }))',
      json.dumps('<span class="llama-ver-chip" title="version: 9947 (abc1234) · 2026-08-11T12:00:00">b9947<span class="llama-ver-date"> 2026-08-11</span></span>'
                 '<button class="llama-ver-refresh" type="button" data-update-client-llama="h1" title="' + _esc(_en("updateClientLlama"))
                 + '" aria-label="' + _esc(_en("updateClientLlama")) + '">⇪</button>', ensure_ascii=False),
      'сборка машины та же, что у контроллера: номер и дата (полная версия — в подсказке), ⇪ — обновить; negative: ни ⬆, ни «устарел»'),
     ('llama_build_chip_outdated_and_building',
-     'st.setState({ ...st.state, llamaCpp: { version: "version: 9950 (def5678)" } });',
+     'st.setState({ ...st.state, llamaCpp: { version: "version: 9950 (def5678)", git: { head: "def5678" } } });',
      '[norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "", servers: [] })).startsWith(\'<span class="llama-ver-chip outdated"\'),'
      ' norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [] })).includes("b9947 ⬆</span>"),'
      ' (norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [], llamaUpdate: { running: true, lastLine: "[ 40%] ggml" } })).match(/<span class="llama-ver-building" title="([^"]*)">([^<]*)</) || []).slice(1),'
@@ -3035,6 +3284,26 @@ PINS += [
      '[true, false, "", ""]',
      'ячейка запущена раньше, чем пересобран бинарь на диске, — ⟳ «устарел»; negative: запущена после — метки нет; машина '
      'не сообщает сборку (или сообщает мусор) — значка нет вовсе, а не пустой'),
+    # ⇪ says what it installs (1.3.570): the controller's commit is what it sends, and an empty one means "the latest release"
+    ('llama_build_chip_controller_without_commit',
+     'st.setState({ ...st.state, llamaCpp: { binaryExists: false, version: "llama-server binary not found", git: { branch: "", head: "" } } });',
+     '(h => [(h.match(/<button class="llama-ver-refresh" type="button" data-update-client-llama="([^"]*)" title="([^"]*)" aria-label="([^"]*)">([^<]*)</) || []).slice(1),'
+     ' h.includes("outdated"), h.includes("⬆")])'
+     '(norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "2026-08-11T12:00:00", servers: [] })))',
+     json.dumps([["h1", _esc(_en("updateClientLlamaLatest")), _esc(_en("updateClientLlamaLatest")), "⇪"], False, False], ensure_ascii=False),
+     "контроллер без своей сборки llama.cpp (в контейнере, как на NAS): ⇪ есть и говорит, что ставит последний релиз, а не «сборку контроллера», "
+     "которой нет (раньше слова обещали сборку, а уходил пустой тег); negative: ни ⬆, ни «устарел» — сравнивать машине не с чем"),
+    ('llama_build_chip_controller_not_read',
+     'st.setState({ ...st.state, llamaCpp: null });',
+     '(() => { const chip = (n) => norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [], ...n }));'
+     ' const none = chip({}); st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } }); const noGit = chip({});'
+     ' st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)", git: {} } }); const emptyGit = chip({});'
+     ' return [none.includes("b9947"), none.includes("data-update-client-llama"), noGit.includes("data-update-client-llama"),'
+     ' emptyGit.includes(\'title="\' + ' + json.dumps(_esc(_en("updateClientLlamaLatest")), ensure_ascii=False) + ' + \'"\'),'
+     ' norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [], llamaUpdate: { running: true } })).includes("llama-ver-building")]; })()',
+     '[true, false, false, true, true]',
+     "пока контроллер не сказал, что у него за llama.cpp (нет чтения, нет блока git), ⇪ не рисуется — слов подобрать не к чему; "
+     "значок сборки машины и ⏳ при сборке остаются; boundary: блок git без коммита — контроллер СКАЗАЛ, что коммита нет: ⇪ есть, слова про последний релиз"),
 ]
 
 # The caravan on a machine's card (2026-09-27, round 10: the operator chose A):
@@ -3062,18 +3331,19 @@ PINS += [
      "без списка — список страницы (state.models, тот же, что у редактора); negative: модель, которую называет ячейка "
      "машины, проектор (mmproj), запись без пути — не в счёт; список ещё не пришёл — null, а не «моделей нет»"),
     ("caravan_strip_without_list",
-     CARAVAN + ' st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });',
+     CARAVAN + ' st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)", git: { head: "abc1234" } } });',
      '(h => [(h.match(/data-t="(node-caravan)" data-t-id="([^"]*)"/) || []).slice(1), (h.match(/<span class="es-ver">([^<]*)</) || [0, "none"])[1],'
      ' (h.match(/<span class="llama-ver-chip" title="[^"]*">([^<]*)</) || [0, "none"])[1], h.includes("data-update-client-llama=\\"h1\\""),'
-     ' [...h.matchAll(/<a class="models-bar-link [^"]*" href="([^"]*)" target="_blank" rel="noopener" title="[^"]+" data-t="([^"]*)" data-t-id="([^"]*)"/g)].map((x) => x.slice(1)),'
+     ' [...h.matchAll(/<a class="models-bar-link [^"]*" href="([^"]*)" title="[^"]+" data-t="([^"]*)" data-t-id="([^"]*)"/g)].map((x) => x.slice(1)), h.includes("target="), h.includes("models-bar-arrow"),'
      ' h.includes("node-caravan-download"), h.includes("node-engine-serve"), h.includes("fr-switch"), addOf(h).includes("data-caravan-add"),'
      ' countOf(h), h.includes("node-engine-state")])'
      '(cv({ ...node, llamaBinaryVersion: "version: 9947 (abc1234)" }, [], null))',
      json.dumps([["node-caravan", "h1:caravan"], "llama.cpp", "b9947", True,
-                 [["/models", "node-caravan-models", "h1"], ["/hf", "node-caravan-hf", "h1"]],
+                 [["/models", "node-caravan-models", "h1"], ["/hf", "node-caravan-hf", "h1"]], False, False,
                  False, False, False, True, "none", False]),
      "полоса каравана (2026-09-27, перенос оператора): llama.cpp и значок сборки машины с ⇪ (он ушёл из шапки), второй "
-     "строкой — 📦 Models и 🤗 Hugging Face (строка над машинами ушла сюда); negative: «download» больше нет — его место "
+     "строкой — 📦 Models и 🤗 Hugging Face (строка над машинами ушла сюда), обе — ссылки на страницы каравана в ЭТОЙ ЖЕ вкладке: "
+     "ни target, ни стрелки ↗ у них нет (2026-10-17); negative: «download» больше нет — его место "
      "занял Hugging Face; тумблера нет (караван запускает ячейки, а не сервер); «＋ Add model» есть и до прихода списка, "
      "без счёта и без «моделей нет»"),
     ("caravan_strip_without_build",
@@ -3167,23 +3437,23 @@ PINS += [
      ENGINE_CELL,
      '(h => [clsOf(h), chipsOf(h), h.includes(\'data-t="cell-configure"\'), (h.match(/data-node-cell-runner="([^"]*)"/) || [])[1]])(norm(m.nodeServerCardHtml(EN(), EC())))',
      json.dumps(["node-server configured-cell engine-cell engine-ollama",
-                 ["💬 LLM", "🟠 Ollama", "≈4.9G", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], False, "ollama"], ensure_ascii=False),
+                 ["💬 LLM", "🟠 Ollama", "RAM —", "GPU —", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], False, "ollama"], ensure_ascii=False),
      "positive: ячейка в Ollama — класс запускающего (оранжевый), работа модели по отчёту движка, значок движка из реестра, "
-     "≈размер файла модели, её параметры и квант; шестерёнки редактора нет — ячейку движка делают на шаге резерва; "
-     "старт знает раннер (ollama), а не «command»"),
+     "значки памяти с прочерком (стоит: где её загрузит движок, не знаем — не «≈размер файла» на чужую карту), её параметры и квант; "
+     "шестерёнки редактора нет — ячейку движка делают на шаге резерва; старт знает раннер (ollama), а не «command»"),
     ("enginecell_running_memory",
      ENGINE_CELL,
-     '(h => [clsOf(h), chipsOf(h), (h.match(/title="([^"]*)">5.6G/) || [])[1]])(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000, memBytes: 6500000000, contextLength: 8192 }), EC({ phase: "running" }))))',
+     '(h => [clsOf(h), chipsOf(h), (h.match(/title="([^"]*)">GPU 5.6G/) || [])[1]])(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000, memBytes: 6500000000, contextLength: 8192 }), EC({ phase: "running" }))))',
      json.dumps(["node-server running engine-cell engine-ollama",
-                 ["💬 LLM", "🟠 Ollama", "5.6G", "⚖ 8.2B", "🎛 Q4_K_M", "🪟 8.2k", ":22031"],
+                 ["💬 LLM", "🟠 Ollama", "RAM 0.5G", "GPU 5.6G", "⚖ 8.2B", "🎛 Q4_K_M", "🪟 8.2k", ":22031"],
                  _en("cellEngineMemTitle").replace("{engine}", "Ollama")], ensure_ascii=False),
-     "positive: работает — память та, что движок держит под модель (VRAM из его отчёта) и окно модели; negative: без "
-     "gpuIndexes она НЕ «CPU» — процесс ячейки модели не держит"),
+     "positive: работает — память та, что движок держит под модель: на карте (VRAM из его отчёта, GPU 5.6G) и остаток от общей в RAM (6,5 ГБ минус 6,0: RAM 0.5G), "
+     "и окно модели; negative: без gpuIndexes она НЕ «CPU» — процесс ячейки модели не держит"),
     ("enginecell_name_verbatim",
      ENGINE_CELL,
      '(h => [clsOf(h), (h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)</) || []).slice(1), chipsOf(h)])(norm(m.nodeServerCardHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "google/gemma-4-e4b", type: "vlm", params: "4B", fileBytes: 3000000000 })] })] }, EC({ model: "gemma-4-e4b" }, { RUNNER: "lmstudio", ENGINE_MODEL: "google/gemma-4-e4b", ENGINE_PORT: "1234" }))))',
      json.dumps(["node-server configured-cell engine-cell engine-lmstudio", ["google/gemma-4-e4b", "google/gemma-4-e4b"],
-                 ["💬 LLM", "🟣 LM Studio", "≈2.8G", "⚖ 4B", "🎛 Q4_K_M", ":22031"]], ensure_ascii=False),
+                 ["💬 LLM", "🟣 LM Studio", "RAM —", "GPU —", "⚖ 4B", "🎛 Q4_K_M", ":22031"]], ensure_ascii=False),
      "positive: LM Studio — фиолетовый класс; имя модели дословно, как его зовёт движок (google/gemma-4-e4b), а не "
      "выжатое из него имя файла (gemma-4-e4b)"),
     ("enginecell_line_and_window",
@@ -3197,8 +3467,8 @@ PINS += [
     ("enginecell_stopped_but_engine_holds_it",
      ENGINE_CELL,
      'chipsOf(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000 }), EC())))',
-     json.dumps(["💬 LLM", "🟠 Ollama", "≈4.9G", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], ensure_ascii=False),
-     "boundary: ячейка стоит, а движок держит её модель (загрузил кто-то другой) — у стоящей ячейки ≈размер файла, "
+     json.dumps(["💬 LLM", "🟠 Ollama", "RAM —", "GPU —", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], ensure_ascii=False),
+     "boundary: ячейка стоит, а движок держит её модель (загрузил кто-то другой) — у стоящей ячейки прочерки, "
      "как у любой стоящей, а не чужая загрузка"),
     ("enginecell_line_name_verbatim",
      ENGINE_CELL,
@@ -3208,15 +3478,15 @@ PINS += [
     ("enginecell_engine_not_reported",
      ENGINE_CELL,
      '(h => [clsOf(h), chipsOf(h)])(norm(m.nodeServerCardHtml({ ...node, engines: [] }, EC())))',
-     json.dumps(["node-server configured-cell engine-cell engine-ollama", ["🟠 Ollama", ":22031"]], ensure_ascii=False),
+     json.dumps(["node-server configured-cell engine-cell engine-ollama", ["🟠 Ollama", "RAM —", "GPU —", ":22031"]], ensure_ascii=False),
      "negative: движка в отчёте машины нет — ячейка всё равно названа ячейкой Ollama, а работы модели и памяти нет: "
-     "их не у кого спросить, и догадки вместо них не рисуются"),
+     "их не у кого спросить, и вместо чисел прочерки, а не догадки"),
     ("enginecell_line_without_report_has_no_device",
      ENGINE_CELL,
      '(h => { const line = h.slice(0, h.indexOf("cell-window-backdrop")); return [line.includes("fr-name"), (line.match(/class="mbadge[^"]*"[^>]*>([^<]*)</) || [0, "none"])[1]]; })(norm(m.nodeServerCardHtml({ ...node, engines: [] }, EC(), { fold: true })))',
-     '[true, "none"]',
-     "negative: движка в отчёте нет — в строке нет чипа памяти, и не подставлен чип устройства (⚙ auto): где считает "
-     "движок, говорит движок"),
+     '[true, "RAM —"]',
+     "negative: движка в отчёте нет — в строке значки памяти с прочерком (первый — «RAM —»), и не подставлен чип устройства (⚙ auto): "
+     "где считает движок, говорит движок"),
     ("enginecell_no_window_via_without_port",
      ENGINE_CELL,
      'norm(m.nodeServerCardHtml(EN(), EC({}, { ENGINE_PORT: "" }), { fold: true })).includes("cwh-via")',
@@ -3386,6 +3656,22 @@ def check(cond, msg):
     print(("  ok  " if cond else " FAIL ") + msg)
     if not cond:
         _fail.append(msg)
+
+
+# 1.3.588 — what the folded line says of work and speed, from the table (cell_speed_cases.py) the class's and the live patch's snapshots read.
+from cell_speed_cases import CASES  # noqa: E402
+
+PINS += [
+    (f"fold_cell_speed_{name}",
+     "",
+     "(h => { const row = (h.match(/<div class=\"fold-row cell-row([^\"]*)\"/) || [])[1] || \"\";"
+     " const sp = h.match(/<span class=\"fr-tps( held)?\" data-live-rowtps(?: title=\"([^\"]*)\")?>([^<]*)<\\/span>/) || [];"
+     " return { busy: row.split(\" \").includes(\"busy\"), held: !!sp[1], text: sp[3] ?? null, title: sp[2] || \"\" }; })"
+     f"(norm(m.nodeServerCardHtml(node, mk({{ phase: {json.dumps('running' if running else 'stopped')}, ...{json.dumps(server)} }}), {{ fold: true }})))",
+     json.dumps({**want, "title": _esc(want["title"])}),
+     f"the line from the builder — {name}: {why}")
+    for name, server, running, want, why in CASES
+]
 
 
 def main():

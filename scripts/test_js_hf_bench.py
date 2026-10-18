@@ -113,10 +113,10 @@ PINS = [
         bench.cache.set("x/none", null);
         return [h.includes(">Summary ratings<"), h.includes("Сводные рейтинги"), h.includes(">Math and reasoning<"), h.includes(">Будущая группа<"), h.includes(">Code<"),
                 h.includes("Artificial Analysis quality index: independent runs on 10+ benchmarks"), h.includes("Индекс качества"), h.includes("Новый бенчмарк без перевода"),
-                h.includes(">8.3/10<"), h.includes(">55 %<"), h.includes('<a href="https://artificialanalysis.ai/leaderboards/models" target="_blank" rel="noopener">AA Intelligence</a>'),
-                h.includes("hfp-bench-row is-elo"), ru.includes(">Сводные рейтинги<"), bench.panelHtml("x/none"), h.startsWith('<div class="hfp-bench-panel" data-t="hf-bench-panel">')]; })()""",
-     '[true,false,true,true,false,true,false,true,true,true,true,true,true,"<div class=\\"hfp-bench-panel\\" data-t=\\"hf-bench-panel\\"><div class=\\"hfp-muted\\">No benchmark data</div></div>",true]',
-     "полная панель: группы и описания на языке страницы по ключу (серверный русский не показан), незнакомые — текстом сервера; пустая группа не рисуется; MT-Bench /10, проценты, ссылка, Elo золотой; по-русски — русские подписи; нет данных — «нет данных»; хук панели в обоих случаях"),
+                h.includes(">8.3/10<"), h.includes(">55 %<"), h.includes('<a href="https://artificialanalysis.ai/leaderboards/models">AA Intelligence</a>'),
+                h.includes("hfp-bench-row is-elo"), ru.includes(">Сводные рейтинги<"), bench.panelHtml("x/none"), h.startsWith('<div class="hfp-bench-panel" data-t="hf-bench-panel">'), h.includes("target=")]; })()""",
+     '[true,false,true,true,false,true,false,true,true,true,true,true,true,"<div class=\\"hfp-bench-panel\\" data-t=\\"hf-bench-panel\\"><div class=\\"hfp-muted\\">No benchmark data</div></div>",true,false]',
+     "полная панель: группы и описания на языке страницы по ключу (серверный русский не показан), незнакомые — текстом сервера; пустая группа не рисуется; MT-Bench /10, проценты, ссылка (в этой же вкладке: без target, 2026-10-17), Elo золотой; по-русски — русские подписи; нет данных — «нет данных»; хук панели в обоих случаях"),
 
     ("frontier_panel_places_the_repository", "",
      r"""await (async () => { const empty = bench.frontierHtml(null); answers["/api/hf/reference-models"] = FRONTIER(); await bench.loadFrontier();

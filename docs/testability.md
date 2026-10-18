@@ -7,6 +7,14 @@ accidents. This document is the list of promises.
 The previous suite, `lama-caravan-playwright`, was removed on 2026-10-07. New
 tests will be written from scratch against this same contract.
 
+## The page is called Routing; its names are still `routing`
+
+Since 1.3.575 the UI calls the page that joins the clients, their sets, the pools and the models **Routing** (it was
+"Routing board": the owner, 2026-10-18, wanted a name for what it does). Only what a person reads changed: the
+`<title>`, the `<h1>`, the strings in the 20 languages and the prose docs. The address is still `/routing`, the page's
+`data-t-page` is still `routing`, and every `data-t` name below that starts with `routing-` keeps it: a test finds the
+page by those, never by its words, and renaming a name is a breaking change (below).
+
 ## `data-t` is public API
 
 An element carrying `data-t` is one an automated test depends on. Renaming or
@@ -23,7 +31,7 @@ that made it worth writing.
 ```html
 <button data-t="models-path-save">…</button>
 <button data-t="system-tab-security" role="tab">…</button>
-<div    data-t="kanban-node" data-t-id="node-42">…</div>
+<div    data-t="routing-node" data-t-id="node-42">…</div>
 ```
 
 Repeated elements — board nodes, list rows — share one `data-t` and carry
@@ -40,15 +48,25 @@ application. `data-t` does not move when the words do.
 
 ## The header is the same on every page
 
-Left to right, on all five:
+Left to right, on every page:
 
 ```
-[← back] [brand] [version] · [page title h1] · [page actions] [account] [brook] [tour] [language]
+[← main board] [brand] [version] · [page title h1] · [page actions] [account] [brook] [tour] [language]
 ```
 
-`/board` has no back-link (it is where back goes). `/models` and `/system` have
-no Tour button because those two pages have no tour — the others do. Everything
-else is present everywhere, in that order.
+It is ONE template (`scripts/gen_header.py`, class `AppHeader`), written into each page between two
+marker comments, and `scripts/check_header.py` fails CI when a page's bar is not what the template
+renders: a page is never edited by hand there. What a page may do differently is one table in that
+file, and nothing else differs: its title; the product's long name under the brand (the board only);
+the Tour button (none on `/models` and `/system`, which have no tour); the account menu's «Security»
+entry (the board and Routing, whose script wires it); and what the page adds before the account
+(a link on `/models`; the disk badge and a link on `/hf`).
+
+The way back is `data-t="header-back"` (1.3.552; Routing's own `routing-back-link` is gone), in the
+bar of EVERY page. `index.html` is two pages — `/board` and `/machine?host=…`, told apart by
+`data-board-view` on `<html>` (`board-view.js`) — and the link is hidden on the main board alone, by one
+rule of `base.css`: the board is where back goes. A machine's window shows it. Until 1.3.552 that window
+had no way back to the board, because the bar was a copy written by hand into five pages.
 
 The brook switch (1.3.527, `static/js/river.js`) is put into the header by
 script, the same on all five pages, in a group of its own (`.river-switch`):
@@ -61,7 +79,7 @@ dock under it: `data-t="river-dock"`, its buttons `river-level` (with
 `data-t-id` `bright`, `soft` or `dim` and `aria-pressed` on the chosen one),
 `river-pause` and `river-sound`. A press outside the dock or Escape closes it.
 
-It was not so until 1.3.180: `/hf` and `/kanban` had bespoke headers with no
+It was not so until 1.3.180: `/hf` and `/routing` had bespoke headers with no
 brand, **no account menu and no language picker at all** — the only way to
 change language on `/hf` was a picker buried inside its tour — `/models` had no
 version chip, and the back-link sat on the right on two pages and the left on
@@ -75,14 +93,14 @@ so it shows the version without the branch.
 ## One `<h1>` per page, and it names the page
 
 Every page has exactly one `<h1>`, and it is the page's own name — `Main board`,
-`Models on disk`, `System & settings`, `Kanban board`, `HuggingFace Browser`.
+`Models on disk`, `System & settings`, `Routing`, `HuggingFace Browser`.
 The product name in the banner is **not** a heading; it is a plain container
 with the same class, so nothing moved visually.
 
 It was the other way round until 1.3.179: the banner's `LAMA CARAVAN` was the
 `<h1>` on every page, so navigating by heading told you the product's name
 wherever you were. `/models` and `/system` had a *second* `<h1>` in their hero
-(now `<h2>`, since the topbar names the page), and `/kanban` and `/hf` had none
+(now `<h2>`, since the topbar names the page), and `/routing` and `/hf` had none
 at all.
 
 ```ts
@@ -106,7 +124,7 @@ The `header-page-title` hook is on it, on all five pages.
 | value | page |
 |---|---|
 | `board` | `/board` |
-| `kanban` | `/kanban` |
+| `routing` | `/routing` |
 | `models` | `/models` |
 | `system` | `/system` |
 | `hf` | `/hf` |
@@ -119,7 +137,7 @@ moment nothing else can be asked.
 
 The **URL** is the other honest answer, and since 1.3.178 it is unambiguous:
 one address per page, with the old ones redirecting (`/` and `/index.html` →
-`/board`, `/router` → `/kanban`). Assert on either; they cannot disagree.
+`/board`, `/router` → `/routing`). Assert on either; they cannot disagree.
 
 The two that do NOT work: the **title** is English on every page and always
 will be, and the **header subtitle** is the opposite problem — it follows the
@@ -165,12 +183,20 @@ thing.
 waiter time out slowly with nothing to show for the wait; `error` fails it
 immediately and puts the cause in `data-t-state-detail`.
 
+The cause is the same words the page shows in its red banner (`boot-error`, with a Reload button), put there by the
+inline guard at the top of every page's body — the one script that cannot fail to arrive. It names a file that did not
+load (`assets did not load: /js/main.js`), the first words of a script that threw or of a module that could not be
+linked (`scripts did not initialise: …`, with `(+N more)` when there were more), and where the boot stood
+(`(the boot was waiting for: /api/state)`; `(no step reported)` when it had said nothing). A module that cannot be linked
+fails the page at once; any other trouble waits for the guard's 20 s. A page that was slow and not dead says `ready` when it
+is done, and the banner goes (`data-t-state` turns `ready` again — a waiter that gave up at `error` can look once more).
+
 Where it is set:
 
 | page | ready when | file |
 |---|---|---|
 | `/board` | the topology rendered for the first time | `static/js/topology-render.js` |
-| `/kanban` | topology fetched and the router rendered | `static/js/main.js` |
+| `/routing` | topology fetched and the router rendered | `static/js/main.js` |
 | `/models` | the model tree is drawn | `static/js/models-page.js` |
 | `/system` | `/api/state` + `/api/controller-info` settled | `static/js/system-page.js` |
 | `/hf` | token status, favourites and download jobs settled; the detail counts the start-up loads that got nothing | `static/js/hf-page.js` |
@@ -261,7 +287,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 567 values. Regenerate with
+Generated from the source, not from memory — 599 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fifty-two of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -269,8 +295,9 @@ that is why there is a script and not a one-liner.
 
 **agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-consumer-card`, `board-density`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-incidents-open`, `board-kanban-card`, `board-kanban-counts`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-machine-cards`, `board-models-open`, `board-nodes-lane`, `board-pages`, `board-processes-list`, `board-provider-cards`, `board-router-lane`, `board-scout-add`, `board-system-open`
-**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-robot-policy`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-name`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-row-stop`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`, `cell-remote-cache`, `cell-remote-strata-context`, `cell-remote-strata-draft`, `cell-remote-strata-fields`, `cell-remote-strata-kv`, `cell-remote-strata-reserve`, `cell-remote-strata-vocab`, `cell-remote-gr00t-backbone`, `cell-remote-gr00t-embodiment`, `cell-remote-gr00t-fields`, `cell-remote-gr00t-steps`
+**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-consumer-card`, `board-density`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-incidents-open`, `board-routing-card`, `board-routing-counts`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-machine-cards`, `board-models-open`, `board-nodes-lane`, `board-pages`, `board-processes-list`, `board-provider-cards`, `board-router-lane`, `board-scout-add`, `board-system-open`
+**boot** (the inline guard's banner, shown when the page did not boot, and taken away when it did after all) — `boot-error`
+**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-gpu`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-robot-policy`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-job-voice-chat`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-ram`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-name`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-failed`, `cell-row-start`, `cell-row-stop`, `cell-row-strip`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`, `cell-remote-cache`, `cell-remote-strata-context`, `cell-remote-strata-draft`, `cell-remote-strata-fields`, `cell-remote-strata-kv`, `cell-remote-strata-reserve`, `cell-remote-strata-vocab`, `cell-remote-gr00t-backbone`, `cell-remote-gr00t-embodiment`, `cell-remote-gr00t-fields`, `cell-remote-gr00t-steps`, `cell-remote-trust-remote-code`, `cell-remote-max-num-seqs`, `cell-remote-kv-cache-dtype`, `cell-remote-reasoning-parser`, `cell-remote-card`
 
 **client** — `client-add`
 
@@ -285,51 +312,53 @@ that is why there is a script and not a one-liner.
 **route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-latency`, `route-latency-row`, `route-model`, `route-model-card-link`, `route-model-lock`, `route-state`, `route-wait`
 
 **sub-usage** — `sub-usage-banner`, `sub-usage-loading`
+**sub-meter** (the account card's limits drawn small in Routing, usage-stats.js) — `sub-meter`, `sub-meter-stop`, `sub-meters`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-check`, `confirm-check-all`, `confirm-choice`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
-**header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
-**hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-checkpoint-verified`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
-**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-consumer-close`, `kanban-consumer-give-key`, `kanban-consumer-key`, `kanban-consumer-reopen`, `kanban-entry`, `kanban-entry-copy`, `kanban-entry-off`, `kanban-entry-port`, `kanban-entry-setup`, `kanban-entry-why`, `kanban-fit`, `kanban-input-wait`, `kanban-model-queue`, `kanban-model-queue-toggle`, `kanban-node`, `kanban-onerror-same`, `kanban-out-state`, `kanban-palette-add`, `kanban-queue-setting`, `kanban-queue-settings`, `kanban-queue-settings-toggle`, `kanban-quiet-cells`, `kanban-save-status`, `kanban-unassigned`, `kanban-unclaimed`
-**pb** (the kanban's pools board, pool-board.js) — `pb-account`, `pb-account-issues`, `pb-add-model`, `pb-add-pool`, `pb-add-row`, `pb-add-set`, `pb-arrange`, `pb-cables`, `pb-choice`, `pb-choose-close`, `pb-choose-note`, `pb-choose-query`, `pb-chooser`, `pb-client`, `pb-client-ask`, `pb-client-copy`, `pb-client-links`, `pb-client-miss`, `pb-client-misses`, `pb-client-misses-badge`, `pb-client-probe`, `pb-client-probe-model`, `pb-client-tests`, `pb-clients`, `pb-dock`, `pb-dock-body`, `pb-dock-cell`, `pb-dock-client`, `pb-dock-foot`, `pb-dock-id`, `pb-dock-levels`, `pb-dock-model`, `pb-dock-pool`, `pb-dock-set`, `pb-dock-step`, `pb-entry`, `pb-history`, `pb-history-toggle`, `pb-kind`, `pb-limits`, `pb-machine`, `pb-machine-cells`, `pb-model`, `pb-model-grab`, `pb-model-level`, `pb-model-remove`, `pb-model-unused`, `pb-models`, `pb-models-none`, `pb-no-clients`, `pb-no-models`, `pb-no-pools`, `pb-no-sets`, `pb-pick-close`, `pb-pick-model`, `pb-pick-note`, `pb-pick-query`, `pb-pick-typed`, `pb-picker`, `pb-pool`, `pb-pool-delete`, `pb-pool-name`, `pb-pool-turns`, `pb-pool-window`, `pb-pool-window-auto`, `pb-pool-window-stated`, `pb-pools`, `pb-probe`, `pb-probe-close`, `pb-probe-status`, `pb-route`, `pb-row`, `pb-row-remove`, `pb-set`, `pb-set-add`, `pb-set-delete`, `pb-set-model`, `pb-set-name`, `pb-sets`, `pb-settings`, `pb-settings-panel`, `pb-turn`, `pool-board`
-**pb-schedule** (when a model is open: its ⏱ on the kanban and the window that sets it, model-schedule.js) — `pb-model-schedule`, `pb-schedule`, `pb-schedule-add`, `pb-schedule-cell-note`, `pb-schedule-close`, `pb-schedule-enabled`, `pb-schedule-grid`, `pb-schedule-needs-window`, `pb-schedule-no-windows`, `pb-schedule-now`, `pb-schedule-save`, `pb-schedule-window`, `pb-schedule-zone`
+**header** — `header`, `header-app-title`, `header-back`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
+**hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-checkpoint-verified`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-open-page`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
+**Routing** — `routing-cable`, `routing-cables`, `routing-canvas`, `routing-consumer-close`, `routing-consumer-give-key`, `routing-consumer-key`, `routing-consumer-reopen`, `routing-entry`, `routing-entry-copy`, `routing-entry-off`, `routing-entry-port`, `routing-entry-setup`, `routing-entry-why`, `routing-fit`, `routing-input-wait`, `routing-model-queue`, `routing-model-queue-toggle`, `routing-node`, `routing-onerror-same`, `routing-out-state`, `routing-palette-add`, `routing-queue-setting`, `routing-queue-settings`, `routing-queue-settings-toggle`, `routing-quiet-cells`, `routing-save-status`, `routing-unassigned`, `routing-unclaimed`
+**pb** (Routing's pools board, pool-board.js) — `pb-account`, `pb-account-issues`, `pb-account-state`, `pb-add-model`, `pb-add-pool`, `pb-add-row`, `pb-add-set`, `pb-arrange`, `pb-cables`, `pb-choice`, `pb-choose-close`, `pb-choose-note`, `pb-choose-query`, `pb-chooser`, `pb-client`, `pb-client-ask`, `pb-client-copy`, `pb-client-links`, `pb-client-miss`, `pb-client-misses`, `pb-client-misses-badge`, `pb-client-probe`, `pb-client-probe-model`, `pb-client-tests`, `pb-clients`, `pb-dock`, `pb-dock-body`, `pb-dock-cell`, `pb-dock-client`, `pb-dock-foot`, `pb-dock-id`, `pb-dock-levels`, `pb-dock-model`, `pb-dock-pool`, `pb-dock-set`, `pb-dock-step`, `pb-entry`, `pb-history`, `pb-history-toggle`, `pb-kind`, `pb-limits`, `pb-machine`, `pb-machine-cells`, `pb-model`, `pb-model-grab`, `pb-model-level`, `pb-model-remove`, `pb-model-switch`, `pb-model-unused`, `pb-models`, `pb-models-none`, `pb-no-clients`, `pb-no-models`, `pb-no-pools`, `pb-no-sets`, `pb-pick-close`, `pb-pick-model`, `pb-pick-note`, `pb-pick-query`, `pb-pick-typed`, `pb-picker`, `pb-pool`, `pb-pool-delete`, `pb-pool-name`, `pb-pool-turns`, `pb-pool-window`, `pb-pool-window-auto`, `pb-pool-window-stated`, `pb-pools`, `pb-probe`, `pb-probe-close`, `pb-probe-status`, `pb-pull-model`, `pb-pull-pool`, `pb-pull-set`, `pb-route`, `pb-row`, `pb-row-remove`, `pb-set`, `pb-set-add`, `pb-set-delete`, `pb-set-model`, `pb-set-name`, `pb-sets`, `pb-settings`, `pb-settings-panel`, `pb-turn`, `pool-board`
+**pb-schedule** (when a model is open: its ⏱ in Routing and the window that sets it, model-schedule.js) — `pb-model-schedule`, `pb-schedule`, `pb-schedule-add`, `pb-schedule-cell-note`, `pb-schedule-close`, `pb-schedule-enabled`, `pb-schedule-grid`, `pb-schedule-needs-window`, `pb-schedule-no-windows`, `pb-schedule-now`, `pb-schedule-save`, `pb-schedule-window`, `pb-schedule-zone`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
-**model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-robot-policy`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
+**model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-robot-policy`, `model-job-speech-translate`, `model-job-translate`, `model-job-voice-chat`, `model-job-tts`
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
 **engine** — `engine-model`, `engine-model-reserve`, `engine-shelf`
-**node** — `node-caravan`, `node-caravan-add`, `node-caravan-hf`, `node-caravan-models`, `node-cell-filter`, `node-disconnect`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
+**node** — `node-cache`, `node-cache-delete`, `node-cache-figures`, `node-cache-foreign`, `node-cache-keep`, `node-caravan`, `node-caravan-add`, `node-caravan-hf`, `node-caravan-models`, `node-cell-filter`, `node-disconnect`, `node-disk-low`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-gpu-card`, `node-gpu-cards`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **machine** — `machine-glance`, `machine-missing`, `machine-missing-back`, `machine-open`
 **provider** (the cloud providers on the main board, provider-glances.js) — `provider-add`, `provider-edit`, `provider-glance`, `provider-group`, `provider-group-add`, `provider-group-empty`, `provider-group-remove`, `provider-none`, `provider-resets`, `provider-state`
+**credit** (a key account's credit left, on the main board's card and in the account's window, credit-left.js) — `credit-left`, `credit-since`, `credit-warn`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-find`, `scout-add-open`, `scout-add-port`, `scout-add-status`, `scout-find`, `scout-find-connect`, `scout-find-list`, `scout-find-networks`, `scout-find-row`, `scout-find-run`
 **server** — `server-step-down`, `server-step-up`
 **setup** — `setup-form`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`, `system-vllm-machine`
 
 Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
-use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
+use `host:port` (the `slotKey` the board already computes), `routing-node` uses
 the node id (`rule:…`) — or, for the two side panels, `inputs:block` and
-`outputs:block` — `kanban-input-wait` uses the input
+`outputs:block` — `routing-input-wait` uses the input
 port's id (`skynet:proxy:<port>` — `skynet` is the controller's internal id in
-the data model, not a hostname), `kanban-palette-add` mirrors its `data-cv-add`.
+the data model, not a hostname), `routing-palette-add` mirrors its `data-cv-add`.
 
-On the kanban, a model's queue is a lane under the model's row: `kanban-model-queue`
+In Routing, a model's queue is a lane under the model's row: `routing-model-queue`
 carries the model's output id in `data-t-id` and what the queue is doing in
 `data-t-state` — `idle`, `running` or `waiting` (a request standing in line beats one
-running). The lane is shut until `kanban-model-queue-toggle` is clicked; the overflow
+running). The lane is shut until `routing-model-queue-toggle` is clicked; the overflow
 port is on its line either way. The queue policy — overflow point, reserve, loading
-wait — is one line at the head of the SERVERS panel, `kanban-queue-settings`; its three
-`kanban-queue-setting` fields (`data-t-id` = the field's key) are in the DOM but hidden
-until `kanban-queue-settings-toggle` is clicked, so a test types into them after that.
+wait — is one line at the head of the SERVERS panel, `routing-queue-settings`; its three
+`routing-queue-setting` fields (`data-t-id` = the field's key) are in the DOM but hidden
+until `routing-queue-settings-toggle` is clicked, so a test types into them after that.
 
-A SERVERS row whose cell is not serving says so: `kanban-out-state` stands at the row's end
+A SERVERS row whose cell is not serving says so: `routing-out-state` stands at the row's end
 with the state in `data-t-state` — `stopped`, `starting`, `stopping`, `failed` or `unknown`
 (no record of the cell, or a phase the board does not know); a running row has none, and the
 row itself carries `data-cell-state`. A machine's stopped cells that nothing leads to are
-under one row, `kanban-quiet-cells` (`data-t-id` = the machine's key), folded until clicked —
-their rows are not in the DOM while it is folded. `kanban-unassigned` is the head's badge of
-ports that could feed this kanban and do not (a `<details>`: its list opens on a click, and a
-port joins on a click on its row). `kanban-fit` is the
-canvas's ⤢ Show all, and `kanban-onerror-same` is the line a 🛟 node shows when main and
+under one row, `routing-quiet-cells` (`data-t-id` = the machine's key), folded until clicked —
+their rows are not in the DOM while it is folded. `routing-unassigned` is the head's badge of
+ports that could feed this router and do not (a `<details>`: its list opens on a click, and a
+port joins on a click on its row). `routing-fit` is the
+canvas's ⤢ Show all, and `routing-onerror-same` is the line a 🛟 node shows when main and
 backup end on one output.
 
 On the main board each cloud provider is a block, `provider-group` (`data-t-id` = the provider's kind:
@@ -340,10 +369,21 @@ each a `provider-glance` (`data-t-id` = the account) with `provider-state`, a su
 sign-in code at once — and `provider-group-remove` stands only on an empty block, `provider-group-empty`
 saying it is empty. `provider-add` opens the picker (`cloud-picker`), where a provider already on the
 board is a `cloud-pick` tile that is `disabled`; pressing another puts it on the board as an empty block.
+A key account whose operator typed a credit (⚙, "Credit left on the account") shows it under its spend line as `credit-left`
+(`data-t-id` = the account; `data-t-state` `known` — a bar, "≈ $183 left of $200", with `credit-since` saying it is an estimate and
+from when — or `unread` while the spend reading is not there: the figure alone, no bar), and a `credit-warn` line for each reason
+the figure is too high (requests with no price; logs that do not reach back). The same line stands in the account's window.
 
-On the kanban's MODELS column an account's card (`pb-account`, `data-t-id` = the account) holds
+On Routing's MODELS column an account's card (`pb-account`, `data-t-id` = the account) holds
 only the models added to it, each a `pb-model` (`data-t-id` = `acc:<account>/<model>`); none
-added — `pb-models-none`. `pb-add-model` opens `pb-picker` in its place: type into
+added — `pb-models-none`. The card's head says what the account says of itself: `pb-account-state`
+(`data-t-state` = `connected` or `waiting` for a sign-in or a key). Its limits stand once, in `pb-limits`, as
+`sub-meters`: a `sub-meter` for each window (`data-t-id` = its label, `data-t-state` = `known` or
+`unknown` — a reading that gave no number draws a dash, not 0%), and a `sub-meter-stop` tick on it for
+each level at which a model of the card stops. On a model's line: `pb-model-switch` (its switch level),
+`pb-model-level` (its pool has stepped aside, `data-t-state` = `reserve`, or stopped it, `stop`),
+`pb-model-schedule`, `pb-model-unused`. `pb-add-model` stands in the card's head and is quiet until the
+card is pointed at (a card with no model shows it at rest): it opens `pb-picker` in its place: type into
 `pb-pick-query`, then press a `pb-pick-model` (`data-t-id` = the model) or `pb-pick-typed` (the
 typed id, offered when the search finds nothing); `pb-pick-note` says what the list holds when
 it shows nothing (being read, unread, no chat model, all added, no match) and `pb-pick-close`
@@ -391,6 +431,23 @@ that stood over the machines, `board-models-bar` with `board-models-open` and
 list open (`data-caravan-add` the node; absent, and the button disabled, while a
 reserve on the machine is under way) and makes nothing until Apply.
 
+Between the strip and «＋ Add model» stands the machine's model cache, `node-cache`
+(`data-t-id` the node; scout 2.34+ — a machine whose scout reports no cache has no
+such line): `node-cache-keep` is the box that says how many of the last models the
+cache keeps, `1` to `5` (`data-cache-keep` the node; a change goes to the scout at
+once and it deletes the older models' files), `node-cache-figures` what the cache
+holds and what the disk has left (empty when the scout measured neither). When the
+cache folder holds files that the scout did not download — copied by hand, or there
+before the scout kept a record; it never deletes them by itself — a second line,
+`node-cache-foreign`, says how many and how big, and `node-cache-delete`
+(`data-cache-delete-foreign` the node) asks, in the board's confirm window, and
+deletes them only if they are still the size the window named.
+
+`node-disk-low` (`data-t-id` the node) is the sign in a machine's head — on the main board's glance and
+on the machine's own card, right after the scout-old chip — that the disk of its model cache is used
+90 % or more: «⚠ disk 94% full» (scout 2.34+; none when the scout did not measure the disk). Its tip
+holds the rule, not the figures; the percent is patched in place.
+
 Right under an engine's strip, over the chips and whichever of them is pressed,
 the models it holds that no cell serves stand on a shelf, `engine-shelf`
 (`<node>:<kind>`), one line each, `engine-model` with
@@ -421,6 +478,7 @@ can never pass**, and that is not a defect to chase.
 | `cell-remote-model-picker` | the visible widget above it | click this |
 | `cell-remote-runner` | hidden input holding the chosen runner | read the value |
 | `cell-remote-runner-tab` (+`data-t-id`) | the visible tabs | click these |
+| `cell-remote-card` (+`data-t-id` = the card's number) | the one-card chips under the compute tile, on a machine with two cards or more, for a runner that runs on one card (`oneCard` in the registry) | click one: it writes `CUDA_VISIBLE_DEVICES=<n>` into the cell's ENV (the box itself stays hidden for these runners); the chip lit is the pinned card |
 | `cell-remote-whisper-model`, `cell-remote-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
 | `board-gpus-lane` | a GPU mini-summary `nodes.css` hides on purpose — redundant with the node card's own GPU rows | read the values; it has no landmark role for the same reason |
 
@@ -434,7 +492,7 @@ as `getByRole('region', { name })` and a keyboard user can jump between them:
 | `/` | Pools, Machines, Clients | the section's own `<h2>` |
 | `/system` | Controller, llama.cpp, Archived builds, vLLM runner, Security, Diagnostics | the panel's own `<h2>`/`<h3>` |
 | `/models` | Model files; the side column's `navigation` landmarks Model stores and List filters | their own string (no heading exists) |
-| `/kanban` | Routing graph | its own string |
+| `/routing` | Routing graph | its own string |
 
 Eight of the eleven are named by `aria-labelledby` pointing at the heading a
 sighted user already reads, so the name follows the interface language — under
@@ -460,7 +518,20 @@ test the folded view, click `board-density` (`data-t-id` = `cells` or
 is pinned open with `fold-pin` and folded back with `fold-unpin` (a cell has
 no pin: its window replaced it). A cell's line carries a switch — the card's
 ▶ and ⏹ in one: `cell-row-start` while it is parked, `cell-row-stop` while it
-runs, disabled (and hook-less) when it can do neither. A machine's eye over its
+runs, disabled (and hook-less) when it can do neither. A cell's line and its card say the memory it holds in
+two badges, `cell-ram` and `cell-gpu` (1.3.583, the owner: "how much on RAM and how much on the GPU, as separate badges, even if one is not
+occupied"), each with `data-t-state`: `held` (what the cell holds now), `expected` (what it should hold when it runs, "≈"), `none` (a measured
+zero, or a CPU cell's GPU), `unknown` (a running cell the scout or the cards did not tell: a dash) or `idle` (a parked cell with nothing to
+expect: a dash); a port with no model has neither. A cell that failed (its start
+ended in an error, or its process lives around a dead engine) is a red line, not a
+big card (2026-10-17): its `cell-row` carries `data-t-state="failed"` and a
+`cell-row-failed` word with the reason on hover, its switch still starts (parked) or
+stops (broken), and the reason in full is the first thing its window shows. A cell that is
+being started stays a line too (2026-10-18, the owner: "when I start a cell, do not widen it by itself"):
+while its model is copied, loaded or warmed up, a thin strip `cell-row-strip` stands under
+the line's name — the bar and the card's own status words (the copy: the file without the
+model's name, the whole model's gigabytes and the share) — and the full card waits in the
+window. A start just asked for (the switch locked and spinning) has no strip. A machine's eye over its
 list of cells is `node-hide-idle` (`data-t-id` = the machine's id; the choice
 sticks in `localStorage`): pressed, its cells that are not running are replaced
 by a hidden mark (`data-cell-hidden`, `data-cell-hidden-by="idle"`) and their
@@ -473,8 +544,13 @@ a cell in trouble or in motion, one just reserved and one whose window is open
 are never hidden. A cell whose model runs inside an engine (Ollama, LM Studio)
 names its model in `cell-engine-model` (`data-t-id` = `host:port`), and its
 window says where its requests go in `cell-window-via` (the engine's
-`127.0.0.1:<port>`). A card in trouble (error, crash, start in progress, an
-agent with no route — that one also carries `agent-no-route`) never folds.
+`127.0.0.1:<port>`). A card in trouble (crash, start in progress, an agent with no
+route — that one also carries `agent-no-route`) never folds; a cell that failed is the
+red line described above. On a machine with two cards or more, each GPU metric of its
+panel (`gpu`, `vram`, `power`, not the token speed) carries a line per card: `node-gpu-cards`
+(`data-t-id` = `<machine>:<metric>`) holds one `node-gpu-card` per card (`data-t-id` =
+`<machine>:<metric>:<card number>`, the number the board gives the card), with its own value
+and sparkline in `data-node-metric-val` / `data-node-metric-spark` under the same id.
 
 ## Repeated elements carry their own name
 
@@ -528,10 +604,11 @@ is no expander to click; switching the runner is what changes the field set, and
 both carrying `data-t-id` with the host id. They are not equivalent and should
 not be treated as a pair in a test.
 
-Reboot asks a yes/no dialog. **Power off asks the operator to TYPE the host's
-name**, because nothing on this board can switch a machine back on — a wrong
-click there ends with someone walking to the rack. An inexact answer cancels; it
-does not error.
+Reboot, power off and disconnect (`node-disconnect`) all ask the operator to TYPE the host's name
+(1.3.545; before it only power off did): the dialog's `confirm-input` is shown and `confirm-accept` stays
+`disabled` until the typed text is the name (trimmed, exactly). Nothing else gets past it — not Enter, not a
+call of the dialog's settle. Power off is the heaviest of the three, because nothing on this board can switch a
+machine back on — a wrong click there ends with someone walking to the rack.
 
 Assert both are present. Press neither. `node-poweroff` belongs with
 `cell-remote-apply`, `system-gc-delete` and `hf-token-clear` — named so a test can see
@@ -563,7 +640,7 @@ Repeated elements carry the identity the page already works in:
 | `hf-file-delete` | the file name on disk (a quant row's deletes all its parts) |
 | `hf-tree-repo` | the repository id the model tree points to |
 | `hf-selection-remove` | the file path in the repository |
-| `hf-download-job`, `hf-download-cancel` | the job id from the server, falling back to the local uid before one is assigned |
+| `hf-download-job`, `hf-download-cancel`, `hf-download-open-page` | the job id from the server, falling back to the local uid before one is assigned |
 | `hf-download-interrupted`, `hf-download-resume` | the name of the partial file |
 | `hf-checkpoint-verified` | the folder of the copy, e.g. `Cosmos-Reason2-2B/nvidia/BF16` |
 
@@ -588,14 +665,14 @@ the question and cancel it. `hf-download-start`, `hf-download-cancel` and
 `hf-download-resume` act without a question when there is nothing to warn
 about — assert them present, do not press them.
 
-## `kanban-cable` endpoints are ports, not always nodes
+## `routing-cable` endpoints are ports, not always nodes
 
-One `kanban-cable` per connection, `data-t-id` = `from->to`. On the live graph
-that is 18 connections where counting `path` inside `kanban-cables` returns 54 —
+One `routing-cable` per connection, `data-t-id` = `from->to`. On the live graph
+that is 18 connections where counting `path` inside `routing-cables` returns 54 —
 each edge draws an invisible hit-path, the visible cable and the ✕ puck's two
 strokes, so the raw count was never a number about the graph.
 
-The two ends are not all `kanban-node` ids, and a test that assumes they are will
+The two ends are not all `routing-node` ids, and a test that assumes they are will
 find nothing:
 
 ```

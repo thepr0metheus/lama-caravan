@@ -6,7 +6,7 @@ reserve while its output is away; audio; embeddings), in its rule lists
 `out:<output id>`. Following an output to a new id — a cell moved to another
 port, two cells swapping ports, a legacy cloud output upgraded, a model's
 cables moved onto the provider's newer model — rewrites all of them; listing
-what depends on a cloud model reads all of them; a model leaving the kanban
+what depends on a cloud model reads all of them; a model leaving Routing
 with its cables disconnected drops all of them.
 
 Before this table four functions kept their own copy of the list, and the

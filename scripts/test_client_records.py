@@ -1100,7 +1100,7 @@ def test_the_card_names_the_ports_current_address():
 def test_a_closed_port_names_the_entry():
     """Where a consumer calls the caravan: its port while it is open, the entry
     once it is closed (caravan/admin/proxy_entry.py, ConsumerAddress) — one rule
-    for the proxy rows, the agents' cards and the kanban's clients panel."""
+    for the proxy rows, the agents' cards and Routing's clients panel."""
     print("адрес потребителя: порт, пока открыт; вход, когда закрыт:")
     from caravan.admin.proxy_entry import ConsumerAddress
     cfg = {"routes": [{"port": 23001, "apiKey": "lcv1_" + "a" * 48, "portClosed": True}, {"port": 23003, "apiKey": "lcv1_x1y2"}],
@@ -1171,7 +1171,7 @@ def test_agent_delete_takes_its_row_and_leaves_its_ports():
     """An agent's ✕: the record and its assignment row go, its ports stay.
 
     The row used to stay behind, and the agent's ports then showed up on the
-    kanban as an orphan with a skull and a second delete. A port is deleted in
+    Routing as an orphan with a skull and a second delete. A port is deleted in
     its own window: it takes the port's key and settings with it.
     """
     print("удаление агента: запись и строка назначений уходят, порты остаются:")
@@ -1187,7 +1187,7 @@ def test_agent_delete_takes_its_row_and_leaves_its_ports():
     res = fc.topology_client_agent_delete({"clientId": "box", "agentId": "a1"})
     check([a["id"] for a in (store["clients"].get("box") or {}).get("agents") or []] == ["a2"], "агент ушёл из записи")
     check([r["agentId"] for r in (store["assignments"].get("box") or {}).get("assignments") or []] == ["a2"],
-          "его строка назначений ушла вместе с ним — сироты на канбане не остаётся")
+          "его строка назначений ушла вместе с ним — сироты в Маршрутизации не остаётся")
     check(res["freedPorts"] == [23001],
           f"свободным назван только порт, который больше никто не держит; общий :23003 держит второй агент "
           f"(got {res['freedPorts']})")
@@ -1341,7 +1341,7 @@ def test_the_payload_keeps_machines_and_clients_apart():
           "negative: машина без клиента не становится клиентом без агентов — её ✕ мог ответить только 404")
     check(payload["hosts"] == hosts, "машины — отдельным списком, с живостью, посчитанной при чтении")
     check(payload.get("entry") == {"url": "https://caravan-api.example/v1", "port": 23999, "publicUrl": "https://caravan-api.example/v1"},
-          "ответ доски несёт адрес входа и введённое имя — их показывает и спрашивает панель клиентов канбана (ConsumerAddress)")
+          "ответ доски несёт адрес входа и введённое имя — их показывает и спрашивает панель клиентов Маршрутизации (ConsumerAddress)")
     check("nextAppPort" not in payload,
           "negative: ответ доски не несёт номера следующего моста — кнопки, которой он был обещан, нет")
     check(payload.get("modelsStamp") == ModelList.stamp_of(listed) and len(payload["modelsStamp"]) == 16,

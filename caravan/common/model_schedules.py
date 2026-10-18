@@ -10,7 +10,7 @@ cloud-providers.json keeps them under `schedules`, by model key (ModelKey):
 `{"acc:<account>/<model>" | "out:<output id>": {"enabled": bool, "windows": [...]}}` — the
 windows as caravan/common/week_windows.py reads them. A model with no entry has no schedule and
 is open whenever its row can serve. A schedule switched off keeps its windows: switched on
-again, it has them again. As with a model's levels, a model taken off the kanban keeps its
+again, it has them again. As with a model's levels, a model taken out of Routing keeps its
 schedule, and an account deleted takes its models' schedules with it.
 """
 from caravan.common.cloud_pools import CloudPools
@@ -18,7 +18,7 @@ from caravan.common.week_windows import WeekWindows
 
 
 class ModelKey:
-    """The one name a model has wherever the caravan keeps something of it — the key the kanban
+    """The one name a model has wherever the caravan keeps something of it — the key Routing
     draws its right column with (static/js/pool-board.js, PoolBoard.key): `acc:<account id>/<model>`
     for an account's model, `out:<output id>` for a machine's cell (`srv:<port>`) or an engine's
     model (`eng:<id>`). An account id holds no "/", so the first one splits the two."""

@@ -1,6 +1,6 @@
-"""The models the operator added to the kanban's right column, by account.
+"""The models the operator added to Routing's right column, by account.
 
-The owner, 2026-10-12: the kanban showed every model a subscription offers —
+The owner, 2026-10-12: Routing showed every model a subscription offers —
 a dozen nobody meant to use, each with its limit bars — and is to show only
 the ones he added. A model is added there with "＋ model" from its account's
 list, and leaves by its ✕ while no pool's row names it: a row's cable must
@@ -53,7 +53,7 @@ class AddedModels:
 
     def put_first(self, account_id, models):
         """The account's models with `models` in front, in that order, and the rest after them as they
-        were: the order the kanban draws them in ("arrange by cables", 1.3.503). A model the account
+        were: the order Routing draws them in ("arrange by cables", 1.3.503). A model the account
         has not added is no part of it."""
         account = self._clean(account_id)
         kept = self.kept.get(account, [])

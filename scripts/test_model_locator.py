@@ -74,6 +74,13 @@ def section_locations():
     check([r for r, _s, _f in locs.library_entries()] ==
           ["Big/x/Q8/big-00001-of-00002.gguf", "Big/x/Q8/big-00002-of-00002.gguf", "M/a/Q4/both.gguf", "M/a/Q4/m.gguf", "R/r.gguf"],
           "файлы всех доступных библиотек, по пути; несмонтированной — нет")
+    parts = [model_locator.Locations.split_part(r) for r in (
+        "Big/x/Q8/big-00001-of-00002.gguf", "Big/x/Q8/big-00002-of-00002.gguf", "Big/x/Q8/BIG-00001-OF-00003.GGUF",
+        "root-00007-of-00009.gguf", "M/a/Q4/m.gguf", "M/a/Q4/m-00001.gguf", "", None)]
+    check(parts == [(("Big/x/Q8", "big", "00002"), 1, 2), (("Big/x/Q8", "big", "00002"), 2, 2), (("Big/x/Q8", "BIG", "00003"), 1, 3),
+                    (("", "root", "00009"), 7, 9), None, None, None, None],
+          f"часть разбитого GGUF: группа (папка, имя, число частей), номер и число; целый файл, имя без «-of-» и пустое — None; "
+          f"части одной модели в одной группе, другой общий счёт — в другой; регистр не важен (got {parts})")
 
 
 def section_current():

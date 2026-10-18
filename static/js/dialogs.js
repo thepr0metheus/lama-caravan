@@ -15,6 +15,12 @@ let _choice = null;
 // in the order the dialog lists them. Reset by every dialog that opens, read
 // only by a "confirm-checks" settle — as _choice is.
 let _checks = null;
+// The words a "confirm-typed" dialog waits for, or null for any other dialog. Reset by every dialog that
+// opens, read by the box's typing, by Enter and by the settle itself: the gate is in one place, so a click, a key
+// or a call of `ui.pendingConfirm` cannot get past it.
+let _must = null;
+
+const typedMatches = (value) => _must !== null && String(value).trim() === _must;
 
 function openDialog(message, opts, mode) {
   return new Promise((resolve) => {
@@ -22,6 +28,7 @@ function openDialog(message, opts, mode) {
     _mode = mode;
     _choice = null;
     _checks = null;
+    _must = mode === "confirm-typed" ? String(opts.must ?? "") : null;
     // A prompt asks for text; a "confirm-choice" offers choices instead.
     const asks = mode === "prompt";
     const dlg = $("confirmOverlay").querySelector(".modal");
@@ -38,10 +45,25 @@ function openDialog(message, opts, mode) {
     const path = $("confirmPath");
     if (path) path.textContent = opts.detail || "";
     const input = $("confirmInput");
-    input.hidden = !asks;
+    const btn = $("confirmDelete");
+    btn.disabled = false;
+    input.hidden = !(asks || _must !== null);
     const hint = $("confirmInputHint");
     if (hint) hint.hidden = true;
-    if (asks) {
+    if (_must !== null) {
+      // Not a password, and no suggestion to Tab into: the words are TYPED. They stand above the box (opts.detail,
+      // set by the caller); the box asks for them, and the confirm button stays off until they are there.
+      input.type = "text";
+      input.autocomplete = "off";
+      input.value = "";
+      input.placeholder = opts.placeholder || t("confirmTypeName");
+      const sync = () => { btn.disabled = !typedMatches(input.value); };
+      input.oninput = sync;
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") { e.preventDefault(); if (typedMatches(input.value)) settleAppConfirm(true); }
+      };
+      sync();
+    } else if (asks) {
       // A passphrase must not sit in plain sight, and must not be offered to a
       // password manager as a new credential — this box is a key someone else
       // chose, not an account being created.
@@ -68,7 +90,6 @@ function openDialog(message, opts, mode) {
       };
       syncHint();
     }
-    const btn = $("confirmDelete");
     // The markup carries data-i18n="deleteAction", but this line overwrites the
     // text on every open — so the translated default never survived to be seen.
     // Most callers pass nothing, which is exactly when it mattered.
@@ -81,7 +102,7 @@ function openDialog(message, opts, mode) {
     // Move focus into the dialog: the input for prompts, Cancel for dangerous
     // confirms (safe default), the confirm button otherwise.
     requestAnimationFrame(() => {
-      if (asks) { input.focus(); input.select(); }
+      if (asks || _must !== null) { input.focus(); input.select(); }
       else if (dlg.dataset.tone === "danger") $("confirmCancel").focus();
       else btn.focus();
     });
@@ -152,6 +173,16 @@ export function appConfirm(message, opts = {}) {
   return openDialog(message, opts, "confirm");
 }
 
+// A confirm that cannot be answered by a click: the dialog shows a box, and its confirm button stays off until what
+// is typed in it is `phrase` (trimmed, exactly). For what the board cannot take back — a machine let go of, rebooted,
+// switched off: a click is a reflex, a name typed is a decision, and typing it makes the operator read which machine
+// it is (the owner, 2026-10-14: "just pressing the button is not enough — the machine's name must be typed").
+// opts.detail puts the phrase above the box (the caller names it there); opts.placeholder is the box's own words.
+// Resolves true or false, as appConfirm does.
+export function appConfirmTyped(message, phrase, opts = {}) {
+  return openDialog(message, { ...opts, must: phrase }, "confirm-typed");
+}
+
 // A confirm that asks which of several things are meant — the pools a consumer may call.
 // opts.choices: [{value, label}], opts.checked: "all" or the values ticked first,
 // opts.allLabel: the box for all of them, opts.emptyLabel: what an empty list means.
@@ -189,6 +220,9 @@ export function appConfirmChoice(message, opts = {}) {
 // whether one was pending — closeConfirmModal calls this first so Cancel/
 // Escape/overlay-click resolve the promise instead of leaving it hanging.
 export function settleAppConfirm(ok) {
+  // A confirm that waits for typed words is not confirmed by anything else: the call comes back as "a dialog is
+  // pending" and the dialog stays open.
+  if (ok && _must !== null && _resolve && !typedMatches($("confirmInput").value)) return true;
   const resolve = _resolve;
   _resolve = null;
   const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null)
@@ -196,8 +230,10 @@ export function settleAppConfirm(ok) {
       : _mode === "confirm-checks" ? (ok ? checksValue() : null)
       : !!ok;
   _mode = "confirm";
+  _must = null;
   $("confirmOverlay").hidden = true;
   $("confirmInput").hidden = true;
+  $("confirmDelete").disabled = false;
   const hint = $("confirmInputHint");
   if (hint) hint.hidden = true;
   const meta = $("confirmMeta");

@@ -216,10 +216,17 @@ export function bindTopologyDragAndDrop() {
   document.querySelector("[data-cloud-oauth-login]")?.addEventListener("click", () => {
     startCloudOauthLogin().catch((err) => toast(err.message));
   });
-  // The code goes with the operator to OpenAI's page: copied on the link's
-  // click (the link still opens the page), and on a click on the code itself
-  // or Enter/Space while it has the focus (the operator, 2026-10-08).
-  document.querySelector("[data-cloud-device-open]")?.addEventListener("click", () => { copyCloudDeviceCode(); });
+  // The code goes with the operator to OpenAI's page: copied on the link's click, and on a click on the
+  // code itself or Enter/Space while it has the focus (the operator, 2026-10-08). The page takes THIS tab
+  // (2026-10-17), so the copy is awaited before the tab goes: a copy the unload cuts is a code the operator
+  // does not have. A click with a modifier is the browser's own, a new tab it is.
+  document.querySelector("[data-cloud-device-open]")?.addEventListener("click", async (e) => {
+    if (e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) { copyCloudDeviceCode(); return; }
+    e.preventDefault();
+    const href = e.currentTarget.href;
+    await copyCloudDeviceCode();
+    window.location.assign(href);
+  });
   const deviceCode = document.querySelector("[data-cloud-device-code]");
   deviceCode?.addEventListener("click", () => { copyCloudDeviceCode(); });
   deviceCode?.addEventListener("keydown", (e) => {
@@ -575,7 +582,7 @@ export function bindTopologyDragAndDrop() {
   });
   // The route detail used to show statistics only: a port named by a slip was
   // seen there and could be renamed or deleted nowhere near — only from the
-  // kanban's ✎ or the port form. Its two actions lead to those same places.
+  // Routing's ✎ or the port form. Its two actions lead to those same places.
   document.querySelectorAll("[data-route-detail-edit]").forEach((button) => button.addEventListener("click", () => {
     topologyRouteDetail = null;
     editTopologyProxy(button.dataset.routeDetailEdit);
@@ -584,12 +591,11 @@ export function bindTopologyDragAndDrop() {
     topologyRouteDetail = null;
     deleteProxyPort(Number(button.dataset.routeDetailDelete || 0));
   }));
-  // ── Router card → open in new tab ────────────────────────
+  // ── Router card → Routing, in this tab (the owner, 2026-10-17: it was a new tab) ──────────────
   document.querySelectorAll("[data-topology-router]").forEach((card) => {
     const open = (event) => {
       if (event.target?.closest?.(".topology-handle, .inline-tip, .tip-trigger")) return;
-      const routerId = card.dataset.topologyRouter;
-      window.open(`/kanban`, "_blank");
+      window.location.assign("/routing");
     };
     card.addEventListener("click", open);
     card.addEventListener("keydown", (event) => {
@@ -700,7 +706,7 @@ export function bindTopologyDragAndDrop() {
   });
   // The unassigned list shuts as a menu does: on a press outside it, or on Escape. The listener
   // takes itself off on its first press outside, so a list a render replaced leaves none behind.
-  document.querySelectorAll("[data-t='kanban-unassigned']").forEach((d) => {
+  document.querySelectorAll("[data-t='routing-unassigned']").forEach((d) => {
     d.addEventListener("toggle", () => {
       if (!d.open) return;
       const away = (e) => {

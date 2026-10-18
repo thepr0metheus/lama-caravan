@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Snapshot of static/js/consumer-access.js — how a consumer reaches the caravan,
-as the kanban's clients panel shows it (2026-10-07).
+as Routing's clients panel shows it (2026-10-07).
 
 A consumer's line says what it has — a key (its last four characters), the
 entry only or its port still open, when it last called — and offers the one
@@ -106,18 +106,18 @@ PINS = [
     ("entry_off_says_why",
      '',
      '(() => { const [d] = desk(); const off = d.entryHtml({ url: "", port: null }); const nameless = d.entryHtml({ url: "", port: 23999 }); const on = d.entryHtml(st.topology.entry);'
-     ' const why = \'data-t="kanban-entry-why">\' + en.consumerEntryWhy.replaceAll("\'", "&#39;") + "<";'
-     ' return [off.includes(why), nameless.includes(why), on.includes("kanban-entry-why"), off.includes(\'title="\' + en.consumerEntryOffTitle.replaceAll("\'", "&#39;") + \'"\')]; })()',
+     ' const why = \'data-t="routing-entry-why">\' + en.consumerEntryWhy.replaceAll("\'", "&#39;") + "<";'
+     ' return [off.includes(why), nameless.includes(why), on.includes("routing-entry-why"), off.includes(\'title="\' + en.consumerEntryOffTitle.replaceAll("\'", "&#39;") + \'"\')]; })()',
      '[true,true,false,true]',
      "вход выключен или без имени — под строкой сказано, зачем вход: один адрес и свой ключ у каждого клиента, как в OpenAI "
      "(«The entry is off» одно ничего не объясняло, 2026-10-11); negative: включённый вход пояснения не повторяет"),
     ("entry_line_shows_port_and_off",
      '',
      '(() => { const [d] = desk(); const on = d.entryHtml(st.topology.entry); const own = d.entryHtml({ url: "http://10.0.30.20:23999/v1", port: 23999 });'
-     ' const nameless = d.entryHtml({ url: "", port: 23999 }); const off = d.entryHtml({ url: "", port: null }); const tag = \'data-t="kanban-entry-port"\';'
+     ' const nameless = d.entryHtml({ url: "", port: 23999 }); const off = d.entryHtml({ url: "", port: null }); const tag = \'data-t="routing-entry-port"\';'
      ' return [on.includes(tag) && on.includes(">" + fill(en.consumerEntryPort, { port: "23999" }) + "<"),'
      ' on.includes(\'title="\' + fill(en.consumerEntryPortTitle, { port: "23999" }) + \'"\'),'
-     ' on.includes(\'data-cv-entry-off data-t="kanban-entry-off" title="\' + en.consumerEntryTurnOff + \'"\') && on.indexOf("data-cv-entry-off") > on.indexOf("data-cv-entry-setup"),'
+     ' on.includes(\'data-cv-entry-off data-t="routing-entry-off" title="\' + en.consumerEntryTurnOff + \'"\') && on.indexOf("data-cv-entry-off") > on.indexOf("data-cv-entry-setup"),'
      ' own.includes(tag), own.includes("data-cv-entry-off"), nameless.includes("data-cv-entry-off"), nameless.includes(tag), off.includes("data-cv-entry-off")]; })()',
      '[true,true,true,false,true,true,false,false]',
      "строка входа называет порт — его ждёт правило обратного прокси (раньше порт был виден только во втором окне ✎); ✕ — последней кнопкой; "
@@ -267,7 +267,7 @@ def main():
         return 1
     both = json.loads(run.stdout.strip().splitlines()[-1])
     got, rev = both["out"], both["rev"]
-    print("потребитель на канбане: ключ, вход, порт и действия:")
+    print("потребитель в Маршрутизации: ключ, вход, порт и действия:")
     for pid, _s, _e, expected, msg in PINS:
         want, have = json.loads(expected), got.get(pid, "\0missing")
         check(have == want, msg if have == want else

@@ -30,8 +30,11 @@ const QUANT_RANK = {
 };
 //: Quants that lose too much to be a first choice: shown dim and folded.
 const LOW_QUANT_RE = /\b(IQ[123]_|Q[23]_)/i;
-//: The quant inside a file name — the same pattern the server uses for models.
-const QUANT_IN_NAME_RE = /\b(NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)*|BF16|F16|F32)\b/i;
+//: The quant inside a file name — the same pattern the server uses for models (hf.py, _QUANT_PAT).
+const QUANT_IN_NAME_RE = /\b(PQ2_0|PTQ1_0|NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)*|BF16|F16|F32)\b/i;
+//: The tail the parts of a split GGUF carry ("-00003-of-00006"): no part of the quant, which is why it is cut off before
+//: the name is read (hf.py, _SHARD_TAIL). scripts/hf_quant_cases.py is the one table both copies are run against.
+const SHARD_TAIL_RE = /-\d{5}-of-\d{5}(?=\.gguf$)/i;
 //: Bit-depth groups, best first; at or below this one a group is "low".
 const LOW_BITS = 3;
 //: How bad a copy's standing is: a row of parts shows its worst part.
@@ -72,7 +75,7 @@ export class HfQuant {
   }
 
   static fromName(name) {
-    const match = QUANT_IN_NAME_RE.exec(String(name || ""));
+    const match = QUANT_IN_NAME_RE.exec(String(name || "").replace(SHARD_TAIL_RE, ""));
     return match ? match[0].toUpperCase() : "";
   }
 }

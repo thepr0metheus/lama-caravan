@@ -37,6 +37,7 @@ DECLARED = {
     "uptimeSec": "live: how long the process has been running",
     "launchDiskNewer": "live: a file the process holds changed on disk after it started — a stopped cell holds none",
     "pids": "live: the processes the cell's server started (scout 2.31) — a stopped cell has none",
+    "ramBytes": "live: the RSS of those processes (scout 2.35) — a stopped cell holds no RAM, and its card says what it expects",
     # Only a stored slot has this — read from the record's model on disk, and a
     # live cell's card has the real figure from GPU process memory instead.
     "modelSizeBytes": "slot: the model file's size, from disk",

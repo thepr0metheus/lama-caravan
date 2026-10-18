@@ -65,7 +65,7 @@ export function topologyAgentSortPort(agent) {
   return match ? Number(match[1]) : 0;
 }
 
-// Board cards and kanban rows stand in ALPHABETICAL order by name: the
+// Board cards and Routing rows stand in ALPHABETICAL order by name: the
 // operator looks for an agent by name, not by port number, and one order
 // across both pages means the eye doesn't have to relearn anything when
 // switching between them. Port is only a tiebreaker for same-named agents.
@@ -88,7 +88,7 @@ export function sortedTopologyClients(clients) {
 // each group. A card is whatever the lane draws as one block — an agent or a
 // client's caption — with `live` decided by traffic: within twelve hours, the
 // rule that frames a quiet card yellow (an agent: its own routes; a caption:
-// any of its client's agents). The board lane and the kanban rows both order
+// any of its client's agents). The board lane and Routing rows both order
 // through this, so a card here is a row there. Stable: ties keep the caller's
 // order.
 export function sortedLaneCards(cards) {
@@ -264,8 +264,14 @@ export function buildActivityFingerprint() {
   return `${items}${stickyStr}:l${llamaActive}:r${finished}`;
 }
 
+// Who is told each time the monitor was read — Routing draws the drops on its cables by it (pool-board.js). It is
+// not told through the fingerprint below: that one counts what the main board's cards show, and Routing's cables
+// have their own reading of the same rows (pool-flow.js) and skip a drawing that would read the same.
+export const ACTIVITY_SEEN = new Set();
+
 export function refreshTopologyActivityState() {
   if (!topology) return;
+  for (const seen of ACTIVITY_SEEN) seen();
 
   // Activity class DOM walk — only when something actually started/stopped/errored
   const fingerprint = buildActivityFingerprint();
@@ -368,7 +374,7 @@ export function topologyAgentProxyRows() {
 // How lively the monitor's requests that `matches(item, port)` are: "active" while one is served
 // (a queued one is not served yet), "recent" for 8 s after one finished, else "idle". `port` is
 // the port the request came in by — the item's own, else its row's (the rows are keyed by port).
-// One reading for a kanban's output (routers.js) and for a client's cable to a pool (cables.js).
+// One reading for a router's output (routers.js) and for a client's cable to a pool (cables.js).
 export function topologyItemsActivity(matches) {
   const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
   let active = false, recent = false;
@@ -868,7 +874,7 @@ export function routeModelCardHtml() {
   const keyed = card?.data?.keyed ? ` · ${t("routeModelCardKeyed")}` : "";
   const linkHtml = (link) => {
     const tip = MODEL_CARD_LINK_TIPS[link.kind] ? t(MODEL_CARD_LINK_TIPS[link.kind]) : "";
-    return `<a class="mc-url" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer"
+    return `<a class="mc-url" href="${escapeHtml(link.url)}"
         data-t="route-model-card-link" title="${escapeHtml(tip + keyed)}">GET ${escapeHtml(link.url)}</a>`;
   };
   const head = `<div class="mc-head">
@@ -1335,7 +1341,7 @@ export function topologyProxyActivity(proxyOrId) {
   return { state: "idle", label: "", title: "" };
 }
 
-// The kanban card on the main board: how lively the requests are of the clients cabled to a set and of the
+// Routing card on the main board: how lively the requests are of the clients cabled to a set and of the
 // old-kind ports that feed it — the livest first, a running request, then a failure, then a recent one. The
 // card's render (routers.js) and the repaint of its classes (refreshTopologyActivityState) read it here: it
 // was drawn at render alone, so an alarm that aged out (topologyAlarmIsOver) left the card red until the
@@ -1525,11 +1531,11 @@ export async function refreshRouteErrBadges() {
 // reaches it at all. A dash means "the upstream's name", not "empty" — those
 // are different claims.
 // This route's wait budget: how long a client is willing to wait its turn in
-// the queue. The setting used to live ONLY on the kanban, while the card on
+// the queue. The setting used to live ONLY in Routing, while the card on
 // the main page showed a different number — from the agent's config — and a
 // client created by hand has no config at all, so the row never showed up
 // once. One fact, two places, different answers. It's edited here now, and
-// the kanban only displays it.
+// Routing only displays it.
 export function routeWaitSec(route) {
   const pid = String(route?.proxyId || "");
   const routers = topology?.routers || [];

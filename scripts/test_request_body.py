@@ -28,6 +28,8 @@ for _d in ("state", "config", "secrets", "logs"):
     (TMP / _d).mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(ROOT))
 
+from _ports import free_port  # noqa: E402
+
 from http.server import ThreadingHTTPServer  # noqa: E402
 
 from caravan.admin import routes as routes_mod  # noqa: E402
@@ -47,10 +49,7 @@ class _Quiet(routes_mod.Handler):
         pass
 
 
-_sock = socket.socket()
-_sock.bind(("127.0.0.1", 0))
-PORT = _sock.getsockname()[1]
-_sock.close()
+PORT = free_port()
 _srv = ThreadingHTTPServer(("127.0.0.1", PORT), _Quiet)
 threading.Thread(target=_srv.serve_forever, daemon=True).start()
 

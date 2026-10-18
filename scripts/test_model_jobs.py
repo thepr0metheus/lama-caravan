@@ -61,6 +61,16 @@ ARTIFACTS = [
      "positive: папка GR00T — действия робота, а не чат: её ответ — числа для робота, которых не прочтёт ни один чат-клиент"),
     ("safetensors_cosmos_backbone", "st", "", "qwen3_vl", "", ["llm"],
      "negative: основа GR00T (Cosmos, qwen3_vl) — сама по себе чат-модель, не робот"),
+    ("safetensors_personaplex", "st", "", "personaplex", "", ["voice-chat"],
+     "positive: PersonaPlex — голосовой собеседник (речь → речь), а не чат: чат-клиент из списка LLM получил бы WebSocket"),
+    ("safetensors_lfm_audio_by_architecture", "st", "", "Lfm2AudioForConditionalGeneration", "", ["tts"],
+     "positive: LFM2.5-Audio без model_type в config.json — по первой из architectures; он говорит (text → speech), его ячейка сама называет tts"),
+    ("safetensors_step_audio2", "st", "", "step_audio_2", "", ["llm", "voice-chat"],
+     "positive: Step-Audio 2 отвечает и чатом, и голосом по OpenAI API: обе работы, в порядке словаря"),
+    ("safetensors_qwen3_omni", "st", "", "qwen3_omni_moe", "", ["llm", "voice-chat"],
+     "positive: Qwen3-Omni — то же: чат и голос"),
+    ("safetensors_qwen3_family_stays_chat", "st", "", "qwen3_moe", "", ["llm"],
+     "negative: обычный Qwen3 MoE (без речи) остаётся чатом — голос только у архитектур с хозяином"),
     ("whisper_size", "whisper", "", "", "", ["asr"],
      "whisper — распознавание, хотя «модель» тут это размер"),
     ("moonshine_lang", "moonshine", "", "", "", ["asr", "tts"],
@@ -84,6 +94,19 @@ CELLS = [
      "живой отчёт ячейки GR00T: голое слово работы и уточнение движком — одна работа"),
     ("vla_alias", "custom", ["vla"], ["robot-policy"],
      "«vla» (vision-language-action, как говорит поле) — то же слово, что robot-policy"),
+    ("personaplex_cell", "personaplex", [], ["voice-chat"],
+     "positive: PersonaPlex без живого отчёта (его сервер — не наш, отчёта нет) — голос по таблице раннеров"),
+    ("minicpm_omni_cell", "minicpm-omni", [], ["voice-chat"],
+     "positive: llama.cpp-omni — голос; чатом через вход не отвечает (WebSocket), поэтому llm у него нет"),
+    ("step_audio2_cell", "step-audio2", [], ["llm", "voice-chat"],
+     "positive: ячейка Step-Audio 2 — чат и голос; чип чата рисуется первым"),
+    ("qwen3_omni_cell", "qwen3-omni", [], ["llm", "voice-chat"], "positive: ячейка Qwen3-Omni — чат и голос"),
+    ("lfm_audio_cell_table", "lfm-audio", [], ["tts"],
+     "LFM2.5-Audio без отчёта — «говорит», как сказано и в его сервере"),
+    ("lfm_audio_cell_live", "lfm-audio", ["tts", "tts.lfm-audio"], ["tts"],
+     "живой отчёт LFM — голое слово работы и уточнение движком: одна работа"),
+    ("voice_chat_said_by_a_custom_cell", "custom", ["voice-chat"], ["voice-chat"],
+     "positive: командная ячейка может назвать себя голосовой собеседницей сама — слово в словаре"),
     ("prism_cell", "prism", [], ["llm"],
      "defect-history: PrismML — LLM и на сервере: двойник в браузере говорил «llm», а сервер молчал"),
     ("whisper_cell_dotted_kind", "whisper", ["stt.whisper"], ["asr"],
@@ -121,6 +144,9 @@ DECLARED = {
     # reader of the source sees is the common case, llm.
     "engine_cell_server.py": ["llm"],
     "gr00t_server.py": ["robot-policy", "robot-policy.gr00t"],
+    # Speaks (text to speech) and also answers a spoken question and transcribes; only what a consumer may count on is
+    # declared (tts), the other two routes are documented in the server and not advertised.
+    "lfm_audio_server.py": ["tts", "tts.lfm-audio"],
     "moonshine_server.py": ["asr", "tts"],
     "seamless_server.py": ["speech-translate"],
     "transcribe_server.py": ["asr"],
@@ -205,8 +231,9 @@ def main():
           "регистр и пробелы в kinds не мешают: одна работа, одно слово")
     check((jobs_from_kinds(["embedding"]), jobs_from_kinds(["vlm"]), jobs_from_kinds(["llm"])) == (("embed",), ("llm",), ("llm",)),
           "слова движков рядом с ячейками (LM Studio: embedding, vlm, llm) — тот же словарь работ")
-    check(tuple(JOBS) == ("llm", "embed", "asr", "tts", "translate", "speech-translate", "robot-policy"),
-          "словарь — ровно семь работ (седьмая — действия робота, 2026-10-13), и его порядок и есть порядок чипов")
+    check(tuple(JOBS) == ("llm", "embed", "asr", "tts", "translate", "speech-translate", "voice-chat", "robot-policy"),
+          "словарь — ровно восемь работ (седьмая — голосовой собеседник, 2026-10-15; восьмая — действия робота, "
+          "2026-10-13), и его порядок и есть порядок чипов")
 
     print("двойник в браузере:")
     node = find_node()

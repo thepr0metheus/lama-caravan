@@ -2,6 +2,7 @@
 // move on /models and a cell reading its model on the board. Two copies of a
 // format drift apart, and then one speed reads differently on two screens.
 import { t } from "./i18n.js";
+import { PaceRule } from "./pace-rule.js";
 
 export class Pace {
   static speed(bps) {
@@ -10,13 +11,9 @@ export class Pace {
   }
 
   // Time left in words read at a glance; nothing while it is not known — a
-  // guess from a single answer would jump around.
+  // guess from a single answer would jump around. The rule is pace-rule.js's:
+  // /hf words the same rule from its own table.
   static eta(seconds) {
-    if (!Number.isFinite(seconds) || seconds <= 0) return "";
-    const five = Math.ceil(seconds / 5) * 5;
-    if (five < 60) return t("moveEtaSeconds", { n: String(five) });
-    const minutes = Math.ceil(seconds / 60);
-    if (minutes < 60) return t("moveEtaMinutes", { n: String(minutes) });
-    return t("moveEtaHours", { h: String(Math.floor(minutes / 60)), m: String(minutes % 60) });
+    return PaceRule.eta(seconds, t);
   }
 }

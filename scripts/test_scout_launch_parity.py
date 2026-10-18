@@ -103,18 +103,40 @@ def payload(cfg, library=False, model=None):
 def section_the_engines_environment():
     print("окружение движка — одно правило:")
     runner = LlamaServerRunner()
-    check(runner.launch_env({"N_GPU_LAYERS": "0"}) == {"CUDA_VISIBLE_DEVICES": ""},
-          "CPU-ячейка (N_GPU_LAYERS 0) не видит карт: CUDA_VISIBLE_DEVICES пустой")
-    check(runner.launch_env({"N_GPU_LAYERS": 0}) == {"CUDA_VISIBLE_DEVICES": ""}
-          and runner.launch_env({"N_GPU_LAYERS": " 0 "}) == {"CUDA_VISIBLE_DEVICES": ""},
+    order = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+    cpu = {**order, "CUDA_VISIBLE_DEVICES": ""}
+    check(runner.launch_env({"N_GPU_LAYERS": "0"}) == cpu,
+          "CPU-ячейка (N_GPU_LAYERS 0) не видит карт: CUDA_VISIBLE_DEVICES пустой, нумерация карт — как на доске")
+    check(runner.launch_env({"N_GPU_LAYERS": 0}) == cpu and runner.launch_env({"N_GPU_LAYERS": " 0 "}) == cpu,
           "boundary: 0 числом и «0» в пробелах — тоже CPU")
     for why, cfg in (("999", {"N_GPU_LAYERS": "999"}), ("auto", {"N_GPU_LAYERS": "auto"}),
                      ("пусто", {"N_GPU_LAYERS": ""}), ("поля нет", {}), ("None", {"N_GPU_LAYERS": None}),
                      ("«00»", {"N_GPU_LAYERS": "00"}), ("конфига нет", None)):
-        check(runner.launch_env(cfg) == {}, f"negative: слои на карте ({why}) — окружения сверх обычного нет")
+        check(runner.launch_env(cfg) == order, f"negative: слои на карте ({why}) — окружения сверх нумерации карт нет")
     for rid in ("whisper", "vllm", "custom", "transcribe"):
-        check(for_config({"RUNNER": rid}).launch_env({"RUNNER": rid, "N_GPU_LAYERS": "0"}) == {},
-              f"negative: {rid} карту так не прячет — правило только у llama-server")
+        check(for_config({"RUNNER": rid}).launch_env({"RUNNER": rid, "N_GPU_LAYERS": "0"}) == order,
+              f"negative: {rid} карту так не прячет — правило только у llama-server; нумерация карт у него как у всех")
+    # Two cards, 2026-10-17: CUDA numbers them fastest first (a 5090 before a 3090), nvidia-smi and the board by PCI
+    # bus. A pin written from the board's number (CUDA_VISIBLE_DEVICES=1) named the OTHER card. Every engine of the
+    # caravan starts with the board's numbering, and every runner says so through the same rule.
+    from caravan.domain.runner import REGISTRY
+    check(all(r.launch_env({}).get("CUDA_DEVICE_ORDER") == "PCI_BUS_ID" for r in REGISTRY),
+          "каждый раннер реестра запускает движок с нумерацией карт как на доске (CUDA_DEVICE_ORDER=PCI_BUS_ID)")
+    from caravan.admin.launch import render_command_cell_script, render_command_cell_shell_line
+    for rid, cfg in (("custom", {"RUNNER": "custom", "CELL_KIND": "command", "COMMAND": "python srv.py"}),
+                     ("vllm", {"RUNNER": "vllm", "VLLM_MODEL": "org/m"}),
+                     ("whisper", {"RUNNER": "whisper"})):
+        line = render_command_cell_shell_line({**cfg, "PORT": "22031"})
+        check('export CUDA_DEVICE_ORDER="PCI_BUS_ID"' in line.split("; "), f"{rid}: строка запуска на скауте экспортирует нумерацию карт")
+        lines = render_command_cell_script({**cfg, "PORT": "22031"}).splitlines()
+        check(lines.count('export CUDA_DEVICE_ORDER="PCI_BUS_ID"') == 1
+              and lines.index('export CUDA_DEVICE_ORDER="PCI_BUS_ID"') < next(i for i, ln in enumerate(lines) if ln.startswith("# BEGIN LLAMA COMMAND")),
+              f"{rid}: start.sh экспортирует её тоже, один раз и до команды")
+    pinned = render_command_cell_shell_line({"RUNNER": "custom", "CELL_KIND": "command", "COMMAND": "python srv.py", "PORT": "22031",
+                                             "ENV": "CUDA_VISIBLE_DEVICES=1\nCUDA_DEVICE_ORDER=FASTEST_FIRST"}).split("; ")
+    check(pinned.index('export CUDA_DEVICE_ORDER="PCI_BUS_ID"') < pinned.index('export CUDA_VISIBLE_DEVICES="1"')
+          < pinned.index('export CUDA_DEVICE_ORDER="FASTEST_FIRST"'),
+          "нумерация доски идёт ПЕРВОЙ, ENV ячейки — после неё: строка оператора ещё может сказать иначе, пин карты читается по нумерации доски")
     script = render_launch_script(llama(N_GPU_LAYERS="0"))
     lines = script.splitlines()
     check(lines.count('export CUDA_VISIBLE_DEVICES=""') == 1
@@ -122,6 +144,8 @@ def section_the_engines_environment():
           "start.sh CPU-ячейки экспортирует его один раз, в шапке — до блока конфига")
     check("CUDA_VISIBLE_DEVICES" not in render_launch_script(llama()),
           "negative: start.sh ячейки на карте его не трогает")
+    check(render_launch_script(llama()).splitlines().count('export CUDA_DEVICE_ORDER="PCI_BUS_ID"') == 1,
+          "а нумерацию карт как на доске экспортирует каждый start.sh, один раз")
 
 
 def section_one_way_to_export():
@@ -137,9 +161,10 @@ def section_one_way_to_export():
 
 def section_the_scouts_start():
     print("запрос старта ячейки скаута:")
-    check(payload(llama(N_GPU_LAYERS="0"))["env"] == {"CUDA_VISIBLE_DEVICES": ""},
+    check(payload(llama(N_GPU_LAYERS="0"))["env"] == {"CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": ""},
           "CPU-ячейка: в запросе то же окружение, что экспортирует start.sh")
-    check(payload(llama())["env"] == {}, "negative: ячейка на карте — окружение пустое, но названо")
+    check(payload(llama())["env"] == {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+          "negative: ячейка на карте — только нумерация карт как на доске, карт она не прячет")
     check("env" not in payload({"RUNNER": "whisper", "PORT": "22024"}),
           "negative: у командной ячейки окружение в её строке запуска, отдельного env нет")
 
@@ -189,7 +214,7 @@ def section_one_start_line():
     exports = dict(line[len("export "):].split("=", 1) for line in script.splitlines()
                    if line.startswith("export ") and not line.startswith(("export LD_LIBRARY_PATH", "export PATH=")))
     check({k: shlex.split(v)[0] if shlex.split(v) else "" for k, v in exports.items()} == got["env"]
-          == {"CUDA_VISIBLE_DEVICES": ""},
+          == {"CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": ""},
           "окружение движка то же, что экспортирует start.sh")
 
 

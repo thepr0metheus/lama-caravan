@@ -16,6 +16,7 @@ from caravan.admin.config_builder import (CONFIG_FIELDS, build_remote_llama_args
                                           models_dir_from_config, parse_config, run_config)
 from caravan.admin.host_telemetry import HostTelemetry
 from caravan.admin.machine_models import MachineModels
+from caravan.admin.model_cache import ModelCache, ModelCacheFacts
 from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.domain.runner import VllmRunner, for_config
@@ -282,6 +283,11 @@ def scout_start_payload(body: dict) -> dict:
         reservation = for_config(payload["config"]).vram_reservation(payload["config"], host.get("gpus"))
         if reservation:
             payload["vram"] = reservation
+        # What it keeps resident in the machine's memory (Strata: its weights, 37 GiB of a 60 GiB machine): the scout
+        # (2.32) refuses the start when the memory cannot hold it, also while another such cell is still loading.
+        ram = for_config(payload["config"]).ram_reservation(payload["config"], _model_sizes(found))
+        if ram:
+            payload["ram"] = ram
     if "cellKind" not in payload:
         # Variant 2: the controller is the single command builder. Send the resolved
         # argument list with path placeholders; the agent only substitutes the real
@@ -301,6 +307,47 @@ def scout_start_payload(body: dict) -> dict:
     hints = {at.rel: at.hint() for at in found.values()}
     payload["inPlace"] = {rel: hint for rel, hint in hints.items() if hint}
     return payload
+
+
+def _model_sizes(found: dict) -> dict:
+    """The bytes of each model file of a start, by its config field: the library's last listing for a file that
+    lives in one (a dead NFS server makes stat() wait — never asked), the disk for a file here; a file whose size
+    is not known is left out."""
+    sizes = {}
+    for key, at in found.items():
+        size = int(at.size or 0)
+        if not size and at.where == "local":
+            try:
+                size = os.path.getsize(at.path)
+            except OSError:
+                size = 0
+        if size:
+            sizes[key] = size
+    return sizes
+
+
+class CellRamPlan:
+    """What a cell of one launch config keeps resident in its machine's memory, for the cell form's RAM scale.
+
+    The owner, 2026-10-18, looking at the form of a Strata cell: "the scale on the right shows no planned amount of RAM
+    used" — the VRAM scale said "≈ 31.4 GB" and the RAM scale only what was in use. The figure is the runner's own
+    promise (Runner.ram_reservation), the one a start sends the scout (scout_start_payload), which refuses the start when
+    the machine's memory cannot hold it: the form asks the controller, so the rule has one copy, and draws what it says.
+    """
+
+    #: The memory the scout never promises to a cell, MiB: caravan-scout's MemoryLedger.HEADROOM_MIB (2.32+). The scout
+    #: refuses a start whose promise is more than what the kernel says is available, less this: the form counts the same.
+    HEADROOM_MIB = 2048
+
+    @classmethod
+    def of(cls, config: dict) -> dict:
+        """`ram` — the promise ({reserveMiB, who, why, lower}) or None when the runner keeps nothing it can name — and
+        `headroomMiB`. The files are looked for where the library last listed them, without waiting: the form asks again
+        at every change, and a library that is slow must not hold up a person choosing. A file nobody can size is
+        promised by the runner's own table when it has one, and not at all otherwise."""
+        runner = for_config(config)
+        found = model_paths(ScoutCellConfig(config, controller_models_dir()).located(""), current_locations(wait=False))
+        return {"runner": runner.id, "ram": runner.ram_reservation(config, _model_sizes(found)), "headroomMiB": cls.HEADROOM_MIB}
 
 
 def client_llama_start(body: dict) -> dict:
@@ -554,7 +601,7 @@ def topology_client_delete(body: dict) -> dict:
 def topology_client_agent_delete(body: dict) -> dict:
     """Remove an agent from its client: the record and its assignment row.
 
-    The ports it went through stay — unclaimed, on the kanban among the free
+    The ports it went through stay — unclaimed, in Routing among the free
     ones, ready to be bound to another agent or deleted in the port's window.
     Deleting a port is its own decision: it takes the port's key and settings
     with it. `freedPorts` names the ports no agent claims any more.
@@ -740,6 +787,9 @@ def host_from_report(payload):
             # memory may be a child's — Strata's engine under its server.
             "pids": [p for p in (raw.get("pids") if isinstance(raw.get("pids"), list) else [])
                      if type(p) is int and p > 1][:64],
+            # The memory those processes hold in RAM, in bytes (scout 2.35): their RSS. None when the scout does not say — an older one,
+            # or ps did not answer — and never a zero in its place: the card draws "not told" as a dash, and a zero as nothing held.
+            "ramBytes": EngineReport.size(raw.get("ramBytes")),
             "lastError": str(raw.get("lastError") or "")[:200],
             "phase": str(raw.get("phase") or "")[:20],
             "downloadedBytes": int(raw.get("downloadedBytes") or 0),
@@ -825,6 +875,9 @@ def host_from_report(payload):
         # (2.29+): the outputs a pool's row names a model of the machine by (machine_models.py).
         # None from an older scout — it cannot say — not [] ("no models").
         "entryModels": MachineModels.clean(payload.get("entryModels")),
+        # Its model cache (scout 2.34+): how many of the last models it keeps, what it holds, what lies there that it did not
+        # download, what the disk has left. None from an older scout — it cannot say — not zeros (model_cache.py).
+        "modelCache": ModelCacheFacts.clean(payload.get("modelCache")),
         "firstSeen": now,
         "lastSeen": now,
     }
@@ -1090,10 +1143,15 @@ def scout_payload_from_state(state, agent_url):
         "telemetry": state.get("telemetry") if isinstance(state.get("telemetry"), dict) else None,
         # The machine's models as its entry lists them (scout 2.28+).
         "entryModels": state.get("entryModels") if isinstance(state.get("entryModels"), list) else None,
+        # Its model cache (scout 2.34+).
+        "modelCache": state.get("modelCache") if isinstance(state.get("modelCache"), dict) else None,
         "agentUrl": agent_url,
         "time": state.get("time") or int(time.time()),
     }
 
+
+#: How many of the last models a machine's cache keeps, and the files in it that its scout did not download (model_cache.py).
+MODEL_CACHE = ModelCache(_scout, topology_store, save_admin_state)
 
 #: The machines with a scout, second by second, pulled while a board is open.
 HOST_TELEMETRY = HostTelemetry(lambda: topology_hosts(), lambda host_id: _scout(host_id))

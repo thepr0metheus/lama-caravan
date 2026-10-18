@@ -138,6 +138,7 @@ export class HfPage {
     this.headerChrome();
     this.renderAll();
     const initial = [this.loadToken(), this.loadFavorites(), this.downloads.restore()];
+    this.downloads.follow();
     this.refreshDisk();
     setInterval(() => this.refreshDisk(), DISK_REFRESH_MS);
     this.bench.loadFrontier().then(() => this.renderAll());
@@ -380,6 +381,7 @@ export class HfPage {
         break;
       case "job-cancel": d.cancel(target.dataset.uid); break;
       case "job-dismiss": d.dismiss(target.dataset.uid); break;
+      case "job-open-page": d.openPageOf(target.dataset.uid); break;
       case "resume": d.resume(target.dataset.dest, target.dataset.name); break;
       default: break;
     }

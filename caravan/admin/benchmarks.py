@@ -178,7 +178,7 @@ def _fetch_aa_score(model_id: str) -> dict:
     score = _aa_extract_scores(html).get(slug) if html else None
     return {"aa_intelligence": score} if score is not None else {}
 
-# ── AA scores for arbitrary models (Kanban server list) ───────────────────────
+# ── AA scores for arbitrary models (Routing server list) ───────────────────────
 # A persistent {slug: AA Intelligence Index} map, seeded from the curated frontier
 # list and grown opportunistically: every model page we fetch contributes its own
 # score plus its comparison neighbours, so the map fills fast. Misses (no AA page →

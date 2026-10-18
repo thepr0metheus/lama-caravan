@@ -246,7 +246,8 @@ def synthetic_configs():
 
     out = {}
     for runner in ("llama-server", "vllm", "strata", "gr00t", "whisper", "moonshine",
-                   "transcribe", "seamless", "translate", "custom"):
+                   "transcribe", "seamless", "translate", "personaplex", "lfm-audio", "step-audio2",
+                   "qwen3-omni", "minicpm-omni", "custom"):
         cfg = {f: value_for(f) for f in cb.CONFIG_FIELDS}
         cfg["RUNNER"] = runner
         cfg["CELL_KIND"] = "command" if runner == "custom" else ""

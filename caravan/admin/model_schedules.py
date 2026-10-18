@@ -1,4 +1,4 @@
-"""The models' schedules on the controller's file: the door the kanban's ⏱ calls, and what the
+"""The models' schedules on the controller's file: the door Routing's ⏱ calls, and what the
 board is told. A cell's schedule follows the cell when its port changes and leaves with it
 (caravan/admin/cell_outputs.py, with the cell's other names).
 
@@ -17,10 +17,10 @@ from caravan.common.week_windows import WeekWindows
 
 
 class ModelScheduleDesk:
-    """When each model is open: set from the kanban and drawn on the board."""
+    """When each model is open: set from Routing and drawn on the board."""
 
     def __init__(self, load=None, save=None, clock=time.time, zone=None):
-        # cloud.py imports the kanban's modules at the top; taken here.
+        # cloud.py imports Routing's modules at the top; taken here.
         from caravan.admin.cloud import load_cloud_data, save_cloud_data
         self.load, self.save = load or load_cloud_data, save or save_cloud_data
         self.clock = clock

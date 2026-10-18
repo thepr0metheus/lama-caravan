@@ -1,7 +1,7 @@
 # A day with the caravan
 
 A concrete walkthrough of what the caravan does for you over one day, and the
-kanban that implements it. Names are made up; every mechanism is real.
+Routing page that implements it. Names are made up; every mechanism is real.
 
 ## The cast
 
@@ -19,9 +19,9 @@ kanban that implements it. Names are made up; every mechanism is real.
 
 Each agent is a client of the entry: one address (`https://caravan-api.example.org/v1`)
 and a key of its own, made with ＋ on the board — and none of them will ever
-need reconfiguring again. All four are on one kanban: it decides where their
+need reconfiguring again. All four are on one router: it decides where their
 requests go, whatever model name they send. (An agent of the older kind would
-point at a proxy port of its own instead, and the kanban would take the port.)
+point at a proxy port of its own instead, and the router would take the port.)
 
 ## Night (00:00–08:00)
 
@@ -46,7 +46,7 @@ People start using the machines. The schedule window flips:
 - `secretary` doesn't participate in any of this: its route has exactly one
   output — the local cell. Private mail never leaves the LAN.
 
-Nobody edited an agent config. The kanban did it.
+Nobody edited an agent config. Routing did it.
 
 ## During the day
 
@@ -59,9 +59,9 @@ Nobody edited an agent config. The kanban did it.
 - One route starts throwing errors — the ⚠ badge on its card and the request
   history point at the culprit in a minute.
 
-## The kanban that does all this
+## Routing, which does all this
 
-One client, drawn on `/kanban` — the same graph serves a port of the older kind:
+One client, drawn on `/routing` — the same graph serves a port of the older kind:
 
 ```text
                         ┌─────────────┐

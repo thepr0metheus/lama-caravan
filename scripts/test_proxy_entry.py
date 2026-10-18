@@ -44,10 +44,7 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from _ports import free_port  # noqa: E402
 
 
 def make_upstream(name):
@@ -319,9 +316,9 @@ def test_show_and_probes():
                           path="/api/show", method="GET")
     rows = [json.loads(line) for p in log_dir.rglob("*.jsonl") for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
     forwarded = [r["item"] for r in rows if r.get("event") == "blocked" and (r.get("item") or {}).get("path") == "/api/show"][-1]
-    check(tested and all(t.get("client") == "kanban-probe" for t in tested) and forwarded.get("client") not in ("kanban-probe", "")
+    check(tested and all(t.get("client") == "routing-probe" for t in tested) and forwarded.get("client") not in ("routing-probe", "")
           and status == 404,
-          f"the kanban's test is journaled as the test — the client's errors list leaves it out; negative: the header from "
+          f"Routing's test is journaled as the test — the client's errors list leaves it out; negative: the header from "
           f"behind the DSM's proxy is a client's own request (got {[t.get('client') for t in tested]}, {forwarded.get('client')!r})")
     body, kind, sent = AsConsumer.PROBES["/v1/audio/transcriptions"].request("Standart")
     wav = ClientProbe.silence_wav()

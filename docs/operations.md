@@ -73,7 +73,7 @@ Restart rules:
 Post-deploy smoke:
 
 ```sh
-for p in /board /api/state /api/topology /api/models /js/main.js /css/base.css /kanban /hf; do   # / answers 302 -> /board
+for p in /board /api/state /api/topology /api/models /js/main.js /css/base.css /routing /hf; do   # / answers 302 -> /board
   printf '%-16s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:7990$p)"
 done
 curl -s -o /dev/null -w '%{http_code}\n' localhost:<entry port>/v1/models   # the entry: 401 without a key is the healthy answer
@@ -95,7 +95,7 @@ back does not normally require touching `agent-proxies.json` /
 
 | What | Where | Created |
 |---|---|---|
-| Router/kanban config | `agent-proxies.json.bak-graph-<stamp>` (repo root, gitignored) | automatically on **every** admin write of `agent-proxies.json` |
+| Router (Routing) config | `agent-proxies.json.bak-graph-<stamp>` (repo root, gitignored) | automatically on **every** admin write of `agent-proxies.json` |
 | Launch configs per node | `var/server-backups/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json` | UI snapshots (controller + clients; survive the client host) |
 | Every setting, before a settings import | `var/settings-backups/<YYYYMMDD-HHMMSS-micros>-before-import.json` (`/data/settings-backups/` in the container) | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 in a 0700 directory — importing that copy undoes the import. One file per import, never written over: two imports in one second keep both |
 
@@ -233,7 +233,7 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
 
 Clients reach the caravan the way they reach OpenAI or any company's model gateway:
 one address and a key each (visumap `caravan-single-entry`). A client's key calls one
-pool — the one a cable on the kanban leads it to (since 1.3.486) — and every request of
+pool — the one a cable in Routing leads it to (since 1.3.486) — and every request of
 the key goes there, whatever `model` it names. The client sees the pool by its name and
 never the providers, accounts or cells behind it.
 
@@ -251,7 +251,7 @@ never the providers, accounts or cells behind it.
    the key once; copy them. Afterwards the card shows the key's last four characters;
    "New key" replaces a lost key (the old one stops working at once). By API:
    `POST /api/consumers/create {"name": "Hermes"}`, `POST /api/consumers/key {"port": …}`.
-4. Give the client its models: on the kanban (`/kanban`), make a set (＋ New set) and drag
+4. Give the client its models: in Routing (`/routing`), make a set (＋ New set) and drag
    from the dot at its foot onto each pool it should offer — a chat pool, a speech pool, an
    embeddings pool; then drag from the dot on the client's card onto the set. Until then its
    requests are refused (404 `model_not_found`). A click on a cable takes it away. By API:
@@ -286,12 +286,12 @@ whatever the provider behind the pool does. What a client is told:
 
 The journal keeps the full reason of each refusal under the client's name.
 
-### The kanban: clients, pools, models
+### Routing: clients, pools, models
 
-The kanban (`/kanban`) is four columns joined by cables: the clients of the entry, their sets of
-models, the pools, and the models — the subscriptions with their models and the machines with their
+Routing (`/routing`) is four columns joined by cables: the clients of the entry, their sets of
+models ("ID sets"), the pools ("ID (Pools)"), and the models — the subscriptions with their models and the machines with their
 cells. Under them a strip says the details of the card the pointer is on or a click pinned (and is
-hidden while there is none): see [docs/pools.md](pools.md#on-the-kanban).
+hidden while there is none): see [docs/pools.md](pools.md#in-routing).
 
 1. "＋ New pool" makes an empty pool; its name stands in the field, chosen: type the
    name the clients will see in `/v1/models`.
@@ -325,9 +325,9 @@ one pool: …`).
 
 ### Agents of the old kind
 
-An agent with a port of its own (made before 1.3.466 on the kanban) can reach the
-entry with its port's key; its request then goes through its port's kanban graph, as
-before, and its `model` chooses nothing. To move one: on the kanban's clients panel,
+An agent with a port of its own (made before 1.3.466 in Routing) can reach the
+entry with its port's key; its request then goes through its port's router graph, as
+before, and its `model` chooses nothing. To move one: in Routing's clients panel,
 "Give a key" on its row (the key is made and the port closes in the same step), then
 set the agent's base URL to the entry and its API key to the key. An agent whose port
 had a key already shows "Close port" instead; ↺ reopens a closed port (it still demands

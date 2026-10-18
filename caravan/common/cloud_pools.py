@@ -1,6 +1,6 @@
 """A pool as both readers of cloud-providers.json see it: an ordered list of rows.
 
-The owner, 2026-10-12: a pool is built on the kanban — made empty, a row added
+The owner, 2026-10-12: a pool is built in Routing — made empty, a row added
 with "+ row", and each row's output cabled to a model in the right column. A row
 (kept under `steps`, the name the file has always used) is one of three:
 
@@ -21,7 +21,7 @@ controller turns them into pools of steps once (caravan/admin/pools.py); this
 module reads the old form the same way meanwhile, because the proxy starts
 before the controller's migrations run, and its first request must not depend
 on which of the two came first. A model block becomes a pool with the block's
-id — the id the kanban's output `cb:<id>` and a port's providerId already
+id — the id Routing's output `cb:<id>` and a port's providerId already
 name — and its steps are the members of the subscription pool it belonged to,
 each with the block's model, or its one account.
 """
@@ -147,7 +147,7 @@ class CloudPools:
 
     @staticmethod
     def row_id(taken):
-        """The id of a row added on the kanban: `r1`, `r2`… — the first one the
+        """The id of a row added in Routing: `r1`, `r2`… — the first one the
         pool does not use. It stays the row's whatever is cabled to it later."""
         number = 1
         while f"r{number}" in taken:

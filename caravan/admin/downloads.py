@@ -19,6 +19,8 @@ import time
 import urllib.request
 from pathlib import Path
 
+from caravan.admin.hub_access import HubAccess
+
 
 _download_jobs: dict = {}
 
@@ -220,7 +222,14 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
                     grew = (tmp_path.stat().st_size if tmp_path.exists() else 0) > offset
                     if attempt >= _MAX_ATTEMPTS:
                         raise
-                    # A wall (auth, a 404, a full disk) fails the same way every
+                    # The hub's own wall — 401, 403: no login, terms not accepted — answers
+                    # the same every time and is not a dropped connection. It is not retried
+                    # at all: the second try cost a pause of three seconds and nothing else,
+                    # and the page that tells the operator where to go (HubAccess) is
+                    # wanted while the click is fresh.
+                    if HubAccess.is_wall(exc):
+                        raise
+                    # Another wall (a 404, a full disk) fails the same way every
                     # time. Retrying it hides a permanent error behind minutes of
                     # silence, so an attempt that moved NO bytes gets one more
                     # chance and then gives up; one that made progress gets the
@@ -260,10 +269,16 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
         # job leaves must show up on the very next poll, not after the cache.
         _part_scan_cache["at"] = 0.0
     except Exception as exc:
+        # Asked before the lock: it reads the repository's record from the hub. A wall at a
+        # gated repository names the page where its terms are accepted (`access`), and the
+        # /hf page opens it; the error text stays the hub's own words.
+        access = HubAccess.after(exc, repo, token)
         with _download_jobs_lock:
             job["done"] = True
             job["status"] = "error"
             job["error"] = str(exc)
+            if access:
+                job["access"] = access.as_dict()
             job["finished_at"] = time.time()
 
 # A dropped connection is normal on a 20-GB file; a wall is not. Four attempts

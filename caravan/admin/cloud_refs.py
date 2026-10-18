@@ -1,4 +1,4 @@
-"""Everything that points at a pool — `cb:<id>` on the kanban, an agent route's providerId."""
+"""Everything that points at a pool — `cb:<id>` in Routing, an agent route's providerId."""
 from caravan.admin.output_refs import RouterOutputRefs
 from caravan.admin.proxies_config import load_agent_proxy_config
 
@@ -16,7 +16,7 @@ class CloudModelRefs:
     One snapshot answers for many pools: the board asks about every one.
     """
 
-    #: What a pool on the kanban can hold that stops working when it goes.
+    #: What a pool in Routing can hold that stops working when it goes.
     #: Not dormantDefault: that one waits for an absent output by design.
     HOLDING_RULES = ("default", "audioOutput", "embeddingsOutput", "schedule", "bySource", "failover")
 

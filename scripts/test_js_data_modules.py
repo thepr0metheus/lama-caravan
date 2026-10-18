@@ -62,7 +62,7 @@ PINS = [
     ("state_setters_rebind_live", '', '(() => { S.setState({ a: 1 }); const a = S.state; S.setState({ b: 2 }); S.setTopology({ proxies: [] }); return [a.a, S.state.b, "a" in S.state, S.topology.proxies.length]; })()', '[1,2,false,0]', "setState/setTopology ЗАМЕНЯЮТ объект целиком (не сливают) — импортёры видят новый"),
     ("state_initial_null_and_ui_shape", '', '(() => { const keys = Object.keys(S.ui).sort(); return [S.ui.usageStatsScope, S.ui.usageStatsDays, S.ui.topologyProxyFormOpen, S.ui.pendingConfirm, S.ui.latestSystemMonitor, keys.length, keys.includes("topologyRouterDetailId"), keys.includes("_lastCloudProvidersKey"), keys.includes("topologyRouterInputSearch"), keys.includes("topologyRouterInputsExpanded")]; })()', '["overview",30,false,null,null,18,true,true,false,false]',
      "форма ui по умолчанию: область статистики overview, 30 дней, форма прокси закрыта, нет ожидающего подтверждения и монитора; 18 ключей "
-     "(режим окна конфига агента ушёл вместе с окном; поиск по входам канбана и раскрытие входов — 2026-10-11, их поля и кнопок "
+     "(режим окна конфига агента ушёл вместе с окном; поиск по входам Маршрутизации и раскрытие входов — 2026-10-11, их поля и кнопок "
      "страница не рисовала)"),
     ("ui_property_writes_visible", '', '(() => { S.ui.topologyProxyFormOpen = true; const a = S.ui.topologyProxyFormOpen; S.ui.topologyProxyFormOpen = false; return [a, S.ui.topologyProxyFormOpen]; })()', '[true,false]', "свойства ui пишутся напрямую и видны всем"),
     ("load_failure_stays_english", '', 'await (async () => { D.LANGS.push({ code: "xx", emoji: "?", label: "Probe" }); const r = await D.loadLanguage("xx"); D.LANGS.pop(); return [r, "xx" in D.messages, globalThis.__warns.length]; })()', '["en",false,0]',

@@ -15,7 +15,7 @@ import re
 
 #: Library states in which its files can be read.
 USABLE = ("ok", "low-space", "read-only")
-_PART = re.compile(r"^(?P<stem>.+)-\d{5}-of-(?P<n>\d{5})\.gguf$", re.I)
+_PART = re.compile(r"^(?P<stem>.+)-(?P<index>\d{5})-of-(?P<n>\d{5})\.gguf$", re.I)
 
 
 def home_path(value):
@@ -170,6 +170,16 @@ class Locations:
         stem = os.path.join(folder, m.group("stem")) if folder else m.group("stem")
         pattern = re.compile(re.escape(stem) + r"-\d{5}-of-" + m.group("n") + r"\.gguf$", re.I)
         return lambda r: bool(pattern.match(r))
+
+    @staticmethod
+    def split_part(rel):
+        """(group, index, total) of one part of a split GGUF, or None for a whole file. `group` (the folder, the stem and
+        the total the name says) is the same for every part of one model; the model list gives the FIRST part, which the
+        picker offers for the whole model, the size of all the parts it finds under one group."""
+        m = _PART.match(os.path.basename(str(rel or "")))
+        if not m:
+            return None
+        return (os.path.dirname(rel), m.group("stem"), m.group("n")), int(m.group("index")), int(m.group("n"))
 
 
 def current_locations(wait=False):

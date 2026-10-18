@@ -30,6 +30,8 @@ import re
 import shlex
 
 from caravan.common.errors import AppError
+from caravan.common.flags import truthy
+from caravan.common.kv_cache import KvCache
 
 
 class Runner:
@@ -44,6 +46,10 @@ class Runner:
     icon = ""
     label_key = ""
     benefits_key = ""
+    #: The i18n key of what this runner costs: the second half of its tab's tip, under the benefits. "" says nothing.
+    minus_key = ""
+    #: The i18n key of why the tab is greyed when the picked model is another kind than this runner's (artifacts[0]).
+    needs_key = ""
 
     #: The KIND of artifact this runner can launch — not the file extension.
     #: Extension alone could not separate them: an LLM and a speech recognizer
@@ -69,6 +75,13 @@ class Runner:
     #: CUDA compute capability this runner needs (NVFP4 checkpoints want >= 10.0).
     #: None means no GPU requirement at all.
     min_compute = None
+    #: True when a cell of this runner cannot run on the CPU: the form offers no CPU tile, and its card says GPU
+    #: before it starts. The browser read this as lists of runner ids (memory.js, topology-nodes.js).
+    gpu_only = False
+    #: True when a cell of this runner runs on ONE card, the one its ENV pins (CUDA_VISIBLE_DEVICES=<n>, else card 0:
+    #: `pinned_card`). On a machine with two cards the form then asks which one: the server's reservation and the
+    #: process both follow the pin, and the pin was typed into an ENV box that these runners do not show.
+    one_card = False
     #: Per-quant hardware gates, for greying a tab the host GPU cannot run.
     format_requirements = None
 
@@ -215,6 +228,16 @@ class Runner:
         as its report or nvidia-smi names them (index, memoryTotalMiB)."""
         return None
 
+    def ram_reservation(self, config, sizes):
+        """What a start keeps resident in the machine's memory — {reserveMiB, who, why} — so a start the memory
+        cannot hold is refused before it loads (caravan-scout 2.32, MemoryLedger: what is available, and what the
+        cells up or loading have promised); None when it keeps nothing it can name. `sizes` — the bytes of each
+        model file, by its config field, as the library or the disk says them. llama.cpp maps its file and pages
+        it as it is read, and a cell's memory is the machine's to lend: the base promises nothing. Strata keeps
+        every expert in RAM and promises it (2026-10-14: a second start beside the first, still loading, loaded
+        the model twice)."""
+        return None
+
     def vram_plan(self):
         """How a start takes VRAM when its cost is not its model's files, for
         the cell form's estimate bar; None when the form has its own figure for
@@ -238,11 +261,17 @@ class Runner:
             return None
         return int(device)
 
+    #: The cards are numbered the way nvidia-smi and the board number them, by PCI bus. CUDA's own default numbers
+    #: them fastest first: on a machine with a 3090 (the board's GPU0) and a 5090 (GPU1) the 5090 was cuda:0 and
+    #: CUDA_VISIBLE_DEVICES=1 named the OTHER card than the board did (2026-10-17). Every engine starts with it.
+    CUDA_ORDER = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+
     def launch_env(self, config) -> dict:
         """The environment the engine itself must start with, NAME -> value:
         what this controller's start.sh exports before the exec, and what a
-        scout sets on the process it starts without a shell. Usually none."""
-        return {}
+        scout sets on the process it starts without a shell. Every engine gets
+        the card numbering of the board (CUDA_ORDER); a runner adds its own."""
+        return dict(self.CUDA_ORDER)
 
     @staticmethod
     def env_pairs(env_raw):
@@ -298,7 +327,19 @@ class Runner:
             "contextField": self.context_field,
             # Sent so the estimate bar draws a start as the scout will judge it.
             "vramPlan": self.vram_plan(),
+            # Said by the runner that keeps its weights in the machine's memory (ram_reservation): the form asks the
+            # controller (/api/cell-ram-plan) what a cell of its config promises, and draws it on the RAM scale.
+            "keepsRam": type(self).ram_reservation is not Runner.ram_reservation,
         }
+        # Said only when there is something to say: a row without them reads as before.
+        if self.minus_key:
+            row["minusKey"] = self.minus_key
+        if self.needs_key:
+            row["needsKey"] = self.needs_key
+        if self.gpu_only:
+            row["gpuOnly"] = True
+        if self.one_card:
+            row["oneCard"] = True
         if self.format_requirements:
             row["formatRequirements"] = dict(self.format_requirements)
         return row
@@ -311,8 +352,10 @@ class LlamaServerRunner(Runner):
     icon = "\U0001f999"
     label_key = "runnerLlama"
     benefits_key = "runnerLlamaBenefits"
+    minus_key = "runnerLlamaMinus"
     formats = ("gguf",)
     artifacts = ("llm-gguf",)
+    needs_key = "runnerNeedsLlmGguf"
     health = "/health"
     api = "openai"
     model_field = "MODEL_FILE"
@@ -327,6 +370,9 @@ class LlamaServerRunner(Runner):
     def preflight_start(self, config, model="") -> None:
         if re.search(r"(?:PQ2_0|PTQ1_0)", model or self.model_ref(config), re.I):
             raise AppError("This GGUF uses PrismML tensor types — select the PrismML runner", 400)
+        # A cell saved with a quantized V cache and flash attention off crashed four times and gave
+        # up, with the last line of the log on its card: the refusal names the cause instead.
+        KvCache.check(config)
 
     def launch_env(self, config):
         # CPU mode (n-gpu-layers 0): hide GPUs entirely. A CUDA-enabled llama.cpp build
@@ -339,8 +385,8 @@ class LlamaServerRunner(Runner):
         # as much as this controller's: the scout used to start the same cell
         # without it.
         if str((config or {}).get("N_GPU_LAYERS", "")).strip() == "0":
-            return {"CUDA_VISIBLE_DEVICES": ""}
-        return {}
+            return {**super().launch_env(config), "CUDA_VISIBLE_DEVICES": ""}
+        return super().launch_env(config)
 
 
 class PrismRunner(LlamaServerRunner):
@@ -349,6 +395,7 @@ class PrismRunner(LlamaServerRunner):
     icon = "🌱"
     label_key = "runnerPrism"
     benefits_key = "runnerPrismBenefits"
+    minus_key = "runnerPrismMinus"
     model_field = "MODEL_FILE"
 
     def server_binary(self, llama_home):
@@ -359,6 +406,7 @@ class PrismRunner(LlamaServerRunner):
     def preflight_start(self, config, model="") -> None:
         if not (model or self.model_ref(config)):
             raise AppError("PrismML cell has no model — configure it first", 400)
+        KvCache.check(config)
 
     def launch_env(self, config):
         from pathlib import Path
@@ -373,6 +421,7 @@ class VllmRunner(Runner):
     icon = "⚡"
     label_key = "runnerVllm"
     benefits_key = "runnerVllmBenefits"
+    minus_key = "runnerVllmMinus"
     artifacts = ("*",)
     formats = ("*",)
     health = "/v1/models"
@@ -410,6 +459,22 @@ class VllmRunner(Runner):
             # before this line existed lack it, so the check is separate from
             # the vllm one.
             f'[ -x {venv}/bin/ninja ] || {venv}/bin/pip install --quiet ninja',
+            # flashinfer-cubin is no requirement of vLLM: an older install left it behind, and when
+            # vLLM moved on (0.30.0, 2026-10-05) it stayed at 0.6.12 beside flashinfer 0.6.18.post1.
+            # FlashInfer refuses to start with the two apart — "flashinfer-cubin version (0.6.12) does
+            # not match flashinfer version (0.6.18.post1)" — and the cell died on every model that
+            # reaches it, with no field in the form to set FLASHINFER_DISABLE_VERSION_CHECK. The newer
+            # cubin does not exist on the index, and without the package FlashInfer fetches the
+            # kernels it needs: the pair that differs is removed, the one that agrees or is absent
+            # is left. Read from the dist-info folders, as `version()` of the scout reads vLLM's.
+            f"fi_py=$(ls -d {venv}/lib/python3*/site-packages/flashinfer_python-*.dist-info 2>/dev/null"
+            " | head -n 1 | sed 's/.*flashinfer_python-//; s/[.]dist-info$//' || true)",
+            f"fi_cu=$(ls -d {venv}/lib/python3*/site-packages/flashinfer_cubin-*.dist-info 2>/dev/null"
+            " | head -n 1 | sed 's/.*flashinfer_cubin-//; s/[.]dist-info$//' || true)",
+            'if [ -n "$fi_py" ] && [ -n "$fi_cu" ] && [ "$fi_py" != "$fi_cu" ]; then',
+            '  echo "[caravan] flashinfer-cubin $fi_cu does not match flashinfer $fi_py: removing it, FlashInfer fetches its own kernels"',
+            f'  {venv}/bin/pip uninstall --quiet -y flashinfer-cubin',
+            'fi',
             # the unit calls venv binaries directly (no activate) — subprocesses
             # like ninja are found via PATH, so put the venv first.
             f'export PATH="{venv}/bin:$PATH"'.replace("$HOME", "${HOME}"),
@@ -465,6 +530,23 @@ class VllmRunner(Runner):
             return f"{parts[-3]} {parts[-1].upper()}"
         return parts[-1]
 
+    #: Only the SHAPE of these flags' values is checked here: a number, a token, nothing the shell would read. The
+    #: sets are vLLM's, and they move with its versions (--kv-cache-dtype has eighteen values in 0.30.0, the
+    #: reasoning parsers are registered by name and by plugin), so a value vLLM does not know is vLLM's to refuse,
+    #: in the cell's log at its argument parser, and a copy of its list here would be the one that drifts.
+    _SEQS = re.compile(r"[1-9][0-9]{0,5}")
+    _DTYPE = re.compile(r"[A-Za-z0-9_]{1,40}")
+    _NAME = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+    @staticmethod
+    def flag_value(config, field, shape, what) -> str:
+        """The field's value when it has the shape, "" when empty; anything else is refused by the field's name,
+        not replaced — a cell started with another flag than the form shows is the wrong cell."""
+        raw = str((config or {}).get(field) or "").strip()
+        if raw and not shape.fullmatch(raw):
+            raise AppError(f"{field} must be {what}, not {raw!r}", 400)
+        return raw
+
     def command(self, config) -> str:
         """The `vllm serve …` line (no bootstrap, no exec). The provisioning in
         front of it is `bootstrap`, one list of lines for start.sh and for the
@@ -489,6 +571,23 @@ class VllmRunner(Runner):
         tp = str(cfg.get("TENSOR_PARALLEL") or "").strip()
         if tp and tp not in ("0", "1"):
             parts += ["--tensor-parallel-size", tp]
+        # The three flags a model's recipe asks for (Nemotron 3 Nano Omni: --max-num-seqs, --kv-cache-dtype fp8,
+        # --reasoning-parser): they had no field, and the model went through a custom command.
+        seqs = self.flag_value(cfg, "MAX_NUM_SEQS", self._SEQS, "a number of sequences, 1 or more")
+        if seqs:
+            parts += ["--max-num-seqs", seqs]
+        kv = self.flag_value(cfg, "KV_CACHE_DTYPE", self._DTYPE, "a data type such as fp8 (letters, digits, underscore)").lower()
+        if kv and kv != "auto":
+            parts += ["--kv-cache-dtype", kv]
+        reasoning = self.flag_value(cfg, "REASONING_PARSER", self._NAME, "a parser's name such as qwen3 (letters, digits, . _ -)")
+        if reasoning:
+            parts += ["--reasoning-parser", reasoning]
+        # A model that ships its own Python code (MiniCPM-o, Nemotron Omni) is refused by vLLM
+        # without this flag: "The repository contains custom code which must be executed to
+        # correctly load the model. Please pass `trust_remote_code=True`". Off unless the operator
+        # said so: it runs the model authors' code on the machine.
+        if truthy(cfg.get("TRUST_REMOTE_CODE")):
+            parts.append("--trust-remote-code")
         return " ".join(parts)
 
     def prepare(self, merged) -> str:
@@ -512,7 +611,8 @@ class StrataRunner(Runner):
     two things from the caravan's library: the GGUF's first part (MODEL_FILE —
     the scout brings the second beside it) and the MTP draft layer
     (SPEC_DRAFT_MODEL_FILE, mtp-q2_0.gguf, Strata's own pack of the original
-    checkpoint's MTP tensors: about 2x the output speed). What Strata makes from
+    checkpoint's MTP tensors: about 2x the output speed, and a condition of
+    starting for an IQ pack — preflight_start). What Strata makes from
     them — its pack, the draft layer's runtime, its config — the launcher
     writes into the cell's scratch folder at every start
     (cells/strata_launch.py). The engine is installed on the machine once
@@ -521,7 +621,11 @@ class StrataRunner(Runner):
     icon = "\U0001faa8"
     label_key = "runnerStrata"
     benefits_key = "runnerStrataBenefits"
+    minus_key = "runnerStrataMinus"
     artifacts = ("strata-gguf",)
+    needs_key = "runnerNeedsStrataGguf"
+    gpu_only = True
+    one_card = True
     formats = ("gguf",)
     gguf_archs = ("qwen4exp",)
     health = "/health"
@@ -621,9 +725,21 @@ class StrataRunner(Runner):
             merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
         return self.command(merged)
 
+    #: A pack whose experts are IQ-quantised (IQ1_M, IQ2_XS, IQ3_XXS, IQ3_S, and Unsloth's UD-IQ4_XS, whose "-IQ4_XS" stands after
+    #: its "UD"), which Strata reads as the GGUF stores it. Its engine does not start one without the draft layer: "native (IQ)
+    #: pack: it needs --native SHARD1, --spec T (T >= 2) and --prefill CHUNK" — and `--spec` is the draft layer's flag. The
+    #: Coder's IQ1_M met it on 2026-10-17, after the scout had copied 54 GiB and the engine had loaded them. Q2_0 and UD-Q4_K_XL
+    #: are not named here: nothing says the engine asks the same of them, and a refusal made from a guess is the worse mistake.
+    NATIVE_PACK = re.compile(r"-IQ\d[A-Za-z0-9_]*(?:-\d{5}-of-\d{5})?\.gguf$", re.I)
+
     def preflight_start(self, config, model="") -> None:
-        if not (model or self.model_ref(config)):
+        pack = model or self.model_ref(config)
+        if not pack:
             raise AppError("Strata cell has no model — configure it first", 400)
+        if self.NATIVE_PACK.search(str(pack)) and not str((config or {}).get("SPEC_DRAFT_MODEL_FILE") or "").strip():
+            raise AppError(f"{os.path.basename(str(pack))} is an IQ pack: Strata does not start it without a draft layer, and this "
+                           f"cell names none. Open the cell's settings and pick the model again: the form fills in the draft "
+                           f"layer (mtp-q2_0.gguf) from the library. If the library holds none, it has to be added first", 400)
 
     def vram_reservation(self, config, gpus):
         """What a start needs free on its card: min_free_mib, plus the VRAM the
@@ -640,6 +756,54 @@ class StrataRunner(Runner):
         return {"device": device, "reserveMiB": self.min_free_mib + extra, "who": "Strata",
                 "why": "its smallest card is 6 GB" + (f", plus {extra} MiB left to others" if extra else ""),
                 "lower": self.reserve_field}
+
+    #: What Strata's process and its tables take in memory over its weights, MiB: the first part of IQ2_XS is 36.5 GiB
+    #: and the engine's resident set was 37.2 GiB (2026-10-14), a GiB more is the promise's margin.
+    ram_overhead_mib = 1024
+    #: Strata's own table of its packs (its setup.py, MODELS, v0.1.42, read on a machine that runs it, 2026-10-18): the GiB
+    #: of experts that stay in RAM (`arena_gb`), by the quantization the pack's file name carries. The one copy of these
+    #: facts here. A pack's first part says the same only where the file split puts every expert in it (ISTA-DASLab's own
+    #: files do): Swift 1.5's IQ3_S puts 41.8 GiB in the first part and the rest of its 50.3 GiB in the second, and a start
+    #: that promised the first part's 42.8 GiB loaded an engine that wanted 50 — Strata itself says that pack asks a 64 GB PC
+    #: "with little else running" (`ram_gb` 62) — and it was killed for memory pressure four times (2026-10-18).
+    ARENA_GIB = {"Q2_0": 34.0, "IQ2_XS": 35.5, "IQ3_XXS": 42.9, "IQ3_S": 50.3, "IQ1_M": 23.4}
+    PACK_QUANT = re.compile(r"-(Q2_0|IQ\d_[A-Z]+)(?:-\d{5}-of-\d{5})?\.gguf$", re.I)
+    #: Unsloth's ~4-bit packs (UD-IQ4_XS, UD-Q4_K_XL) are named "…-UD-<quant>-0000N-of-0000M.gguf". Their first part is
+    #: a header of 10 MB, the experts are in the parts after it, and the engine keeps a BUDGET of them in RAM (Strata's
+    #: own rule sizes it to the machine) and reads the rest from the file. Strata's table says such a pack needs 48 GB
+    #: of RAM (`ram_gb`, v0.1.42): the one copy of that fact here, and the file's size cannot say it.
+    BUDGET_PACK = re.compile(r"-UD-[A-Za-z0-9_]+-\d{5}-of-\d{5}\.gguf$", re.I)
+    budget_ram_mib = 48 * 1024
+
+    def arena_mib(self, name):
+        """The MiB of experts Strata's table says this pack keeps in RAM; 0 for a name the table does not know."""
+        found = self.PACK_QUANT.search(str(name or ""))
+        gib = self.ARENA_GIB.get(found.group(1).upper()) if found else None
+        return int(round(gib * 1024)) if gib else 0
+
+    def ram_reservation(self, config, sizes):
+        """The weights of the pack stay in RAM, whole: Strata keeps every expert there and streams the hot ones to the
+        card (the second part, the n-gram table, is read from the disk). The larger of the first part's size and what
+        Strata's own table says the pack's experts are, plus ram_overhead_mib: the first part for a pack whose files hold
+        its experts (ISTA-DASLab's), the table's figure for one whose split does not (Swift's). None when neither is
+        known — the start is then neither refused nor promised. A budget pack keeps only a budget of its experts in RAM:
+        what Strata says it needs, whatever its first part weighs."""
+        name = os.path.basename(str((config or {}).get("MODEL_FILE") or "").strip())
+        if self.BUDGET_PACK.search(name):
+            return {"reserveMiB": self.budget_ram_mib, "who": "Strata",
+                    "why": f"a budget of its experts stays in memory and the rest is read from the disk: Strata asks "
+                           f"{self.budget_ram_mib // 1024} GiB of RAM for this pack",
+                    "lower": "nothing — stop another cell"}
+        size = int((sizes or {}).get("MODEL_FILE") or 0)
+        first, arena = -(-size // (1 << 20)) if size > 0 else 0, self.arena_mib(name)
+        if not first and not arena:
+            return None
+        if first >= arena:
+            why = f"its weights stay in memory: {size / 2 ** 30:.1f} GiB"
+        else:
+            why = f"its experts stay in memory: {arena / 1024:.1f} GiB (Strata's table for this pack)"
+        return {"reserveMiB": max(first, arena) + self.ram_overhead_mib, "who": "Strata", "why": why,
+                "lower": "nothing — stop another cell"}
 
     def vram_plan(self):
         """Strata sizes its expert cache to the card's free VRAM: a start takes
@@ -663,7 +827,11 @@ class Gr00tRunner(Runner):
     icon = "\U0001f9be"
     label_key = "runnerGr00t"
     benefits_key = "runnerGr00tBenefits"
+    minus_key = "runnerGr00tMinus"
     artifacts = ("gr00t-st",)
+    needs_key = "runnerNeedsGr00tSt"
+    gpu_only = True
+    one_card = True
     formats = ("*",)
     st_archs = ("Gr00tN1d7",)
     health = "/health"
@@ -772,7 +940,9 @@ class WhisperRunner(Runner):
     icon = "\U0001f399️"
     label_key = "runnerWhisper"
     benefits_key = "runnerWhisperBenefits"
+    minus_key = "runnerWhisperMinus"
     artifacts = ("whisper-size",)
+    needs_key = "runnerNeedsWhisperSize"
     formats = ("*",)
     health = "/health"
     model_field = "WHISPER_MODEL"
@@ -814,7 +984,9 @@ class MoonshineRunner(Runner):
     icon = "🌙"
     label_key = "runnerMoonshine"
     benefits_key = "runnerMoonshineBenefits"
+    minus_key = "runnerMoonshineMinus"
     artifacts = ("moonshine-lang",)
+    needs_key = "runnerNeedsMoonshineLang"
     formats = ("*",)
     health = "/health"
     model_field = "MOONSHINE_MODEL"
@@ -858,7 +1030,9 @@ class TranscribeRunner(Runner):
     icon = "\U0001f4dd"
     label_key = "runnerTranscribe"
     benefits_key = "runnerTranscribeBenefits"
+    minus_key = "runnerTranscribeMinus"
     artifacts = ("asr-gguf",)
+    needs_key = "runnerNeedsAsrGguf"
     formats = ("gguf",)
     health = "/health"
     model_field = "MODEL_FILE"
@@ -917,7 +1091,9 @@ class SeamlessRunner(Runner):
     icon = "\U0001f310"
     label_key = "runnerSeamless"
     benefits_key = "runnerSeamlessBenefits"
+    minus_key = "runnerSeamlessMinus"
     artifacts = ("seamless-st",)
+    needs_key = "runnerNeedsSeamlessSt"
     formats = ("*",)
     st_archs = ("seamless_m4t", "seamless_m4t_v2")
     health = "/health"
@@ -976,9 +1152,11 @@ class TranslateRunner(Runner):
     icon = "\U0001f504"
     label_key = "runnerTranslate"
     benefits_key = "runnerTranslateBenefits"
+    minus_key = "runnerTranslateMinus"
     #: Its own kind, like whisper's sizes: the picker rows ARE this runner's
     #: checkpoints, so picking one lands here and nothing else claims them.
     artifacts = ("nllb-repo",)
+    needs_key = "runnerNeedsNllbRepo"
     formats = ("*",)
     health = "/health"
     model_field = "TRANSLATE_MODEL"
@@ -1012,12 +1190,252 @@ class TranslateRunner(Runner):
         return self.command(merged)
 
 
+class LauncherCellMixin:
+    """A server of the caravan's own launcher over ONE model of the library: `bash $HOME/<launcher> "$PORT" …`.
+    A mixin rather than a base class, because every *Runner class is a row of the registry (EngineCellMixin's reason).
+
+    The launcher (cells/run_<name>.sh) installs its engine at the first start, in a folder of its own in the
+    user's home and without `sudo`, and then serves the model; the scout brings the launcher and the model
+    folder like any other cell's files (the groups of cell_assets.RUNNER_ASSETS, `model_files`). What a
+    subclass says is what differs: the launcher, the arguments it takes after the port, the files it needs,
+    the VRAM a start takes. The line is built here and nowhere else — the cell form's preview reads the same
+    `launcher`, `launcherArgs` and `folderRule` out of the registry (static/js/llama-edit.js), and
+    scripts/test_launcher_runners.py runs both against one table of cases.
+
+    The picked model is MODEL_FILE, as for seamless and GR00T: the picker's row is a folder of the library
+    (a safetensors checkpoint), or a file of one (a GGUF of several, see `folder_rule`)."""
+
+    formats = ("*",)
+    model_field = "MODEL_FILE"
+    model_files = ("MODEL_FILE",)
+    shared_picker = "source"
+    #: Its folders are paths under the shared model root.
+    needs_models_dir = True
+    #: The scout that brings folders (2.30) and a command cell's model files (2.31).
+    min_scout = (2, 31, 0)
+    #: A cell of these runs on the card: none has a CPU mode, and each runs on one card.
+    gpu_only = True
+    one_card = True
+
+    #: The script of cells/ this runner starts, and what it is given after the port: "{model}" is the model's
+    #: folder. Both are in the registry row, for the cell form's preview.
+    launcher = ""
+    launcher_args = ("{model}",)
+    #: How the model's folder comes out of MODEL_FILE. "picked": the picked path itself — a checkpoint folder.
+    #: "entry": the folder two steps above the picked file (<model>/<author>/<variant>/<file> gives
+    #: <model>/<author>): a model of several GGUF files in sub-folders is picked by one of them and launched by all.
+    folder_rule = "picked"
+    #: What a start takes on its card, MiB: measured on an RTX 5090 (2026-10-15) and rounded up. A start the
+    #: card cannot hold is refused before it is attempted, with these words.
+    vram_mib = 0
+    vram_who = ""
+    vram_why = ""
+    ROOT = '"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/'
+
+    def display_name(self):
+        """The runner's name in a refusal: what the operator reads on its tab."""
+        return self.id
+
+    def artifact_label(self, config):
+        parts = [p for p in str((config or {}).get("MODEL_FILE") or "").strip().rstrip("/").split("/") if p]
+        return parts[0] if parts else self.display_name()
+
+    def folder_of_model(self, model):
+        """The folder the launcher is given for a picked MODEL_FILE, or "" when none can be told from it."""
+        model = str(model or "").strip().rstrip("/")
+        if not model or self.folder_rule == "picked":
+            return model
+        folder = model
+        for _ in range(2):
+            folder = folder.rsplit("/", 1)[0] if "/" in folder else ""
+        return folder
+
+    def model_folder(self, config) -> str:
+        model = str((config or {}).get("MODEL_FILE") or "").strip()
+        if not model:
+            raise AppError(f"MODEL_FILE is required for a {self.display_name()} cell: the model's folder of the library", 400)
+        folder = self.folder_of_model(model)
+        if not folder:
+            raise AppError(f"MODEL_FILE of a {self.display_name()} cell must be a file of a library model laid out "
+                           f"as <model>/<author>/<variant>/<file>, not {model!r}", 400)
+        return folder
+
+    def model_file_values(self, config) -> dict:
+        """The folder the launcher reads, as the scout is to bring it: for a runner whose model is picked by one
+        of its files, the model's folder and not the one file. A value no folder can be told from is left out —
+        the start itself refuses it, with the field's name."""
+        folder = self.folder_of_model((config or {}).get("MODEL_FILE"))
+        return {"MODEL_FILE": folder} if folder else {}
+
+    def _path(self, rel) -> str:
+        rel = str(rel or "").strip().rstrip("/")
+        if rel.startswith("/") or rel.startswith("$"):
+            return shlex.quote(rel)
+        return self.ROOT + shlex.quote(rel)
+
+    def command(self, config) -> str:
+        """The launcher's line: the port, then the arguments with the model's folder in {model}. The launcher
+        checks the folder again — this line is also typed by hand."""
+        folder = self._path(self.model_folder(config))
+        return " ".join([f'bash $HOME/{self.launcher} "$PORT"', *(a.replace("{model}", folder) for a in self.launcher_args)])
+
+    def preflight_start(self, config, model="") -> None:
+        if not (model or self.model_ref(config)):
+            raise AppError(f"{self.display_name()} cell has no model — configure it first", 400)
+
+    def vram_reservation(self, config, gpus):
+        """What a start needs free on its card: the measured footprint, on the card the ENV pins (else the first)."""
+        device = self.pinned_card(config, gpus)
+        if device is None:
+            return None
+        return {"device": device, "reserveMiB": self.vram_mib, "who": self.vram_who, "why": self.vram_why, "lower": ""}
+
+    def vram_plan(self):
+        """A fixed figure: the engine and the model take what they took when measured."""
+        return {"fixedMiB": self.vram_mib}
+
+    def as_dict(self) -> dict:
+        row = super().as_dict()
+        row.update({"launcher": self.launcher, "launcherArgs": list(self.launcher_args), "folderRule": self.folder_rule})
+        return row
+
+
+class PersonaplexRunner(LauncherCellMixin, Runner):
+    """NVIDIA PersonaPlex-7B: a model you TALK to, in both directions at once. The microphone goes in and the
+    voice comes out, in a page the server serves itself (open it through an ssh tunnel: a microphone needs a
+    secure page). English. The engine is NVIDIA's moshi server, installed by the launcher at one pinned commit."""
+    id = "personaplex"
+    icon = "\U0001f5e3️"
+    label_key = "runnerPersonaplex"
+    benefits_key = "runnerPersonaplexBenefits"
+    minus_key = "runnerPersonaplexMinus"
+    needs_key = "runnerNeedsPersonaplexSt"
+    artifacts = ("personaplex-st",)
+    st_archs = ("personaplex",)
+    #: It has no /health: its page is what answers, once the model is loaded.
+    health = "/"
+    default_health_path = "/"
+    launcher = "run_personaplex.sh"
+    vram_mib = 20480
+    vram_who = "PersonaPlex"
+    vram_why = "the model and its codec took 19.5 GB on an RTX 5090"
+
+    def display_name(self):
+        return "PersonaPlex"
+
+
+class LfmAudioRunner(LauncherCellMixin, Runner):
+    """Liquid AI LFM2.5-Audio-1.5B: text to speech (`POST /v1/audio/speech`), a spoken answer to a spoken or written
+    question (`/v1/chat/completions`) and speech to text (`/asr`), in English. The cell is the caravan's own
+    (cells/lfm_audio_server.py) over Liquid's `liquid-audio` package, which the launcher installs from the
+    package's own lock into a venv of its own."""
+    id = "lfm-audio"
+    icon = "\U0001f50a"
+    label_key = "runnerLfmAudio"
+    benefits_key = "runnerLfmAudioBenefits"
+    minus_key = "runnerLfmAudioMinus"
+    needs_key = "runnerNeedsLfmAudioSt"
+    artifacts = ("lfm-audio-st",)
+    #: This checkpoint's config.json has no model_type: its architecture is the family (models.py reads it then).
+    st_archs = ("Lfm2AudioForConditionalGeneration",)
+    health = "/health"
+    default_health_path = "/health"
+    launcher = "run_lfm_audio.sh"
+    vram_mib = 7168
+    vram_who = "LFM2.5-Audio"
+    vram_why = "the model took 6.8 GB on an RTX 5090"
+
+    def display_name(self):
+        return "LFM2.5-Audio"
+
+
+class VllmOmniCellMixin(LauncherCellMixin):
+    """vLLM-Omni: models that answer in a VOICE through vLLM's OpenAI API — `POST /v1/chat/completions` with
+    `"modalities": ["text", "audio"]` gives the words in message.content and a wav (24 kHz, mono) in
+    message.audio.data. The language model and the speech decoder behind it run as stages on one card. One engine,
+    one runner per model family: a family has its own recipe in the launcher (the packages, the stages' budgets of
+    the card), the first of the launcher's arguments, and its own footprint."""
+    api = "openai"
+    health = "/health"
+    default_health_path = "/health"
+    launcher = "run_vllm_omni.sh"
+
+
+class StepAudio2Runner(VllmOmniCellMixin, Runner):
+    """StepFun Step-Audio 2 mini: a spoken question in, a spoken answer out, English and Chinese. Its second stage
+    (Token2Wav) loads at the FIRST request, so the first spoken answer takes about a minute and the next ones seconds."""
+    id = "step-audio2"
+    icon = "\U0001f463"
+    label_key = "runnerStepAudio2"
+    benefits_key = "runnerStepAudio2Benefits"
+    minus_key = "runnerStepAudio2Minus"
+    needs_key = "runnerNeedsStepAudio2St"
+    artifacts = ("step-audio2-st",)
+    st_archs = ("step_audio_2",)
+    launcher_args = ("step-audio2", "{model}")
+    vram_mib = 25600
+    vram_who = "Step-Audio 2"
+    vram_why = "its two stages took 25 GB on an RTX 5090"
+
+    def display_name(self):
+        return "Step-Audio 2"
+
+
+class Qwen3OmniRunner(VllmOmniCellMixin, Runner):
+    """Qwen3-Omni-30B-A3B (the AWQ 4-bit checkpoint; its speech stages stay bf16): text, speech and images in, speech
+    out in 10 languages, RUSSIAN among them. Its three stages take the whole 32 GB card: no other cell may hold
+    GPU memory while it runs."""
+    id = "qwen3-omni"
+    icon = "\U0001f3ad"
+    label_key = "runnerQwen3Omni"
+    benefits_key = "runnerQwen3OmniBenefits"
+    minus_key = "runnerQwen3OmniMinus"
+    needs_key = "runnerNeedsQwen3OmniSt"
+    artifacts = ("qwen3-omni-st",)
+    st_archs = ("qwen3_omni_moe",)
+    launcher_args = ("qwen3-omni", "{model}")
+    vram_mib = 31744
+    vram_who = "Qwen3-Omni"
+    vram_why = "its three stages took 30.7 GB — the whole 32 GB card — on an RTX 5090"
+
+    def display_name(self):
+        return "Qwen3-Omni"
+
+
+class MinicpmOmniRunner(LauncherCellMixin, Runner):
+    """llama.cpp-omni with MiniCPM-o 4.5: a spoken question in, a spoken answer out (it sees images too), English and
+    Chinese, over a WebSocket (`ws://<host>:<port>/backend`, turn by turn or full duplex) — not over the OpenAI API.
+    The launcher builds OpenBMB's `llama-omni-server` once, at one commit, and lays the model's ten files out in the
+    folder the server expects. The model is picked by one of its GGUF files, and launched by all of them."""
+    id = "minicpm-omni"
+    icon = "\U0001f3a4"
+    label_key = "runnerMinicpmOmni"
+    benefits_key = "runnerMinicpmOmniBenefits"
+    minus_key = "runnerMinicpmOmniMinus"
+    #: Its model is a GGUF like any LLM's — the main file is a qwen3 — so no file claims it (no gguf_archs): a GGUF
+    #: LLM may be picked, llama.cpp's tab stays open beside this one, and a folder of safetensors greys it.
+    artifacts = ("llm-gguf",)
+    formats = ("gguf",)
+    needs_key = "runnerNeedsMinicpmOmniGguf"
+    health = "/health"
+    default_health_path = "/health"
+    launcher = "run_minicpm_omni.sh"
+    folder_rule = "entry"
+    vram_mib = 12800
+    vram_who = "MiniCPM-o"
+    vram_why = "the model took 12.4 GB on an RTX 5090"
+
+    def display_name(self):
+        return "llama.cpp-omni"
+
+
 class CustomRunner(Runner):
     """An arbitrary command line — nothing about MODEL_FILE can rule it out."""
     id = "custom"
     icon = "\U0001f6e0️"
     label_key = "runnerCustom"
     benefits_key = "runnerCustomBenefits"
+    minus_key = "runnerCustomMinus"
     artifacts = ("*",)
     formats = ("*",)
     health = ""
@@ -1029,7 +1447,7 @@ class CustomRunner(Runner):
         """A custom cell has only the command, so drop the boilerplate — the
         interpreter, the home prefix, the `$PORT` the launcher substitutes — and
         keep what actually identifies it: `bash ~/run_tts.sh $PORT cosyvoice`
-        reads as `run_tts.sh cosyvoice`. Without this the kanban's server list
+        reads as `run_tts.sh cosyvoice`. Without this Routing's server list
         rendered such a cell as a bare `:8018`."""
         cmd = str((config or {}).get("COMMAND") or "").strip()
         if not cmd:
@@ -1150,6 +1568,11 @@ REGISTRY = (
     TranscribeRunner(),
     SeamlessRunner(),
     TranslateRunner(),
+    PersonaplexRunner(),
+    LfmAudioRunner(),
+    StepAudio2Runner(),
+    Qwen3OmniRunner(),
+    MinicpmOmniRunner(),
     CustomRunner(),
     OllamaRunner(),
     LmStudioRunner(),

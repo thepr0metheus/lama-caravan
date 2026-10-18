@@ -53,6 +53,9 @@ const facts = (html) => ({
   chipLast: html.endsWith(C + "</div>"),
   port: html.includes('data-llama-port="22002"') && html.includes(">:22002<"),
 });
+// The speed span of a line: its classes, its title attribute (null when there is none at all) and its words.
+const speedOf = (html) => { const m = html.match(/<span class="(fr-tps[^"]*)" data-live-rowtps( title="([^"]*)")?>([^<]*)<\/span>/) || [];
+  return { cls: m[1] ?? null, title: m[3] ?? null, text: m[4] ?? null }; };
 const cell = {
   parked: facts(new CellRow({ ...base, state: "parked", launch: L, stop: S, why: "Start" }).html()),
   parkedNoLaunch: facts(new CellRow({ ...base, state: "parked", why: "Not stopped" }).html()),
@@ -66,6 +69,17 @@ const cell = {
   escaped: new CellRow({ ...base, name: '"><b>x', title: '"><i>t' }).html(),
   titleDefault: (new CellRow({ ...base, state: "running" }).html().match(/ title="([^"]*)">/) || [])[1],
   warnWords: new CellRow({ ...base, warn: true }).html().includes(`title="${en.cellRowWarnTitle}"`),
+  // A failed cell (2026-10-17): the same thin line, red, with its word and its reason on hover; the switch still works.
+  failed: facts(new CellRow({ ...base, state: "parked", failed: true, reason: "boom", launch: L, stop: S, why: "Start" }).html()),
+  failedHtml: new CellRow({ ...base, state: "parked", failed: true, reason: 'a"><b>x', launch: L, why: "Start" }).html(),
+  failedBroken: facts(new CellRow({ ...base, state: "running", failed: true, reason: "dead engine", launch: L, stop: S, why: "Stop" }).html()),
+  notFailed: new CellRow({ ...base, state: "parked", reason: "left over" }).html(),
+  failedWarned: new CellRow({ ...base, state: "parked", failed: true, reason: "r", warn: true, tps: "1 t/s" }).html(),
+  failedWord: en.failed,
+  // The start in the line (2026-10-18, start-strip.js): the card hands over the strip it built; the line puts it last, under its own row.
+  strip: new CellRow({ ...base, state: "parked", tps: "1 t/s", strip: '<div class="fr-strip model-status-line" data-t="cell-row-strip"><span class="msl-text">x</span></div>' }).html(),
+  noStrip: new CellRow({ ...base, state: "parked", tps: "1 t/s" }).html(),
+  stripOfNull: new CellRow({ ...base, state: "parked", strip: null }).html() === new CellRow({ ...base, state: "parked" }).html(),
   reservedWords: en.topologyReservedCellLabel,
   shown: [new CellRow({ ...base, state: "reserved" }).shownName(), new CellRow({ ...base, state: "parked" }).shownName(),
           new CellRow({ ...base, state: "running", name: "" }).shownName()],
@@ -74,6 +88,14 @@ const cell = {
            facts(new CellRow({ ...base, state: "parked", engine: 'x" onclick="y' }).html()).cls,
            facts(new CellRow({ ...base, state: "parked", engine: "Ollama" }).html()).cls],
   launcher: ["ollama", "lm-studio2", "", null, "Ollama", "a b", "9x", "x<"].map((x) => CellRow.launcher(x)),
+  // The speed on the line (1.3.588): cell-speed.js decides what it is, the row only draws what it is handed.
+  speedPlain: speedOf(new CellRow({ ...base, state: "running", tps: "41.7 t/s", busy: true }).html()),
+  speedHeld: speedOf(new CellRow({ ...base, state: "running", tps: "last 211.3 t/s", held: true, tpsHint: 'Why <b>"x"' }).html()),
+  speedHeldNoHint: speedOf(new CellRow({ ...base, state: "running", tps: "last 5 t/s", held: true }).html()),
+  speedHintNotHeld: speedOf(new CellRow({ ...base, state: "running", tps: "5 t/s", tpsHint: "h" }).html()),
+  speedBare: speedOf(new CellRow({ ...base, state: "parked" }).html()),
+  speedHeldRow: facts(new CellRow({ ...base, state: "running", tps: "last 5 t/s", held: true }).html()).cls,
+  speedHeldAndBusyRow: facts(new CellRow({ ...base, state: "running", tps: "last 5 t/s", held: true, busy: true }).html()).cls,
 };
 
 const H = (role) => `<span class="topology-handle output ${role}" data-topology-route-handle="1" data-route-role="${role}"></span>`;
@@ -139,6 +161,7 @@ const windows = {
   noAddress: new CellWindow({ key: "k", name: "n", port: 1, card }).html(),
   escaped: new CellWindow({ key: '"><b>', name: "<i>x", port: '"1', address: "<u>", card }).html(),
   empty: new CellWindow({}).html(),
+  notice: new CellWindow({ key: "k", name: "n", port: 1, card, notice: '<div class="llama-err-block">why</div>' }).html(),
   engine: new CellWindow({ key: "h1:22031", name: "qwen3:8b", port: 22031, address: "10.0.0.5:22031", via: "127.0.0.1:11434",
                            viaTitle: 'to "Ollama"', engine: "ollama", card }).html(),
   engineOdd: new CellWindow({ key: "k", name: "n", port: 1, via: "<b>", engine: "a b", card }).html(),
@@ -209,6 +232,20 @@ c, a, s, w, e = got["cell"], got["agent"], got["slot"], got["windows"], got["eye
 
 print("строка ячейки:")
 check(c["parked"]["cls"] == "fold-row cell-row parked", "стоящая — класс parked, без cpu и busy")
+check(c["failed"]["cls"] == "fold-row cell-row parked failed" and c["failedBroken"]["cls"] == "fold-row cell-row running failed",
+      "упавшая — тот же класс строки и failed: красная, но тонкая; сломанная (процесс жив) — running failed")
+check('data-t="cell-row" data-t-state="failed" data-t-id="controller:22002"' in c["failedHtml"]
+      and f'<span class="fr-fail" data-t="cell-row-failed" title="a&quot;&gt;&lt;b&gt;x">{c["failedWord"]}</span>' in c["failedHtml"]
+      and c["failedHtml"].index("fr-name") < c["failedHtml"].index("fr-fail") < c["failedHtml"].index("fr-tps"),
+      "упавшая говорит словом «failed» (en.js) между именем и скоростью, причина — в подсказке слова, экранирована; "
+      "строка несёт data-t-state=failed")
+check(c["failedWarned"].index("fr-name") < c["failedWarned"].index("fr-fail") < c["failedWarned"].index("fr-warn") < c["failedWarned"].index("fr-tps"),
+      "слово failed стоит между именем и предупреждением ⚠: имя, failed, ⚠, скорость")
+check(c["failed"]["sw"][0] == "false" and "data-node-cell-launch" in c["failed"]["sw"][1]
+      and c["failedBroken"]["sw"][0] == "true" and "data-node-cell-stop" in c["failedBroken"]["sw"][1],
+      "переключатель упавшей работает как обычно: стоящая включается (повторный запуск), сломанная выключается (стоп)")
+check("fr-fail" not in c["notFailed"] and "failed" not in c["notFailed"].split(">")[0] and "data-t-state" not in c["notFailed"],
+      "negative: у не упавшей ни слова, ни класса, ни data-t-state, даже если причина передана")
 check(c["parked"]["hook"] == ["cell-row", "controller:22002"], "у строки свой хук cell-row с ключом ячейки")
 check(c["parked"]["anchors"] == 1 and c["parked"]["anchorFirst"],
       "ручка каната ровно одна и стоит первой — канат найдёт её, как находил на карточке")
@@ -228,6 +265,11 @@ check(c["reserved"]["sw"] == ["false", 'data-node-cell-launch="controller" data-
                                        'data-t="cell-row-start" data-t-id="controller:22002" title="Configure first" aria-label="Configure first"'],
       "зарезервированная — выключен; запускать ли, решает переданное (у доски его не передают — см. снимок карточки)")
 check('"><b>w' not in c["whyEscaped"] and "&quot;&gt;&lt;b&gt;w" in c["whyEscaped"], "причина экранируется")
+check(c["strip"].endswith('<span class="fr-tps" data-live-rowtps>1 t/s</span><span class="mbadge mbadge-vram-est">≈16.2G</span>'
+                          '<div class="fr-strip model-status-line" data-t="cell-row-strip"><span class="msl-text">x</span></div></div>'),
+      "полоска запуска (2026-10-18) стоит последней в строке — под её собственной строкой, после скорости и чипа, как карточка её собрала")
+check("fr-strip" not in c["noStrip"] and c["stripOfNull"] is True,
+      "negative: без полоски (и с null вместо неё) строка прежняя до байта — у стоящей, работающей и упавшей строки ничего не прибавилось")
 check(c["running"]["cls"] == "fold-row cell-row running cpu busy", "работающая на CPU и генерирующая — классы running cpu busy")
 check(c["engine"] == ["fold-row cell-row running engine-ollama busy", "fold-row cell-row parked engine-lmstudio",
                       "fold-row cell-row parked", "fold-row cell-row parked"],
@@ -237,6 +279,17 @@ check(c["launcher"] == ["ollama", "lm-studio2", "", "", "", "", "", ""],
       "launcher: только строчное слово из букв, цифр и дефиса, с буквы — иначе пусто")
 check(c["running"]["tps"] == "41.7 t/s", "живая скорость лежит в span data-live-rowtps — его и подменяет опрос")
 check(c["parked"]["tps"] == "", "без скорости span пуст, но есть: опросу есть куда писать")
+check(c["speedPlain"] == {"cls": "fr-tps", "title": None, "text": "41.7 t/s"},
+      "a plain speed (1.3.588): class fr-tps alone, no title at all — hovering it shows the row's own title")
+check(c["speedHeld"] == {"cls": "fr-tps held", "title": "Why &lt;b&gt;&quot;x&quot;", "text": "last 211.3 t/s"},
+      "a held speed: the class `held` (drawn quiet), its hint as the title, escaped, and its words as handed over")
+check(c["speedHeldNoHint"] == {"cls": "fr-tps held", "title": None, "text": "last 5 t/s"}
+      and c["speedHintNotHeld"] == {"cls": "fr-tps", "title": "h", "text": "5 t/s"},
+      "negative: the class and the hint are two fields — a held speed without a hint has no title attribute (not an empty one), a hint without `held` adds no class")
+check(c["speedBare"] == {"cls": "fr-tps", "title": None, "text": ""},
+      "a line with no speed keeps the empty span with no class and no title: the live patch has a place to write into")
+check(c["speedHeldRow"] == "fold-row cell-row running" and c["speedHeldAndBusyRow"] == "fold-row cell-row running busy",
+      "as-is: the row's `busy` and the speed's `held` are independent here — the row draws what it is handed, and cell-speed.js never hands both")
 check(c["reserved"]["name"] == c["reservedWords"] and c["reserved"]["cls"] == "fold-row cell-row reserved",
       "зарезервированная без модели — вместо имени слово «reserved» из en.js")
 check(c["unknownState"]["cls"] == "fold-row cell-row parked", "неизвестное состояние — как стоящая, а не пустой класс")
@@ -322,6 +375,11 @@ check("cwh-via" not in w["full"] and '<div class="cell-window" role="dialog"' in
       "negative: ячейка каравана — ни строки движка, ни класса")
 check('<div class="cell-window" role="dialog"' in w["engineOdd"] and "→ &lt;b&gt;" in w["engineOdd"],
       "negative: слово, не годное в имя класса, класса не даёт; адрес движка экранирован")
+
+check(w["notice"].index("llama-err-block") > w["notice"].index("cell-window-head") and w["notice"].index("llama-err-block") < w["notice"].index("<article"),
+      "окно упавшей: причина стоит после заголовка и ДО карточки — окно открывается на ней")
+check("llama-err-block" not in w["full"] and w["full"].endswith('</div><article class="node-server">card</article></div>'),
+      "negative: без причины окно прежнее — заголовок и сразу карточка")
 
 print("чипы машины (CellFilter):")
 fl = got["filters"]

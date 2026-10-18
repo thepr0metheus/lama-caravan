@@ -25,6 +25,8 @@ os.environ["CARAVAN_DATA_DIR"] = str(TMP)
 (TMP / "secrets").mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(ROOT))
 
+from _ports import free_port  # noqa: E402
+
 from caravan.admin import cloud, model_catalog  # noqa: E402
 from caravan.admin.pools import PoolDesk  # noqa: E402
 from caravan.common.cloud_pools import CloudPools  # noqa: E402
@@ -134,7 +136,7 @@ def test_narrowing():
             self.end_headers()
             self.wfile.write(body)
 
-    sock = socket.socket(); sock.bind(("127.0.0.1", 0)); port = sock.getsockname()[1]; sock.close()
+    port = free_port()
     srv = ThreadingHTTPServer(("127.0.0.1", port), _P)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 

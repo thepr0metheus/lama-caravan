@@ -862,10 +862,10 @@ export class ModelQueueNode extends QueueNode {
     const spillEdge = this.outEdges.find((e) => e.id === this.config.spillEdge);
     const label = this.targetLabel(spillEdge);
     const issue = spillEdge ? this.targetIssue(spillEdge) : "";
-    return `<section class="cv-model-queue${open ? " open" : ""}" data-t="kanban-model-queue"`
+    return `<section class="cv-model-queue${open ? " open" : ""}" data-t="routing-model-queue"`
       + ` data-t-id="${out}" data-t-state="${parts.state}" data-cv-model-queue="${out}" data-cv-node="rule:${nid}">`
       + `<div class="cv-mq-line">`
-      + `<button class="cv-mq-toggle" type="button" data-t="kanban-model-queue-toggle" data-cv-mq-toggle aria-expanded="${open}"`
+      + `<button class="cv-mq-toggle" type="button" data-t="routing-model-queue-toggle" data-cv-mq-toggle aria-expanded="${open}"`
       + ` title="${escapeHtml(t("cvTipModelQueue"))}"><span class="cv-mq-caret" aria-hidden="true"></span>`
       + `<span class="cv-mq-meter" data-cv-mq-state="${nid}">${parts.meter}</span></button>`
       + `<span class="cv-mq-ov${spillEdge ? "" : " unset"}">`
@@ -919,7 +919,7 @@ export class OnErrorNode extends RuleNode {
       + OnErrorNode.sameExitHtml(live.nx, mainEdge, rescueEdge);
   }
   // Main and backup that end on ONE output: the retry asks the model that has just failed, so
-  // the node protects nothing. On the live kanban one 🛟 had a single cable in both roles
+  // the node protects nothing. On the live Routing one 🛟 had a single cable in both roles
   // (2026-10-04) and read like a working backup. The ends are the proxy's when it reports them
   // (an exit may run through a chain) and the cables' own otherwise; an end nobody can name
   // says nothing — a guessed warning would be as wrong as a missing one.
@@ -927,7 +927,7 @@ export class OnErrorNode extends RuleNode {
     if (!mainEdge || !rescueEdge) return "";
     const end = (side, edge) => (nx && nx[side]) || OnErrorNode.outputIdOf(edge);
     const one = mainEdge === rescueEdge || (end("main", mainEdge) !== "" && end("main", mainEdge) === end("backup", rescueEdge));
-    return one ? `<div class="cv-q-warn" data-t="kanban-onerror-same" title="${escapeHtml(t("cvOnErrSameTip"))}">⚠ ${escapeHtml(t("cvOnErrSame"))}</div>` : "";
+    return one ? `<div class="cv-q-warn" data-t="routing-onerror-same" title="${escapeHtml(t("cvOnErrSameTip"))}">⚠ ${escapeHtml(t("cvOnErrSame"))}</div>` : "";
   }
   // When this exit's verdict expires — checkedAt plus the TTL, which the
   // snapshot carries as age + time-to-retry — the idle probe asks it again
@@ -1250,7 +1250,7 @@ export class InputsBlock {
   constructor(router) {
     this.router = router;
     const inputs = router.inputs || [];
-    // The main board decides who is listed. The kanban used to group PORTS, and
+    // The main board decides who is listed. Routing used to group PORTS, and
     // rows appeared here that the main board never had, named by a port label.
     // Unclaimed inputs do not vanish — they are named separately.
     this.proxies = (topology?.proxies || []).filter((p) => inputs.includes(p.id) && !_cvProxyIsTombstoned(p));
@@ -1283,7 +1283,7 @@ export class InputsBlock {
     const shown = override || proxyEffectiveWaitTimeout(p);
     if (!shown) return "";
     return `<span class="cv-in-wait${override ? " own" : ""}" title="${escapeHtml(t("cvTitleWaitBudget"))}"`
-      + ` data-t="kanban-input-wait" data-t-id="${escapeHtml(p.id)}">`
+      + ` data-t="routing-input-wait" data-t-id="${escapeHtml(p.id)}">`
       + `${escapeHtml(t("routeWaitLabel", { sec: String(shown) }))}</span>`;
   }
   clientRow(c) {
@@ -1315,7 +1315,7 @@ export class InputsBlock {
     const byClient = new Map(this.board.rows.map((r) => [r.key, r]));
     const unclaimed = this.board.unclaimed;
     return [...byClient.values()].map((c) => this.clientRow(c)).join("")
-      + (unclaimed.length ? `<div class="cv-inputs-client unclaimed" data-t="kanban-unclaimed">`
+      + (unclaimed.length ? `<div class="cv-inputs-client unclaimed" data-t="routing-unclaimed">`
         + `<span class="cv-in-name">${escapeHtml(t("cvInputsUnclaimed", { count: String(unclaimed.length) }))}</span>`
         + unclaimed.map((p) => this.unclaimedRow(p)).join("")
         + `</div>` : "");
@@ -1342,7 +1342,7 @@ export class InputsBlock {
       + `<div class="cv-embed-note">${embedOut ? escapeHtml(t("cvEmbedAllTo", { name: topologyRouterOutputLabel(embedOut) })) : t("cvEmbedNotSet")}</div>`
       + `</div>`;
   }
-  // Ports are no longer created here: the kanban is about routing, not about the
+  // Ports are no longer created here: Routing is about routing, not about the
   // existence of inputs. A port is created where its owner lives — on the client
   // card of the main board; otherwise a port appears that no card shows.
   //
@@ -1357,7 +1357,7 @@ export class InputsBlock {
     // the sentence — absence rendered as garbage. A nested template renders it.
     // Two parts, one per row of the board's band (canvas.css, .rw-cols): the head beside the
     // palette, the rows and the slot beside the canvas.
-    return `<aside class="rw-side rw-clients" data-t="kanban-node" data-t-id="inputs:block" data-cv-panel="clients">`
+    return `<aside class="rw-side rw-clients" data-t="routing-node" data-t-id="inputs:block" data-cv-panel="clients">`
       + `<div class="rw-side-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div>`
       + `<div class="rw-side-main">${CONSUMER_ACCESS.entryHtml(topology?.entry)}<div class="rw-side-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>`
       + `<div class="rw-side-foot">${this.embedSlotHtml()}</div></div></aside>`;
@@ -1393,7 +1393,7 @@ export class ServersBlock {
   constructor(router) { this.router = router; }
   panelHtml() {
     // The head and the queue policy line stand in the board's band, the rows beside the canvas.
-    return `<aside class="rw-side rw-servers" data-t="kanban-node" data-t-id="outputs:block" data-cv-panel="servers">`
+    return `<aside class="rw-side rw-servers" data-t="routing-node" data-t-id="outputs:block" data-cv-panel="servers">`
       + `<div class="rw-side-top"><div class="rw-side-head">${escapeHtml(t("topologyServersHead"))} ${helpTip("cvTipServersHead")}</div>`
       + QUEUE_SETTINGS.html() + `</div>`
       + `<div class="rw-side-body">${renderServersBlockHtml(this.router, ModelQueueNode.cards(this.router))}</div></aside>`;
@@ -1855,7 +1855,7 @@ export class Board {
   setViewport(pos, view) { this.pos = pos; this.view = view; _cvPos = pos; _cvView = view; this.drawPending = false; }
   // A rule node's place has one home: the router's graph on the server, where every drop is
   // saved. A browser also kept a copy under `cvpos:<router>` — from the days the panels were
-  // canvas nodes — and that copy won on every open: on the live kanban the operator's drags were
+  // canvas nodes — and that copy won on every open: on the live Routing the operator's drags were
   // saved, then undone by his own Chrome on reload (2026-10-04; he chose the server). The copy
   // is dropped on open, and a canvas opens with no places of its own: what the board holds in
   // memory afterwards is only a drop whose save has not landed yet.
@@ -1932,7 +1932,7 @@ export class Board {
   // polylines: the cubic sampled `steps` times, a point inside the box (shrunk by `inset`,
   // so a cable that only grazes an edge does not count) joins the stretch. The cables are
   // drawn under the nodes, and one that passed beneath a rule node it does not touch came
-  // out at that node's exit, as if it were the node's (the backup node on the NAS kanban,
+  // out at that node's exit, as if it were the node's (the backup node on the NAS Routing,
   // 2026-10-08): the stretch is drawn again above the node, dashed (drawConnectors).
   static underRuns(a, b, box, { steps = 48, inset = 4 } = {}) {
   const [p0, p1, p2, p3] = Board.curve(a, b).controls;
@@ -1981,7 +1981,7 @@ export class Board {
   const cables = [];
   const seen = new Set();
   // A cable into a cell that is not serving is drawn broken (output-cells.js): on the live
-  // kanban the cables into two stopped cells looked exactly like the working ones.
+  // Routing the cables into two stopped cells looked exactly like the working ones.
   const cells = new OutputCells(topology, router);
   const down = (to) => {
     const out = to.startsWith("out:") ? (router.outputs || []).find((o) => o.id === to.slice(4)) : null;
@@ -2029,7 +2029,7 @@ export class Board {
     if (down(to)) cls += " cv-cable-down";
     cables.push({ a, b, cls, from, to, edgeKey: `${escapeHtml(from)}|${escapeHtml(to)}` });
   });
-  // Smooth cables — the same cubic the main board draws, at the kanban's
+  // Smooth cables — the same cubic the main board draws, at Routing's
   // full stroke width. Curves fan out on their own, so the orthogonal
   // machinery they replace (lane buses, hop arcs, junction dots) is gone
   // with the pipes it decorated.
@@ -2040,10 +2040,10 @@ export class Board {
     // does not count connections: each edge draws an invisible fat hit-path, the
     // visible cable, and the ✕ puck's two strokes, so five nodes rendered
     // fifty-four paths and the number meant nothing. This <g> is the connection.
-    // data-t-id is `from->to` using the same node ids kanban-node carries, so a
+    // data-t-id is `from->to` using the same node ids routing-node carries, so a
     // test can assert the graph's actual wiring rather than that something was
     // drawn.
-    paths.push(`<g class="cv-edge-grp" data-t="kanban-cable" data-t-id="${escapeHtml(c.from)}-&gt;${escapeHtml(c.to)}">`
+    paths.push(`<g class="cv-edge-grp" data-t="routing-cable" data-t-id="${escapeHtml(c.from)}-&gt;${escapeHtml(c.to)}">`
       + `<title>${escapeHtml(t("cvTitleEdge"))}</title>`
       + `<path class="cv-edge-hit" data-cv-edge="${c.edgeKey}" d="${d}" fill="none"></path>`
       + `<path data-cv-edge="${c.edgeKey}" d="${d}" class="${c.cls}" fill="none"></path>`
@@ -2572,7 +2572,7 @@ if (typeof window !== "undefined" && !window._cvSchedUpBound) {
   window.addEventListener("pointerup", () => board.endPaint());
 }
 
-// Bound at module load (not in board.bind()): the standalone kanban
+// Bound at module load (not in board.bind()): the standalone Routing
 // page reaches that bind late or never on a fresh load, and the svg itself is
 // rebuilt on every render — document-level delegation is the only stable home.
 document.addEventListener("pointerover", (e) => {
@@ -2623,13 +2623,13 @@ board.bindWindow();
 // Pan/zoom, node drag and port drag bind to the viewport/world elements in
 // board.bind() — and died whenever a re-render path rebuilt the canvas
 // DOM without renderTopology's rAF rebind (the memo-keyed cloud re-render on the
-// standalone kanban does exactly that, leaving the board view-only). Watch for a
+// standalone Routing does exactly that, leaving the board view-only). Watch for a
 // fresh world element and rewire it; the per-generation guard inside
 // board.bind() makes overlapping calls harmless, and per-tick svg
 // innerHTML rewrites keep element identity so quiet frames no-op.
 new MutationObserver(() => board.bind())
   .observe(document.documentElement, { childList: true, subtree: true });
-// The "+ App port" button is gone: the kanban is about routing, not about the
+// The "+ App port" button is gone: Routing is about routing, not about the
 // existence of inputs. A port is created where its owner lives — on the client
 // card of the main board — and its handlers left with the button, so no live
 // path remains to a control that does not exist.

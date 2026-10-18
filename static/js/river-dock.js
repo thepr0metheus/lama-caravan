@@ -3,7 +3,7 @@
  *
  * While the brook runs a small ▾ joins the switch, and it opens and closes the dock. The dock
  * hangs under the header, not over the page: fixed at the bottom of the window it covered the
- * end of the lists on /hf and /kanban and sat on /hf's own dock. It follows its ▾ in the page's
+ * end of the lists on /hf and /routing and sat on /hf's own dock. It follows its ▾ in the page's
  * order, so Tab goes from the ▾ into it; a press anywhere else, or Escape, closes it.
  *
  * The dock only opens, closes and names itself; what its buttons do is river-background.js's.

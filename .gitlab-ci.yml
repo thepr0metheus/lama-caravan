@@ -1,0 +1,62 @@
+# The checks of lama-caravan in GitLab CI: the ones .github/workflows/ci.yml names. That workflow is
+# the public copy's and is switched off there, so this is the first place the whole list runs on
+# every merge request.
+#
+# The scripts are found on disk by a glob, so a new scripts/check_*.py or scripts/test_*.py joins the
+# run by itself. scripts/check_ci_coverage.py still guards the list in the workflow. Two scripts the
+# glob does not match run by name below, with their flags.
+#
+# A pipeline starts for a merge request, and for main after a merge. A branch with no merge request
+# makes none: it would only repeat the run of its merge request.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+default:
+  # The group runner with the Docker executor.
+  tags: [docker]
+  # A new push to a merge request cancels the run that is still going.
+  interruptible: true
+  timeout: 30m
+
+variables:
+  # The python image has no Node, and the JS checks need it. Pinned, with the checksum from
+  # https://nodejs.org/dist/v24.21.0/SHASUMS256.txt
+  NODE_VERSION: "24.21.0"
+  NODE_SHA256: "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff"
+
+checks:
+  image: python:3.12
+  before_script:
+    - curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tgz
+    - echo "${NODE_SHA256}  /tmp/node.tgz" | sha256sum -c -
+    - tar -xzf /tmp/node.tgz -C /usr/local --strip-components=1
+    - python3 --version
+    - node --version
+  script:
+    - python3 -m py_compile $(git ls-files '*.py')
+    - python3 scripts/testability_names.py --check
+    # Every JS module must parse as an ES module.
+    - |
+      set -e
+      for f in $(git ls-files 'static/js/*.js' 'static/*.js'); do
+        cp "$f" /tmp/check.mjs
+        node --check /tmp/check.mjs || { echo "FAIL $f"; exit 1; }
+      done
+    - python3 scripts/bench_proxy.py --quick
+    # All the guards and tests. A passing script prints one line, a failing one prints its output,
+    # and the job fails at the end, so one run shows every red script and not only the first.
+    - |
+      fail=0
+      for f in scripts/check_*.py scripts/test_*.py; do
+        if out=$(python3 "$f" 2>&1); then
+          echo "ok   $f"
+        else
+          echo "FAIL $f"
+          echo "$out"
+          fail=1
+        fi
+      done
+      exit $fail

@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
+from cell_speed_cases import HELP, LAST  # noqa: E402
 
 STUBS = ("polling,canvas,topology-dnd,topology-render,dialogs,cloud,cables,history,favorites,config-locator,"
          "system-panels,onboarding,onboarding-tours,usage-stats,dialog-llamas,models-page,system-page,memory,"
@@ -295,7 +296,7 @@ PINS = [
      '[{"time":1,"tokens":{"promptTokensPerSecond":10,"predictedTokensPerSecond":1}},{"time":2,"tokens":{"promptTokensPerSecond":50,"predictedTokensPerSecond":5}},{"time":3,"tokens":{"promptTokensPerSecond":null,"predictedTokensPerSecond":null}},{"time":4,"tokens":{"promptTokensPerSecond":50,"predictedTokensPerSecond":5}}]',
      "истории объединены по времени: старые ответы остановленных сохраняются, дубль одной ячейки заменяет себя, пропуск не заполняется чужой старой скоростью"),
     ("node_token_panel_renders_bonsai", '',
-     '(() => { const old=document.querySelector; const label=el(); const canvas=tokenCanvas(); globalThis.__stubReturns["polling.formatTps"]=(v)=>String(v); st.setTopology({nodes:[{id:"sierra-pc",servers:[{port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{port:22013,phase:"running",promptTps:467.95,genTps:137.75,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]}]}); document.querySelector=(s)=>s.includes("data-node-metric-val")?label:s.includes("data-node-canvas")?canvas:null; try {m.drawNodeTelemetry();return [label.textContent,canvas._tokenSamples.map((s)=>s.tokens.predictedTokensPerSecond),canvas.moves.some(([color,x,y])=>color==="rgba(105, 208, 144, 0.95)"&&y<80)];}finally{document.querySelector=old;} })()',
+     '(() => { const old=document.querySelector; const label=el(); const canvas=tokenCanvas(); globalThis.__stubReturns["polling.formatTps"]=(v)=>String(v); st.setTopology({nodes:[{id:"sierra-pc",servers:[{port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{port:22013,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:1,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]}]}); document.querySelector=(s)=>s.includes("data-node-metric-val")?label:s.includes("data-node-canvas")?canvas:null; try {m.drawNodeTelemetry();return [label.textContent,canvas._tokenSamples.map((s)=>s.tokens.predictedTokensPerSecond),canvas.moves.some(([color,x,y])=>color==="rgba(105, 208, 144, 0.95)"&&y<80)];}finally{document.querySelector=old;} })()',
      '["prompt 467.95 / gen 137.75 t/s",[137.75,137.75],true]',
      "настоящий рендер панели: CPU первым, Bonsai позже — подпись ненулевая, график получает Bonsai, зелёная линия выше нуля"),
     ("token_chart_preserves_gap", '',
@@ -312,8 +313,164 @@ PINS = [
      '[{"time":5,"gpu":{"memoryTotalMiB":1000,"memoryPct":0}}]',
      "boundary: в строке карты нет (nvidia-smi не ответил) — значения не выдумываются (нет, а не 0); как рисовать пропуск, "
      "решают графики — так же, как для замеров самого контроллера"),
+    # ── a machine of two cards: one pool of memory, one power draw, the busiest card's utilisation ──
+    ("node_gpu_two_cards_are_one_machine", '',
+     '[new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 0, utilizationGpuPct: 3, powerDrawW: 18 }, { index: 1, memoryTotalMiB: 32607, memoryUsedMiB: 4907, utilizationGpuPct: 7, powerDrawW: 24 }] }).current(),'
+     ' new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 32607, memoryUsedMiB: 4907, utilizationGpuPct: 7, powerDrawW: 24 }] }).current()]',
+     '[{"utilPct":7,"usedMiB":4907,"totalMiB":57183,"powerW":42},{"utilPct":7,"usedMiB":4907,"totalMiB":32607,"powerW":24}]',
+     "defect-history (2026-10-17): карточка машины с 3090 и 5090 показывала «0.0 / 24.0 GB» и 18 Вт — цифры нулевой карты, а 4,8 ГБ держала другая. "
+     "Теперь память и мощность складываются, загрузка — у самой занятой карты (3 % и 7 % — это 7 %, а не 10 %); negative: машина с одной картой — её цифры, как были"),
+    ("node_gpu_unknown_is_not_zero", '',
+     '[new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 1000 }, { index: 1, memoryTotalMiB: 2000 }] }).current(),'
+     ' new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 1000, memoryUsedMiB: 100, utilizationGpuPct: 5 }, { index: 1, memoryTotalMiB: 2000 }] }).current(),'
+     ' new m.NodeGpuTelemetry({}).current()]',
+     '[{"utilPct":null,"usedMiB":null,"totalMiB":3000,"powerW":null},{"utilPct":5,"usedMiB":100,"totalMiB":3000,"powerW":null},{"utilPct":null,"usedMiB":null,"totalMiB":0,"powerW":null}]',
+     "negative: ни одна карта цифры не назвала — это null («—» на карточке), а не ноль; назвала одна — суммируется известное; машина без карт — нули размера и null"),
+    ("node_gpu_samples_two_cards_from_scout_rows",
+     'st.ui.latestSystemMonitor = { hosts: { "box-a": [{ t: 1001, gpus: [{ index: 0, memUsedMiB: 100, memTotalMiB: 1000, utilPct: 10, powerW: 50 }, { index: 1, memUsedMiB: 900, memTotalMiB: 3000, utilPct: 99, powerW: 300 }] },'
+     ' { t: 1002, gpus: [{ index: 1, memUsedMiB: 1000, utilPct: 90, powerW: 280 }] }, { t: 1003, gpus: [] }] } };',
+     'm._nodeGpuSamples({ id: "box-a", gpus: [{ index: 0, memoryTotalMiB: 1000 }, { index: 1, memoryTotalMiB: 3000 }] })',
+     '[{"time":1001,"gpu":{"utilPct":99,"memoryUsedMiB":1000,"memoryTotalMiB":4000,"memoryPct":25,"powerW":350}},'
+     '{"time":1002,"gpu":{"utilPct":90,"memoryUsedMiB":1000,"memoryTotalMiB":4000,"memoryPct":25,"powerW":280}},'
+     '{"time":1003,"gpu":{"memoryTotalMiB":4000,"memoryPct":0}}]',
+     "строки скаута двух карт: секунда в секунду, память и мощность складываются, загрузка — максимум, объём — обе карты; boundary: в секунде одной карты нет — "
+     "считается то, что есть, объём прежний; negative: ни одной карты в строке — ничего не выдумано (нет, а не 0)"),
+    ("node_gpu_samples_two_cards_from_reports", '',
+     'm._nodeGpuSamples({ gpus: [{ index: 0, memoryTotalMiB: 1000, history: [[1, 100, 10, 50], [2, 200, 20, 60]] }, { index: 1, memoryTotalMiB: 3000, history: [[1, 900, 99, 300], [2, 800, 5, 250], [3, 700, 1, 200]] }] })',
+     '[{"gpu":{"utilPct":99,"memoryUsedMiB":1000,"memoryTotalMiB":4000,"memoryPct":25,"powerW":350}},'
+     '{"gpu":{"utilPct":20,"memoryUsedMiB":1000,"memoryTotalMiB":4000,"memoryPct":25,"powerW":310}},'
+     '{"gpu":{"utilPct":1,"memoryUsedMiB":700,"memoryTotalMiB":4000,"memoryPct":17.5,"powerW":200}}]',
+     "история отчётов старого скаута: карты наложены друг на друга по времени строки; у позднего времени только вторая карта — считается она; "
+     "negative: история одной карты и пустая — как были (см. node_pseudo_samples)"),
+    ("node_gpu_breakdown_names_each_card", '',
+     '(() => { const two = new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 0, utilizationGpuPct: 0, powerDrawW: 18.04 }, { index: 1, memoryTotalMiB: 32607, memoryUsedMiB: 4907, powerDrawW: 24.3 }] });'
+     ' return [two.breakdown("gpu"), two.breakdown("vram"), two.breakdown("power"), two.breakdown("tokens"), new m.NodeGpuTelemetry({ gpus: [{ index: 0 }] }).breakdown("vram"),'
+     ' new m.NodeGpuTelemetry({ gpus: [{ index: 1, memoryTotalMiB: 1000, memoryUsedMiB: 500 }, { index: 0, memoryTotalMiB: 2000, memoryUsedMiB: 100 }] }).breakdown("vram")]; })()',
+     '["GPU0 0% · GPU1 —","GPU0 0.0 / 24.0 GB · GPU1 4.8 / 31.8 GB","GPU0 18.0 W · GPU1 24.3 W","","","GPU1 0.5 / 1.0 GB · GPU0 0.1 / 2.0 GB"]',
+     "подсказка к цифре: свои цифры каждой карты (нет замера — «—»); negative: у машины с одной картой подсказки нет — различать нечего; неизвестная метрика — пусто; карта названа своим номером, а не местом в списке (карты 1 и 0 — «GPU1 … · GPU0 …»)"),
+    ("node_gpu_panel_renders_both_cards", '',
+     '(() => { const old = document.querySelector; const labels = {}; document.querySelector = (q) => { const k = (q.match(/data-node-metric-val="([^"]*)"/) || [])[1]; return k ? (labels[k] ||= { textContent: "", title: "" }) : null; };'
+     ' try { st.setTopology({ nodes: [{ id: "a", gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 0, utilizationGpuPct: 0, powerDrawW: 18 }, { index: 1, memoryTotalMiB: 32607, memoryUsedMiB: 4907, utilizationGpuPct: 7, powerDrawW: 24 }] },'
+     ' { id: "b", gpus: [{ index: 0, memoryTotalMiB: 32607, memoryUsedMiB: 4907, utilizationGpuPct: 7, powerDrawW: 24 }] }, { id: "c", gpus: [{ index: 0, memoryTotalMiB: 8192 }] }] });'
+     ' m.drawNodeTelemetry(); const read = (id) => ["gpu", "vram", "power"].map((k) => [labels[id + ":" + k].textContent, labels[id + ":" + k].title]); return { a: read("a"), b: read("b"), c: read("c") }; } finally { document.querySelector = old; } })()',
+     '{"a":[["7%","GPU0 0% · GPU1 7%"],["4.8 / 55.8 GB","GPU0 0.0 / 24.0 GB · GPU1 4.8 / 31.8 GB"],["42.0 W","GPU0 18.0 W · GPU1 24.0 W"]],'
+     '"b":[["7%",""],["4.8 / 31.8 GB",""],["24.0 W",""]],"c":[["—",""],["— / 8.0 GB",""],["—",""]]}',
+     "настоящий рендер панели: у машины с двумя картами 4.8 / 55.8 GB, 42 Вт и 7% (карты по отдельности — в подсказке); negative: у машины с одной картой цифры её и без подсказки; "
+     "у карты без замеров — «—», а не «0%», «0.0 / 8.0 GB» и «0.0 W»"),
+    # 2026-10-17, the owner: "the combined chart (like you did now) and a chart for each of the cards".
+    ("node_telemetry_a_line_per_card", '',
+     '(() => { const two = { id: "box-a", gpus: [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], servers: [{ port: 22011 }] };'
+     ' const rows = (h) => (h.match(/class="gpu-metric-card"/g) || []).length; const two_ = m.nodeTelemetryRowsHtml(two);'
+     ' const block = (key) => (two_.match(new RegExp(`data-open-chart="node:box-a:${key}"[\\\\s\\\\S]*?(?=<div class="gpu-metric"|$)`)) || [""])[0];'
+     ' return [rows(two_), [...two_.matchAll(/data-t="node-gpu-card" data-t-id="([^"]*)" title="([^"]*)"/g)].map((x) => [x[1], x[2]]),'
+     ' [...two_.matchAll(/data-t="node-gpu-cards" data-t-id="([^"]*)"/g)].map((x) => x[1]), rows(block("tokens")), rows(block("gpu")),'
+     ' rows(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 0 }], servers: [{ port: 22011 }] })), rows(m.nodeTelemetryRowsHtml({ id: "box-a", servers: [{ port: 22011 }] })),'
+     ' [...m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 2 }, { index: 0 }] }).matchAll(/data-t="node-gpu-card" data-t-id="box-a:gpu:(\\d+)" title="([^"]*)"/g)].map((x) => [x[1], x[2]]),'
+     ' two_.includes(\'data-node-metric-val="box-a:power:1"\') && two_.includes(\'data-node-metric-spark="box-a:power:1"\')]; })()',
+     '[6,[["box-a:gpu:0","GPU 0 · NVIDIA GeForce RTX 3090"],["box-a:gpu:1","GPU 1 · NVIDIA GeForce RTX 5090"],["box-a:vram:0","GPU 0 · NVIDIA GeForce RTX 3090"],'
+     '["box-a:vram:1","GPU 1 · NVIDIA GeForce RTX 5090"],["box-a:power:0","GPU 0 · NVIDIA GeForce RTX 3090"],["box-a:power:1","GPU 1 · NVIDIA GeForce RTX 5090"]],'
+     '["box-a:gpu","box-a:vram","box-a:power"],0,2,0,0,[["2","GPU 2"],["0","GPU 0"]],true]',
+     "машина с двумя картами: под общей строкой загрузки, памяти и мощности — по строке на карту (6 строк), каждая со своим номером платы, именем в подсказке, значением и мини-графиком; "
+     "negative: под скоростью токенов строк по картам нет (токены считает ячейка, не карта); у машины с одной картой и без карт их нет; карта называется своим номером, а не местом в списке (карты 2 и 0)"),
+    ("node_gpu_card_samples", '',
+     '(() => { const hist = new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 1000, history: [[1, 100, 10, 50], [2, 200, 20, 60]] }, { index: 1, memoryTotalMiB: 2000, history: [[1, 900, 90, 300]] }] }, []);'
+     ' const rows = new m.NodeGpuTelemetry({ gpus: [{ index: 0, memoryTotalMiB: 1000 }, { index: 1, memoryTotalMiB: 2000 }] }, [{ t: 5, gpus: [{ index: 1, utilPct: 40, memUsedMiB: 500, memTotalMiB: 2048, powerW: 123 }, { index: 0, utilPct: 3, memUsedMiB: 10, powerW: 20 }] }, { t: 6, gpus: [{ index: 1 }] }]);'
+     ' return [hist.cardSamples(0), hist.cardSamples(1), rows.cardSamples(1), rows.cardSamples(0), hist.cardSamples(7), rows.cardCurrent(5)]; })()',
+     '[[{"gpu":{"utilPct":10,"memoryUsedMiB":100,"memoryTotalMiB":1000,"memoryPct":10,"powerW":50}},{"gpu":{"utilPct":20,"memoryUsedMiB":200,"memoryTotalMiB":1000,"memoryPct":20,"powerW":60}}],'
+     '[{"gpu":{"utilPct":90,"memoryUsedMiB":900,"memoryTotalMiB":2000,"memoryPct":45,"powerW":300}}],'
+     '[{"time":5,"gpu":{"utilPct":40,"memoryUsedMiB":500,"memoryTotalMiB":2048,"memoryPct":24.4140625,"powerW":123}},{"time":6,"gpu":{"memoryTotalMiB":2000,"memoryPct":0}}],'
+     '[{"time":5,"gpu":{"utilPct":3,"memoryUsedMiB":10,"memoryTotalMiB":1000,"memoryPct":1,"powerW":20}},{"time":6,"gpu":{"memoryTotalMiB":1000,"memoryPct":0}}],[],'
+     '{"utilPct":null,"usedMiB":null,"totalMiB":0,"powerW":null}]',
+     "один график карты: из истории её отчётов (старый скаут) и из секундных строк монитора (по номеру карты, а не по месту в списке); "
+     "negative: карта без замера в строке — «нет замера» (поле пусто), не 0; карты нет — пусто, а не падение"),
+    ("node_gpu_panel_draws_each_card", '',
+     '(() => { const old = document.querySelector; const seen = {}; document.querySelector = (q) => { const v = (q.match(/data-node-metric-val="([^"]*)"/) || [])[1]; const sp = (q.match(/data-node-metric-spark="([^"]*)"/) || [])[1];'
+     ' if (v) return (seen["v:" + v] ||= { textContent: "", title: "" }); if (sp) return (seen["s:" + sp] ||= { innerHTML: "" }); return null; };'
+     ' try { st.setTopology({ nodes: [{ id: "a", gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 0, utilizationGpuPct: 0, powerDrawW: 18, history: [[1, 0, 0, 18], [2, 0, 1, 19]] },'
+     ' { index: 1, memoryTotalMiB: 32607, memoryUsedMiB: 4907, utilizationGpuPct: 7, powerDrawW: 24, history: [[1, 4900, 5, 23], [2, 4907, 9, 24]] }] },'
+     ' { id: "b", gpus: [{ index: 0, memoryTotalMiB: 32607, memoryUsedMiB: 4907, utilizationGpuPct: 7, powerDrawW: 24 }] }] });'
+     ' m.drawNodeTelemetry(); const read = (id, key) => [(seen["v:" + id + ":" + key] || {}).textContent ?? null, (((seen["s:" + id + ":" + key] || {}).innerHTML || "").match(/points="([^"]*)"/) || [null, null])[1]];'
+     ' return { a0: [read("a", "gpu:0"), read("a", "vram:0"), read("a", "power:0")], a1: [read("a", "gpu:1"), read("a", "vram:1"), read("a", "power:1")], b: [read("b", "gpu:0"), read("b", "vram:0")] }; } finally { document.querySelector = old; } })()',
+     '{"a0":[["0%","0.0,14.0 72.0,13.9"],["0.0 / 24.0 GB","0.0,14.0 72.0,14.0"],["18.0 W","0.0,9.0 72.0,8.7"]],'
+     '"a1":[["7%","0.0,13.3 72.0,12.7"],["4.8 / 31.8 GB","0.0,11.9 72.0,11.9"],["24.0 W","0.0,7.6 72.0,7.3"]],"b":[[null,null],[null,null]]}',
+     "настоящий рендер: каждая из двух карт получает своё значение и свой график (загрузка, память, мощность), а не общие цифры машины; "
+     "negative: у машины с одной картой строк по картам нет и ничего в них не пишется"),
     ("controller_widget_gone", '', '["controllerTokenGenSamples", "drawGpuMetricSparklines", "renderLlamaClientsInnerHtml"].filter((k) => k in m)', '[]',
      "negative: собственного виджета контроллера (серия генерации, спарклайны GPU/токенов/VRAM/мощности, клиенты llama) больше нет — его машина теперь узел со своей телеметрией (шаг 6.9)"),
+]
+
+
+# 1.3.589 — the machine's token speed panel says `last` when its figures are only held (the owner, 2026-10-18, after the cells' lines did):
+# a running cell has a speed above 0 and no running cell answers a request now. The rule of who works is cell-speed.js's.
+_RUN = 'phase:"running"'
+PINS += [
+    ("node_tokens_held_idle_holds", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,promptTps:2671.4,genTps:211.3,requestsProcessing:0}]}).held()' % _RUN,
+     'true', "the cell answered once and holds its rates, no request runs: the machine's figures are held"),
+    ("node_tokens_not_held_while_a_request_runs", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,promptTps:2671.4,genTps:211.3,requestsProcessing:1}]}).held()' % _RUN,
+     'false', "a request runs: the figures are plain"),
+    ("node_tokens_mixed_is_not_held", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,genTps:211.3,requestsProcessing:0},{%s,genTps:40,requestsProcessing:1}]}).held()' % (_RUN, _RUN),
+     'false', "one cell holds and another answers: the machine works, the figures are plain"),
+    ("node_tokens_a_working_cell_without_a_figure_blocks_held", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,genTps:211.3,requestsProcessing:0},{%s,genTps:null,requestsProcessing:2}]}).held()' % (_RUN, _RUN),
+     'false', "a request that reads its prompt has no speed yet, and it is still work: nothing is called `last` while it runs"),
+    ("node_tokens_not_told_is_held", '',
+     '[new m.NodeTokenTelemetry({servers:[{%s,genTps:5}]}).held(), new m.NodeTokenTelemetry({servers:[{%s,genTps:5,requestsProcessing:"2"}]}).held()]' % (_RUN, _RUN),
+     '[true,true]', "a scout that does not say how many requests run (or says it as text): not told claims no work — the figures are the last ones"),
+    ("node_tokens_a_prompt_rate_alone_is_held", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,promptTps:300,genTps:0,requestsProcessing:0}]}).held()' % _RUN,
+     'true', "the prompt rate is a figure too: a cell that only read prompts holds it while idle, and the panel says `last`"),
+    ("node_tokens_no_figure_is_not_held", '',
+     '[new m.NodeTokenTelemetry({servers:[{%s,promptTps:null,genTps:null,requestsProcessing:0}]}).held(), new m.NodeTokenTelemetry({servers:[{%s,promptTps:0,genTps:0,requestsProcessing:0}]}).held()]' % (_RUN, _RUN),
+     '[false,false]', "negative: nothing measured, or a measured zero, is no figure to call `last`"),
+    ("node_tokens_a_stopped_cell_is_not_counted", '',
+     '[new m.NodeTokenTelemetry({servers:[{phase:"stopped",genTps:99,requestsProcessing:0}]}).held(), new m.NodeTokenTelemetry({servers:[{%s,genTps:20,requestsProcessing:0},{phase:"stopped",genTps:99,requestsProcessing:3}]}).held()]' % _RUN,
+     '[false,true]', "a stopped cell has no figures and no work whatever it last said: alone it holds nothing; beside a running idle cell it does not make the machine work"),
+    ("node_tokens_nothing_to_hold", '',
+     '[new m.NodeTokenTelemetry({}).held(), new m.NodeTokenTelemetry({servers:[]}).held()]',
+     '[false,false]', "negative: a machine with no cells holds nothing"),
+    ("node_tokens_label_says_last_when_held",
+     'globalThis.__stubReturns["polling.formatTps"] = (v) => String(v);',
+     '[m.NodeTokenTelemetry.label(1,2), m.NodeTokenTelemetry.label(1,2,false), m.NodeTokenTelemetry.label(1,2,true), m.NodeTokenTelemetry.label(null,null,true)]',
+     json.dumps(["prompt 1 / gen 2 t/s", "prompt 1 / gen 2 t/s", f"{LAST} prompt 1 / gen 2 t/s", f"{LAST} prompt — / gen — t/s"]),
+     "`last` stands before the figures only when they are held; the word is the cells' (tpsLastLabel); as-is: handed no figures and told they are held, the label says so"),
+    ("node_token_panel_says_last_and_its_hint",
+     'const old = document.querySelector; const label = { textContent: "", title: "" }; const canvas = tokenCanvas(); globalThis.__stubReturns["polling.formatTps"] = (v) => String(v);'
+     ' const draw = (servers) => { st.setTopology({ nodes: [{ id: "sierra-pc", servers }] }); document.querySelector = (s) => (s.includes("data-node-metric-val") ? label : s.includes("data-node-canvas") ? canvas : null);'
+     ' try { m.drawNodeTelemetry(); return [label.textContent, label.title]; } finally { document.querySelector = old; } };',
+     '[draw([{port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:0,tpsHistory:[[1,467.95,137.75]]}]),'
+     ' draw([{port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:1,tpsHistory:[[1,467.95,137.75]]}]),'
+     ' draw([{port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:0,tpsHistory:[[1,467.95,137.75]]}])]',
+     json.dumps([[f"{LAST} prompt 467.95 / gen 137.75 t/s", HELP], ["prompt 467.95 / gen 137.75 t/s", ""], [f"{LAST} prompt 467.95 / gen 137.75 t/s", HELP]]),
+     "the real panel draw, one label over three ticks: idle holds (`last`, with the hint on hover), a request runs (plain, the hint gone), idle again — "
+     "a hint left behind would explain live figures as held ones"),
+]
+
+
+# 1.3.590 — the machine's sum counts what the machine does now: while any cell works, only the cells that work; the held figures only when none does.
+PINS += [
+    ("node_tokens_sum_counts_only_the_cells_that_work", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,promptTps:2671.4,genTps:211.3,requestsProcessing:0},{%s,promptTps:300,genTps:40,requestsProcessing:1}]}).current()' % (_RUN, _RUN),
+     '{"promptTps":300,"genTps":40}', "defect-history (the owner, 2026-10-18): one cell answers at 40 t/s and another holds its last 211.3 — the machine generates 40, not 251"),
+    ("node_tokens_two_working_cells_add_up", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,promptTps:100,genTps:10,requestsProcessing:1},{%s,promptTps:200,genTps:20,requestsProcessing:2},{%s,promptTps:999,genTps:99,requestsProcessing:0}]}).current()' % (_RUN, _RUN, _RUN),
+     '{"promptTps":300,"genTps":30}', "two cells answer and one holds: the two add up, the one that holds adds nothing"),
+    ("node_tokens_sum_of_held_when_none_works", '',
+     '(t => [t.current(), t.held()])(new m.NodeTokenTelemetry({servers:[{%s,promptTps:100,genTps:10,requestsProcessing:0},{%s,promptTps:200,genTps:20,requestsProcessing:0}]}))' % (_RUN, _RUN),
+     '[{"promptTps":300,"genTps":30},true]', "none answers: the figures are the held ones of the running cells, summed as before, and they are called held"),
+    ("node_tokens_a_request_without_a_figure_hides_the_held_ones",
+     'globalThis.__stubReturns["polling.formatTps"] = (v) => String(v);',
+     '(t => [t.current(), t.held(), m.NodeTokenTelemetry.label(t.current().promptTps, t.current().genTps, t.held())])(new m.NodeTokenTelemetry({servers:[{%s,promptTps:2671.4,genTps:211.3,requestsProcessing:0},{%s,promptTps:null,genTps:null,requestsProcessing:2}]}))' % (_RUN, _RUN),
+     json.dumps([{"promptTps": None, "genTps": None}, False, "prompt — / gen — t/s"]),
+     "a request that has no speed yet is the machine's work: dashes (not measured yet), not a held figure of another cell drawn as if it were live"),
+    ("node_tokens_a_cell_that_says_no_count_is_not_live_beside_a_working_one", '',
+     'new m.NodeTokenTelemetry({servers:[{%s,promptTps:50,genTps:211.3},{%s,promptTps:300,genTps:40,requestsProcessing:1}]}).current()' % (_RUN, _RUN),
+     '{"promptTps":300,"genTps":40}', "negative: nothing tells whether a cell that says no count works — beside one that does, its figure is not counted as live"),
+    ("node_tokens_a_stopped_cell_never_adds", '',
+     'new m.NodeTokenTelemetry({servers:[{phase:"stopped",promptTps:900,genTps:99,requestsProcessing:3},{%s,promptTps:50,genTps:20,requestsProcessing:0}]}).current()' % _RUN,
+     '{"promptTps":50,"genTps":20}', "negative: a stopped cell is no part of the machine's figures, whatever its last report said of requests"),
 ]
 
 

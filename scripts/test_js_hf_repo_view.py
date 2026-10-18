@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _js_pins import run  # noqa: E402
+from hf_quant_cases import QUANT_CASES  # noqa: E402
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -85,6 +86,33 @@ PINS = [
      r"""["mtp-gemma-4-12B-it-Q8_0.gguf", "mmproj-BF16.gguf", "mtp-gemma-4-31B-it.gguf", "x-UD-Q4_K_XL.gguf", "x-nvfp4.gguf"].map((n) => V.HfQuant.fromName(n))""",
      '["Q8_0","BF16","","Q4_K_XL","NVFP4"]',
      "квант из имени файла: Q8_0, BF16, в имени нет — пусто, Q4_K_XL из UD-, NVFP4 в любом регистре"),
+
+    ("quant_read_off_the_shared_table", "",
+     json.dumps([name for name, _ in QUANT_CASES]) + ".map((n) => V.HfQuant.fromName(n))",
+     json.dumps([quant for _, quant in QUANT_CASES], ensure_ascii=False, separators=(",", ":")),
+     "квант из имени — по общей таблице scripts/hf_quant_cases.py, которую читает и сервер (hf.py): хвост «-00003-of-00006» не квант "
+     "(до 1.3.565 у всех Q… частей он входил в квант: «Q8_0-00003-OF-00006»), PQ2_0 и PTQ1_0 страница знает так же, как сервер"),
+
+    ("shape_folds_the_parts_of_a_q_quant", "",
+     r"""(() => { const s = V.HfRepoView.shape(repo({ files: [
+          F("model", "Q8_0", 50 * GB, "m-Q8_0-00001-of-00003.gguf"), F("model", "Q8_0", 50 * GB, "m-Q8_0-00002-of-00003.gguf"),
+          F("model", "Q8_0", 30 * GB, "m-Q8_0-00003-of-00003.gguf"), F("model", "Q4_K_M", 60 * GB, "m-Q4_K_M.gguf")] }));
+        return s.groups.map((g) => [g.bits, g.rows.map((r) => [r.quant, r.files.map((f) => f.name), Math.round(r.size / GB)])]); })()""",
+     '[[8,[["Q8_0",["m-Q8_0-00001-of-00003.gguf","m-Q8_0-00002-of-00003.gguf","m-Q8_0-00003-of-00003.gguf"],130]]],'
+     '[4,[["Q4_K_M",["m-Q4_K_M.gguf"],60]]]]',
+     "части Q-кванта (Q8_0 из трёх) — одна строка с суммой 130; целый Q4_K_M — своя; части, у которых квант разный, были бы тремя строками "
+     "(так было, пока сервер вписывал «-00003-of-00006» в квант)"),
+
+    ("a_q_quant_of_parts_is_one_row_that_takes_every_part", "",
+     r"""(() => { const f = repo({ files: [
+          F("model", "Q8_0", 50 * GB, "m-Q8_0-00001-of-00003.gguf"), F("model", "Q8_0", 50 * GB, "m-Q8_0-00002-of-00003.gguf"),
+          F("model", "Q8_0", 30 * GB, "m-Q8_0-00003-of-00003.gguf")] });
+        const row = rowOf(view.html(f, state({ picks: f.files.map((x) => x.path) })), "Q8_0");
+        const rows = (view.html(f, state()).match(/data-t="hf-quant"/g) || []).length;
+        return [rows, row.includes("×3"), row.includes(" checked"),
+                row.includes('data-paths="[&quot;m-Q8_0-00001-of-00003.gguf&quot;,&quot;m-Q8_0-00002-of-00003.gguf&quot;,&quot;m-Q8_0-00003-of-00003.gguf&quot;]"')]; })()""",
+     '[1,true,true,true]',
+     "в разметке Q8_0 из трёх частей — одна строка «×3»: отмечена, когда выбраны все части, и один щелчок берёт все три пути"),
 
     ("shape_folds_parts_groups_by_bits", "",
      r"""(() => { const s = V.HfRepoView.shape(repo());

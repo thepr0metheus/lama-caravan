@@ -15,6 +15,7 @@ class Swimmer {
     this.goal = this.heading;
     this.speed = 0; this.vx = 0; this.vy = 0;
     this.turnRate = 0; this.amp = 0.1; this.bend = 0;
+    this.agility = Swimmer.AGILITY;
     this.phase = rng.range(0, M.TAU);
     this.fin = rng.range(0, M.TAU);
     this.depth = 0.5;
@@ -52,7 +53,7 @@ class Swimmer {
     // the turn: its rate builds and settles, and a fish with no way on turns slowly
     const err = M.wrap(this.goal - this.heading);
     const way = M.clamp(this.speed / (this.len * 1.5), 0, 1);
-    const wantRate = M.clamp(err * 2.4, -turn, turn) * (0.35 + 0.65 * way);
+    const wantRate = M.clamp(err * this.agility.gain, -turn, turn) * (this.agility.pivot + (1 - this.agility.pivot) * way);
     this.turnRate = M.approach(this.turnRate, wantRate, Swimmer.TURN_EASE, dt);
     this.heading = M.wrap(this.heading + this.turnRate * dt);
     // it swims only where it points; turned away from where it wants to go, it hardly swims at all
@@ -151,6 +152,8 @@ class Swimmer {
 Swimmer.CURRENT_FELT = 0.35;
 /** How fast a turn builds up or settles (1/s). */
 Swimmer.TURN_EASE = 5;
+/** How fast a fish turns toward a new goal (`gain`, 1/s of the angle left) and how much of that it keeps with no way on (`pivot`). */
+Swimmer.AGILITY = Object.freeze({ gain: 2.4, pivot: 0.35 });
 /** How fast a fish loses sideways way through the water (1/s): its flank is a broad paddle. */
 Swimmer.FLANK_DRAG = 12;
 /** How far inside the water's edge every point of a fish's body stays, as a share of its length. */
@@ -197,12 +200,14 @@ const TROUT_STATES = Object.freeze({
     },
   },
   chase: {
-    cap: 4.4, turn: 3.4, accel: 3.6,
-    want(f) { const g = f.target; return f.seek(g.x + g.vx * 0.3, g.y + g.vy * 0.3, f.len * 6, 0); },
+    // a trout turns sharply to a fly beside it — the take lands at its mouth only if it can still turn when the fly is near
+    cap: 4.4, turn: 6, accel: 3.6, agility: Object.freeze({ gain: 4.5, pivot: 0.8 }),
+    // the tip of the snout is what must arrive: at the place the fly will be when the fish gets there
+    want(f, life) { return f.meet(f.target, life.channel, this.cap * f.len); },
     next(f, life) {
       const g = f.target;
       if (!g.alive || g.claimedBy !== f) return 'back';
-      if (Math.hypot(g.x - f.x, g.y - f.y) < f.len * 0.42) { life.rise(f, g); return 'back'; }
+      if (f.takes(g.x, g.y)) { life.rise(f, g); return 'back'; }
       if (f.stateTime > 6) { g.claimedBy = null; return 'back'; }
       return null;
     },
@@ -242,6 +247,7 @@ export class Trout extends Swimmer {
     this.away = { x: 0, y: 0 };
     this.hideAt = { x: lie.x, y: lie.y };
     this.hideFor = 4;
+    this.mouthWas = null;   // where the tip of the snout stood before the last step: the way it went since is what takes a fly
     this.spots = [];
     for (let i = 0; i < 46; i++) {
       const u = rng.range(0.08, 0.78), v = rng.range(-0.95, 0.95);
@@ -254,6 +260,7 @@ export class Trout extends Swimmer {
     if (state === 'roam') this.lie = life.freeLie(this) || this.lie;
     if (state === 'hide') { this.hideAt = life.shelterNear(this); this.hideFor = this.rng.range(3, 6); }
     if (state === 'hold') this.roamAfter = this.rng.range(50, 110);
+    this.agility = TROUT_STATES[state].agility || Swimmer.AGILITY;
     this.state = state;
     this.stateTime = 0;
   }
@@ -269,7 +276,50 @@ export class Trout extends Swimmer {
     const next = TROUT_STATES[this.state].next(this, life);
     if (next) this.enter(next, life);
     const st = TROUT_STATES[this.state];
+    this.mouthWas = this.mouth();
     this.swim(dt, life.channel, st.want(this, life), st.cap * this.len, st.turn, st.accel);
+  }
+  /** The tip of the snout, where the painted nose ends (TopFishPainter): where a fly must come to be taken. */
+  mouth() {
+    const reach = this.len * Trout.NOSE;
+    return { x: this.x + Math.cos(this.heading) * reach, y: this.y + Math.sin(this.heading) * reach };
+  }
+  /** Where the head's first point must stand for the tip of the snout to stand at (x, y). */
+  headFor(x, y) {
+    const reach = this.len * Trout.NOSE;
+    return { x: x - Math.cos(this.heading) * reach, y: y - Math.sin(this.heading) * reach };
+  }
+  /**
+   * The ground velocity that brings the tip of the snout to where a fly will be when the fish gets there. The fish feels
+   * only part of the current and the fly all of it, so a fly goes by the fish at the difference of the two, and a fish that
+   * only points at the fly passes beside it: the line of sight swings faster than a fish can turn. `speed` is the fish's
+   * way through the water at most; it shrinks with the distance (`EASE`), so that the fish can still turn when it is near.
+   */
+  meet(fly, channel, speed) {
+    const water = channel.sample(this.x, this.y), cx = water.vx * Swimmer.CURRENT_FELT, cy = water.vy * Swimmer.CURRENT_FELT;
+    const head = this.headFor(fly.x, fly.y), dx = head.x - this.x, dy = head.y - this.y;
+    const rx = fly.vx - cx, ry = fly.vy - cy;
+    speed = Math.min(speed, Trout.EASE * Math.hypot(dx, dy));
+    // the time to meet: |D + r t| = speed t
+    const a = rx * rx + ry * ry - speed * speed, b = 2 * (dx * rx + dy * ry), c = dx * dx + dy * dy;
+    let t = 0;
+    if (Math.abs(a) < 1e-9) t = b < 0 ? -c / b : 0;
+    else if (b * b - 4 * a * c >= 0) {
+      const root = Math.sqrt(b * b - 4 * a * c);
+      t = [(-b - root) / (2 * a), (-b + root) / (2 * a)].filter((v) => v > 0).sort((p, q) => p - q)[0] || 0;
+    }
+    const ax = dx + rx * Math.min(t, 3), ay = dy + ry * Math.min(t, 3), far = Math.hypot(ax, ay) || 1;
+    return { x: cx + ax / far * speed, y: cy + ay / far * speed };
+  }
+  /**
+   * Whether the mouth took the fly at (x, y) in the step it has just made: the fly's centre lay within `GAPE` of the tip of
+   * the snout somewhere along the way the tip went. A slow frame moves a fish far in one step, and it must not swim over a
+   * fly unseen. (The owner, 2026-10-14: "the fish eats the fly while the mouth is still far from it" — it was 0.42 of its
+   * length from the head's first point, 0.39 from the nose.)
+   */
+  takes(x, y) {
+    const now = this.mouth(), was = this.mouthWas || now;
+    return M.segmentGap(was.x, was.y, now.x, now.y, x, y) <= this.len * Trout.GAPE;
   }
   /** Height above the bed (px) — it sets how far the shadow falls. */
   height(channel) { return channel.waterDepthPx(this.depth) * 0.55; }
@@ -281,7 +331,7 @@ export class Trout extends Swimmer {
     ctx.fill();
     this.pairedFins(ctx, TROUT_PROFILE, 0.2, 0.15, 1.0, look.fin);
     this.pairedFins(ctx, TROUT_PROFILE, 0.52, 0.09, 0.7, look.fin);
-    painter.outline(ctx, this.spine, this.widths, len * 0.03);
+    painter.outline(ctx, this.spine, this.widths, len * Trout.NOSE);
     ctx.fillStyle = M.rgba(look.flank, 1);
     ctx.fill();
     for (const [k, a] of [[0.74, 0.35], [0.52, 0.45], [0.3, 0.6]]) {
@@ -323,6 +373,13 @@ export class Trout extends Swimmer {
     ctx.fill();
   }
 }
+
+/** How far ahead of the head's first point the painted snout reaches, in body lengths: the `nose` of its outline. */
+Trout.NOSE = 0.03;
+/** How near a fly's centre must come to the tip of the snout to be taken, in body lengths: a mouth's width and a fly's. */
+Trout.GAPE = 0.08;
+/** How far the way through the water may grow with the distance to a fly (1/s): a trout slows as it comes up to a fly. */
+Trout.EASE = 8;
 
 /* Colchic minnow: small, olive above, a row of dark blotches along each side. */
 class MinnowShape {

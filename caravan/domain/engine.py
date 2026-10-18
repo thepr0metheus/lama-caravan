@@ -54,6 +54,12 @@ class EngineReport:
         except (TypeError, ValueError):
             return None
 
+    @classmethod
+    def size(cls, value):
+        """A size in bytes as the scout said it; None when it did not, or said none that can be: a negative one is no size."""
+        number = cls.number(value)
+        return number if number is not None and number >= 0 else None
+
     @staticmethod
     def flag(value):
         """True, False, or None when the engine did not say."""

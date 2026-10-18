@@ -10,9 +10,11 @@ Three jobs, all backed by one small state file (state/model-catalog.json):
    "+ Add step" offers the list to choose a model from.
 2) Endpoint health — an upstream helper call that keeps failing is DISABLED
    after BREAK_AFTER consecutive failures (exponential backoff), so we stop
-   hammering the provider with requests we know are broken. Every tripped
-   endpoint is reported in topology (cloudApiHealth) for the provider card,
-   with a manual retry to re-arm it.
+   hammering the provider with requests we know are broken. A failure of the
+   ROAD to the provider (the network is unreachable, a name does not resolve,
+   a connection times out) is shown but does not count: it passes by itself.
+   Every failing endpoint is reported in topology (cloudApiHealth) for the
+   provider card, with a manual retry to re-arm a tripped one.
 3) The codex client_version to send to chatgpt.com — env override wins, else
    the newest of the npm "@openai/codex" latest (cached a day) and a built-in
    floor. The floor matters: model gating references versions ABOVE the
@@ -24,6 +26,7 @@ import os
 import re
 import threading
 import time
+import urllib.error
 import urllib.request
 
 from caravan.admin.paths import MODEL_CATALOG_FILE
@@ -35,7 +38,7 @@ _REFRESH_THREADS = {}   # account_id -> Thread; alive = refresh in flight
 
 MODELS_TTL_SEC = 600            # the operator's word (2026-09-27): the board keeps the lists fresh by itself
 NPM_TTL_SEC = 86400
-BREAK_AFTER = 3                 # consecutive failures before an endpoint trips
+BREAK_AFTER = 3                 # consecutive failures of the provider's own (not of the road to it) before an endpoint trips
 BREAK_BASE_SEC = 6 * 3600       # first backoff once tripped
 BREAK_MAX_SEC = 48 * 3600
 CODEX_CLIENT_VERSION_FLOOR = "0.160.0"
@@ -83,14 +86,35 @@ def record_ok(key):
     _mutate(fn)
 
 
-def record_fail(key, error):
+def is_network_failure(exc):
+    """True when no answer came: the road to the provider is down — the network is unreachable, a name does not resolve, a connection is refused,
+    reset or timed out. It says nothing of the provider, and it passes by itself.
+
+    The breaker stops calls that the provider keeps refusing, and for that three strikes and hours are right. It was applied to the road
+    as well, and on 2026-10-18 twenty minutes of `Network is unreachable` from the NAS (Anthropic's model list, refreshed every ten minutes)
+    were three strikes: the list stayed off for six hours, after the network was back, until someone pressed "retry". A failure that raises
+    an HTTP status is the provider's answer (an `HTTPError`, or an AppError that was made from one) and counts; one that is an OS error without
+    a status is the road's, and does not. An AppError carries what it was made from (`raise ... from e`)."""
+    cause = exc.__cause__ if isinstance(exc, AppError) and exc.__cause__ is not None else exc
+    return isinstance(cause, OSError) and not isinstance(cause, urllib.error.HTTPError)
+
+
+def record_fail(key, error, network=False):
+    """One more failure of an endpoint. `network`: it was the road's (is_network_failure) — shown (the count and the error, so the panel says
+    what is the matter), but not counted toward the breaker: the endpoint is never turned off by it, and the next success clears it."""
     def fn(data):
         eps = data.setdefault("endpoints", {})
         st = eps.setdefault(str(key), {})
+        # The provider's own failures in a row. A record written before this count (1.3.584) had only failCount, and it counted them all.
+        st.setdefault("hardFails", int(st.get("failCount") or 0))
         st["failCount"] = int(st.get("failCount") or 0) + 1
         st["lastError"] = str(error)[:300]
         st["lastErrorAt"] = int(time.time())
-        over = st["failCount"] - BREAK_AFTER
+        st["network"] = bool(network)
+        if network:
+            return
+        st["hardFails"] = int(st["hardFails"]) + 1
+        over = st["hardFails"] - BREAK_AFTER
         if over >= 0:
             st["disabledUntil"] = int(time.time() + min(BREAK_BASE_SEC * (2 ** over), BREAK_MAX_SEC))
     _mutate(fn)
@@ -115,6 +139,7 @@ def endpoints_report():
                 "lastErrorAt": int(st.get("lastErrorAt") or 0),
                 "disabledUntil": int(st.get("disabledUntil") or 0),
                 "disabled": now < float(st.get("disabledUntil") or 0),
+                "network": bool(st.get("network")),
             }
     return out
 
@@ -130,7 +155,7 @@ def guarded_call(key, fn):
     try:
         result = fn()
     except Exception as e:
-        record_fail(key, getattr(e, "message", None) or str(e))
+        record_fail(key, getattr(e, "message", None) or str(e), network=is_network_failure(e))
         raise
     record_ok(key)
     return result

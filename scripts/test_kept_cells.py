@@ -4,7 +4,7 @@
 The defect (2026-10-12). A stopped cell is drawn from the controller's own record of it: the
 scout drops a stopped cell from its report. The controller moved to the NAS had no record of
 a machine's cells — the old controller had started them — and every cell went off the board as it
-was stopped: its row, its switch, and the kanban's cable to it ("no such model").
+was stopped: its row, its switch, and Routing's cable to it ("no such model").
 
 Pinned by value, against the real files in a scratch data directory: a record is made from each
 kept start request (scout 2.26, `autostartRequests`) the controller lacks — the settings whole, an

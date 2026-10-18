@@ -99,7 +99,7 @@ def test_create():
     route = store.payload["routes"][-1]
     check({k: route[k] for k in ("kind", "portClosed", "routerId", "upstreamType", "apiKey", "set")}
           == {"kind": "consumer", "portClosed": True, "routerId": "", "upstreamType": "cloud", "apiKey": "lcv1_key1", "set": ""},
-          "маршрут вида consumer: порт закрыт — вход единственный путь; канбана-роутера нет; набор пуст")
+          "маршрут вида consumer: порт закрыт — вход единственный путь; Маршрутизации-роутера нет; набор пуст")
     check("models" not in route and "pool" not in route, "negative: ни списка пулов, ни пула старого вида у нового клиента нет")
     for name, status, why in (("", 400, "без имени"), ("  ", 400, "имя из пробелов"), ("hermes", 409, "имя другого клиента")):
         check(refused(desk(store).create, name) == status, f"negative: {why} — {status}")
@@ -109,7 +109,7 @@ def test_create():
 
 
 def test_set_and_key():
-    print("набор клиента (канат на канбане) и его ключ:")
+    print("набор клиента (канат в Маршрутизации) и его ключ:")
     store = Store()
     made = desk(store).create("Hermes")
     check(desk(store).set_set(made["port"], " chat ") == {"port": made["port"], "set": "chat"}
@@ -165,7 +165,7 @@ def test_migrate():
     check([by[n].get("pool") for n in ("All", "List", "None", "Taken", "New")] == ["std", "eco", "", "std", "eco"],
           "пул записан id; уже переписанный клиент не тронут")
     check(all("models" not in by[n] for n in ("All", "List", "None", "Taken")) and by["Taken"]["routerId"] == "",
-          "старый список ушёл; клиент, которого брал канбан, больше не на роутере — его канат ведёт к пулу")
+          "старый список ушёл; клиент, которого брала Маршрутизация, больше не на роутере — его канат ведёт к пулу")
     check(by["agent"] == routes[5], "negative: порт агента не тронут — ни пулом, ни роутером")
     check(by["Set"] == routes[6], "negative: клиент с набором (1.3.497) не тронут — пул ему не пишется")
     check(store.saves == 1, "запись одна на все")
@@ -191,7 +191,7 @@ def test_route_rules():
     check(old["models"] == ["std"] and "pool" not in old and "set" not in old,
           "negative: маршрут старого вида хранит список, пока контроллер его не перепишет")
     check(normalize_agent_proxy_route({**base})["routerId"] == "router:default",
-          "negative: порт без роутера по-прежнему встаёт на канбан по умолчанию")
+          "negative: порт без роутера по-прежнему встаёт в Маршрутизацию по умолчанию")
     from caravan.admin.proxies_config import normalize_routers
     taken = [{"port": 23005, "kind": "consumer", "routerId": "router:gone"}, {"port": 23006, "routerId": "router:gone"},
              {"port": 23007, "kind": "consumer", "routerId": "router:b"}, {"port": 23008, "routerId": "router:b"}]
@@ -199,7 +199,7 @@ def test_route_rules():
     check([r["routerId"] for r in taken] == ["", "router:default", "", "router:b"]
           and next(r for r in routers if r["id"] == "router:b")["inputs"] == ["skynet:proxy:23008"],
           "клиент не вход ни одного роутера, даже если сырой маршрут его называет; negative: порт агента, как раньше, "
-          "уходит на канбан по умолчанию и остаётся входом своего канбана")
+          "уходит в Маршрутизацию по умолчанию и остаётся входом своего роутера")
     check("models" not in normalize_agent_proxy_route({**base, "models": "all"})
           and "pool" not in normalize_agent_proxy_route({**base, "pool": "std"})
           and "set" not in normalize_agent_proxy_route({**base, "set": "chat"}),

@@ -117,6 +117,8 @@ from caravan.admin.server_cells import (
 )
 from caravan.admin.fleet_clients import (
     HOST_TELEMETRY,
+    MODEL_CACHE,
+    CellRamPlan,
     _backup_meta,
     _backup_target_seg,
     _safe_path_seg,
@@ -549,7 +551,10 @@ def _get_api_hf_download_status(h, parsed):
 
         `job` — the job id a download start returned. Answers `{ok: true, ...}` with
         `status`, `done`, `error`, byte counters and the file in progress, or `{ok: false,
-        error: "job not found"}` with status 200 for an unknown id. Jobs live in memory
+        error: "job not found"}` with status 200 for an unknown id. A job the hub refused
+        with 401 or 403 at a gated repository also carries `access: {kind: "gated", url,
+        repo, status, tokenSet}`: `url` is the repository's page, where its terms are
+        accepted, and `tokenSet` says whether a token is saved at all. Jobs live in memory
         only, so a restart forgets them.
         """
         _q2 = urllib.parse.parse_qs(parsed.query or "")
@@ -617,7 +622,8 @@ def _get_api_hf_files(h, parsed):
         """List a Hugging Face repository's GGUF files, classified by kind and quantization
 
         `repo` — `author/name`. Answers `{ok, repo, files, lastModified}`; each GGUF file
-        has `kind` (`model`, `mmproj`, `mtp` or `vocab`), `quant`, `size`, `date` and what
+        has `kind` (`model`, `mmproj`, `mtp` or `vocab`), `quant` (the parts of a split model
+        share one: `-00003-of-00006` is not part of it), `size`, `date` and what
         Hugging Face says of its bytes: `oid` (its LFS sha256, empty when none is given),
         `gitOid` (the git blob id of an ordinary file) and `hashHidden` (true when a gated
         repository masks the hash). A repo with safetensors weights also gets a `safetensors`
@@ -1030,9 +1036,13 @@ def _get_api_cloud_accounts_proxy_spend(h, parsed):
         """Spend through the proxy over the last 30 days, per cloud account and model
 
         Answers `{ok, spend}` keyed by account id, each with `total`, `requests`,
-        `promptTokens`, `completionTokens`, `windowDays` and a `byModel` list. It is the
-        proxy's own estimate — logged tokens times the LiteLLM price table, so a model
-        missing there adds 0 — not the provider's bill.
+        `promptTokens`, `completionTokens`, `unpriced`, `windowDays` and a `byModel` list. It
+        is the proxy's own estimate — logged tokens times the price of the model (the
+        operator's own price, else the LiteLLM table) — not the provider's bill. A model nobody
+        priced adds 0, and `unpriced` counts the requests it covered. An account the operator
+        gave a credit also has `sinceCredit`: `{asOf, total, requests, unpriced, partial}`,
+        what went through the caravan from the moment the credit was typed (`partial`: the
+        proxy's logs do not reach back that far, so `total` is a floor).
         """
         h.send_json({"ok": True, "spend": cloud_spend_summary()})
         return
@@ -1217,9 +1227,11 @@ def _get_api_model_pricing(h, parsed):
         """Model prices per 1M tokens: the LiteLLM table plus the operator's manual overrides
 
         Answers `{ok, pricing}` keyed by model name, each entry `{inputPer1M, outputPer1M,
-        provider}`. The LiteLLM table is cached for 24 hours and is empty when it cannot be
-        fetched; a manual API price replaces the table's price for that model, or adds the
-        model with provider `manual`.
+        provider}` and, where the table names them, `cacheReadPer1M` and `cacheWritePer1M`
+        (what a token read from the provider's cache and one written to it cost). The LiteLLM
+        table is cached for 24 hours and is empty when it cannot be fetched and none is kept;
+        a manual API price replaces the table's price for that model, cache prices included
+        (the cache then goes at the manual input price), or adds the model with provider `manual`.
         """
         # LiteLLM community table overlaid with the manual apiPricing overrides,
         # so a hand-entered price shows up next to the model everywhere the UI
@@ -1229,6 +1241,9 @@ def _get_api_model_pricing(h, parsed):
             base = dict(pricing.get(model) or {})
             base["inputPer1M"] = row.get("inputPer1M", 0)
             base["outputPer1M"] = row.get("outputPer1M", 0)
+            # The table's cache prices belong to the table's input price; the operator named another, and ModelPrices prices the cache at it.
+            base.pop("cacheReadPer1M", None)
+            base.pop("cacheWritePer1M", None)
             base.setdefault("provider", "manual")
             pricing[model] = base
         h.send_json({"ok": True, "pricing": pricing})
@@ -1442,10 +1457,11 @@ def _get_root(h, parsed):
 
 @_route(GET_ROUTES, '/machine')
 def _get_machine(h, parsed):
-        """A machine's own window (HTML): one machine's whole card, `?host=<id>`
+        """A machine's own page (HTML): one machine's whole card, `?host=<id>`
 
-        The board page itself: it tells the window apart by the path (static/js/board-view.js) and
-        shows the machine's card alone, with every dialog the card had on the main board."""
+        The board page itself: it tells the page apart by the path (static/js/board-view.js) and
+        shows the machine's card alone, with every dialog the card had on the main board. It opens
+        in the same tab as the board."""
         h.send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
         return
 
@@ -1463,20 +1479,20 @@ def _get_hf(h, parsed):
 
 @_route(GET_ROUTES, '/router')
 def _get_router_alias(h, parsed):
-        """Redirect the old /router address to /kanban, keeping the query string"""
+        """Redirect the old /router address to /routing, keeping the query string"""
         # Kept as a redirect, not a route: an old bookmark still lands, and the
         # address bar ends up saying which page this actually is.
-        _redirect(h, "/kanban" + (("?" + parsed.query) if parsed.query else ""))
+        _redirect(h, "/routing" + (("?" + parsed.query) if parsed.query else ""))
         return
 
-@_route(GET_ROUTES, '/kanban')
-def _get_kanban(h, parsed):
-        """Kanban page (HTML): the router canvas
+@_route(GET_ROUTES, '/routing')
+def _get_routing(h, parsed):
+        """Routing page (HTML): the router canvas
 
         `id` in the query, read by the page and not by the server, picks the router (default
         `router:default`).
         """
-        h.send_file(STATIC_DIR / "kanban.html", "text/html; charset=utf-8")
+        h.send_file(STATIC_DIR / "routing.html", "text/html; charset=utf-8")
         return
 
 @_route(GET_ROUTES, '/system')
@@ -1962,6 +1978,22 @@ def _post_api_llama_command_preview(h, parsed, body):
                      "owners": owners})
         return
 
+@_route(POST_ROUTES, '/api/cell-ram-plan')
+def _post_api_cell_ram_plan(h, parsed, body):
+        """What a cell of a launch config would keep resident in its machine's memory
+
+        `config` is the launch config the cell form holds (fields such as `MODEL_FILE`). `ram` is the runner's
+        own promise — `{reserveMiB, who, why, lower}`, the figure a start sends the scout, which refuses the
+        start when the machine's memory cannot hold it — or null when the runner keeps nothing it can name
+        (llama.cpp maps its file and pages it as it is read). `headroomMiB` is the memory the scout leaves the
+        system beyond a promise; `runner` is the runner the config names. Asked with every change of the form,
+        so it never waits for a slow library: a file nobody can size is promised by the runner's own table, or
+        not at all.
+        """
+        cfg = body.get("config") if isinstance(body.get("config"), dict) else {}
+        h.send_json({"ok": True, **CellRamPlan.of(cfg)})
+        return
+
 @_route(POST_ROUTES, '/api/parse-extra-args')
 def _post_api_parse_extra_args(h, parsed, body):
         """Split a raw EXTRA_ARGS string into launch-config fields and leftover flags
@@ -2104,7 +2136,7 @@ def _post_api_agent_proxies_config(h, parsed, body):
         """Save the full list of proxy routes, and optionally the routers
 
         `routes` is the whole list: a route left out is removed; `routers` replaces the
-        kanban routers and is kept as it is when omitted. `revision` is the topology's
+        Routing routers and is kept as it is when omitted. `revision` is the topology's
         `proxyRevisions.routes` the list was built from: a list built from an older version
         is refused with 409 `{error, stale: true, topology}` and nothing is saved, so the page
         builds it again from the current topology; without `revision` the save goes through as
@@ -2193,7 +2225,7 @@ def _post_api_agent_proxies_route_delete(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/agent-proxies/routers', '/api/agent-proxies/switchboards')
 def _post_api_agent_proxies_routers(h, parsed, body):
-        """Save the routers, including each kanban graph (nodes and edges)
+        """Save the routers, including each Routing graph (nodes and edges)
 
         `routers` is the full list (the old body key `switchboards` still works): a router
         left out is dropped and the default router always exists.
@@ -2234,7 +2266,7 @@ def _post_api_agent_proxies_stop(h, parsed, body):
 def _post_api_models_schedule(h, parsed, body):
         """Set when a model is open: its schedule of weekdays and hours
 
-        `model` names the model as the kanban does: `acc:<account id>/<model>` for an account's
+        `model` names the model as Routing does: `acc:<account id>/<model>` for an account's
         model, `out:srv:<port>` for a machine's cell, `out:eng:<id>` for an engine's model.
         `schedule` is `{enabled, windows}`; a window is `{days, from, to}` — days 0..6 with Monday 0
         (none: every day), times `HH:MM` in the caravan's own zone. A window whose `to` is not
@@ -2319,11 +2351,11 @@ def _get_api_cloud_accounts_catalogue(h, parsed):
 def _post_api_pools_create(h, parsed, body):
         """Create a pool, empty or with its first row
 
-        Without `accountId` and `model` the pool is empty — "+ Pool" on the kanban — and
+        Without `accountId` and `model` the pool is empty — "+ Pool" in Routing — and
         named "Pool" ("Pool 2"… when taken). With them it starts with that row: `accountId`
         an existing account and `model` one of its models, the name the model's by default.
         `target` gives the first row as `/api/pools/add-row` takes it — `{accountId, model}` or
-        `{output}` for a local model: a model carried onto the kanban's Pools makes a pool of it.
+        `{output}` for a local model: a model carried onto Routing's Pools makes a pool of it.
         `nameAfter` is the board's word for that model, the pool's name then (" 2"… when taken).
         `name` is the pool's name, and must be free. The pool's id comes from its name. Answers
         `{ok, pool, topology}`; 400 for an account without a model or a bad target, 404 for an
@@ -2336,7 +2368,7 @@ def _post_api_pools_create(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/pools/save')
 def _post_api_pools_save(h, parsed, body):
-        """Save a pool as the kanban edits it
+        """Save a pool as Routing edits it
 
         `pool` has the pool's `id` and what changes: `name`, `contextLength` and
         `contextAuto`, and `steps` — the pool's own rows in their new order, each with `id`
@@ -2365,7 +2397,7 @@ def _post_api_pools_add_step(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/pools/add-row')
 def _post_api_pools_add_row(h, parsed, body):
-        """Add a row at the end of a pool: "+ row" on the kanban
+        """Add a row at the end of a pool: "+ row" in Routing
 
         `poolId` is the pool. `target` is optional: without it the row is open — it serves
         nothing until its output is cabled to a model — with it the row is cabled at once:
@@ -2381,7 +2413,7 @@ def _post_api_pools_add_row(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/pools/order')
 def _post_api_pools_order(h, parsed, body):
-        """Set the order of the pools on the kanban: a pool card carried to another place
+        """Set the order of the pools in Routing: a pool card carried to another place
 
         `ids` lists every pool's id once, in the new order. Answers `{ok, order, topology}`; 409
         when the list does not name exactly the pools there are — another page added or deleted
@@ -2393,7 +2425,7 @@ def _post_api_pools_order(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/pools/arrange')
 def _post_api_pools_arrange(h, parsed, body):
-        """Arrange the kanban by its cables
+        """Arrange Routing by its cables
 
         The pools stand in the order the sets name them — the first set's first — then the rest as
         they stood; each account's added models in the order the pools' rows name them, then the
@@ -2421,9 +2453,9 @@ def _post_api_pools_connect_row(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/pools/add-model')
 def _post_api_pools_add_model(h, parsed, body):
-        """Put a model of an account on the kanban's column: "+ model" on the kanban
+        """Put a model of an account on Routing's column: "+ model" in Routing
 
-        The kanban's right column shows the models the operator added there, not every model
+        Routing's right column shows the models the operator added there, not every model
         an account offers. `accountId` is the account and `model` the model's id — one from the
         account's list or a typed one: a list lags behind its provider. A model already there
         stays where it is. Answers `{ok, models, topology}`, `models` the account's in the
@@ -2435,7 +2467,7 @@ def _post_api_pools_add_model(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/pools/remove-model')
 def _post_api_pools_remove_model(h, parsed, body):
-        """Take a model off the kanban's column: its ✕ on the kanban
+        """Take a model off Routing's column: its ✕ in Routing
 
         `accountId` and `model` name it. The model's levels stay: put back, it has them again.
         A model not on the column is nothing to do. Answers `{ok, models, topology}` with the
@@ -2488,7 +2520,7 @@ def _post_api_pools_remove_step(h, parsed, body):
 def _post_api_pools_delete(h, parsed, body):
         """Delete a pool, and say where the cables that lead to it go
 
-        `id` is the pool. When cables or rules on the kanban lead to it, `resolution` says
+        `id` is the pool. When cables or rules in Routing lead to it, `resolution` says
         where they go: `{moveTo: <another pool's id>}` keeps their roles on that pool, `{cut:
         true}` disconnects them; without one the answer is 409. The accounts of its steps
         stay connected, and the clients of the entry cabled to it lose their cable (`uncabled`
@@ -2531,9 +2563,14 @@ def _post_api_cloud_accounts_save(h, parsed, body):
 
         `account` is the account object; its `id` (1-48 letters, digits, `_` or `-`) picks
         the account, and an existing account keeps the fields an edit leaves out. An account
-        stands in no pool by itself: a pool's step names it ("+ Add step"). Answers
-        `{ok, account, topology}` with the account as stored; 400 for a bad `id` or a
-        `baseUrl` that is not http(s).
+        stands in no pool by itself: a pool's step names it ("+ Add step"). `creditUsd` is
+        what a key account has left in dollars, as its provider's console shows it now (no
+        provider tells it through the API): a number — a decimal comma is read as a point —
+        starts counting from this moment, the figure the account already holds keeps its
+        moment, blank takes the credit away. Answers `{ok, account, topology}` with the
+        account as stored (`credit`: `{amountUsd, asOf}`); 400 for a bad `id`, a `baseUrl`
+        that is not http(s), a `creditUsd` that is no number from 0 or one sent for a
+        subscription.
         """
         account = upsert_cloud_account(body.get("account") or {})
         h.send_json({"ok": True, "account": account, "topology": topology_state(refresh_hosts=False)})
@@ -2928,7 +2965,7 @@ def _post_api_topology_server_order(h, parsed, body):
         """Set the order of the server cards: the pools under Pools, and the machines
 
         `order` lists card keys, `node:<machine id>` for a machine and `cloud:<account id>` for a
-        cloud provider or pool, in the order the board draws them; the kanban's Servers panel
+        cloud provider or pool, in the order the board draws them; Routing's Servers panel
         follows it. A card the list does not name stands after the named ones, in the board's own
         order, and an empty list returns the board to its own order. The list is stored whole,
         for every browser and account. Answers `{ok, order, rev}`, where `rev` grows by one with
@@ -3080,6 +3117,36 @@ def _post_api_topology_client_llama_purge_cache(h, parsed, body):
         502 when the scout is unreachable or refuses.
         """
         h.send_json(client_llama_purge_cache(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/client-llama/cache-keep')
+def _post_api_topology_client_llama_cache_keep(h, parsed, body):
+        """Set how many of the last started models a machine's cache keeps
+
+        `hostId` names the machine and `keep` is a whole number, 1 to 5 (its scout refuses any other). The scout keeps
+        the files of the `keep` models that ran most recently — every part of a split model, the projector, the draft
+        layer — and of every cell that is starting or running, and deletes the other model files it downloaded at once.
+        Nothing is deleted while it knows no model that ran (`waiting`). Answers `{ok, hostId, result, modelCache}`:
+        `result` is the scout's `{ok, keep, removed, freedBytes, waiting}` and `modelCache` the machine's figures now
+        (null when the scout would not say). 400 for a `keep` that is not a whole number, 404 for an unknown machine,
+        502 when the scout is unreachable or refuses (a scout older than 2.34 does).
+        """
+        h.send_json(MODEL_CACHE.keep(body.get("hostId"), body.get("keep")))
+        return
+
+@_route(POST_ROUTES, '/api/topology/client-llama/cache-delete-foreign')
+def _post_api_topology_client_llama_cache_delete_foreign(h, parsed, body):
+        """Delete the files in a machine's model cache that its scout did not download
+
+        They were copied in by hand or lay there before the scout kept a record, and the scout never deletes them by
+        itself. `hostId` names the machine and `expectBytes` is the size the operator was shown
+        (`modelCache.foreign.bytes` of the machine's node): when the files are another size now, the scout refuses
+        and nothing is deleted. Files a cell holds or starts on stay. Answers `{ok, hostId, result, modelCache}`;
+        `result` is the scout's `{ok, removed, freedBytes}`. 400 for an `expectBytes` that is not a whole number, 404
+        for an unknown machine, 502 when the scout is unreachable or refuses (its refusal for a changed size comes
+        back in its own words).
+        """
+        h.send_json(MODEL_CACHE.delete_foreign(body.get("hostId"), body.get("expectBytes")))
         return
 
 @_route(POST_ROUTES, '/api/topology/server-slot/add')
@@ -3300,7 +3367,7 @@ def _get_api_consumers_ask(h, parsed):
         `port` is the client, `path` its question: `/v1/models` or `/v1/models/<model>`. The
         controller asks the entry with the client's key and answers what the entry answered — its
         status and body as they came, its refusals too; the key never leaves the controller. The
-        kanban's client cards link here. 400 for another path, 404 for no such client, 409 for a
+        Routing's client cards link here. 400 for another path, 404 for no such client, 409 for a
         client without a key or while the entry is off, 502 when the entry does not answer.
         """
         from caravan.admin.proxy_entry import AsConsumer
@@ -3332,7 +3399,7 @@ def _post_api_consumers_create(h, parsed, body):
 
         `name` is the consumer's name on the board and in the journal (required, not one another
         consumer has). The new consumer is cabled to no set: `POST /api/consumers/set` gives it
-        one, as a cable on the kanban does. The key (`lcv1_…`) is answered this once: `{ok, port,
+        one, as a cable in Routing does. The key (`lcv1_…`) is answered this once: `{ok, port,
         name, key, set, entryUrl, topology}`; `port` is the consumer's number on the board, it
         never listens. 400 for an empty name, 409 for a name taken or while the entry is off.
         """
@@ -3374,7 +3441,7 @@ def _post_api_consumers_order(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/sets/order')
 def _post_api_sets_order(h, parsed, body):
-        """Set the order of the sets on the kanban: a set card carried to another place
+        """Set the order of the sets in Routing: a set card carried to another place
 
         `ids` lists every set's id once, in the new order. Answers `{ok, order, topology}`; 409
         when the list does not name exactly the sets there are — another page made or deleted one
@@ -3389,7 +3456,7 @@ def _post_api_sets_create(h, parsed, body):
         """Make a set of models, empty
 
         `name` is optional: without one the set is "Set", or "Set 2" when that is taken. A set is
-        what the entry's clients cabled to it see as their models (the kanban's «Набор»). Answers
+        what the entry's clients cabled to it see as their models (Routing's «Набор»). Answers
         `{ok, set: {id, name, pools}, topology}`; 409 for a name another set has.
         """
         from caravan.admin.model_sets import SetDesk
@@ -3648,7 +3715,13 @@ def _auth_guard(h, path, method):
         h.close_connection = True
         h.send_json({"error": "fleet token required (X-Caravan-Token)"}, 401)
         return False
-    sess = auth_mod.session_from_handler(h)
+    try:
+        sess = auth_mod.session_from_handler(h)
+    except auth_mod.SessionStoreUnavailable:
+        # Not 401: nobody was found NOT signed in, the store did not answer. A page takes a 401 for a sign-out.
+        h.close_connection = True
+        h.send_json({"error": "the sign-in store did not answer, try again in a moment"}, 503)
+        return False
     if sess:
         if sess.get("role") == "viewer" and not ROUTE_ACCESS.viewer_may(method, path):
             h.close_connection = True
@@ -3730,9 +3803,14 @@ def _get_auth_me(h, parsed):
         """Who the caller is: whether sign-in is on, and the session's user and role
 
         Answers `{enabled, authenticated, user, role}`; `user` and `role` are empty when
-        there is no live session.
+        there is no live session. A sign-in store that does not answer is a 503, not
+        `authenticated: false`: the page takes "not signed in" for a sign-out.
         """
-        sess = auth_mod.session_from_handler(h)
+        try:
+            sess = auth_mod.session_from_handler(h)
+        except auth_mod.SessionStoreUnavailable:
+            h.send_json({"error": "the sign-in store did not answer, try again in a moment"}, 503)
+            return
         h.send_json({"enabled": auth_mod.auth_enabled(),
                      "authenticated": bool(sess),
                      "user": sess.get("user", ""), "role": sess.get("role", "")})
@@ -3819,9 +3897,13 @@ def _get_auth_overview(h, parsed):
         Answers `{enabled, user, role, users, sessions, fleetTokenSet}`: `users` are
         `{username, createdAt, role}` and `sessions` are `{id, username, createdAt,
         lastSeen, ip, ua}`, where the short `id` is what `POST /api/auth/sessions/revoke`
-        takes. The token itself is never included.
+        takes. The token itself is never included. 503 when the sign-in store does not answer.
         """
-        sess = auth_mod.session_from_handler(h)
+        try:
+            sess = auth_mod.session_from_handler(h)
+        except auth_mod.SessionStoreUnavailable:
+            h.send_json({"error": "the sign-in store did not answer, try again in a moment"}, 503)
+            return
         h.send_json({
             "enabled": auth_mod.auth_enabled(),
             "user": sess.get("user", ""),

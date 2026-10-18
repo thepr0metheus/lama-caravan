@@ -123,7 +123,7 @@ def test_dialects():
                                 "upstreamPort": 8080, "queuePlan": {"spec": {}}, "rescueRefs": ["x"]}, {})
     check((resolved["upstreamType"], resolved["providerId"], resolved["routedOutputId"], resolved["routedOutputName"])
           == ("cloud", "std", "cb:std", "Standart") and "queuePlan" not in resolved and "rescueRefs" not in resolved,
-          "клиент едет в выход пула — тот же cb:<id>, что у канбана; хвостов прошлого маршрута нет")
+          "клиент едет в выход пула — тот же cb:<id>, что у Маршрутизации; хвостов прошлого маршрута нет")
     status, body, headers = dialect.failure(503, "proxy route c is paused", "blocked")
     check(status == 503 and "paused" in json.loads(body)["error"]["message"] and headers == [("Retry-After", "30")],
           "пауза — 503 и подождать")

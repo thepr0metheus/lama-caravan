@@ -12,11 +12,11 @@ the languages an ear hears or a translating ear writes, the longest recording it
 A pool answers from whichever of its rows serves, so it promises only what every row that may
 serve does: the jobs and the inputs all of them have, the languages all of them name, the shortest
 recording. A row that may serve and says nothing of itself makes the pool's kind unknown — absent
-from the list, never guessed. Rows that do different work make it `mixed`: the kanban says so, the
+from the list, never guessed. Rows that do different work make it `mixed`: Routing says so, the
 list says nothing. A row that cannot serve — switched off, open, its account or cell gone — is no
 part of the promise.
 
-The board reads a pool's kind by `state` (the kanban's chip), the entry by `models_entry` (the
+The board reads a pool's kind by `state` (Routing's chip), the entry by `models_entry` (the
 list) and `serves` (a request the pool cannot do is refused before it is sent).
 """
 from caravan.common.cloud_sources import CloudSources
@@ -37,6 +37,8 @@ class ModelKind:
         # A robot policy reads camera frames and an instruction (and the robot's state, which
         # OpenRouter has no word for) and gives actions — no word there either, so the caravan's.
         "robot-policy": (("image", "text"), ("actions",)),
+        # A voice model takes speech or words and answers in speech (and its words).
+        "voice-chat": (("audio", "text"), ("audio", "text")),
     }
     #: The paths of OpenAI's API each job answers. NLLB's own /v1/translate is no path of the entry.
     #: A robot policy's path is the caravan's own: OpenAI has none (visumap spider-monkey-model-api).
@@ -48,6 +50,9 @@ class ModelKind:
         "tts": ("/audio/speech",),
         "translate": (),
         "robot-policy": ("/robot/predict",),
+        # None: a voice cell speaks a WebSocket or a page of its own, or (Step-Audio 2, Qwen3-Omni) a chat — and that one
+        # is served by their `llm` job. A pool of voice cells alone is refused any request the entry has a path for.
+        "voice-chat": (),
     }
     #: A chat's inputs, in the order they are said.
     INPUTS = ("text", "image", "audio")
@@ -208,7 +213,7 @@ class ModelKind:
         return {**({"architecture": architecture} if architecture else {}), "caravan": said}
 
     def state(self):
-        """What the kanban draws of a pool's kind: its jobs and inputs, or that its rows differ."""
+        """What Routing draws of a pool's kind: its jobs and inputs, or that its rows differ."""
         if self.mixed:
             return {"mixed": True}
         out = {"jobs": list(self.jobs)}

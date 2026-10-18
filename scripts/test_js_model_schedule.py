@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Snapshot of static/js/model-schedule.js — when a model is open, on the kanban (1.3.498).
+"""Snapshot of static/js/model-schedule.js — when a model is open, in Routing (1.3.498).
 
 Pinned by value, with the module loaded for real (scripts/_js_harness.mjs): the
 caravan's time in the board's language — the controller's zone by its name, by its
@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
 
 # i18n.js reaches the whole page through form.js; the modules that close the circle back to the
-# kanban are stubs, as in scripts/test_js_pool_board.py — the window is loaded on its own.
+# Routing are stubs, as in scripts/test_js_pool_board.py — the window is loaded on its own.
 STUBS = ("dialogs,topology-render,consumer-access,polling,remote-cells,topology-dnd,canvas,charts,cables,history,"
          "favorites,config-locator,system-panels,onboarding,onboarding-tours,dialog-llamas,models-page,system-page,"
          "memory,command-preview,llama-edit,topology-nodes,topology-modals,topology-activity,topology-proxies,routers,"
@@ -230,7 +230,7 @@ def main():
         return 1
     both = json.loads(run.stdout.strip().splitlines()[-1])
     got, rev = both["out"], both["rev"]
-    print("расписание модели на канбане (браузер в другой зоне — Лос-Анджелес):")
+    print("расписание модели в Маршрутизации (браузер в другой зоне — Лос-Анджелес):")
     for pid, _s, _e, expected, msg in PINS:
         want, have = json.loads(expected), got.get(pid, "\0missing")
         check(have == want, msg if have == want else

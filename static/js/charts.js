@@ -1,4 +1,5 @@
 // Canvas chart rendering: metric charts, GPU/token history, chart modals.
+import { CellSpeed } from "./cell-speed.js";
 import { t } from "./i18n.js";
 import { formatTps } from "./polling.js";
 import { state, topology, ui } from "./state.js";
@@ -290,7 +291,7 @@ export function nodeActivityFilter(nodeId) {
 // order at all: a card named "hotel" holds a port labelled "sierra Hemi proxy",
 // so the strip put it under "s" while the lane had it under "h". Two pictures of
 // one fleet, and the eye cannot carry a row from one to the other. The card
-// order is the reference, and it comes from the same function the kanban uses
+// order is the reference, and it comes from the same function Routing uses
 // (canvasBoardClients), not from a copy of its rule.
 //
 // A port no card names is not dropped — it follows, ordered among its own kind
@@ -343,7 +344,7 @@ export function nodeRouteLabels(nodeId) {
   const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
   if (!node) return [];
   const endpoints = nodeEndpointSet(node);
-  // Routers whose kanban outputs point at this node's cells: their routes can
+  // Routers whose router outputs point at this node's cells: their routes can
   // land here even when the route's STATIC upstream says otherwise (the graph
   // resolves per request) — this is what makes client cards show traffic.
   const routersTouching = new Set();
@@ -385,23 +386,36 @@ export function nodeTelemetryRowsHtml(n) {
   const cv = (key, cls, h) => `<canvas class="${cls}" ${oc(key)} data-node-canvas="${escapeHtml(`${id}:${key}`)}" width="320" height="${h}"></canvas>`;
   // The descriptor ("Util", "used / total") is the row's hover word too: the main board's glance lays a
   // metric on one line and shows only its name, value and sparkline (topology-board.css).
-  const metric = (key, label, descriptor, chartCls, h) => `
+  // A machine of two cards or more: under each GPU metric's combined line, a line per card — its own value and its
+  // own sparkline, always shown (2026-10-17, the owner: "the combined chart, and a chart for each of the cards").
+  const cards = n.gpus || [];
+  const perCard = (key) => cards.length < 2 ? "" : `
+      <div class="gpu-metric-cards" data-t="node-gpu-cards" data-t-id="${escapeHtml(`${id}:${key}`)}">${cards.map((c, i) => {
+        const index = NodeGpuTelemetry.index(c, i);
+        const at = escapeHtml(`${id}:${key}:${index}`);
+        const name = String(c.name || "").trim();
+        return `<div class="gpu-metric-card" data-t="node-gpu-card" data-t-id="${at}" title="${escapeHtml(`GPU ${index}${name ? ` · ${name}` : ""}`)}">`
+          + `<span class="gmc-label">GPU ${escapeHtml(String(index))}</span>`
+          + `<span class="topology-history-meta gmc-val" data-node-metric-val="${at}">—</span>`
+          + `<span class="gmc-spark" data-node-metric-spark="${at}"></span></div>`;
+      }).join("")}</div>`;
+  const metric = (key, label, descriptor, chartCls, h, withCards = false) => `
     <div class="gpu-metric" title="${escapeHtml(`${label} · ${descriptor}`)}">
       <div class="topology-history-subhead topology-history-subhead--expand" ${oc(key)}>${escapeHtml(label)} <span class="topology-expand-hint">⤢</span></div>
       <div class="topology-card-head compact">
         <span class="topology-history-meta">${escapeHtml(descriptor)}</span>
         ${val(key)}${spark(key)}
       </div>
-      ${cv(key, chartCls, h)}
+      ${cv(key, chartCls, h)}${withCards ? perCard(key) : ""}
     </div>`;
   const routeBlock = hasRoutes ? `
     <div class="topology-history-subhead topology-history-subhead--expand" data-open-route-activity data-route-node="${escapeHtml(id)}">${escapeHtml(t("topologyRouteActivity"))} <span class="topology-expand-hint">⤢</span></div>
     <canvas class="topology-route-history-chart" data-node-route-canvas="${escapeHtml(id)}" data-open-route-activity data-route-node="${escapeHtml(id)}" width="320" height="74"></canvas>` : "";
   return `<div class="node-ctrl-gpu-telemetry node-telemetry">
-    ${g0 ? metric("gpu", t("topologyGpuHistoryHead"), t("util"), "topology-gpu-history-chart", 86) : ""}
+    ${g0 ? metric("gpu", t("topologyGpuHistoryHead"), t("util"), "topology-gpu-history-chart", 86, true) : ""}
     ${srv ? metric("tokens", t("topologyTokenSpeedHead"), t("topologyPromptGen"), "topology-token-speed-chart", 74) : ""}
-    ${g0 ? metric("vram", t("vram"), t("topologyUsedTotal"), "topology-stat-chart", 56) : ""}
-    ${g0 ? metric("power", t("power"), t("topologyGpuPowerDraw"), "topology-stat-chart topology-power-chart", 160) : ""}
+    ${g0 ? metric("vram", t("vram"), t("topologyUsedTotal"), "topology-stat-chart", 56, true) : ""}
+    ${g0 ? metric("power", t("power"), t("topologyGpuPowerDraw"), "topology-stat-chart topology-power-chart", 160, true) : ""}
     ${routeBlock}
   </div>`;
 }
@@ -428,24 +442,117 @@ export function miniSparklineSvg(values, color, max) {
 // controller's own machine. An older scout's machine keeps the coarse history
 // its reports built.
 export function _nodeGpuSamples(node) {
-  const g0 = (node.gpus || [])[0] || {};
-  const rows = ui.latestSystemMonitor?.hosts?.[String(node.id)] || [];
-  if (rows.length) {
-    const index = g0.index ?? 0;
-    return rows.map((r) => {
-      const g = (r.gpus || []).find((x) => x.index === index) || {};
-      const total = Number(g.memTotalMiB || g0.memoryTotalMiB || 0);
-      return { time: r.t, gpu: {
-        utilPct: g.utilPct, memoryUsedMiB: g.memUsedMiB, memoryTotalMiB: total,
-        memoryPct: total && g.memUsedMiB != null ? (g.memUsedMiB / total * 100) : 0, powerW: g.powerW,
-      } };
-    });
+  return new NodeGpuTelemetry(node).samples();
+}
+
+// The machine's GPU numbers belong to the whole machine, as its token numbers do (NodeTokenTelemetry below). Two
+// cards are one pool of VRAM and one power draw, and the busiest card sets the utilisation: a 3090 idle at
+// 0.0 / 24.0 GB stood for a machine whose 5090 held 4.8 GB, because every figure was card 0's alone (2026-10-17).
+// The current values, the history, the collapsed sparklines and the expanded chart share this one aggregation;
+// a figure no card reported stays unknown — undefined in a sample, null in `current()` — and is never a zero.
+export class NodeGpuTelemetry {
+  constructor(node, rows = ui.latestSystemMonitor?.hosts?.[String(node?.id)] || []) {
+    this.cards = node?.gpus || [];
+    this.rows = rows;
   }
-  const total = Number(g0.memoryTotalMiB || 0);
-  return (g0.history || []).map((r) => ({ gpu: {
-    utilPct: r[2], memoryUsedMiB: r[1], memoryTotalMiB: total,
-    memoryPct: total ? (r[1] / total * 100) : 0, powerW: r[3],
-  } }));
+
+  static number(value) { return NodeTokenTelemetry.number(value); }
+
+  static sum(values) { return NodeTokenTelemetry.sum(values); }
+
+  static max(values) {
+    const measured = values.map(NodeGpuTelemetry.number).filter((v) => v != null);
+    return measured.length ? Math.max(...measured) : null;
+  }
+
+  /** The card's number on its own machine: what the scout's rows call it. */
+  static index(card, position) { return card.index ?? position; }
+
+  get totalMiB() { return NodeGpuTelemetry.sum(this.cards.map((c) => c.memoryTotalMiB)) ?? 0; }
+
+  /** One card's own figures now, a missing reading staying missing (null), not 0. */
+  cardCurrent(position) {
+    const c = this.cards[position] || {};
+    return { utilPct: NodeGpuTelemetry.number(c.utilizationGpuPct), usedMiB: NodeGpuTelemetry.number(c.memoryUsedMiB),
+             totalMiB: Number(c.memoryTotalMiB || 0), powerW: NodeGpuTelemetry.number(c.powerDrawW) };
+  }
+
+  /** One card's own samples, the shape of samples(): from the scout's rows when it samples second by second, else from
+   *  the history of the card's own reports. */
+  cardSamples(position) {
+    const card = this.cards[position] || {};
+    const index = NodeGpuTelemetry.index(card, position);
+    const total = Number(card.memoryTotalMiB || 0);
+    if (this.rows.length) {
+      return this.rows.map((row) => {
+        const g = (row.gpus || []).find((x) => x.index === index) || {};
+        return { time: row.t, gpu: this.sample(NodeGpuTelemetry.number(g.utilPct), NodeGpuTelemetry.number(g.memUsedMiB),
+                                               g.memTotalMiB || total, NodeGpuTelemetry.number(g.powerW)) };
+      });
+    }
+    return (card.history || []).map((r) => ({ gpu: this.sample(r[2], r[1], total, r[3]) }));
+  }
+
+  current() {
+    return {
+      utilPct: NodeGpuTelemetry.max(this.cards.map((c) => c.utilizationGpuPct)),
+      usedMiB: NodeGpuTelemetry.sum(this.cards.map((c) => c.memoryUsedMiB)),
+      totalMiB: this.totalMiB,
+      powerW: NodeGpuTelemetry.sum(this.cards.map((c) => c.powerDrawW)),
+    };
+  }
+
+  /** Each card's own figure for the hover of a value, "" on a machine of one card (nothing to tell apart). */
+  breakdown(key) {
+    if (this.cards.length < 2) return "";
+    const gb = (mib) => (Number(mib || 0) / 1024).toFixed(1);
+    const part = {
+      gpu: (c) => (NodeGpuTelemetry.number(c.utilizationGpuPct) == null ? "—" : `${Math.round(Number(c.utilizationGpuPct))}%`),
+      vram: (c) => `${NodeGpuTelemetry.number(c.memoryUsedMiB) == null ? "—" : gb(c.memoryUsedMiB)} / ${gb(c.memoryTotalMiB)} GB`,
+      power: (c) => (NodeGpuTelemetry.number(c.powerDrawW) == null ? "—" : `${Number(c.powerDrawW).toFixed(1)} W`),
+    }[key];
+    return part ? this.cards.map((c, i) => `GPU${NodeGpuTelemetry.index(c, i)} ${part(c)}`).join(" · ") : "";
+  }
+
+  /** The chart samples, {time?, gpu: {utilPct, memoryUsedMiB, memoryTotalMiB, memoryPct, powerW}}: a machine whose scout
+   *  samples it second by second (2.8+) is drawn from those rows (the monitor's `hosts`), a second apart and ten minutes
+   *  deep, like this controller's own machine; an older scout's machine keeps the coarse history its reports built. */
+  samples() {
+    return this.rows.length ? this.rows.map((r) => this.fromRow(r)) : this.fromHistories();
+  }
+
+  sample(util, used, total, power) {
+    return { utilPct: util ?? undefined, memoryUsedMiB: used ?? undefined, memoryTotalMiB: total,
+             memoryPct: total && used != null ? (used / total * 100) : 0, powerW: power ?? undefined };
+  }
+
+  fromRow(row) {
+    const found = this.cards.map((c, i) => (row.gpus || []).find((x) => x.index === NodeGpuTelemetry.index(c, i)) || {});
+    const total = NodeGpuTelemetry.sum(found.map((g, i) => g.memTotalMiB || this.cards[i].memoryTotalMiB)) ?? 0;
+    return { time: row.t, gpu: this.sample(NodeGpuTelemetry.max(found.map((g) => g.utilPct)),
+      NodeGpuTelemetry.sum(found.map((g) => g.memUsedMiB)), total, NodeGpuTelemetry.sum(found.map((g) => g.powerW))) };
+  }
+
+  fromHistories() {
+    // One card keeps the rows of its report as they are. Several are laid over each other by the time of the row
+    // (r[0]): memory and power add up, the busiest card sets the utilisation, and the total is the machine's.
+    if (this.cards.length <= 1) {
+      const card = this.cards[0] || {};
+      const total = Number(card.memoryTotalMiB || 0);
+      return (card.history || []).map((r) => ({ gpu: { utilPct: r[2], memoryUsedMiB: r[1], memoryTotalMiB: total,
+        memoryPct: total ? (r[1] / total * 100) : 0, powerW: r[3] } }));
+    }
+    const at = new Map();
+    this.cards.forEach((c) => (c.history || []).forEach((r) => {
+      if (!at.has(r[0])) at.set(r[0], { util: [], used: [], power: [] });
+      const point = at.get(r[0]);
+      point.util.push(r[2]);
+      point.used.push(r[1]);
+      point.power.push(r[3]);
+    }));
+    return [...at.values()].map((p) => ({ gpu: this.sample(NodeGpuTelemetry.max(p.util), NodeGpuTelemetry.sum(p.used),
+      this.totalMiB, NodeGpuTelemetry.sum(p.power)) }));
+  }
 }
 // The Compute panel belongs to the whole machine. Picking its first port made
 // a CPU embedding cell hide a later GPU LLM's speed. Current values, history,
@@ -466,19 +573,40 @@ export class NodeTokenTelemetry {
 
   static format(value) { return value == null ? "—" : formatTps(value); }
 
-  static label(prompt, gen) {
-    return `prompt ${NodeTokenTelemetry.format(prompt)} / gen ${NodeTokenTelemetry.format(gen)} t/s`;
+  // `held`: the figures are the last ones, kept while no request runs (see held()) — `last` stands before them.
+  static label(prompt, gen, held = false) {
+    const words = `prompt ${NodeTokenTelemetry.format(prompt)} / gen ${NodeTokenTelemetry.format(gen)} t/s`;
+    return held ? `${t("tpsLastLabel")} ${words}` : words;
   }
 
-  current() {
-    const running = this.servers.filter((s) => {
+  running() {
+    return this.servers.filter((s) => {
       const phase = s.phase || s.status?.phase;
       return phase ? phase === "running" : s.running !== false;
     });
+  }
+
+  // The running cells that answer a request now. cell-speed.js decides who works, as on the cells' lines.
+  working() {
+    return this.running().filter((s) => new CellSpeed(s, true).working);
+  }
+
+  // What the machine generates now. While any cell works the figures are theirs alone: a cell that only holds the last request's rate (the
+  // scouts keep it while a cell is idle) adds nothing to what the machine does. With none working the figures are the held ones, summed
+  // over the running cells — and held() says so.
+  current() {
+    const working = this.working();
+    const counted = working.length ? working : this.running();
     return {
-      promptTps: NodeTokenTelemetry.sum(running.map((s) => s.promptTps)),
-      genTps: NodeTokenTelemetry.sum(running.map((s) => s.genTps)),
+      promptTps: NodeTokenTelemetry.sum(counted.map((s) => s.promptTps)),
+      genTps: NodeTokenTelemetry.sum(counted.map((s) => s.genTps)),
     };
+  }
+
+  // The machine's figures are only held when a running cell has a speed above 0 and no running cell answers a request now.
+  held() {
+    const { promptTps, genTps } = this.current();
+    return (promptTps > 0 || genTps > 0) && !this.working().length;
   }
 
   samples() {
@@ -513,35 +641,54 @@ export function drawNodeTelemetry() {
   (topology?.nodes || []).forEach((n) => {
     const id = String(n.id);
     const cv = (key) => document.querySelector(`[data-node-canvas="${CSS.escape(`${id}:${key}`)}"]`);
-    const setVal = (key, txt) => {
+    const setVal = (key, txt, title = "") => {
       const e = document.querySelector(`[data-node-metric-val="${CSS.escape(`${id}:${key}`)}"]`);
-      if (e && e.textContent !== txt) e.textContent = txt;
+      if (!e) return;
+      if (e.textContent !== txt) e.textContent = txt;
+      if (e.title !== title) e.title = title;
     };
     const setSpark = (key, values, color, max) => {
       const e = document.querySelector(`[data-node-metric-spark="${CSS.escape(`${id}:${key}`)}"]`);
       if (e) e.innerHTML = miniSparklineSvg(values, color, max);
     };
-    const g0 = (n.gpus || [])[0];
-    if (g0) {
-      const gpuS = _nodeGpuSamples(n);
+    const gpuT = new NodeGpuTelemetry(n);
+    if (gpuT.cards.length) {
+      const gpuS = gpuT.samples();
       drawTopologyGpuHistoryOnCanvas(gpuS, cv("gpu"));
       drawTopologyVramHistory(gpuS, cv("vram"));
       drawTopologyPowerHistory(gpuS, cv("power"));
-      const total = Number(g0.memoryTotalMiB || 0);
-      setVal("gpu", `${Math.round(Number(g0.utilizationGpuPct || 0))}%`);
+      const now = gpuT.current();
+      const gb = (mib) => (Number(mib || 0) / 1024).toFixed(1);
+      setVal("gpu", now.utilPct == null ? "—" : `${Math.round(now.utilPct)}%`, gpuT.breakdown("gpu"));
       setSpark("gpu", gpuS.map((s) => s.gpu.utilPct), "rgba(105, 208, 144, 0.9)", 100);
-      setVal("vram", `${(Number(g0.memoryUsedMiB || 0) / 1024).toFixed(1)} / ${(total / 1024).toFixed(1)} GB`);
-      setSpark("vram", gpuS.map((s) => s.gpu.memoryUsedMiB), "rgba(125, 211, 252, 0.9)", total || 1);
+      setVal("vram", `${now.usedMiB == null ? "—" : gb(now.usedMiB)} / ${gb(now.totalMiB)} GB`, gpuT.breakdown("vram"));
+      setSpark("vram", gpuS.map((s) => s.gpu.memoryUsedMiB), "rgba(125, 211, 252, 0.9)", now.totalMiB || 1);
       const pw = gpuS.map((s) => s.gpu.powerW);
-      setVal("power", `${Number(g0.powerDrawW || 0).toFixed(1)} W`);
+      setVal("power", now.powerW == null ? "—" : `${now.powerW.toFixed(1)} W`, gpuT.breakdown("power"));
       setSpark("power", pw, "rgba(45, 212, 191, 0.9)", Math.max(50, ...pw));
+      // The cards one by one, under the combined lines (nodeTelemetryRowsHtml draws their rows for two cards or more).
+      if (gpuT.cards.length >= 2) {
+        gpuT.cards.forEach((c, i) => {
+          const index = NodeGpuTelemetry.index(c, i);
+          const own = gpuT.cardSamples(i);
+          const one = gpuT.cardCurrent(i);
+          setVal(`gpu:${index}`, one.utilPct == null ? "—" : `${Math.round(one.utilPct)}%`);
+          setSpark(`gpu:${index}`, own.map((x) => x.gpu.utilPct), "rgba(105, 208, 144, 0.9)", 100);
+          setVal(`vram:${index}`, `${one.usedMiB == null ? "—" : gb(one.usedMiB)} / ${gb(one.totalMiB)} GB`);
+          setSpark(`vram:${index}`, own.map((x) => x.gpu.memoryUsedMiB), "rgba(125, 211, 252, 0.9)", one.totalMiB || 1);
+          const watts = own.map((x) => x.gpu.powerW).filter((v) => Number.isFinite(v));
+          setVal(`power:${index}`, one.powerW == null ? "—" : `${one.powerW.toFixed(1)} W`);
+          setSpark(`power:${index}`, own.map((x) => x.gpu.powerW), "rgba(45, 212, 191, 0.9)", Math.max(50, ...watts));
+        });
+      }
     }
     if ((n.servers || []).some((s) => s.port)) {
       const telemetry = new NodeTokenTelemetry(n);
       const tokS = telemetry.samples();
       const current = telemetry.current();
       drawTopologyTokenSpeedHistory(tokS, cv("tokens"));
-      setVal("tokens", NodeTokenTelemetry.label(current.promptTps, current.genTps));
+      const held = telemetry.held();
+      setVal("tokens", NodeTokenTelemetry.label(current.promptTps, current.genTps, held), held ? t("tpsLastHelp") : "");
       setSpark("tokens", tokS.map((s) => s.tokens.predictedTokensPerSecond).filter((v) => v != null), "rgba(105, 208, 144, 0.95)",
         Math.max(10, ...tokS.map((s) => s.tokens.predictedTokensPerSecond)));
     }

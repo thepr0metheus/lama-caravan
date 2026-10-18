@@ -21,6 +21,15 @@ canvas. What is pinned: how far a point must move to stand inside the water's ed
 pressed at a bank, and a strider shoved at one, never cross it; that a scare sends an animal along
 the stream, never across; and the rings of a hand's plop, which come once, in order.
 
+The take and the drop (1.3.546; the owner, 2026-10-14: "the fish eats the moth while its mouth is still far
+from it", "remove the splashes", "let the sound be like a drop falling into water"). The trout runs as
+itself in a stream with a fly drifting on it. What is pinned: where its mouth is and what the mouth takes
+and passes over; that a chase brings the mouth to the fly (it took it 0.39 of its length from the nose
+before), on a fast frame and on a slow one, for a fly that drifts down to a trout and for one thrown
+beside it; that a take leaves a ring and no spray; that the sound of a landing fly, of a take and of a
+hand's plop is one voice, a drop, each bigger drop lower and longer; and what that voice is made of: one
+rising sine and no noise.
+
 Run: python3 scripts/test_js_river.py
 """
 
@@ -47,11 +56,68 @@ const core = await mod("river-core.js");
 const worldMod = await mod("river-world.js");
 const fishMod = await mod("river-fish.js");
 const lifeMod = await mod("river-life.js");
+const soundMod = await mod("river-sound.js");
 /** A stream seen from above, the same everywhere: left to right when wide, down the screen when tall. */
 const channelOf = (w = 1000, h = 600) => new worldMod.Channel(w, h, new core.Rng(5), new core.Noise(new core.Rng(41)));
 const shoreOf = (ch, x, y) => ch.shore(ch.sOf(x, y), ch.nOf(x, y));
 /** The three points of a fish the banks are kept from: the snout, the middle of the spine, the tail. */
 const bodyOf = (f) => [0, Math.floor(f.spine.length / 2), f.spine.length - 1].map((i) => f.spine[i]);
+/** A trout at rest at the middle of the stream, 100 px long and facing east: where the numbers of the mouth are easy to read. */
+const troutAt = (ch) => { const at = ch.xy(500, ch.centre(500)), f = new fishMod.Trout(new core.Rng(3), at, 100); f.heading = 0; f.goal = 0; f.buildSpine(); return { at, f }; };
+/** A kit that writes down every sound asked of it, by the name of the call and the options it got. */
+const kitOf = (calls) => new Proxy({}, { get: (_, name) => (t, opts) => calls.push([name, opts]) });
+/** A stand-in for an AudioContext that writes down the nodes a sound makes and what was asked of each. */
+class FakeParam {
+  constructor() { this.value = 0; this.calls = []; }
+  setValueAtTime(v, t) { this.calls.push(["set", v, t]); }
+  exponentialRampToValueAtTime(v, t) { this.calls.push(["ramp", v, t]); }
+  setTargetAtTime(v, t, k) { this.calls.push(["target", v, t, k]); }
+  cancelScheduledValues(t) { this.calls.push(["cancel", t]); }
+}
+class FakeNode {
+  constructor(kind, log) { this.kind = kind; this.gain = new FakeParam(); this.frequency = new FakeParam(); this.pan = new FakeParam(); this.calls = []; log.push(this); }
+  connect(to) { return to; }
+  start(...a) { this.calls.push(["start", ...a]); }
+  stop(...a) { this.calls.push(["stop", ...a]); }
+}
+const fakeAudio = () => {
+  const log = [], make = (kind) => () => new FakeNode(kind, log);
+  return { sampleRate: 8000, currentTime: 0, log, createGain: make("gain"), createOscillator: make("osc"), createStereoPanner: make("pan"),
+    createBiquadFilter: make("filter"), createBufferSource: make("buffer"), createConvolver: make("convolver"),
+    createBuffer: (n, len) => ({ getChannelData: () => new Float32Array(len) }) };
+};
+/**
+ * A trout chasing a fly that drifts with the water, run as itself: how far from the tip of its snout the fly was when it was taken, in
+ * body lengths, or null when the chase ended with no take. A natural fly comes down the stream to a trout holding its lie; any other is
+ * thrown anywhere ahead of it or beside it, as a click on the water does.
+ */
+const chaseOf = (ch, seed, dt, natural) => {
+  const rng = new core.Rng(seed), at = ch.xy(600, ch.centre(600)), len = ch.C * 0.12;
+  const f = new fishMod.Trout(rng, at, len); f.heading = f.goal = Math.atan2(-ch.axis.y, -ch.axis.x); f.buildSpine();
+  let fly = null;
+  if (natural) {
+    fly = { x: f.x - ch.axis.x * len * 3.5 + rng.range(-1, 1) * len * 0.4, y: f.y - ch.axis.y * len * 3.5 + rng.range(-1, 1) * len * 0.4, vx: 0, vy: 0, alive: true, claimedBy: null };
+  } else {
+    for (let i = 0; i < 100 && !fly; i++) {
+      const a = f.heading + rng.range(-1.2, 1.2), d = len * rng.range(1.5, 6), x = f.x + Math.cos(a) * d, y = f.y + Math.sin(a) * d;
+      if (ch.isWater(x, y, 0.2)) fly = { x, y, vx: 0, vy: 0, alive: true, claimedBy: null };
+    }
+  }
+  let near = null;
+  const flies = [fly];
+  const life = { time: 0, noise: new core.Noise(new core.Rng(seed + 1)), channel: ch,
+    flyFor: (fish) => lifeMod.BrookLife.prototype.flyFor.call({ flies }, fish),
+    rise: (fish, g) => { g.alive = false; const m = fish.mouth(); near = Math.hypot(g.x - m.x, g.y - m.y) / fish.len; },
+    freeLie: () => null, shelterNear: () => at };
+  for (let t = 0; t < 12 && near === null; t += dt) {
+    const w = ch.sample(fly.x, fly.y), k = Math.min(1, 2 * dt);
+    fly.vx += (w.vx - fly.vx) * k; fly.vy += (w.vy - fly.vy) * k;
+    fly.x += fly.vx * dt; fly.y += fly.vy * dt; life.time = t;
+    f.update(dt, life);
+    if (f.state === "back" && near === null && t > 0.2) break;
+  }
+  return near;
+};
 
 /** A store like localStorage; `refuse` makes every call throw, as a private window can. */
 const store = (seed = {}, refuse = false) => {
@@ -319,6 +385,112 @@ PINS = [
      [[], [{"at": 1.0, "x": 10, "y": 20}], [], [{"at": 2.0, "x": 30, "y": 40}], 0],
      "a hand's second ring (the one that follows the big one) comes once its time is due, in the order it was added, and not again; "
      "negative: nothing is due before its time, and nothing is left waiting after the last"),
+    # ── the take and the drop ──
+    ("segment_gap", "",
+     "[[5, 0], [5, 3], [13, 4], [-3, 4]].map(([x, y]) => core.M.segmentGap(0, 0, 10, 0, x, y)).concat(core.M.segmentGap(2, 2, 2, 2, 5, 6))",
+     [0, 3, 5, 5, 5],
+     "how near a point lay to the way something went: on it, beside it, past its end, before its start, and a way that is a single point"),
+    ("trout_mouth_is_the_tip_of_the_snout", "",
+     "(() => { const ch = channelOf(), { at, f } = troutAt(ch); const m = f.mouth(), h = f.headFor(at.x + 100, at.y + 50);"
+     " return { nose: fishMod.Trout.NOSE, gape: fishMod.Trout.GAPE, mouth: [Math.round(m.x - at.x), Math.round(m.y - at.y)], head: [Math.round(h.x - at.x), Math.round(h.y - at.y)] }; })()",
+     {"nose": 0.03, "gape": 0.08, "mouth": [3, 0], "head": [97, 50]},
+     "the mouth of a trout 100 px long, facing east, is 3 px ahead of the head's first point (the nose the outline draws), and the head must stand "
+     "that far short of a fly for the mouth to be on it; a mouth takes a fly within 0.08 of the trout's length"),
+    ("trout_takes_what_is_at_its_mouth", "",
+     "(() => { const ch = channelOf(), { at, f } = troutAt(ch); const took = (dx, dy) => f.takes(at.x + dx, at.y + dy);"
+     " return { onTip: took(3, 0), ahead7: took(10, 0), ahead9: took(12, 0), beside7: took(3, 7), beside9: took(3, 9), atHead: took(0, 0),"
+     " oldReach41: took(41, 0), oldNose42: took(42, 0) }; })()",
+     {"onTip": True, "ahead7": True, "ahead9": False, "beside7": True, "beside9": False, "atHead": True, "oldReach41": False, "oldNose42": False},
+     "a trout takes a fly 7 px from the tip of its snout, ahead or beside, and does not take one 9 px from it; negative: a fly 41 px ahead of the head "
+     "(38 from the nose) or 42 px ahead (39 from it) — where a trout took one before: within 0.42 of its length of the head — is not at its mouth"),
+    ("trout_takes_what_its_mouth_passes_over", "",
+     "(() => { const ch = channelOf(); const step = (way) => { const { at, f } = troutAt(ch); if (way) f.mouthWas = f.mouth(); f.x += 60; f.buildSpine(); return { at, f }; };"
+     " const a = step(true), b = step(false); const took = (r, dx, dy) => r.f.takes(r.at.x + dx, r.at.y + dy);"
+     " return { onWay: took(a, 33, 0), off7: took(a, 33, 7), off9: took(a, 33, 9), behindStart: took(a, -10, 0), pastEnd: took(a, 75, 0), noWay: took(b, 33, 0) }; })()",
+     {"onWay": True, "off7": True, "off9": False, "behindStart": False, "pastEnd": False, "noWay": False},
+     "a step of 60 px on a slow frame carries the mouth over a fly in the middle of it: the fly is taken; 7 px beside the way it is still taken, 9 px not; "
+     "negative: a fly behind where the step began or past where it ended is not; with no way recorded only where the mouth is now counts"),
+    ("trout_update_keeps_the_way_of_its_mouth", "",
+     "(() => { const ch = channelOf(), { at, f } = troutAt(ch); f.speed = 300; f.vx = 300; const before = f.mouth();"
+     " f.update(1 / 60, { time: 0, noise: new core.Noise(new core.Rng(2)), channel: ch, flyFor: () => null, freeLie: () => null, shelterNear: () => at });"
+     " return { was: [Math.round(f.mouthWas.x - before.x), Math.round(f.mouthWas.y - before.y)], moved: Math.hypot(f.x - at.x, f.y - at.y) > 0.5 }; })()",
+     {"was": [0, 0], "moved": True},
+     "every step of a trout writes down where its mouth stood before it, so that the next look at a fly sees the whole way the mouth went"),
+    ("chase_brings_the_mouth_to_a_natural_fly", "",
+     "(() => { const ch = channelOf(1200, 700); const run = (dt) => Array.from({ length: 40 }, (_, i) => chaseOf(ch, i + 1, dt, true)).filter((v) => v !== null);"
+     " const fast = run(1 / 60), slow = run(1 / 20); return { took: [fast.length, slow.length], near: [Math.max(...fast) <= 0.15, Math.max(...slow) <= 0.2] }; })()",
+     {"took": [40, 40], "near": [True, True]},
+     "a fly that drifts down the stream to a trout holding its lie is taken every time, with the fly within 0.15 of the trout's length of the snout's tip "
+     "on a fast frame (60 a second) and 0.2 on a slow one (20), where it was 0.39 away before"),
+    ("chase_brings_the_mouth_to_a_thrown_fly", "",
+     "(() => { const ch = channelOf(1200, 700); const run = (dt) => Array.from({ length: 40 }, (_, i) => chaseOf(ch, i + 1, dt, false)).filter((v) => v !== null);"
+     " const fast = run(1 / 60), slow = run(1 / 20); return { took: [fast.length >= 36, slow.length >= 36], near: [Math.max(...fast) <= 0.15, Math.max(...slow) <= 0.25] }; })()",
+     {"took": [True, True], "near": [True, True]},
+     "a fly thrown anywhere ahead of a trout or beside it is taken in at least 36 of 40 chases, at the mouth as well; the others end after six seconds, "
+     "the fly left to the water (the trout must turn sharply and slow down to reach it: slower or duller turns took 33 to 56 of every 100)"),
+    ("chase_turns_sharper_than_the_rest", "",
+     "(() => { const ch = channelOf(), { at, f } = troutAt(ch); const swimmer = fishMod.Trout.AGILITY, start = { ...f.agility };"
+     " f.enter(\"chase\", {}); const chase = { ...f.agility }; f.enter(\"back\", {}); return { start, chase, back: { ...f.agility }, frozen: Object.isFrozen(swimmer) }; })()",
+     {"start": {"gain": 2.4, "pivot": 0.35}, "chase": {"gain": 4.5, "pivot": 0.8}, "back": {"gain": 2.4, "pivot": 0.35}, "frozen": True},
+     "a trout turns as every fish does, except while it chases a fly: then it turns sharper and keeps most of its turn with no way on; "
+     "the next state gives it back"),
+    ("rise_leaves_a_ring_and_no_spray", "",
+     "(() => { const rings = [], spray = [], calls = []; const life = { C: 600, ripples: { disturb: (...a) => rings.push(a) }, specks: { splash: (...a) => spray.push(a) },"
+     " scene: { sound: (fn) => fn(kitOf(calls), 0) } }; const fly = { x: 120, y: 80, alive: true };"
+     " lifeMod.BrookLife.prototype.rise.call(life, new fishMod.Trout(new core.Rng(1), { x: 0, y: 0 }, 60), fly);"
+     " return { alive: fly.alive, rings: rings.map((r) => r.map((v) => +v.toFixed(3))), spray: spray.length, sounds: calls.map((c) => c[0]) }; })()",
+     {"alive": False, "rings": [[120, 80, 1.7, 7.2]], "spray": 0, "sounds": ["plink"]},
+     "a trout's take eats the fly, leaves one ring where it lay, throws no spray (the owner took it out) and sounds once, as a drop"),
+    ("water_sounds_are_drops", "",
+     "(() => { const real = Math.random; Math.random = () => 0.5;"
+     " const play = (what) => { const calls = []; what({ scene: { sound: (fn) => fn(kitOf(calls), 0) }, C: 600, flies: [], rng: new core.Rng(1), time: 0, trout: [], falling: [],"
+     " channel: { isWater: () => true }, ripples: { disturb() {} }, echoes: { add() {} }, shoal: { spook() {} } }); return calls; };"
+     " const proto = lifeMod.BrookLife.prototype;"
+     " const take = play((life) => proto.rise.call(life, new fishMod.Trout(new core.Rng(1), { x: 0, y: 0 }, 60), { x: 5, y: 5, alive: true }));"
+     " const tap = play((life) => proto.pointer.call(life, \"down\", { x: 50, y: 50 }));"
+     " const plop = play((life) => proto.pointer.call(life, \"double\", { x: 50, y: 50 }));"
+     " Math.random = real; const o = (c) => c[0][1];"
+     " return { take, tap, plop, lower: [o(plop).f < o(take).f, o(take).f < o(tap).f], longer: [o(plop).ring > o(take).ring, o(take).ring > o(tap).ring] }; })()",
+     {"take": [["plink", {"f": 640, "ring": 0.26, "gain": 0.09}]], "tap": [["plink", {"f": 900, "ring": 0.2, "gain": 0.06}]],
+      "plop": [["plink", {"f": 330, "ring": 0.42, "gain": 0.14, "room": 0.3}]], "lower": [True, True], "longer": [True, True]},
+     "a fly landing on the water, a trout taking one and a hand's plop each make one sound, a drop — not a tap and a splash of noise; "
+     "the bigger the drop, the lower it starts and the longer it rings: the plop below the take below the landing"),
+    ("plink_is_one_rising_sine", "",
+     "(() => { const ctx = fakeAudio(), kit = new soundMod.SoundKit(ctx, {}); ctx.log.length = 0; const real = Math.random; Math.random = () => 0.5;"
+     " kit.plink(1, { f: 900, ring: 0.2, gain: 0.06, pan: 0.1, room: 0.2 }); Math.random = real;"
+     " const osc = ctx.log.filter((n) => n.kind === \"osc\"), env = ctx.log.filter((n) => n.kind === \"gain\")[0].gain.calls;"
+     " const r = (c) => [c[0], +c[1].toPrecision(4), +c[2].toFixed(3)];"
+     " const from = (rand) => { const c = fakeAudio(), k = new soundMod.SoundKit(c, {}); c.log.length = 0; const was = Math.random; Math.random = () => rand; k.plink(0, { f: 900 }); Math.random = was;"
+     " return Math.round(c.log.find((n) => n.kind === \"osc\").frequency.calls[0][1]); };"
+     " return { oscillators: osc.length, noise: ctx.log.filter((n) => n.kind === \"buffer\" || n.kind === \"filter\").length, type: osc[0].type,"
+     " pitch: osc[0].frequency.calls.map(r), envelope: env.map(r), start: osc[0].calls.filter((c) => c[0] === \"start\"), stop: osc[0].calls.filter((c) => c[0] === \"stop\").map((c) => [c[0], +c[1].toFixed(3)]),"
+     " pan: ctx.log.find((n) => n.kind === \"pan\").pan.value, send: ctx.log.filter((n) => n.kind === \"gain\")[1].gain.value, rise: soundMod.SoundKit.PLINK_RISE,"
+     " spread: [from(0), from(0.999)] }; })()",
+     {"oscillators": 1, "noise": 0, "type": "sine", "pitch": [["set", 900, 1], ["ramp", 1620, 1.1]],
+      "envelope": [["set", 0.0001, 1], ["ramp", 0.06, 1.004], ["ramp", 0.0001, 1.2]], "start": [["start", 1]], "stop": [["stop", 1.25]],
+      "pan": 0.1, "send": 0.2, "rise": 1.8, "spread": [828, 972]},
+     "a drop is one sine voice and nothing else — no noise source, no filter: it starts at its pitch, climbs 1.8 times over half its ring while "
+     "it dies away, and is done at the end of the ring; it sits where it is panned and sends a little to the room; each drop starts within 8% of "
+     "its pitch, either way; a burst of noise was what the owner did not like in a tap and a splash"),
+    ("drop_of_the_trickle_is_unchanged", "",
+     "(() => { const ctx = fakeAudio(), kit = new soundMod.SoundKit(ctx, {}); ctx.log.length = 0; const real = Math.random; Math.random = () => 0.5;"
+     " kit.drop(1, { f: 1000, gain: 0.01, pan: 0, room: 0.1 }); Math.random = real; const o = ctx.log.find((n) => n.kind === \"osc\");"
+     " return { pitch: o.frequency.calls.map((c) => [c[0], Math.round(c[1]), +c[2].toFixed(3)]), stop: o.calls.filter((c) => c[0] === \"stop\").map((c) => +c[1].toFixed(3)) }; })()",
+     {"pitch": [["set", 1000, 1], ["ramp", 1800, 1.055]], "stop": [1.105]},
+     "the short drops of the brook's trickle (river-scene.js) are as they were: a pitch that climbs over the whole of a few hundredths of a second; "
+     "the drop of a landing, a take and a plop glides over half of its ring and nothing else changed for these"),
+    ("trout_nose_is_painted_where_the_mouth_is", "",
+     "(() => { const src = readFileSync(process.env.JS_ROOT + \"/river-fish.js\", \"utf8\");"
+     " return { body: /painter\\.outline\\(ctx, this\\.spine, this\\.widths, len \\* Trout\\.NOSE\\)/.test(src), literal: /this\\.widths, len \\* 0\\.03\\)/.test(src) }; })()",
+     {"body": True, "literal": False},
+     "the nose the outline of a trout draws and the nose its mouth is measured from are one number, Trout.NOSE: the fly is taken where the picture's "
+     "snout ends, not 3% of the length short of it or past it"),
+    ("brook_has_no_spray_and_no_noise_click", "",
+     "(() => { const src = [\"river-life.js\", \"river-fish.js\", \"river-sound.js\", \"river-scene.js\"].map((f) => readFileSync(process.env.JS_ROOT + \"/\" + f, \"utf8\")).join(\"\\n\");"
+     " return { splash: /\\bsplash\\s*\\(/.test(src), drops: /\\.drops\\b/.test(src), click: /\\.click\\s*\\(/.test(src), white: /\\bwhite\\s*:/.test(src) }; })()",
+     {"splash": False, "drops": False, "click": False, "white": False},
+     "nothing in the brook throws spray any more and the sound kit has no burst of noise to make one with: a call to splash(), a list of drops, "
+     "a click() or a white-noise colour coming back would be the owner's tap and splash again"),
     # ── words ──
     ("switch_words_wait", "",
      "(() => { const s = new RiverSwitch(page(), new RiverPrefs(store()), { load: brook().load }); s.mount();"
@@ -357,7 +529,7 @@ def check(cond, msg):
 
 
 def main():
-    if len(PINS) < 32:
+    if len(PINS) < 46:
         print(f"js river FAILED: only {len(PINS)} pins — the snapshot is empty or cut")
         return 1
     node = find_node()
@@ -400,7 +572,7 @@ def main():
         for f in _fail:
             print("  - " + f.splitlines()[0])
         return 1
-    print(f"js river OK: the real modules in node, {len(PINS)} pins of the brook's switch, its dock, its memory and its banks")
+    print(f"js river OK: the real modules in node, {len(PINS)} pins of the brook's switch, its dock, its memory, its banks, the take and the drop")
     return 0
 
 

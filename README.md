@@ -22,8 +22,8 @@ take it, in the cloud when it can't.
 What that gives you in practice:
 
 - **The OpenAI API, the way companies' gateways speak it.** A client gets one
-  address and a key of its own, made with ＋ on the board, and one cable on the
-  kanban leads it to a set of models: `model` in a request picks one of the
+  address and a key of its own, made with ＋ on the board, and one cable in
+  Routing leads it to a set of models: `model` in a request picks one of the
   set's pools by its name, as OpenAI's API picks a model, and `GET /v1/models`
   lists them with what each does. Errors come in OpenAI's shape — 401 for a
   key, 404 for a model the key's set has not (or while no cable leads the key
@@ -42,7 +42,7 @@ What that gives you in practice:
   single credential. Every app comes in the same way: one address, its own key.
   Chat Completions and the Responses API (`/v1/responses`, what Codex CLI
   speaks) both work, on API-key and subscription rows alike.
-- **Local ⇄ cloud routing you can draw.** On the kanban each client's cable
+- **Local ⇄ cloud routing you can draw.** In Routing each client's cable
   leads to a set of models, the set's cables lead to pools — its models, picked
   by the request's `model` — and a pool is a list of rows — a subscription's
   model or a machine's cell, mixed as you like. The proxy tries the rows from the top and
@@ -76,10 +76,12 @@ What that gives you in practice:
   - ⚡ **vLLM** — safetensors (AWQ/GPTQ everywhere, NVFP4/FP8 on new GPUs),
     continuous batching; provisioned into its own venv on first start, with
     pinned version + one-click update/rollback
-  - 🪨 **Strata** — Qwen3.8-Flash-Next (177B, GSQ-RCO ~2-bit GGUF) on one
-    32 GB card, its experts streamed to the card; the engine is installed once
-    with Strata's own `setup.sh`, and the model and its MTP draft layer come
-    from the library like any GGUF
+  - 🪨 **Strata** — Qwen3.8-Flash-Next (177B, GSQ-RCO 2- to 3.5-bit GGUF, and
+    Unsloth's ~4-bit packs) on one card, its experts streamed to the card; the
+    engine is installed once with Strata's own `setup.sh`, and the model and its
+    MTP draft layer come from the library like any GGUF. Which packs there are
+    (the original, the Coder, Swift 1.5, Unsloth's) and what each asks of the
+    machine: [docs/strata-models.md](docs/strata-models.md)
   - 🦾 **GR00T** — a robot policy (NVIDIA GR00T N1.7): camera frames, the
     robot's state and an instruction in, a chunk of actions out, at
     `POST /v1/robot/predict` — through the entry like any model
@@ -135,7 +137,7 @@ voice-translation app on the LAN finds both by the engine self-ID their
 `/health` publishes; and the spend chart shows what all of that would have
 cost in cloud tokens.
 
-The long version of that day — with the kanban that implements it — lives in
+The long version of that day — with the Routing page that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
 
 ## Deployment model: a scout only where there is hardware to share
@@ -155,7 +157,7 @@ launched from there; its ✕ lets go again.
 
 A machine that merely *runs agents* installs nothing. Each agent is a client
 of the entry, made **on the board**: ＋ in the Clients column asks a name,
-then shows its key once, and a cable on the kanban leads it to its pool. The agent calls the entry's
+then shows its key once, and a cable in Routing leads it to its pool. The agent calls the entry's
 address with that key — that is the whole integration. Agents of the older kind
 keep the proxy ports and records they have. A machine that does both shows up
 twice: as a machine with its hardware and as its agents' client cards.
@@ -170,7 +172,7 @@ Since scout 2.0 (controller 1.3.353+) this is the whole architecture: a scout
 says nothing about agents; client and agent cards are the operator's records,
 and no report creates, rewrites or deletes them; a client's liveness is its
 agents' traffic — idle after 12 hours without a request, the same on the
-board and the kanban; a machine whose scout went silent is marked on its
+board and in Routing; a machine whose scout went silent is marked on its
 node, and its ✕ lets go of the scout and removes the machine without touching any client.
 
 ## One GPU, many agents
@@ -224,7 +226,7 @@ already running are never the victim. An agent that hangs up leaves the queue
 immediately instead of holding a place. And a route with a spill edge does not
 wait to the end — after a fraction of its budget (a fifth, by default) it walks
 out to whatever that edge points at, a cloud model or another server. That edge
-is a line you draw on the kanban.
+is a line you draw in Routing.
 
 **The honest part.** Everything still takes 90 minutes: the queue buys you
 *completion instead of collapse*, not speed. And the keepalive only exists for
@@ -278,6 +280,8 @@ Notes:
 models by hand, any subfolder under the models dir is scanned — but following
 the same layout keeps the model pickers, the disk-cleanup modal and
 multi-part grouping tidy (parts `…-00001-of-00004.gguf` belong together).
+A repository with many files is read to its last page, and a gated one (its terms are accepted on its
+Hugging Face page) opens that page in a new window when the hub refuses its files.
 
 ## Screenshots
 
@@ -286,9 +290,10 @@ the header's switch, which is off until you turn it on. The clients, the machine
 address are made up for the pictures — they are a stand's, not a real fleet's.
 
 The main board, in three columns of one width — the entry's address and its clients on the left, each
-with its recent requests as marks; the kanban's card in the middle, with how many clients have a set and
-how many pools there are, and the links to the Models and Hugging Face pages under it; the machines at a
-glance and the cloud providers on the right, their limit windows drawn once per subscription:
+with its recent requests as marks; the Routing card in the middle, with how many clients have a set and
+how many pools there are; on the right the machines and the cloud providers — two wide buttons to the Models and
+Hugging Face pages, the scouts' buttons under them, the machines at a glance, the providers' limit windows
+drawn once per subscription. The heads of Clients and Machines stand on one line:
 
 ![Main board](docs/screenshots/board.png)
 
@@ -300,14 +305,15 @@ and the exact command it will run:
 
 ![Cell editor](docs/screenshots/editor.png)
 
-The routing kanban — four columns joined by cables: the clients, the sets of models they see, the pools
-and the models. A click on a card pins its path: here the pool "chat" with its client, its set and its
+Routing — four columns joined by cables: the clients, the sets of models they see ("ID sets"), the pools
+("ID (Pools)": a pool's name is the model id a client puts in `model`) and the models. A click on a card pins its path: here the pool "chat" with its client, its set and its
 models lit, the rest stepped back, and its details in the strip under the columns — its rows as the
 proxy says them, when it goes on to the next row, "＋ row", the pool's settings and its switch history.
-A subscription's limits are drawn once on its card; a model's own two levels stand in its strip. With
+A subscription's limits are drawn once on its card, one small bar for a window, with a red tick where its models stop;
+a model's own two levels stand in its strip, and a model that is on its switch level wears "↓ yielding". With
 nothing pointed at or pinned the strip is hidden:
 
-![Routing kanban](docs/screenshots/kanban.png)
+![Routing](docs/screenshots/routing.png)
 
 The built-in HuggingFace GGUF browser:
 
@@ -329,7 +335,7 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-10-13**):
+whenever a component is upgraded (last verified: **2026-10-15**):
 
 | Component | Verified version |
 |---|---|
@@ -350,6 +356,10 @@ whenever a component is upgraded (last verified: **2026-10-13**):
 | Isaac-GR00T | commit `d2b7e75` with torch 2.9.0+cu128, transformers 4.57.3 and flash-attn 2.8.3 (its own `uv.lock`, uv 0.13.0) — GR00T cells; GR00T N1.7 3B (revision `2fc962b`) with Cosmos-Reason2-2B (revision `9ce19a1`) on the RTX 5090: one prediction of 40 actions in about 61 ms, 7.0 GB of VRAM, the DROID sample answered through the cell's HTTP API, verified 2026-10-13 |
 | Strata | v0.1.42 (commit `61b3fb5`), engine built on the machine with nvcc 13.2.86 (CUDA 13.2.2 — nvcc 13.2.78 miscompiles `sm_120`, Strata issues #892, #968) — Strata cells; Qwen3.8-Flash-Next GSQ-RCO IQ2_XS on the RTX 5090: 159–192 tokens/s with the MTP draft layer, verified 2026-10-13 |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
+| vLLM-Omni (the Step-Audio 2 and Qwen3-Omni runners) | 0.30.0 with vLLM 0.30.0, one venv per model (`run_vllm_omni.sh`); the answers of both transcribed back by a speech recognizer, verified on the RTX 5090 2026-10-15. Step-Audio 2 mini: 25 GB, the first answer after a 73 s warm-up, then 1.5 s. Qwen3-Omni-30B-A3B AWQ 4-bit (cyankiwi): 31 GB, English and Russian answers, a 15 s story generated in 1.5 s; the checkpoint came from the NAS at 8 minutes |
+| PersonaPlex (runner) | NVIDIA/personaplex commit `3428dfd` with torch 2.13.0+cu130 in a venv of its own (the repository's own pins stop at torch 2.5, which has no `sm_120` kernels); the weights of `nvidia/personaplex-7b-v1` (bf16, about 20 GB), an answer spoken back to a spoken question, verified 2026-10-15 |
+| llama.cpp-omni (runner; MiniCPM-o) | tc-mb/llama.cpp-omni tag b280 (commit `88bd37e`, 2026-10-12) built with CUDA 13.2.86 for `sm_120`; `llama-moe-slot.cpp` needs `-DF_NOCACHE=-1` to compile on Linux; MiniCPM-o 4.5 Q4_K_M with the F16 audio, vision and speech parts: 12 GB, an English question answered in 4.8 s with a 9 s spoken answer, verified 2026-10-15 |
+| liquid-audio (the LFM2.5-Audio runner) | v1.3.0 from its own lock (torch 2.8.0+cu128, transformers 4.56.1); LFM2.5-Audio-1.5B, 6 GB: text to speech and a spoken answer, English, verified 2026-10-15 |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |
 
 > The build number `llama-server --version` prints counts commits in the *local
@@ -380,9 +390,11 @@ whenever a component is upgraded (last verified: **2026-10-13**):
 | [docs/frontend.md](docs/frontend.md) | `static/js/` ES-module reference, state model, render/polling pipeline |
 | [docs/http-api.md](docs/http-api.md) | Every HTTP endpoint of the admin and the proxy surface |
 | [docs/operations.md](docs/operations.md) | Runbook: services, deploy, rollback, backups, the entry with keys and its clients, local dev, quirks |
-| [docs/pools.md](docs/pools.md) | Pools of rows: the kanban, the levels on a model, the next row, what a client sees at a limit |
+| [docs/pools.md](docs/pools.md) | Pools of rows: Routing, the levels on a model, the next row, what a client sees at a limit |
 | [docs/robot-policy-api.md](docs/robot-policy-api.md) | A robot policy (GR00T) through the entry: `POST /v1/robot/predict`, the request, the answer, the errors, measured latency |
-| [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md) | A worked example: one day of hybrid local/cloud routing and the kanban behind it |
+| [docs/adding-a-runner.md](docs/adding-a-runner.md) | How a server joins the runner row of the new-cell form — and why it is never a typed command: the class, the launcher, the places a runner touches, the checks |
+| [docs/strata-models.md](docs/strata-models.md) | The packs Strata runs (the original at 2 to 3.5 bits, the Coder, Swift 1.5, Unsloth's ~4-bit): sizes, the RAM and the card each asks, how to get one |
+| [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md) | A worked example: one day of hybrid local/cloud routing and the Routing page behind it |
 | [docs/security.md](docs/security.md) | Accounts/sessions (SQLite), the fleet token for scouts, what stays open |
 | [docs/testability.md](docs/testability.md) | The E2E contract: `data-t` hooks as public API, page identity/readiness flags, landmark names — what an external test suite may rely on |
 
@@ -514,7 +526,10 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   one-click restore, a sticky crash watchdog with a server-dismissed banner,
   and a franken-build guard (stale CUDA build dirs are wiped automatically).
 - vLLM lifecycle: pinned provisioning into its own venv on first start,
-  update/rollback driven by pip's own version history.
+  update/rollback driven by pip's own version history; a start removes a
+  `flashinfer-cubin` that disagrees with `flashinfer`. The cell's panel has
+  `TRUST_REMOTE_CODE` (`--trust-remote-code`), the three flags a model's recipe asks for
+  (`MAX_NUM_SEQS`, `KV_CACHE_DTYPE`, `REASONING_PARSER`) and `ENV`.
 - A running cell is ringed by an animated border comet — on its board card AND
   around its config window, colored by compute target (CPU cells blue).
 - **A sick cell cannot look healthy.** A cell whose own health endpoint
@@ -523,18 +538,19 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   engine never masquerades as fine. A cell running an older copy of its
   server than the controller ships wears an ⇪ old-server chip (every speech
   cell reports a source hash on `/health`).
-- Hosts can be rebooted — or powered off, behind a type-the-hostname
-  confirmation — right from the board. Poweroff warns you first: the board
-  can turn a machine off, not back on.
-- The kanban (`/kanban`) is four columns joined by cables — the clients, their
+- Hosts can be rebooted, powered off or let go (their scout disconnected)
+  right from the board — each behind a type-the-hostname confirmation: the
+  button stays off until the machine's name is typed, a click is not enough.
+  Poweroff warns you first: the board can turn a machine off, not back on.
+- Routing (`/routing`) is four columns joined by cables — the clients, their
   sets of models, the pools and the models — and a strip under them that says
   the details of the card the pointer is on or a click pinned (hidden while
   there is none). A client's one cable leads to a set, the set's cables lead to
   pools, and a pool is a list of rows — subscriptions' models and cells —
   tried from the top. The main board shows, in three columns of one width,
-  the clients, the kanban's card (how many clients have a set, how many pools
-  there are) with links to the Models and Hugging Face pages, and the machines
-  with the cloud providers.
+  the clients, the Routing card (how many clients have a set, how many pools
+  there are), and the machines with the cloud providers; the head of Machines
+  opens with two wide buttons, to the Models and Hugging Face pages.
 - Each machine shows its load at a glance under Machines — CPU and RAM, each
   GPU and their history; a click on its card shows the machine in a window of
   its own (`/machine?host=<id>`) with its servers, engines, models and cells.
@@ -552,7 +568,7 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   answers `POST /v1/robot/predict`
   ([docs/robot-policy-api.md](docs/robot-policy-api.md)). Stable proxy ports
   for agents of the older kind, which still go through their router's graph as
-  it was saved; the kanban no longer draws that graph.
+  it was saved; Routing no longer draws that graph.
 - Pools of rows: a pool is a list of rows, each a subscription's model or a
   machine's cell (two ChatGPT subscriptions, then a local cell). The proxy
   takes the first row that fits and moves on at a limit — the model's own two
@@ -565,10 +581,10 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   and *unverified* when nothing can vouch for it — two visually distinct
   states, so silence never masquerades as health.
 - A client's activity is on the board: its card lights while its request runs
-  and shows its recent requests, its cable lights to the kanban's card, and the
-  kanban's cables to the machines and the cloud providers its pools lead to
+  and shows its recent requests, its cable lights to the Routing card, and the
+  Routing cables to the machines and the cloud providers its pools lead to
   light where a request runs.
-- Cables on the board and kanban fan into parallel lanes instead of piling
+- Cables on the board and in Routing fan into parallel lanes instead of piling
   into one trunk; a cable that cannot be drawn says so in the console instead
   of vanishing.
 
@@ -595,7 +611,7 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - Sign-in: SQLite accounts + sessions, a fleet token for the scouts. A fresh
   install asks for its first account at `/setup` before anything else
   (see [docs/security.md](docs/security.md)).
-- Built-in onboarding tours (the floating `?` button) on the board, the kanban
+- Built-in onboarding tours (the floating `?` button) on the board, Routing
   and the HF browser; with the editor open the same button explains every
   llama.cpp config field.
 - Light, dark, and black LLM-focused themes.
@@ -729,13 +745,13 @@ The full endpoint reference (the admin surface and the proxy surface) lives in
 ## Topology GUI
 
 The web UI is six pages, each at one canonical address (the old synonyms
-redirect: `/` → `/board`, `/router` → `/kanban`):
+redirect: `/` → `/board`, `/router` → `/routing`; `/kanban`, the page's name until 1.3.581, answers 404 and is not redirected):
 
 | page | what it is |
 |---|---|
-| `/board` | the main board in three columns: the entry's address and its clients with their recent requests, agents of the older kind; the kanban's card with its counts and the links to Models and Hugging Face; the machines and the cloud providers at a glance — cables lit by traffic between them |
-| `/machine?host=<id>` | one machine in a window of its own: its servers, engines, models and cells with lifecycle controls, GPU telemetry |
-| `/kanban` | the kanban: clients, sets, pools and models in four columns joined by cables, and under them a strip with the details of the card under the pointer |
+| `/board` | the main board in three columns: the entry's address and its clients with their recent requests, agents of the older kind; the Routing card with its counts; the machines (two wide buttons to Models and Hugging Face over the scouts' buttons) and the cloud providers at a glance — cables lit by traffic between them |
+| `/machine?host=<id>` | one machine's page, opened in the same tab from the board: its servers, engines, models and cells with lifecycle controls, GPU telemetry |
+| `/routing` | Routing: clients, ID sets, ID (pools) and models in four columns joined by cables — a pool's name is the model id a client puts in `model` — and under them a strip with the details of the card under the pointer |
 | `/models` | the GGUF library on disk: sizes, which cells use what, cleanup |
 | `/system` | controller services, llama.cpp builds, accounts, diagnostics |
 | `/hf` | the HuggingFace GGUF browser |
@@ -761,8 +777,8 @@ The graph model is:
 client (its key) -> the entry -> its set -> the pool `model` names -> a row: a subscription's model | a machine's cell -> GPU(s)
 ```
 
-A client of the entry is served by the pools of the set its cable on the
-kanban leads to, the one its request's `model` names; a model the set has not,
+A client of the entry is served by the pools of the set its cable in
+Routing leads to, the one its request's `model` names; a model the set has not,
 or a key with no cable yet, is 404. An agent of the older kind comes in
 by its own proxy port (or by the entry, with that port's key) and goes through
 its router's graph, as it was saved. Clients and agents are owned by the admin server and
@@ -881,8 +897,59 @@ Worth knowing before the first start:
 - **Concurrency.** A speech cell runs one inference at a time (one resident
   session behind a lock — the engines crash on parallel inference, verified,
   not assumed); requests queue at the socket (depth 64). To parallelize, run
-  a second cell of the same engine on another port and split traffic in the
-  kanban.
+  a second cell of the same engine on another port and split traffic in
+  Routing.
+
+## Voice models: answers in a voice
+
+The llama.cpp and vLLM cells of the caravan answer in text. The models below have a speech decoder behind the
+language model and answer a question — written or spoken — in a **voice**. Each is a **runner** on the Runner row of
+the new-cell form, as llama.cpp and vLLM are: pick its tab, pick the model's folder, Start. Its launcher installs the
+engine at the first start — a venv or a folder of its own in the user's home, nothing system-wide, no `sudo`, several
+minutes. The weights are the models library's files, so download the model on `/hf` first.
+`nvidia/personaplex-7b-v1` is gated: accept its terms once on its page (a download the hub refuses opens that page
+by itself). Picking a model's folder lands on its tab, and the tab of a server that cannot read the folder is grey and
+says why; the `voice-chat` chip on a card and on the model's row says it talks.
+
+| runner (tab) | model it takes | launcher | speaks | how you talk to it | GPU memory | licence |
+|---|---|---|---|---|---|---|
+| PersonaPlex | `nvidia/personaplex-7b-v1` | `run_personaplex.sh` | English | a live conversation (it listens while it speaks) in a page of its own, or its websocket | 20 GB | NVIDIA Open Model License |
+| LFM2.5-Audio | `LiquidAI/LFM2.5-Audio-1.5B` | `run_lfm_audio.sh` | English | `POST /v1/audio/speech` (text to speech) and `/v1/chat/completions` (a spoken or written question, answered in text and a wav) | 7 GB | LFM Open License v1.0 |
+| Step-Audio 2 | `stepfun-ai/Step-Audio-2-mini` | `run_vllm_omni.sh` | English, Chinese | `/v1/chat/completions` with the recording in and `message.audio` out | 25 GB | Apache-2.0 |
+| Qwen3-Omni | `cyankiwi/Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit` | `run_vllm_omni.sh` | 10 languages, Russian among them | the same; text, images and video go in too | 31 GB — the whole card | Apache-2.0 |
+| llama.cpp-omni | `openbmb/MiniCPM-o-4_5-gguf` (any file of it) | `run_minicpm_omni.sh` | English, Chinese | a websocket, `ws://<host>:<port>/backend` (turn by turn, or full duplex); no OpenAI API, no page | 12 GB | Apache-2.0 |
+
+Step-Audio 2 and Qwen3-Omni are one engine (vLLM-Omni) with a runner each: the family has its own recipe, its own
+stages' budgets of the card and its own footprint. A server that is not on the row is added to it, not started by a
+typed command: [docs/adding-a-runner.md](docs/adding-a-runner.md).
+
+What to know before the first start:
+
+- **Asking the vLLM-Omni cells.** `POST /v1/chat/completions` with `"modalities": ["text", "audio"]`; the answer's
+  text is `choices[0].message.content` and its voice is `choices[0].message.audio.data`, a base64 wav (24 kHz, mono).
+  Qwen3-Omni takes `"speaker": "ethan"` (or `chelsie`, `aiden`) and wants its system prompt ("You are Qwen, a virtual
+  human …"); a bare digit is spoken badly, so ask it to answer in full sentences with numbers in words.
+- **The first spoken answer is slow.** Step-Audio 2's second stage (Token2Wav) loads at the first request: about a
+  minute, then 1.5 s for a 2 s answer. Qwen3-Omni answers a 15 s story in 1.5 s once started.
+- **The first start reads the checkpoint from the library**, 26 GB for Qwen3-Omni: at 20–50 MB/s from a NAS that
+  is 8–20 minutes. The launcher gives the engine 40 minutes; the next start finds the files in the page cache.
+- **Qwen3-Omni holds the whole card.** Its three stages take 92 % of the GPU memory by their budgets: stop every other
+  GPU cell first, or it starts with whatever is left and fails.
+- **A microphone needs a secure page.** PersonaPlex serves its page over plain http, and a browser lets a page use the
+  microphone only on `localhost` or https. From the machine you are sitting at:
+  `ssh -N -L <port>:localhost:<port> <the GPU machine>`, then open `http://localhost:<port>`.
+- **MiniCPM-o builds its server.** `llama-omni-server` (llama.cpp-omni, one pinned commit) is compiled at the first
+  start, 2 to 8 minutes by how busy the machine is, with `cmake`, `git` and the CUDA toolkit installed, for the
+  architecture of every card of the machine (`sm_86` and `sm_120` for an RTX 3090 beside an RTX 5090; `CUDA_ARCH`
+  overrules), and again when a card of another architecture is added; the ten GGUF files
+  of the library are linked into the folder layout it expects. Its models load at the first session (30 to 90 s from a NAS), and its
+  Russian is text only: the voice for a Russian sentence is not speech.
+- **One conversation at a time** for PersonaPlex and MiniCPM-o (one model stream each); the vLLM-Omni cells queue 1–2 requests.
+- **The cell's card says `unknown`, not ⇪, for the stale-server check** of these cells: PersonaPlex, vLLM-Omni
+  and llama.cpp-omni are not our servers and report no stamp.
+- **The jobs.** PersonaPlex and llama.cpp-omni are `voice-chat` and nothing else (a page and a websocket): a pool of
+  them is refused any request the entry has a path for. Step-Audio 2 and Qwen3-Omni are `llm` and `voice-chat`: the
+  entry serves them as chat models. LFM2.5-Audio says `tts` itself.
 
 ## Install On the controller
 

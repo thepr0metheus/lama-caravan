@@ -17,7 +17,7 @@ class ConsumerDesk:
     """The board's consumers of the entry (the owner, 2026-10-11).
 
     A consumer is what a company's gateway calls a client: a name, its own key,
-    and the set of models a cable on the kanban leads it to (the owner,
+    and the set of models a cable in Routing leads it to (the owner,
     2026-10-12; caravan/common/entry_models.py, caravan/admin/model_sets.py). It
     calls one address, the entry, and a request's `model` picks a pool of its
     set. A new consumer has no set: no cable leads anywhere until the operator

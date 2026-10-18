@@ -561,9 +561,71 @@ def _chat_to_anthropic_body(body_bytes, model_override=None):
             body["tool_choice"] = {"type": "tool", "name": (tc.get("function") or {}).get("name", "")}
     return json.dumps(body).encode("utf-8")
 
-def _iter_anthropic_as_completions_sse(upstream, completion_id, model_name):
-    """Translate Anthropic Messages API SSE stream into chat/completions SSE format."""
+class AnthropicUsage:
+    """What an Anthropic response says it used, gathered from where it says it.
+
+    `message_start` carries the input — `input_tokens` (the part not served from the cache), `cache_creation_input_tokens`, `cache_read_input_tokens` —
+    and `message_delta` the output so far; newer API versions repeat the input in the delta. OpenAI's `prompt_tokens` is ALL the input, cached or
+    not, with the cached part under `prompt_tokens_details.cached_tokens`.
+
+    Until 1.3.585 the stream's translation read only `message_delta` and wrote `prompt_tokens: 0`: a streamed answer of Anthropic was recorded with
+    its output alone. The Routing card of 2026-10-18 said "12 req · 7.2K tok ≈ $0" and "≈ $200 left of $200" while the Console showed $1.22 spent
+    (the Console counts the whole organization, whatever went around the caravan). And an agent reading `usage` of the stream saw an input of 0.
+
+    The counts are cumulative, so a figure is taken only by being larger than the one before: a delta that repeats the input does not add it twice."""
+
+    FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
+
+    def __init__(self):
+        self.seen = dict.fromkeys(self.FIELDS, 0)
+
+    @staticmethod
+    def count(value):
+        """A token count as a whole number; 0 for what is no count (missing, a word, a negative, a boolean). A count written as 7.0 or "7"
+        is 7, as the translation read it before: a gateway between the caravan and the provider may write it so."""
+        if isinstance(value, bool):
+            return 0
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    def take(self, usage):
+        """Fold one usage object in (a `message_start`'s, a delta's, a whole response's)."""
+        usage = usage if isinstance(usage, dict) else {}
+        for name in self.FIELDS:
+            self.seen[name] = max(self.seen[name], self.count(usage.get(name)))
+        return self
+
+    @property
+    def prompt(self):
+        return self.seen["input_tokens"] + self.seen["cache_creation_input_tokens"] + self.seen["cache_read_input_tokens"]
+
+    @property
+    def completion(self):
+        return self.seen["output_tokens"]
+
+    def known(self):
+        return self.prompt > 0 or self.completion > 0
+
+    def openai(self):
+        """The usage as OpenAI's chat completion says it: all the input as `prompt_tokens`, the cached part and the part written to the cache named."""
+        out = {"prompt_tokens": self.prompt, "completion_tokens": self.completion, "total_tokens": self.prompt + self.completion}
+        if self.seen["cache_read_input_tokens"]:
+            out["prompt_tokens_details"] = {"cached_tokens": self.seen["cache_read_input_tokens"]}
+        if self.seen["cache_creation_input_tokens"]:
+            out["cache_creation_input_tokens"] = self.seen["cache_creation_input_tokens"]
+        return out
+
+
+def _iter_anthropic_as_completions_sse(upstream, completion_id, model_name, used=None):
+    """Translate Anthropic Messages API SSE stream into chat/completions SSE format.
+
+    `used` is the caller's AnthropicUsage, for a caller that wants what the answer has said it used at ANY moment and not only from the last
+    chunk, where the usage rides. A stream the client cuts off, or one the provider drops, never reaches `message_delta`; its input is billed
+    all the same, and read only from the last chunk it would be recorded as 0 (1.3.586)."""
     ts = int(time.time())
+    used = used if used is not None else AnthropicUsage()
     initial = {
         "id": completion_id, "object": "chat.completion.chunk",
         "created": ts, "model": model_name,
@@ -591,7 +653,10 @@ def _iter_anthropic_as_completions_sse(upstream, completion_id, model_name):
             continue
         etype = ev.get("type", "") or pending_event or ""
         pending_event = None
-        if etype == "content_block_start":
+        if etype == "message_start":
+            message = ev.get("message")
+            used.take(message.get("usage") if isinstance(message, dict) else None)
+        elif etype == "content_block_start":
             idx = ev.get("index", 0)
             block = ev.get("content_block") or {}
             btype = block.get("type", "text")
@@ -635,18 +700,14 @@ def _iter_anthropic_as_completions_sse(upstream, completion_id, model_name):
             stop_reason = delta.get("stop_reason")
             if stop_reason == "tool_use":
                 finish_reason = "tool_calls"
-            usage = ev.get("usage") or {}
+            used.take(ev.get("usage"))
             final = {
                 "id": completion_id, "object": "chat.completion.chunk",
                 "created": ts, "model": model_name,
                 "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
             }
-            if usage.get("output_tokens"):
-                final["usage"] = {
-                    "prompt_tokens": 0,
-                    "completion_tokens": int(usage.get("output_tokens") or 0),
-                    "total_tokens": int(usage.get("output_tokens") or 0),
-                }
+            if used.known():
+                final["usage"] = used.openai()
             yield b"data: " + json.dumps(final, separators=(",", ":")).encode() + b"\n\n"
         elif etype == "message_stop":
             break
@@ -675,18 +736,13 @@ def _anthropic_to_completions_json(data_bytes, completion_id, model_name):
     message = {"role": "assistant", "content": "\n".join(text_parts) or ""}
     if tool_calls:
         message["tool_calls"] = tool_calls
-    usage = resp.get("usage") or {}
     result = {
         "id": completion_id,
         "object": "chat.completion",
         "created": int(time.time()),
         "model": model_name,
         "choices": [{"index": 0, "message": message, "finish_reason": finish_reason}],
-        "usage": {
-            "prompt_tokens": int(usage.get("input_tokens") or 0),
-            "completion_tokens": int(usage.get("output_tokens") or 0),
-            "total_tokens": int((usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)),
-        },
+        "usage": AnthropicUsage().take(resp.get("usage")).openai(),
     }
     return json.dumps(result, ensure_ascii=False).encode("utf-8")
 

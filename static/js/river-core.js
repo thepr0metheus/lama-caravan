@@ -79,6 +79,12 @@ export const M = Object.freeze({
     const d = M.wrap(target - cur);
     return cur + M.clamp(d, -maxStep, maxStep);
   },
+  /** How near the point (px, py) lay to the way something went from (ax, ay) to (bx, by): a step may be long on a slow frame. */
+  segmentGap(ax, ay, bx, by, px, py) {
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+    const t = len2 > 0 ? M.clamp(((px - ax) * dx + (py - ay) * dy) / len2, 0, 1) : 0;
+    return Math.hypot(px - (ax + dx * t), py - (ay + dy * t));
+  },
   rgba: (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`,
   mix: (c1, c2, t) => [c1[0] + (c2[0] - c1[0]) * t, c1[1] + (c2[1] - c1[1]) * t, c1[2] + (c2[2] - c1[2]) * t],
   hex(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; },

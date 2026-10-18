@@ -1,4 +1,4 @@
-// The strip under the kanban (the owner, 2026-10-13: "hide part of it, show it on hover", and of the
+// The strip under Routing (the owner, 2026-10-13: "hide part of it, show it on hover", and of the
 // three mockups he chose "details in a strip below"): what the board's trace points at — a card under the
 // pointer, or one pinned by a click — said in one place: its name, the route that lights across the four
 // columns, and its details. The cards keep a name and what is news (⚠, off, serving); the rest stands here,
@@ -33,7 +33,7 @@ export class PoolDock {
   html(reader) {
     const route = reader.route.map(({ label, names }) => {
       const said = names.join(", ");
-      return `<div><dt>${escapeHtml(label)}</dt><dd title="${escapeHtml(said)}">${said ? escapeHtml(said) : "—"}</dd></div>`;
+      return `<div><dt title="${escapeHtml(label)}">${escapeHtml(label)}</dt><dd title="${escapeHtml(said)}">${said ? escapeHtml(said) : "—"}</dd></div>`;
     }).join("");
     return `<div class="pb-dock-id" data-t="pb-dock-id">`
       + `<b class="pb-dock-name" title="${escapeHtml(reader.name)}">${escapeHtml(reader.name)}</b>`

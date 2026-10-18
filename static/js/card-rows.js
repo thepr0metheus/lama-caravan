@@ -34,10 +34,20 @@ export class CellRow {
     this.stop = f.stop || "";          // the card's ⏹ attributes, empty when it cannot stop
     this.why = String(f.why || "");    // what flipping the switch does now, or why it cannot
     this.warn = !!f.warn;
+    // A failed cell: the line is red and says so; `reason` is what hovering it says (the window holds the whole of it).
+    this.failed = !!f.failed;
+    this.reason = String(f.reason || "");
     this.tps = String(f.tps || "");
+    // The speed is a held one — the last request's, while none runs: it is drawn quiet, and `tpsHint` says so on hover (cell-speed.js).
+    this.held = !!f.held;
+    this.tpsHint = String(f.tpsHint || "");
+    // The switch breathes while the cell answers a request. It is not the speed above 0: a held speed stays after the request.
     this.busy = !!f.busy;
     this.motion = ["start", "stop"].includes(f.motion) ? f.motion : "";
     this.anchor = f.anchor || "";      // the cable's handle: the line owns it while folded
+    // How the start goes, as the card says it (start-strip.js): a thin strip under the line, while the cell is copying, loading or
+    // warming up. "" for any other state.
+    this.strip = f.strip || "";
   }
 
   /** The line's switch: on while the cell runs, off while it is parked. It is
@@ -64,14 +74,17 @@ export class CellRow {
     const warn = this.warn
       ? `<span class="fr-warn" title="${escapeHtml(t("cellRowWarnTitle"))}">⚠</span>` : "";
     const cls = ["fold-row", "cell-row", this.state, this.cpu ? "cpu" : "", this.engine ? `engine-${this.engine}` : "",
-      this.busy ? "busy" : ""]
+      this.busy ? "busy" : "", this.failed ? "failed" : ""]
       .filter(Boolean).join(" ");
-    return `<div class="${cls}" role="button" tabindex="0" data-t="cell-row"`
+    const failed = this.failed
+      ? `<span class="fr-fail" data-t="cell-row-failed" title="${escapeHtml(this.reason)}">${escapeHtml(t("failed"))}</span>` : "";
+    return `<div class="${cls}" role="button" tabindex="0" data-t="cell-row"${this.failed ? ' data-t-state="failed"' : ""}`
       + ` data-t-id="${escapeHtml(this.key)}" data-llama-port="${escapeHtml(this.port)}"`
       + ` title="${escapeHtml(this.title)}">${this.anchor}${this.lead()}`
       + `<span class="fr-port">:${escapeHtml(this.port)}</span>`
-      + `<span class="fr-name">${escapeHtml(name)}</span>${warn}`
-      + `<span class="fr-tps" data-live-rowtps>${escapeHtml(this.tps)}</span>${this.chip}</div>`;
+      + `<span class="fr-name">${escapeHtml(name)}</span>${failed}${warn}`
+      + `<span class="fr-tps${this.held ? " held" : ""}" data-live-rowtps${this.tpsHint ? ` title="${escapeHtml(this.tpsHint)}"` : ""}>${escapeHtml(this.tps)}</span>`
+      + `${this.chip}${this.strip}</div>`;
   }
 }
 
@@ -134,7 +147,10 @@ export class AgentRow {
 export class CellWindow {
   // `via`: where a cell in an engine sends its requests — the engine's
   // loopback address, which only the cell's port leads to; `viaTitle` says so.
-  constructor({ key, name, port, address = "", via = "", viaTitle = "", engine = "", card = "" } = {}) {
+  // `notice`: what the window opens on, over the card — a failed cell's reason (2026-10-17: the line is red and thin,
+  // the description of the error waits in the window).
+  constructor({ key, name, port, address = "", via = "", viaTitle = "", engine = "", card = "", notice = "" } = {}) {
+    this.notice = notice || "";
     this.key = String(key || "");
     this.name = String(name || "");
     this.port = String(port || "");
@@ -158,7 +174,7 @@ export class CellWindow {
       + `<strong class="cwh-name">${escapeHtml(this.name)}</strong>`
       + `<span class="cwh-port">:${escapeHtml(this.port)}</span>${address}${via}`
       + `<button type="button" class="cwh-close" data-cell-window-close="1" data-t="cell-window-close"`
-      + ` data-t-id="${k}" title="${close}" aria-label="${close}">✕</button></div>${this.card}</div>`;
+      + ` data-t-id="${k}" title="${close}" aria-label="${close}">✕</button></div>${this.notice}${this.card}</div>`;
   }
 }
 

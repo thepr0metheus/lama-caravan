@@ -4,7 +4,7 @@ each member the base leaves abstract; every runner subclasses Runner and sits in
 the registry; in static/js the logic lives in classes, except for the modules on
 an explicit whitelist.
 
-Why a guard and not an agreement: phases 1-8 rewrote the backend and the kanban
+Why a guard and not an agreement: phases 1-8 rewrote the backend and Routing
 into classes, and without a rule the next cell server gets a forty-line `main()`
 with `if kind == ...` again, and the next JS module a thousand lines of
 functions. The rule is checked the way it was written: by reading the code, not

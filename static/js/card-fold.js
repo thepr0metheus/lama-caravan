@@ -9,8 +9,9 @@ import { t } from "./i18n.js";
  *
  * This object holds what folding depends on: the operator's per-lane choice
  * (compact or full), the cards pinned open, and the one rule for what is quiet
- * enough to fold. A card in motion or in trouble never folds — a line drawn
- * over trouble is trouble drawn as normal.
+ * enough to fold. A card in motion or in trouble never folds quietly — a line
+ * drawn over trouble in the colour of the rest is trouble drawn as normal. A cell
+ * that FAILED folds into a red line (cellFailed), and its window opens on the reason.
  *
  * Automation (navigator.webdriver) sees full cards by default: the E2E suite
  * drives buttons that a folded card shows only when it floats open. It can
@@ -203,12 +204,26 @@ export class CardFold {
     return settled && !f.transient && !f.crashed && !f.unreachable;
   }
 
+  /** Whether a cell has failed: its start ended in an error, or its process lives around a dead engine. It folds
+   *  into a RED line, and its window opens on the reason (2026-10-17, the owner, shown the big card of a cell
+   *  that failed to load its projector: "red, but thin, like the usual one — and the description of the error
+   *  when the window opens"). Not while it is being deleted: that is motion. */
+  static cellFailed(f = {}) {
+    return !!f.failed && !f.deleting;
+  }
+
   /** A requested start/stop stays in its line, with a locked spinning switch.
-   *  Download/load progress and incidents still need the full card. Motion
-   *  is foldable, but never idle: the machine's eye must keep it visible. */
+   *  So does a start in progress — the copy of the model, its load, its
+   *  warm-up — when the line can say how it goes (`progress`: the strip under
+   *  the name, start-strip.js); the full card used to open for it by itself,
+   *  and the owner (2026-10-18) did not want a cell widened when he started it.
+   *  Incidents still need the full card. Motion is foldable, but never idle:
+   *  the machine's eye must keep it visible. A failed cell folds too, as a red
+   *  line (cellFailed), and never hides either. */
   static cellFoldable(f = {}) {
-    return CardFold.cellQuiet(f) || (["start", "stop"].includes(f.motion)
-      && !f.deleting && !f.crashed && !f.unreachable && !f.failed);
+    return CardFold.cellQuiet(f) || CardFold.cellFailed(f) || (["start", "stop"].includes(f.motion)
+      && !f.deleting && !f.crashed && !f.unreachable && !f.failed)
+      || (!!f.progress && !f.deleting && !f.crashed && !f.unreachable && !f.failed);
   }
 
   /** Whether a machine's eye may hide a cell: quiet, and not running — parked,

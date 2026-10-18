@@ -633,6 +633,8 @@ button.topology-detail-action.danger:focus {
 .mbadge-mtp    { background: color-mix(in srgb, #f59e0b 12%, transparent); color: #fde68a; border-color: color-mix(in srgb, #f59e0b 30%, transparent); }
 .mbadge-ctx    { background: color-mix(in srgb, var(--muted,#888) 12%, transparent); color: var(--muted,#aaa); border-color: color-mix(in srgb, var(--muted,#888) 28%, transparent); }
 .mbadge-bench  { background: color-mix(in srgb, #a78bfa 12%, transparent); color: #ddd6fe; border-color: color-mix(in srgb, #a78bfa 30%, transparent); }
+/* a word the repository's name has and the file's name has not — the Coder (model-meta.js, repoOnlyWords) */
+.mbadge-repo   { background: color-mix(in srgb, #2dd4bf 12%, transparent); color: #99f6e4; border-color: color-mix(in srgb, #2dd4bf 30%, transparent); }
 .mbadge-cached { background: color-mix(in srgb, var(--good,#4ade80) 12%, transparent); color: var(--good,#4ade80); border-color: color-mix(in srgb, var(--good,#4ade80) 28%, transparent); }
 .mbadge-missing { background: color-mix(in srgb, #f87171 12%, transparent); color: #f87171; border-color: color-mix(in srgb, #f87171 28%, transparent); letter-spacing: 0; font-weight: 400; }
 .mbadge-uncensored { background: color-mix(in srgb, #f43f5e 12%, transparent); color: #fda4af; border-color: color-mix(in srgb, #f43f5e 30%, transparent); }
@@ -672,6 +674,12 @@ button.topology-detail-action.danger:focus {
 /* Estimate variant on parked cells: dashed + muted so it reads as a forecast,
    and it drinks from --cell-accent so CPU-pinned cells get the blue family. */
 .mbadge-vram-est { background: color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 7%, transparent); color: color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 65%, var(--fg,#e6edf3)); border: 1px dashed color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 35%, transparent); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* The cell's memory in RAM (cell-memory.js, next to the video memory it sits beside): blue, the CPU's colour; solid where the cell holds it, dashed
+   where it is expected to. "0" is plain and a dash is muted and dashed: nothing held and nothing told are not the same, and must not look alike. */
+.mbadge-ram     { background: color-mix(in srgb, #4593ff 14%, transparent); color: #b6d4ff; border-color: color-mix(in srgb, #4593ff 35%, transparent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.mbadge-ram-est { background: color-mix(in srgb, #4593ff 7%, transparent); color: color-mix(in srgb, #4593ff 65%, var(--fg,#e6edf3)); border: 1px dashed color-mix(in srgb, #4593ff 38%, transparent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mbadge-mem-zero { background: transparent; color: var(--muted,#8b949e); border: 1px solid color-mix(in srgb, var(--muted,#888) 38%, transparent); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mbadge-mem-unknown { background: transparent; color: var(--muted,#8b949e); border: 1px dashed color-mix(in srgb, var(--muted,#888) 38%, transparent); font-weight: 600; }
 
 /* 📚 files only a library holds — on a picker row and a cell card; the same
    lavender the /models tree uses for them. */
@@ -1316,6 +1324,34 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
   color: var(--text);
 }
 
+/* The limits drawn small (usage-stats.js, subscriptionMetersHtml; Routing's account card, 2026-10-14): a window is one
+   line — its label, a 6px bar, what is left — and two windows stand side by side. A red tick on a bar is where a model of the
+   card stops. The numbers do not take the bar's colour: the bar carries it. */
+.sub-meters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; }
+.sub-meters.single { grid-template-columns: minmax(0, 1fr); }
+.sub-meter { display: flex; align-items: center; gap: 8px; min-width: 0; height: 20px; cursor: default; }
+.sub-meter-label {
+  flex: none; width: 44px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.sub-meter-bar {
+  position: relative; flex: 1 1 0; min-width: 0; height: 6px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, var(--line) 80%, transparent);
+}
+.sub-meter-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; transition: width 0.4s ease; }
+.sub-meter-stop { position: absolute; top: 0; bottom: 0; width: 1.5px; margin-left: -.75px; background: var(--level-stop); }
+.sub-meter-pct { flex: none; min-width: 30px; text-align: right; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--text); }
+/* A reading under way: the light runs along the small bars as along the tall ones. */
+.sub-usage-panel.refreshing .sub-meter-bar::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 38%, transparent), transparent);
+  animation: sub-usage-sweep 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sub-usage-panel.refreshing .sub-meter-bar::after { animation: none; transform: none; background: color-mix(in srgb, #fff 18%, transparent); }
+  .sub-meter-fill { transition: none; }
+}
+
 /* "30 days via the caravan": one line, the account's total; each step's model
    has its share in the step's head. */
 .spend-panel { padding: 0; }
@@ -1324,15 +1360,25 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
 .spend-line-count { color: var(--muted); white-space: nowrap; }
 .spend-line-cost { margin-left: auto; white-space: nowrap; font-weight: 600; }
 
+/* A key account's credit left (credit-left.js; the owner, 2026-10-17): the limits' meter with its words said in full — what is left in
+   the label, of how much after the bar — and one muted line under it that says it is an estimate and from when. */
+.credit-left { margin-top: 6px; cursor: help; }
+.credit-meter .sub-meter-label {
+  width: auto; max-width: 55%; text-transform: none; letter-spacing: 0; font-size: 11.5px; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.credit-meter .sub-meter-pct { min-width: 0; white-space: nowrap; color: var(--muted); }
+.credit-note { margin-top: 2px; font-size: 10.5px; color: var(--muted); }
+.credit-note.warn { color: var(--warn, #f59e0b); }
+.credit-line { font-size: 11.5px; color: var(--muted); }
+
 /* One cable handle per pool, on its card. */
 .cloud-account-card { position: relative; }
 /* Attach the cloud cable to the card HEADER, not its vertical middle. Needs all three
-   classes to out-specify .topology-handle.server-input { top:50%; transform:… }. */
+   classes to out-specify the dot's `top: 50%; transform: …` (cables.css). */
 .topology-handle.server-input.cloud-account-input {
-  left: -24px;
-  top: 14px;
+  top: 25px;
   transform: none;
-  border-radius: 8px 0 0 8px;
 }
 .cloud-modal {
   min-width: 420px;
@@ -1408,6 +1454,8 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
   color: var(--muted);
   line-height: 1.45;
 }
+/* A hint under a field stands inside its label, which is bold: the words of the hint are not the field's name. */
+.cloud-field .cloud-hint { font-weight: 400; }
 
 .cloud-status {
   margin: 0;
@@ -2023,8 +2071,10 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
 
 .cloud-api-issue {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  gap: 2px 6px;
+  min-width: 0;
   font-size: 11px;
   padding: 1px 0;
 }
@@ -2045,13 +2095,14 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
 .cloud-api-issue.is-resolved { opacity: .62; }
 .cloud-api-issue.is-resolved-note { color: var(--ok, var(--muted)); opacity: .9; }
 
+/* The reason is said whole (the owner, 2026-10-18: on a card narrower than the row it ran off to the right, past the screen, and took
+   "retry" with it). It stands beside the name while there is room for about 30 characters, else on a line of its own under it, "retry"
+   at the end of that line; a word that has no break in it ("<urlopen", a path) breaks anywhere rather than widen the card. */
 .cloud-api-issue-err {
   color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
+  flex: 1 1 20em;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cloud-api-retry { margin-left: auto; flex-shrink: 0; font-size: 10px; padding: 1px 8px; }

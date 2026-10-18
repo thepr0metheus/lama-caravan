@@ -8,10 +8,13 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+from caravan.proxy.paths import LOG_RETENTION_DAYS
 from caravan.proxy.pool_steps import PoolRefusal
 from caravan.common.context_window import declared_window
+from caravan.common.account_credit import AccountCredit
 from caravan.common.cloud_sources import CloudSources
 from caravan.common.credential_vault import CredentialVault
+from caravan.common.model_prices import ModelPrices
 from caravan.admin.paths import PROVIDER_SECRETS_FILE
 from caravan.admin.cloud import (
     CLOUD_PROVIDER_PRESETS,
@@ -109,7 +112,7 @@ def fetch_account_models(account_id):
         except AppError:
             raise
         except Exception as e:
-            raise AppError(f"failed to fetch models: {e}", 502)
+            raise AppError(f"failed to fetch models: {e}", 502) from e
     data = model_catalog.guarded_call(f"{account_id}:models", _do)
     # OpenAI format: {"data": [...]} · Ollama native format: {"models": [...]}
     items = (data.get("data") or data.get("models") or []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
@@ -142,9 +145,10 @@ def fetch_account_costs(account_id, days=30):
     start = int(time.time()) - int(days) * 86400
     url = f"{base}/organization/costs?start_time={start}&bucket_width=1d&limit={int(days) + 1}"
     req = urllib.request.Request(url, headers=headers, method="GET")
-    # Breaker covers HARD failures only (timeouts, DNS, 5xx-as-exception). A
-    # 401/403 is the provider answering — that's a scope problem the panel
-    # explains, not a broken endpoint to stop calling.
+    # The breaker covers the provider's HARD failures (5xx-as-exception). A 401/403 is
+    # the provider answering — a scope problem the panel explains, not a broken endpoint
+    # to stop calling; and a failure of the road (timeouts, DNS, no route) is shown but
+    # does not count (model_catalog.is_network_failure).
     ep_key = f"{account_id}:costs"
     if model_catalog.endpoint_blocked(ep_key):
         st = model_catalog.endpoint_state(ep_key)
@@ -162,7 +166,7 @@ def fetch_account_costs(account_id, days=30):
         model_catalog.record_fail(ep_key, f"HTTP {e.code}")
         return {"ok": False, "error": f"HTTP {e.code}"}
     except Exception as e:
-        model_catalog.record_fail(ep_key, str(e))
+        model_catalog.record_fail(ep_key, str(e), network=model_catalog.is_network_failure(e))
         return {"ok": False, "error": str(e)}
     model_catalog.record_ok(ep_key)
     total = 0.0
@@ -202,7 +206,7 @@ def fetch_openrouter_limits(account_id):
         model_catalog.record_fail(ep_key, f"HTTP {e.code}")
         return {"ok": False, "error": f"HTTP {e.code}"}
     except Exception as e:
-        model_catalog.record_fail(ep_key, str(e))
+        model_catalog.record_fail(ep_key, str(e), network=model_catalog.is_network_failure(e))
         return {"ok": False, "error": str(e)}
     model_catalog.record_ok(ep_key)
     kd = data.get("data") or {}
@@ -250,15 +254,76 @@ class CloudLeg:
         return account, model or str(item.get("model") or "")
 
 
-def cloud_spend_summary(days=30):
+class SpendRecord:
+    """What the proxy's logs say one cloud account spent: over the window the meter shows, and — when the operator gave the account a
+    credit — from the moment the figure was typed (`since`)."""
+
+    def __init__(self):
+        self.total = 0.0
+        self.requests = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.unpriced = 0
+        self.by_model = {}
+        self.since = {"total": 0.0, "requests": 0, "unpriced": 0}
+
+    def add(self, model, prompt, completion, cost, known):
+        self.total += cost
+        self.requests += 1
+        self.prompt_tokens += prompt
+        self.completion_tokens += completion
+        self.unpriced += 0 if known else 1
+        m = self.by_model.setdefault(model, {"model": model, "cost": 0.0, "requests": 0})
+        m["cost"] += cost
+        m["requests"] += 1
+
+    def add_since_credit(self, cost, known):
+        self.since["total"] += cost
+        self.since["requests"] += 1
+        self.since["unpriced"] += 0 if known else 1
+
+    def public(self, days, credit, now):
+        models = sorted(self.by_model.values(), key=lambda x: -x["cost"])
+        for m in models:
+            m["cost"] = round(m["cost"], 4)
+        entry = {"total": round(self.total, 4), "requests": self.requests, "promptTokens": self.prompt_tokens,
+                 "completionTokens": self.completion_tokens, "unpriced": self.unpriced, "windowDays": int(days), "byModel": models}
+        if credit:
+            entry["sinceCredit"] = {"asOf": credit["asOf"], "total": round(self.since["total"], 4),
+                                    "requests": self.since["requests"], "unpriced": self.since["unpriced"],
+                                    # The proxy keeps its logs LOG_RETENTION_DAYS: older than that, the figure is a floor.
+                                    "partial": LOG_RETENTION_DAYS > 0 and now - credit["asOf"] > LOG_RETENTION_DAYS * 86400}
+        return entry
+
+
+def cloud_spend_summary(days=30, now=None):
     """Local spend-meter: aggregate $ spent through the proxy from the event logs
     (cloud `finished` events: tokens × per-model pricing), per cloud account + model,
-    over the last `days`. Independent of any provider billing API."""
-    pricing = fetch_model_pricing() or {}
-    legs = CloudLeg(load_cloud_data())
-    summary = {}
-    for i in range(int(days)):
-        dstr = datetime.fromtimestamp(time.time() - i * 86400).strftime("%Y-%m-%d")
+    over the last `days`. Independent of any provider billing API.
+
+    The price of a model is ModelPrices': the operator's own price first, the LiteLLM table second. A request whose model
+    nobody priced adds 0 — and is COUNTED (`unpriced`), since a figure that leaves requests out without a word reads as a
+    smaller spend.
+
+    An account the operator gave a credit (account_credit.py) also gets `sinceCredit`: what went through the caravan from the moment
+    the figure was typed, over as many days back as that takes — `partial` when the logs do not reach back that far, so the figure
+    is a floor, not the whole."""
+    now = time.time() if now is None else now
+    prices = ModelPrices(fetch_model_pricing() or {}, admin_state.get("apiPricing") or {})
+    data = load_cloud_data()
+    legs = CloudLeg(data)
+    credits = {}
+    for a in data.get("accounts", []):
+        credit = AccountCredit.kept(a.get("credit")) if isinstance(a, dict) and a.get("id") else None
+        if credit:
+            credits[str(a["id"])] = credit
+    # The logs are read back as far as the oldest credit asks, never less than the window the meter shows.
+    reach = min(3650, max([int(days)] + [int((now - credit["asOf"]) // 86400) + 1 for credit in credits.values()]))
+    # An account with a credit always has its record, even with no traffic since: "nothing spent" is then an answer of this reading
+    # (its `sinceCredit.asOf` names the figure it was counted for), not the absence of one.
+    records = {acct: SpendRecord() for acct in credits}
+    for i in range(reach):
+        dstr = datetime.fromtimestamp(now - i * 86400).strftime("%Y-%m-%d")
         path = AGENT_PROXY_LOG_DIR / f"{dstr}.jsonl"
         if not path.exists():
             continue
@@ -270,9 +335,10 @@ def cloud_spend_summary(days=30):
             if '"finished"' not in ln or '"cloud"' not in ln:
                 continue
             try:
-                it = (json.loads(ln).get("item") or {})
+                row = json.loads(ln)
             except Exception:
                 continue
+            it = row.get("item") or {}
             if str(it.get("upstreamType")) != "cloud":
                 continue
             acct, model = legs.of(it)
@@ -281,23 +347,16 @@ def cloud_spend_summary(days=30):
             model = model or "?"
             u = it.get("usage") or {}
             pt, ct = int(u.get("prompt") or 0), int(u.get("completion") or 0)
-            pr = pricing.get(model) or {}
-            cost = pt / 1e6 * float(pr.get("inputPer1M") or 0) + ct / 1e6 * float(pr.get("outputPer1M") or 0)
-            a = summary.setdefault(acct, {"total": 0.0, "requests": 0, "promptTokens": 0, "completionTokens": 0, "byModel": {}})
-            a["total"] += cost; a["requests"] += 1; a["promptTokens"] += pt; a["completionTokens"] += ct
-            m = a["byModel"].setdefault(model, {"model": model, "cost": 0.0, "requests": 0})
-            m["cost"] += cost; m["requests"] += 1
-    out = {}
-    for acct, a in summary.items():
-        models = sorted(a["byModel"].values(), key=lambda x: -x["cost"])
-        for m in models:
-            m["cost"] = round(m["cost"], 4)
-        out[acct] = {"total": round(a["total"], 4), "requests": a["requests"],
-                     "promptTokens": a["promptTokens"], "completionTokens": a["completionTokens"],
-                     "windowDays": int(days), "byModel": models}
-    return out
+            cost, known = prices.cost(model, pt, ct, int(u.get("cacheRead") or 0), int(u.get("cacheWrite") or 0))
+            record = records.setdefault(acct, SpendRecord())
+            # `time` is the moment the proxy wrote the line; the credit counts from the moment it was typed.
+            if acct in credits and int(row.get("time") or 0) >= credits[acct]["asOf"]:
+                record.add_since_credit(cost, known)
+            if i < int(days):
+                record.add(model, pt, ct, cost, known)
+    return {acct: record.public(days, credits.get(acct), now) for acct, record in records.items()}
 
-def usage_stats(days=30):
+def usage_stats(days=30, now=None):
     """Combined usage/spend stats over the last `days` for the statistics panel.
 
     Single pass over the proxy event logs' `finished` events, classified by
@@ -316,24 +375,18 @@ def usage_stats(days=30):
     rate_in = float(rate.get("inputPer1M") or 0)
     rate_out = float(rate.get("outputPer1M") or 0)
 
-    def model_price(model):
-        """Resolve a model's per-1M price: manual override wins, else LiteLLM, else 0.
-        Returns (inputPer1M, outputPer1M, has_price)."""
-        ov = overrides.get(model)
-        if isinstance(ov, dict) and (ov.get("inputPer1M") or ov.get("outputPer1M")):
-            return float(ov.get("inputPer1M") or 0), float(ov.get("outputPer1M") or 0), True
-        pr = pricing.get(model)
-        if isinstance(pr, dict) and (pr.get("inputPer1M") or pr.get("outputPer1M")):
-            return float(pr.get("inputPer1M") or 0), float(pr.get("outputPer1M") or 0), True
-        return 0.0, 0.0, False
+    # A model's per-1M price: manual override wins, else LiteLLM, else (0, 0, False) — the one rule (ModelPrices), the cache's prices in it.
+    prices = ModelPrices(pricing, overrides)
+    model_price = prices.of
 
     cloud_acct = {}   # acct -> {total, requests, promptTokens, completionTokens, byModel{}}
     cloud_model = {}  # model -> {model, cost, requests, promptTokens, completionTokens}
     local_model = {}  # model -> {model, requests, promptTokens, completionTokens, wouldCost}
     daily = {}        # date -> {cloudCost, cloudTokens, localTokens, localWouldCost}
 
+    now = time.time() if now is None else now
     for i in range(days):
-        dstr = datetime.fromtimestamp(time.time() - i * 86400).strftime("%Y-%m-%d")
+        dstr = datetime.fromtimestamp(now - i * 86400).strftime("%Y-%m-%d")
         path = AGENT_PROXY_LOG_DIR / f"{dstr}.jsonl"
         if not path.exists():
             continue
@@ -358,8 +411,8 @@ def usage_stats(days=30):
                 if not acct:
                     continue
                 model = model or "?"
-                p_in, p_out, has_price = model_price(model)
-                cost = pt / 1e6 * p_in + ct / 1e6 * p_out
+                _, _, has_price = model_price(model)
+                cost, _ = prices.cost(model, pt, ct, int(u.get("cacheRead") or 0), int(u.get("cacheWrite") or 0))
                 a = cloud_acct.setdefault(acct, {"total": 0.0, "requests": 0, "promptTokens": 0,
                                                  "completionTokens": 0, "byModel": {}})
                 a["total"] += cost; a["requests"] += 1; a["promptTokens"] += pt; a["completionTokens"] += ct
@@ -579,7 +632,7 @@ def fetch_subscription_models(account_id):
         except AppError:
             raise
         except Exception as e:
-            raise AppError(f"failed to fetch models: {e}", 502)
+            raise AppError(f"failed to fetch models: {e}", 502) from e
     data = model_catalog.guarded_call(f"{account_id}:models", _do)
     # Each model names two numbers: context_window, the window a request gets,
     # and max_context_window, the most it can be raised to (2026-10-06: 272000
@@ -703,7 +756,7 @@ def fetch_subscription_usage(account_id):
         except AppError:
             raise
         except Exception as e:
-            raise AppError(f"usage endpoint: {e}", 502)
+            raise AppError(f"usage endpoint: {e}", 502) from e
     data = model_catalog.guarded_call(f"{account_id}:usage", _do)
     return _normalize_subscription_usage(data)
 

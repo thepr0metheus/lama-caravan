@@ -71,7 +71,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 | Server cells | machines with a scout, the controller's own machine included | Per-port llama-server, vLLM and command-server instances, started and stopped by the machine's scout on the controller's word. The controller runs none itself: its own machine's cells run through a scout installed there, like any other machine's. |
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
 | Cell servers (moonshine, whisper, TTS — `cells/` in THIS repo) | controller + any client | The programs a "command cell" actually runs: ordinary servers managed like llama cells, with a health endpoint reporting download/load progress. The controller owns them and serves them over `/api/cell-assets`; every host materializes them into `$HOME`, where the generated cell command looks for them — the controller before starting a local cell, a scout before starting a client one. They used to live in the scout repo and were copied by hand into the controller, which is how the two copies drifted for months. |
-| Frontend (`static/`) | served by admin | Topology board, standalone kanban/router canvas, HF browser, models-disk and System pages. Native ES modules. See [frontend.md](frontend.md). |
+| Frontend (`static/`) | served by admin | Topology board, standalone Routing page (`routing.html`), HF browser, models-disk and System pages. Native ES modules. See [frontend.md](frontend.md). |
 
 ## Processes and entry points
 
@@ -119,8 +119,8 @@ and concurrent writers cannot clobber each other.
 ## Request path (agent traffic)
 
 A client calls the entry — `https://<its name>/v1/...` through a reverse proxy,
-with its key. The key names its route; a client no kanban takes goes to the pool
-it names in `model`, and one a kanban takes goes through that kanban's graph, as
+with its key. The key names its route; a client no router takes goes to the pool
+it names in `model`, and one a router takes goes through that router's graph, as
 an agent of the older kind does when it calls `http://<controller>:<its port>/v1/...`.
 The proxy walks the router DAG (schedule / rule / queue nodes) to pick an output, waits for a slot (FIFO queue with SSE keepalive, deadline
 aborts, priority preemption, spill-to-overflow), then forwards to either a
@@ -156,7 +156,7 @@ caravan/
 static/
 ├── js/                    46 ES modules (entries main.js, models-page.js, system-page.js, hf-page.js) → docs/frontend.md
 ├── css/                   10 cascade-ordered stylesheets + hf-page.css
-└── index.html / kanban.html / hf.html / models.html / system.html
+└── index.html / routing.html / hf.html / models.html / system.html
 scripts/                   install/start scripts, queue-node unit tests, refactor tooling
 systemd/                   unit files installed on the controller
 cells/                     cell servers served to the fleet (/api/cell-assets)

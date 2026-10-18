@@ -178,7 +178,7 @@ BREAKAGES = {
          'computeAuto: "\u81ea\u52a8",', 'computeAuto: "Pick the size automatically",'),
         # A key written twice: the later line silently wins, so the loaded table
         # looks whole and only the file's text shows it (2026-10-07, a new key
-        # took a name the kanban already used).
+        # took a name Routing already used).
         ([], "static/js/i18n/de.js",
          '  deleteAction: "L\u00f6schen",', '  deleteAction: "L\u00f6schen",\n  deleteAction: "Entfernen",'),
         # Words written without their diacritics, in the three shapes of the 2026-08 batches (found
@@ -213,6 +213,15 @@ BREAKAGES = {
         ([], "static/js/hf-text.js",
          '    aaTop: "au-dessus de tous les modèles de référence de la liste",',
          '    aaTop: "au-dessus de tous les modeles de référence de la liste",'),
+        # A phrase of the one rule of "time left" worded otherwise on /hf than on the board: the same wait reads two ways on two
+        # screens. The key is there, in every language, with its placeholders: only the mirror rule sees it.
+        ([], "static/js/hf-text.js",
+         '    moveEtaMinutes: "~{n} min left",',
+         '    moveEtaMinutes: "≈{n} min left",'),
+        # The rule learns a phrase no table has: the label would show the key itself, and neither t("…") nor hfT("…") names it.
+        ([], "static/js/pace-rule.js",
+         'if (minutes < 60) return say("moveEtaMinutes", { n: String(minutes) });',
+         'if (minutes < 60) return say("moveEtaMinutesAndABit", { n: String(minutes) });'),
     ],
     "check_cell_form_text": [
         # A label written as plain text again: the cache switch's stood in English on every
@@ -270,9 +279,48 @@ BREAKAGES = {
         ["--check"], "static/index.html",
         '<div id="tr-offloadPlan"',
         '<div data-t="hook-nobody-registered"></div>\n            <div id="tr-offloadPlan"'),
-    "check_boot_guard": (
-        [], "static/system.html",
-        'data-t-state', 'data-t-state-DRIFTED'),
+    "check_boot_guard": [
+        ([], "static/system.html", 'data-t-state', 'data-t-state-DRIFTED'),
+        # The boot's first word must be the first module that runs: moved down, a graph that never loads leaves nothing.
+        ([], "static/js/main.js", 'import { BootStep } from "./boot-step.js";\nimport { initDialogLlamas } from "./dialog-llamas.js";',
+         'import { initDialogLlamas } from "./dialog-llamas.js";\nimport { BootStep } from "./boot-step.js";'),
+        # The writer and the reader of the step name must agree.
+        ([], "static/js/boot-step.js", "window.__bootWaiting = what;", "window.__bootStep = what;"),
+        # A step the banner can name, dropped from the boot.
+        ([], "static/js/main.js", 'BootStep.waitsFor("/api/state");', ''),
+    ],
+    # The bar of every page is the template's, and the way back to the main board is in it (1.3.552): a page edited by hand, the
+    # machine's window without its link (the defect that started this), a second bar, a stylesheet that takes the link away
+    # elsewhere, the rule keyed on a word Routing shares with the board, a page with no row, and the views' words changed.
+    "check_header": [
+        ([], "static/routing.html", 'data-t="header-back" href="/board"', 'data-t="header-back" href="/boards"'),
+        ([], "static/index.html",
+         '      <a class="sys-back topbar-back" data-t="header-back" data-view-only="machine" href="/board"><span aria-hidden="true">←</span> <span data-i18n="boardPageName">Main board</span></a>\n',
+         ''),
+        ([], "static/models.html", '<!-- header:end -->\n', '<!-- header:end -->\n  <header class="topbar" data-t="header"></header>\n'),
+        ([], "static/css/topology-board.css", 'html[data-board-view="machine"] body .topbar { min-width: 0; }\n',
+         'html[data-board-view="machine"] body .topbar { min-width: 0; }\nhtml[data-board-view="machine"] .topbar-back { display: none; }\n'),
+        ([], "static/css/base.css", 'html:not([data-board-view="machine"]) .topbar-back[data-view-only="machine"] { display: none; }',
+         'html[data-board-view="main"] .topbar-back { display: none; }'),
+        ([], "scripts/gen_header.py",
+         '        "system": Page(file="system.html", title="System &amp; settings", title_key="systemSubtitleBrand",\n                       tour=False),\n', ''),
+        ([], "static/js/board-view.js", 'return this.isMachine ? "machine" : "main";', 'return this.isMachine ? "machine" : "home";'),
+    ],
+    # A machine-level action that the board cannot take back must ask the name TYPED: each of the three, put back to
+    # a dialog a click answers (or one whose suggestion Tab takes), must turn the guard red.
+    "check_typed_machine_actions": [
+        ([], "static/js/topology-render.js",
+         'const ok = await appConfirmTyped(\n        t(hostPowerTextKey(hostId, "reboot"))',
+         'const ok = await appConfirm(\n        t(hostPowerTextKey(hostId, "reboot"))'),
+        ([], "static/js/topology-render.js",
+         'const ok = await appConfirmTyped(\n        t(hostPowerTextKey(hostId, "poweroff"))',
+         'const ok = await appPrompt(\n        t(hostPowerTextKey(hostId, "poweroff"))'),
+        ([], "static/js/remote-cells.js",
+         'if (!(await appConfirmTyped(question, name,', 'if (!(await appConfirm(question, name,'),
+        # Typed, but not the machine's name: the words asked for are something else.
+        ([], "static/js/topology-render.js",
+         'hostId,\n        { confirmLabel: t("hostRebootOk")', '"reboot",\n        { confirmLabel: t("hostRebootOk")'),
+    ],
     "check_field_homes": (
         [], "static/js/constants.js",
         '"TEMPERATURE", "TOP_K", "TOP_P", "MIN_P"] }',
@@ -303,6 +351,17 @@ BREAKAGES = {
         # The single source stops building it — nothing left to protect.
         ([], "static/js/topology-nodes.js",
          't("nodeScoutLastReport", { ago: _ageShort(age) })', '`${_ageShort(age)} ago`'),
+        # 1.3.588: the patch reads a cell's request count itself — the line's work has two rules again, and the ring and `last` can disagree.
+        ([], "static/js/topology-render.js",
+         "const speed = new CellSpeed(s, running);", "const speed = new CellSpeed(s, running); const busyNow = s.requestsProcessing > 0;"),
+        # The class stops reading the count — nothing left to protect.
+        ([], "static/js/cell-speed.js",
+         "this.requests = CellSpeed.count(s.requestsProcessing);", "this.requests = CellSpeed.count(s.requests);"),
+        # The class goes away (renamed) — the guard says there is nothing to check, instead of staying green.
+        ([], "static/js/cell-speed.js", "export class CellSpeed {", "export class CellSpeeds {"),
+        # 1.3.589: the machine's token speed panel reads the count itself — a second place that says who works.
+        ([], "static/js/charts.js",
+         "this.running().filter((s) => new CellSpeed(s, true).working)", "this.running().filter((s) => s.requestsProcessing > 0)"),
     ],
     "check_carried_fields": [
         # A boundary stops naming a carried field — the classic silent drop.
@@ -359,6 +418,26 @@ BREAKAGES = {
          "        run: python3 scripts/test_queue_node.py\n"
          "        run: python3 scripts/test_request_body.py\n"),
     ],
+    "check_test_ports": [
+        # A test writes the eight lines again — bind to port 0, read the number, close, return it — and asks for ports the old way,
+        # one number twice: the race that killed a server of test_proxy_forward.py with "Address already in use".
+        ([], "scripts/test_upstream_pool.py",
+         "from _ports import free_port  # noqa: E402\n",
+         "def free_port():\n    sock = socket.socket()\n    sock.bind((\"127.0.0.1\", 0))\n    port = sock.getsockname()[1]\n    sock.close()\n    return port\n"),
+        # The same ask written the other way round — the empty host, as a socket is made for every address — is still a free port asked
+        # of the kernel by the test itself.
+        ([], "scripts/test_first_run.py", "PORT = free_port()\n",
+         "_sock = socket.socket()\n_sock.bind((\"\", 0))\nPORT = _sock.getsockname()[1]\n_sock.close()\n"),
+        # And in single quotes: the style of the quotes does not make the ask a different one.
+        ([], "scripts/test_cloud_context.py", "    port = free_port()\n",
+         "    _sock = socket.socket()\n    _sock.bind(('127.0.0.1', 0))\n    port = _sock.getsockname()[1]\n    _sock.close()\n"),
+        # A `free_port` of its own that binds nothing (a fixed number, a counter) is no pool either: it gives the same port to two servers.
+        ([], "scripts/test_request_body.py", "from _ports import free_port  # noqa: E402\n", "def free_port():\n    return 5000\n"),
+        # The list of scripts that bind port 0 on purpose names one that no longer does: it would go on saying what is not so.
+        ([], "scripts/test_machine_scout.py",
+         "    with socket.socket() as sock:\n        sock.bind((\"127.0.0.1\", 0))\n        return sock.getsockname()[1]\n",
+         "    with socket.socket() as sock:\n        sock.bind((\"127.0.0.1\", 9))\n        return sock.getsockname()[1]\n"),
+    ],
     "check_context_window": (
         # A reader of the TRAINED context appears outside the vocabulary — the
         # number that is 131072 where the truth is 60160.
@@ -414,6 +493,14 @@ BREAKAGES = {
         ([], "caravan/admin/routes.py",
          '"""This API as OpenAPI 3.1: every route', '"""UNSURE: This API as OpenAPI 3.1: every route'),
         ([], "docs/http-api.md", "| `GET /openapi.json` | open |", "| `GET /openapi.json` | admin |"),
+    ],
+    # Everything of the caravan opens in the tab the operator is in (the owner, 2026-10-17): a link of the board that asks
+    # for a window of its own, a script that opens a new tab, and a page that leaves its tab through window.open in a
+    # place that used to be an exception must each turn this red.
+    "check_same_tab_links": [
+        ([], "static/index.html", 'href="/models"\n', 'href="/models" target="caravan-models"\n'),
+        ([], "static/js/topology-dnd.js", 'window.location.assign("/routing");', 'window.open("/routing", "_blank");'),
+        ([], "static/js/hf-downloads.js", "this.go = go || ((url) => globalThis.location.assign(url));", 'this.go = go || ((url) => globalThis.open(url, "_blank"));'),
     ],
 }
 

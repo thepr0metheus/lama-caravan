@@ -18,7 +18,7 @@ export function escapeHtml(value) {
  *
  *  The richer label — version PLUS git branch and dirty count — comes from
  *  renderProjectGitBranch(), which needs /api/state. Pages that never fetch
- *  the fleet state (/models, the standalone kanban) were left showing the
+ *  the fleet state (/models, the standalone Routing) were left showing the
  *  placeholder "branch n/a", which is worse than an empty chip: it reads as a
  *  fact about the checkout rather than as "nobody asked". /health is open and
  *  costs nothing, so those pages can at least say which build they are.
@@ -46,6 +46,21 @@ function _isWireBody(body) {
   return ArrayBuffer.isView(body);
 }
 
+// Whether the server SAYS this browser is signed out: a plain "no" from /api/auth/me, and nothing else. A 401 is
+// believed only when this says so. One poll that came back 401 while the cookie was good threw the owner to the sign-in
+// page from the board (2026-10-17, a NAS busy with a copy; the server now answers 503 to a store that does not answer,
+// and this is the second line). An answer that does not come, or comes as a refusal, is "not known", not "signed out".
+export async function signedOutForSure() {
+  try {
+    const response = await fetch("/api/auth/me");
+    if (!response.ok) return false;
+    const me = await response.json();
+    return me.authenticated === false;
+  } catch {
+    return false;
+  }
+}
+
 export async function api(path, options = {}) {
   // Serialised here, not at each call site. Three settings calls passed a plain
   // object, so the wire body was the literal text "[object Object]", the server
@@ -65,7 +80,7 @@ export async function api(path, options = {}) {
     // Session expired / auth just enabled: hand the user to the login page
     // (auth endpoints handle their own errors inline).
     if (response.status === 401 && !path.startsWith("/api/auth/")
-        && location.pathname !== "/login") {
+        && location.pathname !== "/login" && await signedOutForSure()) {
       window.location = "/login";
     }
     // The refusal's status and its whole answer travel with the error: a caller that can act

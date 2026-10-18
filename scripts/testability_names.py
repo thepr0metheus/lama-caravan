@@ -42,6 +42,13 @@ COMPOSED = {
     # static/js/card-rows.js — a folded card's control: 📌 keeps it open, ▴ folds it back
     "fold-pin": "card-rows.js: FoldSlot.control() by mode",
     "fold-unpin": "card-rows.js: FoldSlot.control() by mode",
+    # static/js/cell-memory.js — the two badges of the memory a cell holds, data-t="${CellMemory.HOOKS[which]}" (ram | gpu), data-t-state held|expected|none|unknown|idle
+    "cell-ram": "cell-memory.js: CellMemory.badge",
+    "cell-gpu": "cell-memory.js: CellMemory.badge",
+    # static/js/pool-board.js — the input dot of a card, the handle of a cable pulled from the right: data-t="${hook}" of PoolBoard.PULL
+    "pb-pull-model": "pool-board.js: PoolBoard.pullHtml",
+    "pb-pull-pool": "pool-board.js: PoolBoard.pullHtml",
+    "pb-pull-set": "pool-board.js: PoolBoard.pullHtml",
     # static/js/card-rows.js — a cell line's switch: its hook says what flipping it does
     "cell-row-start": "card-rows.js: CellRow.lead() by the switch's state",
     "cell-row-stop": "card-rows.js: CellRow.lead() by the switch's state",
@@ -85,6 +92,7 @@ COMPOSED = {
     "model-job-tts": "form.js: jobChips() on the picker row",
     "model-job-translate": "form.js: jobChips() on the picker row",
     "model-job-speech-translate": "form.js: jobChips() on the picker row",
+    "model-job-voice-chat": "form.js: jobChips() on the picker row",
     "model-job-robot-policy": "form.js: jobChips() on the picker row",
     "cell-job-llm": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-asr": "topology-nodes.js: jobChipsHtml() on the cell card",
@@ -92,6 +100,7 @@ COMPOSED = {
     "cell-job-tts": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-speech-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-voice-chat": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-robot-policy": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-config-search": "config-locator.js: the settings search input above the tabs",
     # The switch on an engine's strip starts or stops its server — one of the two.
@@ -100,10 +109,7 @@ COMPOSED = {
     "cell-config-search-results": "config-locator.js: the search suggestion list",
     # The caravan's strip over the chips is an EngineStrip with its own hook.
     "node-caravan": "topology-nodes.js: nodeCaravanGroupHtml() passes EngineStrip its hook",
-    # The caravan's two model pages under the kanban's card: one helper draws both links, the hook is its argument.
-    "board-models-open": "routers.js: renderBoardPageLinks() under the kanban's card",
-    "board-hf-open": "routers.js: renderBoardPageLinks() under the kanban's card",
-    # The kanban's "＋" rows that start a new cable from any point of them: one helper draws both. They stand in the
+    # Routing's "＋" rows that start a new cable from any point of them: one helper draws both. They stand in the
     # strip below the board (1.3.533), and on the card of a pool or a set that has nothing yet.
     "pb-add-row": "pool-board.js: newOutHtml() in a pool's strip, and on a pool with no row",
     "pb-set-add": "pool-board.js: newOutHtml() in a set's strip, and on a set with no model",

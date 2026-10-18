@@ -339,6 +339,8 @@ main.hfp {
 .hfp-job-label { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hfp-job.is-done .hfp-job-label { color: var(--good); }
 .hfp-job.is-error .hfp-job-label { color: var(--bad); }
+/* A refusal that asks for something (accept the terms) is not a failure, and its words do not fit one line. */
+.hfp-job.is-gated .hfp-job-label { color: var(--warn); white-space: normal; }
 
 /* ── the frontier panel ──────────────────────────────────────────────────── */
 .hfp-frontier {

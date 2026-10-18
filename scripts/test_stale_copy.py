@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Value snapshot: a save made from an older copy of the proxy lists is refused.
 
-A page saves whole lists built from its own copy of the topology: the kanban its routers with
+A page saves whole lists built from its own copy of the topology: Routing its routers with
 every cable, the port form every route. On the NAS (2026-10-08, 09:04) a tab left open since the
 morning saved its copy over the afternoon's and put back the cable of a deleted port. The
 topology now names the version of each list (ProxyRevisions, caravan/admin/proxies_config.py); a
@@ -97,7 +97,7 @@ check(pc.PROXY_REVISIONS.current() == seen,
 check(pc.ProxyRevisions.of({"routes": [{"a": 1, "b": 2}]})["routes"] == pc.ProxyRevisions.of({"routes": [{"b": 2, "a": 1}]})["routes"],
       "negative: the order of keys in the file is not a new version")
 
-print("the kanban's routers:")
+print("Routing's routers:")
 seen = fresh()
 went = goes(lambda: pc.set_routers(router(("e1", "in:skynet:proxy:23001"), ("e2", "in:skynet:proxy:23002")), seen["routers"]))
 now = pc.PROXY_REVISIONS.current()
@@ -152,7 +152,7 @@ goes(lambda: pc.set_routers(router(("e2", "in:skynet:proxy:23002")), seen["route
 status, body = post("/api/agent-proxies/routers", {"routers": router(("e1", "in:skynet:proxy:23001")), "revision": seen["routers"]})
 check(status == 409 and body.get("stale") is True and body["topology"]["marker"] == "current"
       and body["topology"]["proxyRevisions"] == pc.PROXY_REVISIONS.current() and "changed since" in body["error"],
-      "kanban: 409 with `stale` and the current topology — the page makes its change again on that")
+      "routing: 409 with `stale` and the current topology — the page makes its change again on that")
 status, body = post("/api/agent-proxies/routers", {"routers": router(("e5", "in:skynet:proxy:23002")),
                                                     "revision": pc.PROXY_REVISIONS.current()["routers"]})
 check(status == 200 and body.get("ok") is True and edges() == ["e5"], "negative: the current version answers 200 and saves")

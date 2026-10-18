@@ -1,8 +1,8 @@
-// When a model is open: the ⏱ on each model of the kanban's right column and the window it opens
+// When a model is open: the ⏱ on each model of Routing's right column and the window it opens
 // (the owner, 2026-10-12, visumap scheme caravan-model-schedule). A schedule is the model's, the
 // same in every pool whose row names it; a pool passes over the row of a model closed now.
 //
-// The window paints a week of hours on a grid, as the old kanban's schedule node did, and lists the
+// The window paints a week of hours on a grid, as the old Routing's schedule node did, and lists the
 // same hours as windows with exact times (static/js/week-windows.js keeps the two one week). Its
 // hours are the caravan's own — the zone the controller runs in, which the controller names
 // (`modelSchedules.zone`) — not this browser's: a browser in another zone draws the hours the proxy

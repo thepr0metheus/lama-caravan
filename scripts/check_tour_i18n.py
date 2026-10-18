@@ -40,7 +40,7 @@ LANGS = re.findall(r'code: "(\w+)"', langs_src.group(1))
 if len(LANGS) < 2:
     sys.exit(f"check_tour_i18n: suspiciously short LANGS: {LANGS}")
 
-# ── TOUR_STRINGS: index/kanban/config tours ──────────────────────────────────
+# ── TOUR_STRINGS: index/routing/config tours ──────────────────────────────────
 tours = read("static/js/onboarding-strings.js")
 tour_blocks = dict(re.findall(r"^(\w+): \{\n(.*?)\n\},", tours, re.S | re.M))
 if "en" not in tour_blocks:

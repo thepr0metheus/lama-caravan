@@ -61,10 +61,7 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-def free_port():
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+from _ports import free_port  # noqa: E402
 
 
 class Backend(BaseHTTPRequestHandler):
@@ -491,7 +488,7 @@ def test_old_agent_still_served():
     status, raw = response.status, response.read()
     conn.close()
     check((status, as_json(raw)) == (200, {"upstream": "L"}),
-          f"его запрос идёт по канбану его порта, model не выбирает (got {status} {raw[:80]})")
+          f"его запрос идёт по Маршрутизации его порта, model не выбирает (got {status} {raw[:80]})")
 
 
 def test_no_router_for_a_consumer():
@@ -510,7 +507,7 @@ def test_no_router_for_a_consumer():
     status, raw, headers = ask(KEY_2, body=chat("Standart"))
     answer = as_json(raw)
     check(status == 200 and answer.get("choices", [{}])[0].get("message", {}).get("content") == "A" and not R.seen,
-          f"узел канбана ведёт в Econom, а ответил пул набора клиента, Standart (got {status} {answer})")
+          f"узел Маршрутизации ведёт в Econom, а ответил пул набора клиента, Standart (got {status} {answer})")
     check(headers.get("x-request-id", "").count("-") == 1 and "openai-organization" not in headers,
           "ответ — в форме OpenAI: свой X-Request-Id, заголовков провайдера нет")
     status, raw, _ = ask(KEY_2, body=chat("Econom"))

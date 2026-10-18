@@ -37,6 +37,8 @@ const m = await import(pathToFileURL(process.env.JS_ROOT + "/model-meta.js").hre
 const tx = (k) => "<" + k + ">";
 const out = {
   parse: Object.fromEntries(JSON.parse(process.env.NAMES).map((n) => [n, m.parseModelName(n)])),
+  repo: Object.fromEntries(JSON.parse(process.env.REPOS).map((n) => [n, m.repoOnlyWords(n)])),
+  repoOdd: [m.repoOnlyWords(""), m.repoOnlyWords(null), m.repoOnlyWords(undefined), m.repoOnlyWords("Coder-Q4.gguf"), m.repoOnlyWords(42)],
   parseEmpty: m.parseModelName(""),
   parseNull: m.parseModelName(null),
   price: Object.fromEntries([0, 0.4567, 0.05, 1.5, 2.10, 12.34, 150, 99.999].map((v) => [String(v), m.formatPricePer1M(v)])),
@@ -81,6 +83,26 @@ NAMES = {
         {"file": "Mixtral-8x7B-Instruct-v0.1.Q5_K_M", "label": "Mixtral-8x7B-Instruct-v0.1.", "quant": "Q5_K_M", "size": "8x7B", "variant": "instruct"},
 }
 
+# The library's real paths: <repo>/<author>/<quant>/<file>. Which word the repository's name has and the file's has not.
+REPOS = {
+    # ISTA-DASLab's Coder package is named after the base model: the word "Coder" is in the folder only (the owner, 2026-10-18).
+    "Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF/ISTA-DASLab/IQ1_M/Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf": ["Coder"],
+    # negative: the base model's packages, the Swift fine-tune's and Unsloth's say nothing the file does not say
+    "Qwen3.8-Flash-Next-GSQ-RCO-GGUF/ISTA-DASLab/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf": [],
+    "Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF/ukisai/IQ3_XXS/Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf": [],
+    "Qwen3.8-Flash-Next-GGUF/unsloth/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf": [],
+    # negative: the file says it too — no second chip for the same word
+    "Qwen3-Coder-30B-A3B-Instruct-GGUF/unsloth/Q4_K_M/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf": [],
+    "Qwen3-Coder-Next-GGUF/unsloth/Q4_0/Qwen3-Coder-Next-Q4_0.gguf": [],
+    "27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF/DavidAU/Q5_K_S/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-Q5_K_S.gguf": [],
+    # the word in lower case in the folder, and the file says "coding", which is not the word
+    "gemma-4-12B-coder-fable5-composer2.5-v1-GGUF/yuxinlu1/Q8_0/gemma4-coding-Q8_0.gguf": ["Coder"],
+    # a word counts whole: "Decoder" is not "Coder", and "Coderlike" is not either
+    "Foo-Decoder-GGUF/a/Q4/foo-Q4.gguf": [],
+    "Foo-Coderlike-GGUF/a/Q4/foo-Q4.gguf": [],
+    "qwen-CODER-gguf/a/Q4/qwen-q4.gguf": ["Coder"],
+}
+
 node = find_node()
 if node is None:
     print("js model-meta: SKIPPED — node не найден ни в PATH, ни у менеджеров версий: " + ", ".join(node_search_paths()))
@@ -91,7 +113,7 @@ probe.write_text(PROBE, encoding="utf-8")
 try:
     hook = f"data:text/javascript,import {{ register }} from 'node:module'; register('file://{ROOT}/scripts/_js_harness.mjs');"
     env = {"JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": "form,cloud,topology-render,polling",
-           "NAMES": json.dumps(list(NAMES)), "PATH": "/usr/bin:/bin"}
+           "NAMES": json.dumps(list(NAMES)), "REPOS": json.dumps(list(REPOS)), "PATH": "/usr/bin:/bin"}
     proc = subprocess.run([node, "--import", hook, str(probe)], capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
 finally:
     probe.unlink(missing_ok=True)
@@ -104,6 +126,13 @@ for name, want in NAMES.items():
     have = got["parse"].get(name)
     check(have == want, f"{name.split('/')[-1]}: {json.dumps(have, ensure_ascii=False)}")
 check(got["parseEmpty"] is None and got["parseNull"] is None, "пустой и null путь → null, не пустая карточка")
+
+print("repoOnlyWords на путях библиотеки:")
+for path, want in REPOS.items():
+    have = got["repo"].get(path)
+    check(have == want, f"{path.split('/')[0][:48]}…/{path.split('/')[-1][:44]}: {have}")
+check(got["repoOdd"] == [[], [], [], [], []],
+      f"negative: пустой путь, null, undefined, имя файла без папки («Coder-Q4.gguf» — слово в имени файла, а не репозитория) и число → слов нет, не исключение (получено {got['repoOdd']})")
 
 print("formatPricePer1M:")
 want_price = {"0": "$0", "0.4567": "$0.457", "0.05": "$0.05", "1.5": "$1.5", "2.1": "$2.1",

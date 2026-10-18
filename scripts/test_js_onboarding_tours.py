@@ -2,8 +2,8 @@
 """Snapshot of static/js/onboarding-tours.js — which tour, and when.
 
 What's pinned by value: picking the step set from the page's state (the
-te/tr editor open → the editor tour with its prefix; standalone kanban → the
-kanban tour; otherwise → the board tour); the board's and editor's step
+te/tr editor open → the editor tour with its prefix; standalone Routing → the
+Routing tour; otherwise → the board tour); the board's and editor's step
 anchors (this is data, and a step with a nonexistent anchor is a step nobody
 will ever see); button captions from i18n; the language picker on the
 welcome step calls setLang and redraws the tour; tour strings get merged into
@@ -53,9 +53,9 @@ PINS = [
     ("tour_strings_merge_into_language_table", '', '(() => { const table = {}; globalThis.__loaded[0]("ru", table); const en = {}; globalThis.__loaded[0]("en", en); const none = {}; globalThis.__loaded[0]("xx", none); return [Object.keys(table).length > 10, table.tourNext === S.TOUR_STRINGS.ru.tourNext, Object.keys(en).length > 10, Object.keys(none).length]; })()',
      '[true,true,true,0]', "строки туров вливаются в таблицу языка при её загрузке; языку без своих строк ничего не подмешивается (t() отдаст английский)"),
     ("index_tour_by_default", '', '(() => { m.initOnboarding(); buttons.onClick(); const st = steps(); return [st.length, st[0].center, st[0].title, typeof st[0].onRender, st[2].anchor, st[3].anchor, st.at(-1).center, tours.at(-1).started]; })()',
-     '[13,true,"T:tourIxWelcomeT","function",".topology-board","#topologyClients",true,1]', "по умолчанию — тур доски: 13 шагов (шаг пулов ушёл: пулы на канбане, 2026-10-12), приветствие с пикером языка, якоря лейн, финальный центрированный; кнопка запускает тур"),
-    ("kanban_tour_when_standalone", 'globalThis.ROUTER_STANDALONE = true;', '(() => { m.initOnboarding(); buttons.onClick(); const st = steps(); return [st.length, st[1].anchor, st[2].anchor, autos[0].key]; })()',
-     '[5,"[data-t=\'pb-clients\']","[data-t=\'pb-sets\']","kanban"]', "standalone-канбан — свой тур из пяти шагов по колонкам доски (клиенты, наборы, пулы, модели) и свой ключ автостарта"),
+     '[13,true,"T:tourIxWelcomeT","function",".topology-board","#topologyClients",true,1]', "по умолчанию — тур доски: 13 шагов (шаг пулов ушёл: пулы в Маршрутизации, 2026-10-12), приветствие с пикером языка, якоря лейн, финальный центрированный; кнопка запускает тур"),
+    ("routing_tour_when_standalone", 'globalThis.ROUTER_STANDALONE = true;', '(() => { m.initOnboarding(); buttons.onClick(); const st = steps(); return [st.length, st[1].anchor, st[2].anchor, autos[0].key]; })()',
+     '[5,"[data-t=\'pb-clients\']","[data-t=\'pb-sets\']","routing"]', "standalone-Маршрутизация — свой тур из пяти шагов по колонкам доски (клиенты, наборы, пулы, модели) и свой ключ автостарта"),
     ("editor_tour_when_modal_open", 'globalThis.__fields = { llamaRemoteEditOverlay: { hidden: false } };', '(() => { m.initOnboarding(); buttons.onClick(); const st = steps(); return [st.length, st[0].anchor]; })()',
      '[12,"#llamaRemoteEditForm .cell-kind-toggle"]', "открыт редактор ячейки — тур редактора, двенадцать шагов"),
     ("no_editor_tour_for_the_retired_overlay", 'globalThis.__fields = { topologyLlamaEditOverlay: { hidden: false } };', '(() => { m.initOnboarding(); buttons.onClick(); const st = steps(); return [st.length, st.some((x) => String(x.anchor || "").includes("te-") || String(x.anchor || "").includes("topologyLlamaEdit"))]; })()',

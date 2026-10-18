@@ -54,12 +54,7 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-def free_port():
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
+from _ports import free_port  # noqa: E402
 
 
 # ── fake upstream ─────────────────────────────────────────────────────────
@@ -413,6 +408,10 @@ class _Subscription(BaseHTTPRequestHandler):
 ANTHRO = free_port()
 # Anthropic events in the order _iter_anthropic_as_completions_sse expects them.
 ANTHRO_EVENTS = [
+    # Вход Anthropic называет в самом начале, в message_start: 12 обычных токенов, 100 записано в кэш, 2000 прочитано из него. В message_delta — только выход.
+    b'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant",'
+    b'"model":"claude-test-model","content":[],"stop_reason":null,"usage":{"input_tokens":12,'
+    b'"cache_creation_input_tokens":100,"cache_read_input_tokens":2000,"output_tokens":1}}}\n\n',
     b'event: content_block_start\ndata: {"type":"content_block_start","index":0,'
     b'"content_block":{"type":"text","text":""}}\n\n',
     b'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,'
@@ -469,6 +468,25 @@ class _Anthropic(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
+        if "ABORTME" in text:
+            # Начало потока: message_start (вход назван), начало блока и первое слово. Потом пауза — клиент уходит, — и поток идёт дальше:
+            # много слов, и только после них message_delta, так что запись клиенту падает раньше, чем придёт расход в конце.
+            for piece in ANTHRO_EVENTS[:3]:
+                self.wfile.write(piece)
+                self.wfile.flush()
+            time.sleep(1.2)
+            try:
+                for _ in range(40):
+                    self.wfile.write(ANTHRO_EVENTS[3])
+                    self.wfile.flush()
+                    time.sleep(0.01)
+                for piece in ANTHRO_EVENTS[4:]:
+                    self.wfile.write(piece)
+                    self.wfile.flush()
+            except OSError:
+                pass
+            self.close_connection = True
+            return
         for piece in ANTHRO_EVENTS:
             self.wfile.write(piece)
             self.wfile.flush()
@@ -906,6 +924,61 @@ def test_anthropic_translation():
     check(text == "hello", f"текст собрался из дельт (получено {text!r})")
     check(any((f.get("choices") or [{}])[0].get("finish_reason") for f in parsed_frames),
           "причина остановки доехала")
+    # ── what the stream says it used (1.3.585) ───────────────────────────────
+    # До 1.3.585 перевод читал только message_delta и писал prompt_tokens: 0 — вход пропадал, и счётчик расхода молчал о нём.
+    usages = [f["usage"] for f in parsed_frames if "usage" in f]
+    check(usages == [{"prompt_tokens": 2112, "completion_tokens": 2, "total_tokens": 2114,
+                      "prompt_tokens_details": {"cached_tokens": 2000}, "cache_creation_input_tokens": 100}],
+          f"последний кадр говорит расход: вход 12 + 100 + 2000 = 2112 (кэш внутри, как у OpenAI), выход 2; отдельно названо прочитанное из кэша (2000) и записанное в него (100) (получено {usages})")
+    row = None
+    for _ in range(60):
+        rows = [r for r in _read_finished() if r.get("route") == f"r{P_ANTHRO}" and (r.get("item") or {}).get("usage", {}).get("prompt")]
+        if rows:
+            row = rows[-1]
+            break
+        time.sleep(0.05)
+    journal = ((row or {}).get("item") or {}).get("usage")
+    check(journal == {"prompt": 2112, "completion": 2, "cacheRead": 2000, "cacheWrite": 100},
+          f"журнал хранит то же: весь вход, выход и отдельно прочитанное и записанное в кэш — по ним счётчик ценит кэш не как обычный вход (получено {journal})")
+
+
+def test_cut_anthropic_stream_is_counted():
+    """Поток Anthropic, который клиент оборвал посреди ответа, записан в журнал со своим входом (1.3.586).
+
+    Расход приходит в последнем кадре потока. Оборванный поток до него не доходит, и его вход — Anthropic берёт за него плату, как за целый —
+    писался нулём: Console считал, караван нет. Теперь обработчик держит то, что провайдер успел сказать (message_start), и пишет это, когда
+    ни один кадр расхода не прошёл.
+    """
+    print("оборванный клиентом поток anthropic:")
+    import socket as _socket
+    import struct as _struct
+    body = json.dumps({"model": "m", "stream": True, "messages": [{"role": "user", "content": "ABORTME"}]}).encode()
+    req = (b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: " + str(len(body)).encode()
+           + b"\r\n\r\n" + body)
+    sock = _socket.create_connection(("127.0.0.1", P_ANTHRO), timeout=RESPONSE_TIMEOUT)
+    sock.sendall(req)
+    got = b""
+    while b'"he"' not in got:          # первое слово ответа дошло до нас: message_start провайдер уже сказал
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        got += chunk
+    # Уходим жёстко: RST, как падает убитый агент.
+    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_LINGER, _struct.pack("ii", 1, 0))
+    sock.close()
+    check(b'"he"' in got, f"до ухода клиент получил первое слово ответа (получено {got[-60:]!r})")
+
+    row = None
+    for _ in range(160):
+        rows = [r for r in _read_finished() if r.get("route") == f"r{P_ANTHRO}" and r.get("errorKind") == "client_disconnected"]
+        if rows:
+            row = rows[-1]
+            break
+        time.sleep(0.05)
+    check(row is not None, "запрос завершился и попал в журнал как оборванный клиентом")
+    usage = ((row or {}).get("item") or {}).get("usage")
+    check(usage == {"prompt": 2112, "completion": 1, "cacheRead": 2000, "cacheWrite": 100},
+          f"в журнале вход, названный в message_start (12 + 100 + 2000), выход — каким его успели сказать (1), и кэш; до 1.3.586 здесь были нули (получено {usage})")
 
 
 def test_subscription_translation():
@@ -1772,6 +1845,16 @@ def test_keepalive_not_sent_to_cloud():
     doc = json.loads(raw)
     check(doc.get("object") == "chat.completion",
           f"ответ переведён в форму completions (получено {doc.get('object')!r})")
+    check(doc.get("usage") == {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5},
+          f"расход целого ответа: вход 3, выход 2, всего 5; кэша нет — и полей о нём нет (получено {doc.get('usage')})")
+    plain = False
+    for _ in range(60):
+        plain = any((r.get("item") or {}).get("usage") == {"prompt": 3, "completion": 2} for r in _read_finished() if r.get("route") == f"r{P_ANTHRO}")
+        if plain:
+            break
+        time.sleep(0.05)
+    check(plain, "в журнале ответ без потока записан со своим расходом: prompt 3, completion 2 (до 1.3.585 — нули: расход целого ответа не читался); "
+                 "negative: кэша нет — нет и ключей cacheRead, cacheWrite (строка без кэша остаётся такой, какой была)")
 
 
 def test_loading_model_retry_not_for_cloud():
@@ -1933,7 +2016,7 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stay
            test_error_kind_reaching_the_client, test_error_kind_in_the_journal,
            test_classifier_both_sides, test_response_headers,
            test_streaming_relay, test_streaming_journal, test_anthropic_translation,
-           test_subscription_translation, test_responses_passthrough, test_loading_model_retry,
+           test_cut_anthropic_stream_is_counted, test_subscription_translation, test_responses_passthrough, test_loading_model_retry,
            test_loading_model_journal, test_queue_waits_for_a_free_slot,
            test_queue_visible_in_journal, test_keepalive_holds_a_queued_client,
            test_keepalive_not_sent_without_streaming,

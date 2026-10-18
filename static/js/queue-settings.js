@@ -11,7 +11,7 @@ export class QueueSettings {
   static FIELDS = [
     { key: "cloudFallbackPct", spec: "spillPct", label: "cvLabelOverflowAt", tip: "cvTipOverflowAt", max: 100, unit: "%", fallback: 20 },
     // "hold", not "reserve": a subscription's share kept for the operator is its reserve
-    // (keep 10%), and one word stood for two things on the kanban (2026-10-08).
+    // (keep 10%), and one word stood for two things in Routing (2026-10-08).
     { key: "stickySlotSec", spec: "stickySlotSec", label: "cvLabelHold", tip: "cvTipHold", max: 120, unit: "s", fallback: 0 },
     { key: "loadingModelWaitSec", spec: "loadingModelWaitSec", label: "cvLabelLoadWait", tip: "cvTipLoadWait", max: 900, unit: "s", fallback: 60 },
   ];
@@ -27,15 +27,15 @@ export class QueueSettings {
   }
   html() {
     const values = this.values();
-    return `<section class="cv-queue-settings${this.editing ? " open" : ""}" data-t="kanban-queue-settings" data-cv-queue-settings>`
-      + `<button class="cv-qs-line" type="button" data-t="kanban-queue-settings-toggle" data-cv-qs-toggle`
+    return `<section class="cv-queue-settings${this.editing ? " open" : ""}" data-t="routing-queue-settings" data-cv-queue-settings>`
+      + `<button class="cv-qs-line" type="button" data-t="routing-queue-settings-toggle" data-cv-qs-toggle`
       + ` aria-expanded="${this.editing}" title="${escapeHtml(t("cvSharedQueueSettings"))}">`
       + `<span class="cv-qs-glyph" aria-hidden="true">⏳</span>`
       + `<span class="cv-qs-text" data-cv-qs-text>${escapeHtml(this.summary())}</span>`
       + `<span class="cv-qs-pen" aria-hidden="true">✎</span></button>`
       + `<div class="cv-qs-fields">`
       + QueueSettings.FIELDS.map((f) => `<label class="cv-shared-q-field"><span>${escapeHtml(t(f.label))} ${helpTip(f.tip)}</span>`
-        + `<input type="number" min="0" max="${f.max}" value="${values[f.spec]}" data-t="kanban-queue-setting"`
+        + `<input type="number" min="0" max="${f.max}" value="${values[f.spec]}" data-t="routing-queue-setting"`
         + ` data-t-id="${f.key}" data-cv-queue-policy="${f.key}"><span>${f.unit}</span></label>`).join("")
       + `</div></section>`;
   }

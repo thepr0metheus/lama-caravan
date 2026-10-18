@@ -1,6 +1,7 @@
 // The cloud under Pools: the pools' cards (pools.js), the window that adds a step or a
 // pool (pool-step-dialog.js), and the accounts their steps stand on — the provider picker, the
 // account window and the sign-in by a one-time code.
+import { CreditLeft } from "./credit-left.js";
 import { PoolCards } from "./pools.js";
 import { PoolStepDialog } from "./pool-step-dialog.js";
 import { SERVER_ORDER, ServerOrder } from "./server-order.js";
@@ -21,9 +22,11 @@ import {
   openrouterLimitsCache,
   openRouterLimitsHtml,
   previewSwitchLevel,
+  proxySpendData,
   proxySpendFetchedAt,
   proxySpendHtml,
   proxySpendOf,
+  refreshProxySpend,
   refreshUsageReading,
   saveSwitchLevel,
   subscriptionRefreshHtml,
@@ -271,7 +274,7 @@ export function codexVersionHtml() {
 }
 
 // "API issues" panel: endpoints the breaker tripped (we stopped calling them — the list is the
-// user's cue to fix or retry). The kanban's account card shows it too (pool-board.js).
+// user's cue to fix or retry). Routing's account card shows it too (pool-board.js).
 export function cloudApiIssuesHtml(acct, isSubscription) {
   const eps = topology?.cloudApiHealth?.endpoints || {};
   const mine = Object.entries(eps)
@@ -392,6 +395,8 @@ export function openCloudAccountModal(accountId) {
     authMode: acct.authMode || "apiKey",
     oauthConfig: {},
     apiKey: "",
+    // What the operator typed as the credit left, as typed (credit-left.js): blank for none.
+    creditUsd: acct.creditUsd === null || acct.creditUsd === undefined ? "" : String(acct.creditUsd),
   };
   ui.topologyCloudModalOpen = true;
   renderTopology();
@@ -442,7 +447,9 @@ export function cloudPickerTileIcon(type) {
     case "openai":
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="5"/><path d="M8 10V4M22 8l-3 3-9 9"/></svg>`;
     case "anthropic":
-      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 19.5h20L12 2z"/><path d="M12 9v5"/></svg>`;
+      // A spark of eight rays, in the provider's orange. It was a triangle with a bar — a warning sign — and on the board it
+      // read as a provider in trouble before it had a key (the owner asked for the Anthropic block to look good, 2026-10-17).
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5v19M2.5 12h19M5.3 5.3l13.4 13.4M18.7 5.3L5.3 18.7"/></svg>`;
     case "openrouter":
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4M3 7h18"/><path d="M7 21l-4-4 4-4M21 17H3"/></svg>`;
     case "ollama":
@@ -526,21 +533,30 @@ const CLOUD_ADDRESS_TYPES = new Set(["custom", "ollama"]);
 
 const SIGN_IN_STATES = new Set(["connect", "waiting", "ended", "connected"]);
 
-function cloudFieldHtml(label, field, value, { type = "text", placeholder = "", hint = "" } = {}) {
-  return `<label class="cloud-field">${escapeHtml(label)}<input type="${type}" data-cloud-field="${field}" value="${escapeHtml(value || "")}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ""}${type === "password" ? ' autocomplete="off"' : ""}>${hint ? `<span class="cloud-hint">${escapeHtml(hint)}</span>` : ""}</label>`;
+function cloudFieldHtml(label, field, value, { type = "text", placeholder = "", hint = "", inputmode = "" } = {}) {
+  return `<label class="cloud-field">${escapeHtml(label)}<input type="${type}" data-cloud-field="${field}" value="${escapeHtml(value || "")}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ""}${inputmode ? ` inputmode="${inputmode}"` : ""}${type === "password" ? ' autocomplete="off"' : ""}>${hint ? `<span class="cloud-hint">${escapeHtml(hint)}</span>` : ""}</label>`;
+}
+
+// The credit the operator says a key account has left: the field, its words (what to type, and that no provider tells it), and the meter
+// as the board draws it — the saved figure counted down by what went through the caravan since (credit-left.js).
+function cloudCreditHtml(f, acct) {
+  return `${cloudFieldHtml(t("creditField"), "creditUsd", f.creditUsd, { placeholder: "200", hint: t("creditHint"), inputmode: "decimal" })}`
+    + `${CreditLeft.html(acct, proxySpendData)}`;
 }
 
 function cloudWaitingHtml(f) {
   const dl = f.deviceLogin;
   const until = new Date(Number(dl.expiresAt || 0) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  // The page is a link the operator clicks: a window opened by the script after an await is
-  // not a click, and browsers block it. Its click copies the code too. The code copies on its
-  // own click as well (the operator, 2026-10-08): a click on it used to only select it, and the
+  // The page is a link the operator clicks, and it takes THIS tab (the owner, 2026-10-17: nothing of the
+  // caravan opens in a new one). The controller finishes the login by itself — the login has a thread of
+  // its own on the controller (DeviceLogin) — so leaving the board costs nothing: the account is there when
+  // the operator comes back. The click copies the code first, then goes (topology-dnd.js). The code copies
+  // on its own click as well (the operator, 2026-10-08): a click on it used to only select it, and the
   // operator took the selection for a copy.
   return `
     <div class="cloud-code-row" data-t="cloud-device-login">
       <code class="cloud-device-code" role="button" tabindex="0" title="${escapeHtml(t("cloudCodeCopyTip"))}" data-cloud-device-code data-t="cloud-device-code">${escapeHtml(dl.userCode || "")}</code>
-      <a class="primary-mini-action cloud-open" href="${escapeHtml(dl.verifyUrl || "")}" target="_blank" rel="noopener noreferrer" data-cloud-device-open data-t="cloud-device-open">${escapeHtml(t("cloudCopyAndOpen"))} ↗</a>
+      <a class="primary-mini-action cloud-open" href="${escapeHtml(dl.verifyUrl || "")}" data-cloud-device-open data-t="cloud-device-open">${escapeHtml(t("cloudCopyAndOpen"))}</a>
     </div>
     <ol class="cloud-steps">
       <li>${escapeHtml(t("cloudStepSignIn"))}</li>
@@ -597,7 +613,7 @@ function cloudStatusHtml(state, acct) {
 
 // What a key's provider says about it, in its window: OpenRouter its key's limits, the OpenAI API its
 // costs (only api.openai.com has the Costs API; elsewhere it 404s). Until 2026-10-12 it stood under
-// the kanban's ⋯; the account's window holds what is not on its row (the owner).
+// Routing's ⋯; the account's window holds what is not on its row (the owner).
 function cloudProviderWordHtml(acct) {
   if (!acct?.hasCredential) return "";
   if (acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai")) {
@@ -668,8 +684,11 @@ export function renderTopologyCloudAccountModal() {
       ? cloudFieldHtml(t("topologyCloudApiKey"), "apiKey", "", { type: "password", placeholder: t("cloudKeyPlaceholder") }) : ""}`;
     footer = `${cancel}${save}`;
   } else {
+    // The credit is a key's to count, so it is asked of an account that has one; its meter counts from the spend reading.
+    const credit = state === "keyAccount" && acct?.hasCredential;
+    if (credit) fetchProxySpend();
     body = `${cloudStatusHtml(state, acct)}${cloudProviderWordHtml(acct)}${nameField}${addressField}${state === "keyAccount"
-      ? cloudFieldHtml(t("cloudNewKey"), "apiKey", "", { type: "password", placeholder: t("cloudNewKeyPlaceholder") }) : ""}${cloudUsedInHtml(acct)}`;
+      ? cloudFieldHtml(t("cloudNewKey"), "apiKey", "", { type: "password", placeholder: t("cloudNewKeyPlaceholder") }) : ""}${credit ? cloudCreditHtml(f, acct) : ""}${cloudUsedInHtml(acct)}`;
     footer = `${remove}${cancel}${save}`;
   }
   return `
@@ -697,14 +716,20 @@ export async function saveCloudAccount() {
       // An edit sends what changed: the name, the address, how it signs in. It used to send
       // nothing and still say "saved".
       const stored = (topology?.cloudAccounts || []).find((a) => a.id === accountId) || {};
-      const changed = ["name", "baseUrl", "authMode"].some((k) => String(f[k] ?? "") !== String(stored[k] ?? ""));
+      // The credit: as typed against as stored (blank is none; the controller reads a decimal comma and keeps the moment of a figure
+      // that did not change). A window that has no such field — a subscription's — sends nothing.
+      const typedCredit = String(f.creditUsd ?? "").trim();
+      const storedCredit = stored.creditUsd === null || stored.creditUsd === undefined ? "" : String(stored.creditUsd);
+      const creditChanged = f.creditUsd !== undefined && typedCredit !== storedCredit;
+      const changed = creditChanged || ["name", "baseUrl", "authMode"].some((k) => String(f[k] ?? "") !== String(stored[k] ?? ""));
       if (changed) {
         if (!/^https?:\/\//.test(f.baseUrl || "")) { toast("base URL must be http(s)"); topologyCloudBusy = false; renderTopology(); return; }
-        const editRes = await api("/api/cloud-accounts/save", {
-          method: "POST",
-          body: JSON.stringify({ account: { id: accountId, type: f.type, name: f.name, baseUrl: f.baseUrl, authMode: f.authMode } }),
-        });
+        const account = { id: accountId, type: f.type, name: f.name, baseUrl: f.baseUrl, authMode: f.authMode };
+        if (creditChanged) account.creditUsd = typedCredit;
+        const editRes = await api("/api/cloud-accounts/save", { method: "POST", body: JSON.stringify({ account }) });
         if (editRes.topology) setTopology(editRes.topology);
+        // The meter is read again now: a reading made before the figure was typed counts nothing from it.
+        if (creditChanged) refreshProxySpend().catch(() => {});
       }
     } else {
       const preset = topologyCloudPresetByType(f.type) || {};

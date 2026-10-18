@@ -307,16 +307,10 @@ export class Echoes {
   }
 }
 
-/** Foam specks shed by the rocks, and drops of spray from a rise or a pebble. */
+/** Foam specks shed by the rocks. (Drops of spray went: a hand's plop in 1.3.536, a trout's rise in 1.3.546 — the owner took them out.) */
 class Specks {
-  constructor() { this.foam = []; this.drops = []; }
+  constructor() { this.foam = []; }
   addFoam(x, y, r) { if (this.foam.length < 160) this.foam.push({ x, y, r, life: 1, fade: 0.18 + Math.random() * 0.25 }); }
-  splash(x, y, count, speed) {
-    for (let i = 0; i < count; i++) {
-      const a = Math.random() * M.TAU, v = speed * (0.4 + Math.random() * 0.8);
-      this.drops.push({ x, y, z: 0, vx: Math.cos(a) * v, vy: Math.sin(a) * v, vz: speed * (1.2 + Math.random()) });
-    }
-  }
   update(dt, life) {
     const ch = life.channel;
     for (const f of this.foam) {
@@ -326,20 +320,11 @@ class Specks {
       for (const r of ch.rocks) r.pushOut(f, 1);
     }
     this.foam = this.foam.filter(f => f.life > 0);
-    for (const d of this.drops) {
-      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt; d.vz -= 900 * dt;
-      if (d.z <= 0 && d.vz < 0) { d.dead = true; if (ch.isWater(d.x, d.y)) life.ripples.disturb(d.x, d.y, 0.12, 2); }
-    }
-    this.drops = this.drops.filter(d => !d.dead);
   }
   draw(ctx) {
     for (const f of this.foam) {
       ctx.fillStyle = `rgba(240, 246, 242, ${(0.55 * f.life).toFixed(3)})`;
       ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, M.TAU); ctx.fill();
-    }
-    for (const d of this.drops) {
-      ctx.fillStyle = 'rgba(235, 245, 250, 0.8)';
-      ctx.beginPath(); ctx.arc(d.x, d.y - d.z * 0.3, 1 + d.z * 0.03, 0, M.TAU); ctx.fill();
     }
   }
 }
@@ -446,14 +431,11 @@ export class BrookLife {
     }
     return best;
   }
+  /** A trout takes a fly: a ring where its mouth closed on it and the sound of a small drop — no spray (the owner, 2026-10-14). */
   rise(f, fly) {
     fly.alive = false;
     this.ripples.disturb(fly.x, fly.y, 1.7, this.C * 0.012);
-    this.specks.splash(fly.x, fly.y, 7, this.C * 0.12);
-    this.scene.sound((kit, t) => {
-      kit.drop(t, { f: 240 + Math.random() * 80, gain: 0.1, room: 0.3 });
-      kit.click(t, { freq: 1600, gain: 0.05, dur: 0.07, type: 'bandpass', q: 0.7 });
-    });
+    this.scene.sound((kit, t) => kit.plink(t, { f: 640, ring: 0.26, gain: 0.09 }));
   }
   freeLie(f) {
     const free = this.lies.filter(l => l !== f.lie && this.trout.every(o => o === f || Math.hypot(o.lie.x - l.x, o.lie.y - l.y) > f.len));
@@ -567,23 +549,20 @@ export class BrookLife {
       if (ch.isWater(p.x, p.y, 0.03)) {
         if (this.flies.length < 6) this.flies.push(new Fly(p.x, p.y, C * 0.012, this.rng));
         this.ripples.disturb(p.x, p.y, 0.35, C * 0.006);
-        this.scene.sound((kit, t) => kit.drop(t, { f: 1500 + Math.random() * 500, gain: 0.02 }));
+        this.scene.sound((kit, t) => kit.plink(t, { f: 900, ring: 0.2, gain: 0.06 }));
       } else if (this.falling.length < 4) {
         const s = this.waterSpot(this.rng, 0.08, 1, q => Math.hypot(q.x - p.x, q.y - p.y) < C * 0.35);
         if (s) this.falling.push(new FallingLeaf(this.leafArt.pick(this.rng), s.x, s.y, C, this.rng));
       }
     }
     if (kind === 'double' && ch.isWater(p.x, p.y, 0.03)) {
-      // A plop of a hand: one big ring and, a moment later, a smaller one as the water closes over it. It threw drops
-      // into the air before (1.3.536: they flew out over the bank in every direction, the owner took them out).
+      // A plop of a hand: one big ring and, a moment later, a smaller one as the water closes over it, and the sound of a big
+      // drop. It threw drops into the air before (1.3.536: they flew out over the bank in every direction, the owner took them out).
       this.ripples.disturb(p.x, p.y, 2.6, C * 0.018);
       this.echoes.add(this.time + 0.16, p.x, p.y);
       for (const f of this.trout) if (Math.hypot(f.x - p.x, f.y - p.y) < C * 0.4) f.spook(p.x, p.y, ch);
       this.shoal.spook(p.x, p.y, C * 0.3, ch);
-      this.scene.sound((kit, t) => {
-        kit.drop(t, { f: 150, gain: 0.16, room: 0.35 });
-        kit.click(t, { freq: 900, gain: 0.08, dur: 0.12, type: 'bandpass', q: 0.5 });
-      });
+      this.scene.sound((kit, t) => kit.plink(t, { f: 330, ring: 0.42, gain: 0.14, room: 0.3 }));
     }
   }
 }

@@ -85,7 +85,7 @@ def _cell_meta(health, cfg, is_command):
     """
     meta = dict((health or {}).get("meta") or {})
     if is_command and (health or {}).get("status") == "ok":
-        meta["sourceState"] = cell_source_state(runner_id(cfg), meta.get("source"))
+        meta["sourceState"] = cell_source_state(runner_id(cfg), meta.get("source"), (cfg or {}).get("COMMAND"))
     # What language a translating cell writes. The card wants this and was
     # reading a `targetLang` nothing ever produced, so it silently fell through
     # to the config's SEAMLESS_TGT_LANG — which every cell inherits from the
@@ -445,12 +445,20 @@ def topology_server(config=None):
             "pid": ln.get("pid"),
             # Bound to the card as the cell's too (_bind_servers_to_gpus).
             "pids": list(ln.get("pids") or []),
+            # The memory the cell holds in RAM, in bytes (scout 2.35: the RSS of those processes); None when the scout does not say.
+            "ramBytes": ln.get("ramBytes"),
             "phase": effective_phase,
             "modelReady": (health == "ok") if running else None,
             "downloadedBytes": _cmd_dl or int(ln.get("downloadedBytes") or 0),
             "totalBytes": _cmd_tot or int(ln.get("totalBytes") or 0),
+            # The file the scout is on, as it names it. The card read this field from the first day and never got it: it
+            # said "downloading model" for every file, and a model of two parts gave no sign of which part the numbers were.
+            "downloadingFile": str(ln.get("downloadingFile") or ""),
             "promptTps": ln.get("promptTps"),
             "genTps": ln.get("genTps"),
+            # How many requests the cell answers now (llama.cpp's own count, vLLM's, Strata's), as its scout says it. None when the scout
+            # does not say, and never a 0 in its place: the cell's line breathes on a number above 0 (cell-speed.js), not on a held speed.
+            "requestsProcessing": ln.get("requestsProcessing"),
             "schedule": (_r_slot or {}).get("schedule") or None,
             "ctxMax": ln.get("ctxMax") or _slot_ctx_max(client.get("id"), remote_port),
             # As the cell's host agent reported it, never the configured
@@ -545,6 +553,7 @@ def topology_server(config=None):
             "phase": slot_phase,
             "downloadedBytes": 0,
             "totalBytes": 0,
+            "downloadingFile": "",
             # A parked cell keeps only the trained number, in its GGUF header.
             "ctxMax": _slot_ctx_max(host_id, port),
             "ctxServed": None,
@@ -555,6 +564,7 @@ def topology_server(config=None):
             "modelSizeBytes": _parked_model_size(model_path, config, model_locations),
             "promptTps": None,
             "genTps": None,
+            "requestsProcessing": None,
             "vllmStats": None,
             "schedule": slot.get("schedule") or None,
             "slotConfig": slot_cfg,
@@ -579,7 +589,7 @@ def topology_server(config=None):
         # The name of the computer the controller runs on — the board names
         # its machine by its node (its scout's report) and falls back to this
         # when no scout reports from it. It was a display name of its own
-        # (LLAMA_TOPOLOGY_SERVER_NAME), and the kanban named the machine by it:
+        # (LLAMA_TOPOLOGY_SERVER_NAME), and Routing named the machine by it:
         # the controller's old name over its machine's cells (2026-09-25).
         "hostname": ControllerMachine.name(),
         "ip": TOPOLOGY_SERVER_IP,
@@ -694,7 +704,7 @@ def topology_nodes(config, server_obj, hosts):
         _record_gpu_history(cid, hgpus)
         for s in servers:
             s["tpsHistory"] = _record_tps_history(
-                f"{cid}:{s.get('port')}", s.get("promptTps"), s.get("genTps"))
+                f"{cid}:{s.get('port')}", s.get("promptTps"), s.get("genTps"), s.get("requestsProcessing"))
         host_cpu = dict(host.get("cpu") or {})
         host_cpu["history"] = _record_cpu_history(cid, host_cpu)
         own = ControllerMachine().is_host(host)
@@ -725,6 +735,8 @@ def topology_nodes(config, server_obj, hosts):
             # places and its copies — the board's word for a pool row's model of the machine. None
             # when its scout cannot say.
             "entryModels": host.get("entryModels") if isinstance(host.get("entryModels"), list) else None,
+            # Its model cache (scout 2.34+): the setting and the figures the machine's card shows. None when its scout cannot say.
+            "modelCache": host.get("modelCache") if isinstance(host.get("modelCache"), dict) else None,
             # The machine this controller runs on: its node carries the
             # controller's own Server stats panel.
             "controllerMachine": own,
@@ -890,7 +902,7 @@ def _pool_window_resolver(pools, outputs=None):
 def annotate_pool_kinds(pools, accounts, outputs):
     """Every pool with what its rows do together (`kind`, caravan/common/model_kinds.py): the
     jobs and a chat's inputs the entry tells its clients, `{"mixed": true}` when the rows do
-    different work, None when a row that may serve says nothing of itself. The kanban draws it
+    different work, None when a row that may serve says nothing of itself. Routing draws it
     on the pool and on the sets that hold it, and works none of it out itself."""
     by_id = {str(a.get("id")): a for a in accounts or [] if isinstance(a, dict)}
     for pool in pools or []:
@@ -906,7 +918,7 @@ def annotate_pool_windows(pools, outputs=None):
     figure GET /v1/models gives them, by the pool's own rule — the operator's
     number, or the smallest its enabled rows' providers name when the switch is
     on (_pool_window_resolver, CloudPools.window) — and None when it states
-    none. The kanban says it under the pool's settings and works none of it
+    none. Routing says it under the pool's settings and works none of it
     out itself; a board that could not read it has no `window` at all, which
     is not None."""
     resolve = _pool_window_resolver(pools, outputs)
@@ -1021,7 +1033,7 @@ def annotate_consumer_set(proxies, entry_models):
 
 def annotate_consumer_misses(proxies, misses=None):
     """Every client of the entry with what it asked and was answered with an error over the last
-    30 days (`misses`: {items, more}, caravan/admin/client_misses.py): the kanban's client card
+    30 days (`misses`: {items, more}, caravan/admin/client_misses.py): Routing's client card
     lists them. A journal that cannot be read leaves the key out — not known is not "none"."""
     from caravan.admin.client_misses import CLIENT_MISSES
     reader = misses or CLIENT_MISSES
@@ -1198,7 +1210,7 @@ def topology_state(refresh_hosts=True):
         # listen on loopback only (a port then has no address of its own), None
         # while the proxy has said nothing fresh.
         "portsReachable": door,
-        # When a client last asked for /v1/embeddings (7 days; 0 for not at all): the kanban's
+        # When a client last asked for /v1/embeddings (7 days; 0 for not at all): Routing's
         # unset embeddings slot is red only then.
         "embeddingsCalledAt": embeddings_last_called(),
         # User notes on cell slots, keyed "hostId:port" — shown on the board
@@ -1215,10 +1227,10 @@ def topology_state(refresh_hosts=True):
         # The pools — what an agent's cable goes to — with their steps, and the
         # proxy's word on which step served each one last (caravan/admin/pools.py).
         "pools": pools,
-        # The sets of models the entry's clients call (caravan/admin/model_sets.py), the kanban's «Набор».
+        # The sets of models the entry's clients call (caravan/admin/model_sets.py), Routing's «Набор».
         "sets": sets,
         "poolsRuntime": desk.runtime(),
-        # The levels of every subscription model, in a pool or not: the kanban
+        # The levels of every subscription model, in a pool or not: Routing
         # draws them on the models of its right column (PoolDesk.model_levels).
         "modelLevels": desk.model_levels(),
         # The models that column shows, by account: the ones the operator added
@@ -1438,7 +1450,7 @@ def remove_agent_route(payload):
     live listener that an outside agent may reach independently of our
     records, and killing it over a record edit would tear into someone
     else's traffic as a side effect. It belongs to nobody after this, and the
-    kanban says so out loud.
+    Routing says so out loud.
     """
     host_id = str(payload.get("hostId") or "").strip()
     agent_id = str(payload.get("agentId") or "").strip()

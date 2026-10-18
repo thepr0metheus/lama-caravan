@@ -172,13 +172,7 @@ def calls(fake, since=0):
     return [(m, p) for m, p, _ in fake.calls[since:]]
 
 
-def free_port():
-    import socket
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+from _ports import free_port  # noqa: E402
 
 
 # ── Ollama: start ────────────────────────────────────────────────────────

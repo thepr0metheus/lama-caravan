@@ -55,7 +55,7 @@ _IDENT_RE = re.compile(
     r"|OpenAI|OpenRouter|Ollama|Qwen[\w.]*|gemma[\w.-]*|deepseek[\w.-]*|caravan[\w-]*"
     r"|GGUF|VRAM|CUDA|RoPE|flash[- ]attention|Prometheus|nvidia[\w/.-]*|whisper"
     r"|faster-whisper|Docker|systemd|launchd|token(s)?|prompt|batch|slot(s)?|cloud"
-    r"|repo id|Blackwell|checkpoint|safetensors|webui|web UI|Kanban|small|default"
+    r"|repo id|Blackwell|checkpoint|safetensors|webui|web UI|Routing|small|default"
     r"|embeddings?|main|spill|max_tokens|FIFO|heartbeat|API|url|json|yaml|ini|Exa|MCP"
     # Names of other products' things, quoted as their owners write them: a
     # license, and a ChatGPT setting the operator has to find by its label.
@@ -225,8 +225,8 @@ def duplicate_keys(text):
     Read from the text, because loading the table cannot see them: in an
     object literal the later line silently wins, and the earlier one stays as
     dead text that reads like a live translation. A new key for the cloud
-    account window took a name the kanban already used (2026-10-07): the new
-    words were never shown, and the kanban's would have been replaced by
+    account window took a name Routing already used (2026-10-07): the new
+    words were never shown, and Routing's would have been replaced by
     them in any table where the order ran the other way.
     """
     seen, twice, block = set(), [], ""

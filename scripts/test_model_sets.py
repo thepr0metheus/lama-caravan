@@ -140,7 +140,7 @@ def test_desk():
           and [s["id"] for s in desk.state()] == ["Set-2", "Voice-set"],
           f"a set deleted takes its clients' cable with it — its id would wait for the next set of that id (got {done})")
 
-    print("the sets' order on the kanban (1.3.503: a set card carried):")
+    print("the sets' order in Routing (1.3.503: a set card carried):")
     write_cloud(sets=[{"id": "a", "name": "A", "pools": ["std"]}, {"id": "b", "name": "B", "pools": []}, {"id": "c", "name": "C", "pools": ["emb"]}])
     check(SetDesk().order(["c", "a", "b"]) == ["c", "a", "b"] and [x["id"] for x in cloud()["sets"]] == ["c", "a", "b"]
           and cloud()["sets"][1] == {"id": "a", "name": "A", "pools": ["std"]},

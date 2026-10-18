@@ -47,12 +47,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def free_port():
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
+from _ports import free_port  # noqa: E402
 
 
 def wait_listening(port, seconds=20):

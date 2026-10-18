@@ -723,6 +723,21 @@ button.cmd-dirty::after {
   filter: brightness(1.08);
 }
 
+/* A confirm that waits for typed words (dialogs.js, appConfirmTyped): its button is off, and looks it — dimmed and flat,
+   no brightening under the pointer, no press, and the pointer says "not here". Without this it was off and looked
+   pressable (2026-10-14: the button was red and did nothing). */
+#confirmDelete:disabled,
+#confirmDelete:disabled:hover {
+  opacity: 0.38;
+  cursor: not-allowed;
+  filter: saturate(0.5);
+  box-shadow: none;
+}
+
+#confirmOverlay .modal-actions button:disabled:active {
+  transform: none;
+}
+
 #confirmCancel:focus-visible,
 #confirmDelete:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--dlg-tone) 70%, #fff);
@@ -1139,6 +1154,10 @@ button.cmd-dirty::after {
    the next field, so give this row its own auto-sized template. */
 .field.cell-kind-row { grid-template-rows: 26px auto auto; }
 .runner-tabs .cell-kind-btn { white-space: nowrap; font-size: 12.5px; }
+/* Sixteen tabs in one line were 2158 px wide: no dialog held them, and the last (Custom command among them) ran out of
+   it. They wrap onto a second line; each line shares what is left (the buttons are flex: 1). Eleven were 1400 px —
+   already more than a laptop's dialog — and the five voice servers made it impossible to leave as it was. */
+.runner-tabs { flex-wrap: wrap; }
 /* the (?) chip inside each runner tab — hover for benefits + trade-offs */
 .runner-tab-help { display: inline-block; margin-left: 6px; width: 14px; height: 14px;
   line-height: 14px; border-radius: 50%; font-size: 10px; text-align: center;

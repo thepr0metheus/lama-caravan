@@ -1,8 +1,8 @@
-// The cell behind each local row of the kanban's Servers panel, and what the row says of it
-// (2026-10-04: the operator's points 2, 6 and 7 after a look at the live kanban).
+// The cell behind each local row of Routing's Servers panel, and what the row says of it
+// (2026-10-04: the operator's points 2, 6 and 7 after a look at the live Routing).
 //
 // A row said only the traffic: one grey dot, "idle", for a cell that serves and for one that
-// is not running at all — 24 of the 30 rows on the live kanban were stopped and looked exactly
+// is not running at all — 24 of the 30 rows on the live Routing were stopped and looked exactly
 // like the 6 that ran (absence drawn as normality), and the cables into two stopped cells
 // looked live. Its name was the output's own label, which the server makes from the model
 // file: a moonshine cell read "en", and two cells of one model on one machine read the same.
@@ -111,18 +111,23 @@ export class OutputCells {
     return own || String(out.label || "").replace(/\s*:\d+\s*$/, "").trim();
   }
 
-  // What the cell does, as marks — the list the cell card's job chips draw (cellJobs). A cell
+  // What the cell does, as job names — the list the cell card's job chips draw (cellJobs). A cell
   // whose job cannot be named has none.
-  marks(out) {
+  jobs(out) {
     // A machine's model says what it does on its output, from its copies (machine_models.py).
-    if (String(out?.upstreamType || "") === "machine") return (out.jobs || []).map((job) => JOB_MARKS[job] || "").join("");
+    if (String(out?.upstreamType || "") === "machine") return out.jobs || [];
     const cell = this.cellOf(out);
-    if (!cell) return "";
+    if (!cell) return [];
     const cfg = cell.slotConfig || {};
-    return cellJobs(cellRunnerId(cfg), cell.cellMeta, cfg).map((job) => JOB_MARKS[job] || "").join("");
+    return cellJobs(cellRunnerId(cfg), cell.cellMeta, cfg);
   }
 
-  // The outputs something of this kanban leads to: a cable, the default, the fleet-wide audio
+  // The same, as marks.
+  marks(out) {
+    return this.jobs(out).map((job) => JOB_MARKS[job] || "").join("");
+  }
+
+  // The outputs something of this router leads to: a cable, the default, the fleet-wide audio
   // and embeddings outputs and the older rule lists. A stopped cell among them stays in sight —
   // it is where requests go.
   reached() {

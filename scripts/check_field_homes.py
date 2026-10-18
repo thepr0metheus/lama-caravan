@@ -44,7 +44,7 @@ NO_TAB = {
     "CELL_KIND": "legacy mirror of RUNNER, not rendered",
     "COMMAND": "command-cell panel",
     "HEALTH_PATH": "command-cell panel",
-    "ENV": "command-cell panel",
+    "ENV": "ENV block of the custom and vLLM runners",
     "WORKDIR": "command-cell panel",
     "VLLM_MODEL": "vLLM runner panel",
     "MAX_MODEL_LEN": "vLLM runner panel",
@@ -52,6 +52,10 @@ NO_TAB = {
     "QUANTIZATION": "vLLM runner panel",
     "DTYPE": "vLLM runner panel",
     "TENSOR_PARALLEL": "vLLM runner panel",
+    "TRUST_REMOTE_CODE": "vLLM runner panel",
+    "MAX_NUM_SEQS": "vLLM runner panel",
+    "KV_CACHE_DTYPE": "vLLM runner panel",
+    "REASONING_PARSER": "vLLM runner panel",
     "WHISPER_MODEL": "whisper runner panel",
     "MOONSHINE_MODEL": "moonshine runner panel",
     "SEAMLESS_TGT_LANG": "seamless runner panel",
@@ -111,7 +115,7 @@ EDIT_JS = ROOT / "static/js/llama-edit.js"
 
 # Panels the editor populates from the saved config, by field id. Anything a
 # runner renders must sit inside one of them or it never gets its saved value.
-PANEL_IDS = ["commandFields", "vllmFields", "whisperFields", "moonshineFields",
+PANEL_IDS = ["commandFields", "vllmFields", "envFields", "whisperFields", "moonshineFields",
              "seamlessFields", "translateFields", "strataFields", "gr00tFields"]
 
 

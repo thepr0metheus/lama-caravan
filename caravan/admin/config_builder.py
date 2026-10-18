@@ -167,6 +167,10 @@ CONFIG_FIELDS = [
     "QUANTIZATION",            # --quantization (auto|modelopt|awq|gptq|fp8)
     "DTYPE",                   # --dtype (auto|bfloat16|float16)
     "TENSOR_PARALLEL",         # --tensor-parallel-size
+    "TRUST_REMOTE_CODE",       # --trust-remote-code ("1" on, "" off)
+    "MAX_NUM_SEQS",            # --max-num-seqs (a number; empty: vLLM's own)
+    "KV_CACHE_DTYPE",          # --kv-cache-dtype (auto|fp8|fp8_e4m3|…; empty or auto: no flag)
+    "REASONING_PARSER",        # --reasoning-parser (qwen3, deepseek_r1, …; empty: no flag)
     # whisper runner (RUNNER="whisper"): run_whisper.sh "$PORT" <size>
     "WHISPER_MODEL",           # faster-whisper size: tiny…large-v3(-turbo)
     # moonshine runner (RUNNER="moonshine"): run_moonshine.sh "$PORT" <lang>
@@ -193,7 +197,7 @@ CONFIG_FIELDS = [
     "ENGINE_MODEL",            # the model as the engine names it (qwen2.5:0.5b, google/gemma-4-e4b)
     "ENGINE_PORT",             # the engine's loopback port (11434, 1234)
     # Every runner: the model's name at the machine's entry — its scout's
-    # OpenAI API and the kanban (scout 2.27 ModelName; 1.3.507). No flag of
+    # OpenAI API and Routing (scout 2.27 ModelName; 1.3.507). No flag of
     # any server: the scout reads it from the start request. Empty — the
     # cell's ALIAS, else a name made of its model.
     "MODEL_NAME",
@@ -213,6 +217,10 @@ FIELD_HELP = {
     "QUANTIZATION": "vLLM quantization backend (--quantization): auto detects; modelopt for NVFP4 checkpoints, awq/gptq for INT4.",
     "DTYPE": "Activation dtype (--dtype): auto, bfloat16 or float16.",
     "TENSOR_PARALLEL": "GPUs to shard across (--tensor-parallel-size). 1 on single-GPU hosts.",
+    "TRUST_REMOTE_CODE": "Lets vLLM run the Python code that ships with the model (--trust-remote-code). Some models need it (MiniCPM-o, Nemotron Omni); turn it on only for authors you trust.",
+    "MAX_NUM_SEQS": "How many requests vLLM works on at once (--max-num-seqs). Empty lets vLLM use its own default. A model's recipe may ask for fewer, so that the KV cache fits.",
+    "KV_CACHE_DTYPE": "Data type of the KV cache (--kv-cache-dtype). fp8 takes half the memory of bfloat16; auto or empty follows the model. A value vLLM does not know is refused by vLLM when the cell starts; its list is in vLLM's own help.",
+    "REASONING_PARSER": "Splits a reasoning model's thinking from its answer (--reasoning-parser), for example qwen3 or deepseek_r1. Empty: no flag, and the thinking stays in the answer. The names are vLLM's; a model's recipe names the one it needs.",
     "WHISPER_MODEL": "faster-whisper model size (tiny…large-v3). Downloaded automatically on first start; language is chosen per request.",
     "TRANSLATE_MODEL": "NLLB checkpoint: an HF repo id (facebook/nllb-200-distilled-600M, 2.5 GB, downloads itself on first start) or a local directory. Weights are CC-BY-NC-4.0 — non-commercial.",
     "TRANSLATE_SRC_LANG": "Language of the text coming IN, as FLORES-200 (eng_Latn, rus_Cyrl — language AND script). NLLB is told the source rather than detecting it. Short codes like en or eng are resolved when unambiguous; a language written in several scripts must be spelled out. Per-request override: send `src_lang`.",
@@ -1115,8 +1123,12 @@ def model_paths(config, locations=None):
     # "$HOME" reaches llama-server as four literal characters.
     root = home_path(merged.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR))
     out = {}
+    runner = for_config(merged)
+    # What the runner reads of these fields, where it says: a runner that picks its model by one file and launches
+    # it by its folder (llama.cpp-omni) names the folder, and it is the folder the scout is told is one.
+    reads = runner.model_file_values(merged)
     for key in MODEL_FILE_FIELDS:
-        rel = merged.get(key)
+        rel = reads.get(key) or merged.get(key)
         if not rel:
             continue
         found = locations.locate(rel, root) if locations is not None else None
@@ -1124,7 +1136,7 @@ def model_paths(config, locations=None):
     # A runner that reads more than these three names the rest in model_files (GR00T's backbone
     # folder). Each is a model of the models root like MODEL_FILE, and its hint tells the scout
     # it is a folder: without one the scout asks /api/models/download for a folder, a 404.
-    for key, rel in for_config(merged).model_file_values(merged).items():
+    for key, rel in reads.items():
         if key in out:
             continue
         found = locations.locate(rel, root) if locations is not None else None

@@ -1,0 +1,86 @@
+/* The cables of the two boards — the main board's (cables.js) and Routing's (pool-board.js) — in one look.
+   The owner, 2026-10-14: "make the main board's connections like Routing's, and keep how an active one is shown,
+   dashes or a drop; carry that to Routing too". Before it the main board had a 20×34 bracket standing 24px out of a
+   card for the end of a cable, a line that was dimmed by how many converged and a thick dashed one for a request; the
+   Routing had a dot and a calm thin line. What is one here: the dot, the line, and the drops that run along a line
+   which carries a request now. What each board adds — where its dots stand, which of its cables are lit — is in its own
+   file (cards.css and topology-board.css; pool-board.css). */
+
+/* The line. Both boards' layers take the same two colours and widths, so a cable on one page is the cable of the other:
+   calm while nothing runs through it, the accent while a request runs (or ran a moment ago, or the row serves). */
+.pb-cables,
+.topology-cables {
+  --cable-calm: color-mix(in srgb, var(--accent) 26%, var(--line));
+  --cable-lit: var(--accent);
+  --cable-width: 1px;
+  --cable-lit-width: 1.5px;
+}
+.pb-cables .pb-cable,
+.topology-cable {
+  fill: none; stroke: var(--cable-calm); stroke-width: var(--cable-width); stroke-linecap: round;
+}
+.pb-cables .pb-cable.lit,
+.topology-cable.activity-active,
+.topology-cable.activity-recent {
+  stroke: var(--cable-lit); stroke-width: var(--cable-lit-width);
+}
+
+/* The dot: 12px, its centre on the card's edge, standing 8px out of it. Routing's end of a cable (.pb-dot) and the main
+   board's (.topology-handle) are this one dot. It stands out of its card, and a column that scrolls cuts what stands out
+   of it, so each column keeps room for it inside (--pb-col-room, --board-col-room: 14px = the 8px of the dot, the 4px of
+   the ring round it when it lights, and 2px over). Which side a dot stands on, and how high, is each board's own. */
+.pb-dot,
+.topology-handle,
+.cable-end::before {
+  position: absolute; top: 50%; z-index: 4; box-sizing: border-box; width: 12px; height: 12px; border-radius: 50%;
+  transform: translateY(-50%);
+  background: var(--panel); border: 2px solid color-mix(in srgb, var(--muted) 50%, var(--line));
+}
+.pb-dot.out, .topology-handle.output, .topology-handle.proxy-output { right: -8px; }
+.pb-dot.in, .topology-handle.input, .topology-handle.server-input, .cable-end::before { left: -8px; }
+/* A card with no handle of its own — a machine's head, a provider's — has its dot while a cable comes to it: cables.js gives
+   the head the class `cable-end`, and `flowing` while that cable carries a request. */
+.cable-end { position: relative; }
+.cable-end::before { content: ""; }
+/* The ring round a dot whose cable carries a request now. */
+.pb-dot.flowing,
+.topology-handle.activity-active,
+.cable-end.flowing::before {
+  border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* The drops: a cable that carries a request now has its twin drawn over it (cable-flow.js), the same line as dots
+   which run from the cable's output to its input AND, at the same time, from its input to its output (the owner,
+   2026-10-18: "both ways at once, not only left to right"), and the two ends of it light (.flowing). The twin is its cable's, so it
+   goes with it: dimmed when the board dims the rest, hidden while the pointer is on the cable to cut it. A dash is a
+   short one (1px) with round caps — a drop 4.5px across — every 26px, and one period of the pattern is what the keyframes
+   run, so the loop does not jump. The duration and the delay are the twin's own, set where it is made: every twin on both
+   pages shares one clock, so a cable drawn anew (a scroll, a refresh) goes on from where its drops were. The drops come up
+   and go down along the cable — at its ends they are clear (the gradient the twin paints with, .cable-flow-stop) — and a cable
+   that begins to carry a request brings them up (.rising), one that stops lets them go (.fading): over the times cable-flow.js says,
+   not at once (the owner: "smoothly, not abruptly"). */
+.cable-flow {
+  --flow-period: 26px;
+  fill: none; pointer-events: none; stroke: var(--accent-strong, var(--accent)); stroke-width: 4.5px; stroke-linecap: round;
+  stroke-dasharray: 1px calc(var(--flow-period) - 1px);
+  animation-name: cableFlow; animation-timing-function: linear; animation-iteration-count: infinite;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--accent) 70%, transparent));
+}
+@keyframes cableFlow { to { stroke-dashoffset: calc(-1 * var(--flow-period)); } }
+@keyframes cableFlowIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cableFlowOut { from { opacity: 1; } to { opacity: 0; } }
+/* The way back: the same drops, run the other way. */
+.cable-flow.back { animation-direction: reverse; }
+/* The second animation of a twin that is coming up or going down is its opacity, which runs once, forwards only for the one that is gone. */
+.cable-flow.rising { animation-name: cableFlow, cableFlowIn; animation-iteration-count: infinite, 1; animation-timing-function: linear, ease-out; }
+.cable-flow.fading { animation-name: cableFlow, cableFlowOut; animation-iteration-count: infinite, 1; animation-timing-function: linear, ease-in; animation-fill-mode: none, forwards; }
+.cable-flow.back.rising, .cable-flow.back.fading { animation-direction: reverse, normal; }
+.cable-flow-stop { stop-color: var(--accent-strong, var(--accent)); }
+/* Still, the drops stand along the cable: it is as plain that it carries a request, only not moving; and a cable that stopped has none. */
+@media (prefers-reduced-motion: reduce) {
+  .cable-flow, .cable-flow.rising, .cable-flow.fading { animation: none; }
+  .cable-flow.fading { display: none; }
+}
+.cable-flow.muted-by-hover { opacity: 0.16; }
+.pb-cables g:hover .cable-flow { display: none; }
+.pb.tracing .pb-cables g:not(.on-path) .cable-flow { opacity: 0.14; }

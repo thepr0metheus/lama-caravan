@@ -53,7 +53,8 @@ def render_command_cell_script(config):
 
     block_keys = ("RUNNER", "CELL_KIND", "PORT", "HEALTH_PATH", "WORKDIR", "COMMAND",
                   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION",
-                  "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL",
+                  "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "TRUST_REMOTE_CODE", "MAX_NUM_SEQS", "KV_CACHE_DTYPE",
+                  "REASONING_PARSER", "WHISPER_MODEL",
                   "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
                   "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
                   "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
@@ -79,6 +80,9 @@ def render_command_cell_script(config):
     block_lines.append(CONFIG_END)
     config_block = "\n".join(block_lines)
 
+    # What the engine must start with (the card numbering of the board), BEFORE the cell's own ENV: a row of
+    # the operator's can still say otherwise.
+    engine_env = export_lines(runner.launch_env(merged).items())
     env_exports = command_cell_env_exports(merged.get("ENV"))
 
     lines = [
@@ -88,6 +92,7 @@ def render_command_cell_script(config):
         config_block,
         "",
         f"export PORT={shlex.quote(port)}",
+        *engine_env,
         *env_exports,
     ]
     workdir = shell_path_value(merged.get("WORKDIR"))
@@ -196,6 +201,9 @@ def render_command_cell_shell_line(config, port=None) -> str:
     models_dir = shell_path_value(merged.get("LLAMA_MODELS_DIR"))
     if models_dir:
         parts.append(f'export LLAMA_MODELS_DIR="{models_dir}"')
+    # The engine's own environment first (the card numbering of the board), the cell's ENV after it: a row of
+    # the operator's can still say otherwise.
+    parts += export_lines(for_config(merged).launch_env(merged).items())
     parts += command_cell_env_exports(merged.get("ENV"))
     workdir = shell_path_value(merged.get("WORKDIR"))
     if workdir:

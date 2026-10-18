@@ -2,7 +2,7 @@
 """Snapshot of static/js/routers.js — the WRITE path for the routing graph and output cards.
 
 `saveRouters` is the only door through which the board changes routers: a
-cable on the kanban, a client's wait budget, a rule node — all of it goes
+cable in Routing, a client's wait budget, a rule node — all of it goes
 through this one function. Before this snapshot it had not had a single
 test, and its promise is non-trivial: the mutator gets a COPY, state only
 changes from the server's response, and a server failure doesn't leave the
@@ -168,16 +168,16 @@ PINS = [
      '["active","idle"]',
      "модели одного движка делят его host:port — совпадение по выходу, куда запрос направлен, и соседняя модель не оживает"),
     # 2026-10-11: a pool also serves the entry's free clients directly, their requests carrying the
-    # pool's id — a kanban's output to that pool lights only for the requests its own ports brought.
-    ("output_activity_counts_its_kanbans_ports_only",
+    # pool's id — a router's output to that pool lights only for the requests its own ports brought.
+    ("output_activity_counts_its_routings_ports_only",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001 }, { id: "skynet:proxy:23050", port: 23050, kind: "consumer" }] });'
      ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstreamType: "cloud", providerId: "terra" }] }, 23050);',
      '(() => { const out = { upstreamType: "cloud", providerId: "terra" };'
      ' return [m.topologyOutputActivity(out, ROUTER({ inputs: ["skynet:proxy:23001"] })).state,'
      ' m.topologyOutputActivity(out, ROUTER({ inputs: ["skynet:proxy:23050"] })).state, m.topologyOutputActivity(out).state]; })()',
      '["idle","active","active"]',
-     "выход канбана к пулу горит только от запросов его портов: запрос свободного клиента шёл мимо канбана — кабель тих; "
-     "positive: тот же запрос от порта этого канбана — горит (порт записи — из строки монитора); без канбана — по-старому, любой запрос"),
+     "выход Маршрутизации к пулу горит только от запросов его портов: запрос свободного клиента шёл мимо Маршрутизации — кабель тих; "
+     "positive: тот же запрос от порта этого Маршрутизации — горит (порт записи — из строки монитора); без Маршрутизации — по-старому, любой запрос"),
     # 1.3.506: the models of a machine's entry share its scout's host:port, as an engine's do.
     ("output_activity_machine_model_by_routed_output",
      'st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstream: "10.0.0.5:8092/gemma", upstreamType: "machine", routedOutputId: "mm:a" }] });',
@@ -275,33 +275,25 @@ PINS = [
      '(() => { m._setRoutersSaving(true); m._setRoutersSaving(true); const two = m._routersSaving; m._setRoutersSaving(false); const one = m._routersSaving; m._setRoutersSaving(false); m._setRoutersSaving(false); return [two, one, m._routersSaving]; })()',
      '[2,1,0]',
      "boundary: две записи подряд считаются, а лишнее снятие не уводит счётчик в минус"),
-    # ── the kanban's card on the main board (2026-10-12: the pools stand on the kanban) ──
+    # ── Routing's card on the main board (2026-10-12: the pools stand in Routing) ──
     ("card_counts_the_clients_and_the_pools",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ inputs: ["a", "b", "c"] })], proxies: ['
      ' { id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }, { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", set: "", pool: "terra" },'
      ' { id: "ctl:proxy:23003", port: 23003, kind: "consumer", label: "Zed", set: "cheap" },'
      ' { id: "ctl:proxy:23050", port: 23050, label: "old agent" }] });',
      '(h => [h.includes(`${en.topologyClientsSection} 2/3 · ${en.topologyLlamaServersSection} ${st.topology.pools.length}`),'
-     ' st.topology.pools.some((p) => h.includes(`data-t-id="${p.id}"`) || h.includes(String(p.name || p.id))), ["router-pool-name", "board-kanban-pool", "router-outputs"].some((x) => h.includes(x)),'
-     ' h.includes(\'data-t="board-kanban-card"\'), h.includes(`title="${en.rtTitleOpenKanban}"`), h.includes("data-topology-router-input"), h.includes("data-topology-router-output"), h.includes(" out ")])'
+     ' st.topology.pools.some((p) => h.includes(`data-t-id="${p.id}"`) || h.includes(String(p.name || p.id))), ["router-pool-name", "board-routing-pool", "router-outputs"].some((x) => h.includes(x)),'
+     ' h.includes(\'data-t="board-routing-card"\'), h.includes(`title="${en.rtTitleOpenRouting}"`), h.includes("data-topology-router-input"), h.includes("data-topology-router-output"), h.includes(" out ")])'
      '(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[true,false,false,true,true,true,true,false]',
-     "карточка канбана маленькая (владелец, 2026-10-13: «без перечисления всего внутри»): имя и две цифры — клиенты с набором из всех клиентов и число пулов; "
-     "щелчок открывает канбан; вход для канатов клиентов и выход к машинам и провайдерам, которых ведут пулы (владелец, 2026-10-12); "
+     "карточка Маршрутизации маленькая (владелец, 2026-10-13: «без перечисления всего внутри»): имя и две цифры — клиенты с набором из всех клиентов и число пулов; "
+     "щелчок открывает Маршрутизацию; вход для канатов клиентов и выход к машинам и провайдерам, которых ведут пулы (владелец, 2026-10-12); "
      "negative: имён пулов на ней нет, ни чипов, ни списка; счётчиков графа (in · out) нет; старое поле pool клиента не считается (1.3.497)"),
     ("card_without_pools_says_zero",
      'st.setTopology({ ...st.topology, pools: [], routers: [ROUTER()] });',
      '(h => [h.includes(`${en.topologyLlamaServersSection} 0`), h.includes("router-output-row"), h.includes(en.rtNoPools), h.includes("router-pool-name")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[true,false,false,false]',
      "пулов нет — карточка так и говорит цифрой «0»; negative: ни строки «пулов нет», ни имён, ни пустого списка"),
-    ("board_page_links",
-     '',
-     '(h => [(h.match(/<a [^>]*>/g) || []).map((a) => [(a.match(/href="([^"]*)"/) || [])[1], (a.match(/data-t="([^"]*)"/) || [])[1], a.includes(\'target="_blank"\') && a.includes(\'rel="noopener"\')]),'
-     ' h.includes(`title="${en.modelsPageSub}"`), h.includes(`title="${en.hfBrowserTitle}"`), h.includes(`${en.topologyModelsLabel}</span>`), h.includes("Hugging Face</span>"),'
-     ' h.includes(\'data-t="board-pages"\')])(m.renderBoardPageLinks())',
-     '[[["/models","board-models-open",true],["/hf","board-hf-open",true]],true,true,true,true,true]',
-     "под карточкой канбана — две страницы каравана: «Models» (модели в его папке) и «Hugging Face» (скачать ещё); каждая открывается в новой вкладке, "
-     "с подсказкой и словом на языке страницы (владелец, 2026-10-14: «переместить эти две кнопки в более подходящее место»)"),
     ("card_lights_with_a_client",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" },'
      ' { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", set: "" }] });'
@@ -315,13 +307,13 @@ PINS = [
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999501, durationMs: 1000 }] });',
      '(h => [h.includes("activity-error"), h.includes("health-failed")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[true,true]',
-     "карточка канбана красная, пока отказ клиента с набором (599 с назад) в окне монитора"),
+     "карточка Маршрутизации красная, пока отказ клиента с набором (599 с назад) в окне монитора"),
     ("card_is_calm_after_the_alarm_is_over",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999499, durationMs: 1000 }] });',
      '(h => [h.includes("activity-error"), h.includes("health-failed"), h.includes("activity-recent health-ok")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[false,false,true]',
-     "тот же отказ 601 с назад — карточка канбана не красная: activity-recent health-ok, как после любого старого запроса"),
-    # ── the router's outputs: the Servers block on the kanban ──
+     "тот же отказ 601 с назад — карточка Маршрутизации не красная: activity-recent health-ok, как после любого старого запроса"),
+    # ── the router's outputs: the Servers block in Routing ──
     ("panel_one_radio_per_output_default_checked",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });',
      '(h => [(h.match(/class="router-out-radio"/g) || []).length, (h.match(/data-router-set-default="router:default"[^>]*>/g) || []).length, /data-router-set-default="router:default" data-router-out="cb:terra"[^>]*checked|checked data-router-set-default="router:default" data-router-out="cb:terra"/.test(h) || /is-default[^>]*data-router-out-row="cb:terra"/.test(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
@@ -345,7 +337,7 @@ PINS = [
      ' return [ports([23004, 23011]), ports([])]; })()',
      '[[],[]]',
      "у пула нет своего порта (владелец, 2026-10-12): номер на строке пула не рисуется, даже если старые данные его несут"),
-    ("kanban_output_without_a_known_pool_keeps_its_row",
+    ("routing_output_without_a_known_pool_keeps_its_row",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ outputs: [...ROUTER().outputs, { id: "cb:ghost", label: "☁ ghost", upstreamType: "cloud", providerId: "ghost" }] })] });',
      '(h => [groupOrder(h), h.includes(\'data-router-out-row="cb:ghost"\'), (h.match(/router-out-steps/g) || []).length])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[["srv:22001","cb:terra","cb:ghost"],true,1]',
@@ -377,7 +369,7 @@ PINS = [
      'st.setTopology({ ...st.topology, server: { name: "Ctl-Display", ip: "10.0.0.5" }, routers: [ROUTER({ outputs: [{ id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }, { id: "srv:22003", label: "b", upstreamHost: "10.0.0.9", upstreamPort: 22003, upstreamType: "llama" }] })] });',
      '(h => [heads(h), h.includes("Ctl-Display"), /data-router-group-fold="host:m-ctl"/.test(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[[["ctl-box","10.0.0.5"],["box-b","10.0.0.9"]],false,true]',
-     'positive: блок серверов канбана подписывает группы именем машины и её адресом рядом; negative: старое имя контроллера (topology.server.name) не пишется нигде; свёртка группы — по машине'),
+     'positive: блок серверов Маршрутизации подписывает группы именем машины и её адресом рядом; negative: старое имя контроллера (topology.server.name) не пишется нигде; свёртка группы — по машине'),
     ('machine_label_once_when_the_address_is_the_name',
      '',
      '[m.machineLabelHtml({ name: "box-b", address: "10.0.0.9" }), m.machineLabelHtml({ name: "10.9.9.9", address: "10.9.9.9" }), m.machineLabelHtml({ name: "box-x", address: "" })]',
@@ -389,10 +381,10 @@ PINS = [
 
 PINS += [
     # 2026-10-04: Model servers is one list of machines and cloud providers in the operator's
-    # order (server-order.js), and the kanban's Servers panel follows it: a group stands where its
+    # order (server-order.js), and Routing's Servers panel follows it: a group stands where its
     # card stands on the board, a pool's member beside its pool. The order is module state —
     # the pin sets it and leaves it empty.
-    ("kanban_groups_follow_the_board_order",
+    ("routing_groups_follow_the_board_order",
      'globalThis.__so = (await import(pathToFileURL(process.env.JS_ROOT + "/server-order.js").href)).SERVER_ORDER;'
      ' st.setTopology({ ...st.topology, cloudAccounts: [{ id: "or", type: "openrouter", name: "OpenRouter" }],'
      ' pools: [{ id: "solo", name: "Router", steps: [STEP("s", "or", "m")] }, { id: "pp", name: "Pool", steps: [STEP("s", "or", "n")] }],'
@@ -408,7 +400,7 @@ PINS += [
      '[["srv:22001","srv:22003","cb:solo","cb:pp"],["cb:pp","srv:22003","cb:solo","srv:22001"],["srv:22003","srv:22001","cb:solo","cb:pp"],false,1]',
      "группы панели «Серверы» идут в порядке доски: ничего не сохранено — машины (по наименьшему порту), затем пулы в порядке "
      "контроллера; сохранено — вперемешку, как карточки; не названные — после названных, в прежнем порядке; заголовков «Local» и «Cloud» нет — один список"),
-    ("kanban_says_which_kind_it_has_none_of",
+    ("routing_says_which_kind_it_has_none_of",
      '',
      '(() => { const run = (outputs, pools) => { st.setTopology({ ...st.topology, cloudAccounts: [], pools, routers: [ROUTER({ outputs })] });'
      ' const h = m.renderServersBlockHtml(st.topology.routers[0]); return [h.includes(en.rtNoLocalServers), h.includes(en.rtNoPools)]; };'
@@ -422,12 +414,12 @@ PINS += [
     ("model_queue_folds_with_host", 'st.setTopology({ ...st.topology, routers: [ROUTER()] }); m.topologyOutputsFolded["host:m-ctl"] = true;', '(() => { try { return m.renderServersBlockHtml(st.topology.routers[0], { "srv:22001": "LOCAL-QUEUE" }).includes("LOCAL-QUEUE"); } finally { delete m.topologyOutputsFolded["host:m-ctl"]; } })()',
      'false', "свёрнутая группа скрывает модели и их очереди вместе"),
     ("router_detail_toolbar_has_no_queue_settings", 'st.setTopology({ ...st.topology, routers: [ROUTER()] }); st.ui.topologyRouterDetailId = "router:default";',
-     '(() => { const h = m.renderTopologyRouterDetail(); const at = (k) => h.indexOf(k); return [typeof h, h.includes("rw-palette"), h.includes("kanban-palette-add"), h.includes("data-cv-queue-settings"), h.includes("cv-queue-settings"), h.includes("data-cv-cols"), h.includes("<aside>CLIENTS</aside>") && h.includes("<aside>SERVERS</aside>") && at("<aside>CLIENTS</aside>") < at("rw-center") && at("rw-center") < at("<aside>SERVERS</aside>"), at("<aside>SERVERS</aside>") > at("data-cv-viewport")]; })()',
+     '(() => { const h = m.renderTopologyRouterDetail(); const at = (k) => h.indexOf(k); return [typeof h, h.includes("rw-palette"), h.includes("routing-palette-add"), h.includes("data-cv-queue-settings"), h.includes("cv-queue-settings"), h.includes("data-cv-cols"), h.includes("<aside>CLIENTS</aside>") && h.includes("<aside>SERVERS</aside>") && at("<aside>CLIENTS</aside>") < at("rw-center") && at("rw-center") < at("<aside>SERVERS</aside>"), at("<aside>SERVERS</aside>") > at("data-cv-viewport")]; })()',
      '["string",true,true,false,false,true,true,true]', "рабочее поле: панель клиентов слева, холст с палитрой посередине, панель серверов справа, внутри одной сетки; в панели инструментов нет строки политики очередей — она живёт в панели серверов, одна на доску"),
-    # 2026-10-04: "4 unassigned" on the live kanban counted four cloud models' own ports — outputs
+    # 2026-10-04: "4 unassigned" on the live Routing counted four cloud models' own ports — outputs
     # that never fed a router (those ports are gone since 1.3.487). The badge counts only ports
     # that can feed one, and opens their list by name, both heads alike.
-    ("kanban_unassigned_counts_only_ports_that_feed_routers",
+    ("routing_unassigned_counts_only_ports_that_feed_routers",
      'st.setTopology({ ...st.topology, routers: [ROUTER(), { ...ROUTER(), id: "router:b", name: "second" }], proxies: ['
      ' { id: "ctl:proxy:23010", port: 23010, routerId: "", label: "alpha" },'
      ' { id: "ctl:proxy:23011", port: 23011, routerId: "router:b", label: "beta" },'
@@ -438,35 +430,35 @@ PINS += [
      ' const overlay = read(m.renderTopologyRouterDetail()); window.ROUTER_STANDALONE = true;'
      ' try { return [overlay, read(m.renderTopologyRouterDetail()), fill(en.rtUnassigned, { n: 2 })]; } finally { delete window.ROUTER_STANDALONE; } })()',
      '[["2 unassigned",["ctl:proxy:23010","ctl:proxy:23011"],["alpha","beta"]],["2 unassigned",["ctl:proxy:23010","ctl:proxy:23011"],["alpha","beta"]],"2 unassigned"]',
-     "значок считает только порты, которые могут кормить канбан: свободный и на другом канбане; список называет "
+     "значок считает только порты, которые могут кормить роутер: свободный и на другом роутере; список называет "
      "порты по имени; обе шапки одинаковы"),
-    # 2026-10-04: a row says its cell's state — on the live kanban 24 of 30 rows were stopped and
+    # 2026-10-04: a row says its cell's state — on the live Routing 24 of 30 rows were stopped and
     # drew the same grey "idle" dot as the running six; a stopped cell's dot is a ring now, and
     # the word stands at the row's end.
-    ("kanban_row_says_the_cells_state",
+    ("routing_row_says_the_cells_state",
      'st.setTopology({ ...st.topology, nodes: [{ id: "m-ctl", servers: [{ port: 22001, phase: "running", model: "a.gguf" },'
      ' { port: 22002, phase: "stopped", model: "b.gguf" }, { port: 22003, phase: "broken", model: "c.gguf" }] }],'
      ' routers: [ROUTER({ outputs: [22001, 22002, 22003, 22005].map((p) => ({ id: `srv:${p}`, label: `x :${p}`, upstreamHost: "127.0.0.1", upstreamPort: p, upstreamType: "llama" })) })] });',
      '(() => { const h = m.renderServersBlockHtml(st.topology.routers[0]);'
      ' const row = (id) => { const i = h.indexOf(`data-router-out-row="${id}"`); return h.slice(h.lastIndexOf("<label", i), h.indexOf("</label>", i)); };'
      ' const read = (r) => [(r.match(/class="router-out-row[^"]*? cell-(\\w+)/) || [])[1] || "", (r.match(/router-out-live (live-\\w+)/) || [])[1] || "",'
-     ' (r.match(/data-t="kanban-out-state"[^>]*>([^<]*)</) || [])[1] || "", r.includes("router-out-marks")];'
+     ' (r.match(/data-t="routing-out-state"[^>]*>([^<]*)</) || [])[1] || "", r.includes("router-out-marks")];'
      ' return [["srv:22001", "srv:22002", "srv:22003", "srv:22005"].map((id) => read(row(id))), [en.stopped, en.failed, en.unknown]]; })()',
      '[[["","live-idle","",true],["stopped","live-off","stopped",true],["failed","live-off","failed",true],["unknown","live-off","unknown",false]],["stopped","failed","unknown"]]',
      "строка говорит состояние ячейки: работающая — точка трафика, без слова; остановленная, отказавшая и неизвестная — "
      "кольцо и слово в конце строки; значки работ — у тех, чью ячейку доска знает; negative: ячейки нет — «unknown», не idle"),
-    # 2026-10-11: an output's dot on the kanban counts only the requests this kanban's ports brought —
-    # another kanban's port reaching the same cell is that kanban's traffic.
-    ("kanban_row_lights_only_for_its_own_ports",
+    # 2026-10-11: an output's dot in Routing counts only the requests this router's ports brought —
+    # another router's port reaching the same cell is that router's traffic.
+    ("routing_row_lights_only_for_its_own_ports",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, routerId: "router:default" },'
      ' { id: "skynet:proxy:23050", port: 23050, routerId: "router:b" }], nodes: [{ id: "m-ctl", servers: [{ port: 22001, phase: "running", model: "a.gguf" }] }],'
      ' routers: [ROUTER({ inputs: ["skynet:proxy:23001"], outputs: [{ id: "srv:22001", label: "x :22001", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }] })] });',
      '(() => { const dot = (port) => { st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstream: "127.0.0.1:22001", upstreamType: "llama" }] }, port);'
      ' return (m.renderServersBlockHtml(st.topology.routers[0]).match(/router-out-live (live-\\w+)/) || [])[1] || ""; }; return [dot(23050), dot(23001)]; })()',
      '["live-idle","live-active"]',
-     "точка выхода на канбане горит только от запросов портов этого канбана; negative: порт другого канбана идёт в ту же "
+     "точка выхода в Маршрутизации горит только от запросов портов этого Маршрутизации; negative: порт другого Маршрутизации идёт в ту же "
      "ячейку — здесь точка тиха"),
-    ("kanban_quiet_cells_fold_under_one_row",
+    ("routing_quiet_cells_fold_under_one_row",
      'st.setTopology({ ...st.topology, nodes: [{ id: "m-ctl", servers: [{ port: 22001, phase: "running", model: "a.gguf" },'
      ' { port: 22002, phase: "stopped", model: "b.gguf" }, { port: 22003, phase: "stopped", model: "c.gguf" }, { port: 22004, phase: "stopped", model: "d.gguf" }] }],'
      ' routers: [ROUTER({ outputs: [22001, 22002, 22003, 22004].map((p) => ({ id: `srv:${p}`, label: `x :${p}`, upstreamHost: "127.0.0.1", upstreamPort: p, upstreamType: "llama" })),'
@@ -481,7 +473,7 @@ PINS += [
      '[["srv:22001","srv:22002"],[[" folded","srv:22003,srv:22004"],"2 stopped, no cables"],["srv:22001","srv:22002","srv:22003","srv:22004"],["","srv:22003,srv:22004"],"2 stopped, no cables"]',
      "остановленные ячейки, к которым ничего не ведёт, — под одной строкой «2 stopped, no cables», свёрнуты по умолчанию; "
      "их выходы названы на строке (data-cv-group-outs); открыто — строки идут под ней; остановленная с канатом — на виду"),
-    ("kanban_twin_rows_say_what_differs",
+    ("routing_twin_rows_say_what_differs",
      'st.setTopology({ ...st.topology, nodes: [{ id: "m-ctl", servers: ['
      ' { port: 22006, phase: "running", model: "seamless-m4t-v2-large", slotConfig: { PORT: "22006", SEAMLESS_TGT_LANG: "eng" } },'
      ' { port: 22007, phase: "running", model: "seamless-m4t-v2-large", slotConfig: { PORT: "22007", SEAMLESS_TGT_LANG: "rus" } },'
@@ -494,12 +486,12 @@ PINS += [
      '[[["srv:22003","= :22004"],["srv:22004","= :22003"],["srv:22006","SEAMLESS_TGT_LANG=eng"],["srv:22007","SEAMLESS_TGT_LANG=rus"],["srv:22010","API_KEY ≠"],["srv:22011","API_KEY ≠"]],false,true]',
      "две ячейки одной модели на машине: у каждой своё отличие («SEAMLESS_TGT_LANG=eng» и «=rus»), одинаковые — «= :порт "
      "копии» с подсказкой; секретная настройка — только именем: значений нет в разметке"),
-    ("kanban_canvas_has_show_all",
+    ("routing_canvas_has_show_all",
      'st.setTopology({ ...st.topology, routers: [ROUTER()] }); st.ui.topologyRouterDetailId = "router:default";',
      '(h => { const at = (k) => h.indexOf(k); return [h.includes(\'data-cv-fit\'), at("data-cv-fit") > at("data-cv-viewport"), at("data-cv-fit") < at("<aside>SERVERS</aside>"), h.includes(en.cvFitAll)]; })(m.renderTopologyRouterDetail())',
      '[true,true,true,true]',
      "кнопка «⤢ Show all» стоит на самом холсте (в окне просмотра), а не в панелях"),
-    ("kanban_cell_port_stands_apart_from_the_name",
+    ("routing_cell_port_stands_apart_from_the_name",
      'st.setTopology({ ...st.topology, nodes: [{ id: "m-ctl", servers: [{ port: 22008, phase: "stopped", model: "/m/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf" }] }],'
      ' routers: [ROUTER({ outputs: [{ id: "srv:22008", label: "x :22008", upstreamHost: "127.0.0.1", upstreamPort: 22008, upstreamType: "llama" }, { id: "srv:22099", label: "", upstreamHost: "10.0.0.7", upstreamPort: 22099, upstreamType: "llama" }] })] });',
      '(() => { const h = m.renderServersBlockHtml(st.topology.routers[0]); const row = (id) => { const i = h.indexOf(`data-router-out-row="${id}"`); return h.slice(h.lastIndexOf("<label", i), h.indexOf("</label>", i)); };'
@@ -513,7 +505,7 @@ PINS += [
     # were saved and then undone by his own Chrome on reload. He chose the server; the copy is
     # dropped on open (canvas.js, openPositions), and the board's memory holds only a drop whose
     # save has not landed yet.
-    ("kanban_rule_node_stands_where_the_server_has_it",
+    ("routing_rule_node_stands_where_the_server_has_it",
      'st.setTopology({ ...st.topology, routers: [ROUTER()] }); st.ui.topologyRouterDetailId = "router:default";'
      ' globalThis.__stubReturns["canvas.canvasNodes"] = () => [{ id: "rule:n1", type: "rule", fixed: { x: 368, y: 372 }, html: "N1" }];',
      '(() => { const place = () => (m.renderTopologyRouterDetail().match(/data-cv-node="rule:n1" style="([^"]*)"/) || [])[1];'
@@ -522,9 +514,9 @@ PINS += [
      '["left:368px;top:372px","left:509px;top:359px"]',
      "узел правила стоит на месте с сервера; только бросок, чьё сохранение ещё не пришло, показан на месте броска, "
      "чтобы перерисовка в пути не дёрнула узел назад; третьего места нет"),
-    # 2026-10-12: a client of the entry feeds no kanban — its one cable leads to a set of models — so the
-    # kanban's list of ports that could feed it never names one.
-    ("kanban_lists_no_client_of_the_entry",
+    # 2026-10-12: a client of the entry feeds no router — its one cable leads to a set of models — so the
+    # Routing's list of ports that could feed it never names one.
+    ("routing_lists_no_client_of_the_entry",
      'st.setTopology({ ...st.topology, routers: [ROUTER()], proxies: ['
      ' { id: "skynet:proxy:23020", port: 23020, kind: "consumer", routerId: "", label: "Hermes", keyTail: "e676", set: "" },'
      ' { id: "ctl:proxy:23010", port: 23010, routerId: "", label: "alpha" }] });'
@@ -533,7 +525,7 @@ PINS += [
      ' return [(h.match(/class="rw-unassigned-badge"[^>]*>([^<]*)</) || [])[1] === fill(en.rtUnassigned, { n: 1 }), h.includes("skynet:proxy:23020"), h.includes("…e676"),'
      ' port.includes("503"), h.includes("router-pill free client")]; })()',
      '[true,false,false,true,false]',
-     "клиент входа без пула — не в списке «не на канбане»: он не кормит канбан, его канат ведёт к пулу; "
+     "клиент входа без пула — не в списке «не на роутере»: он не кормит роутер, его канат ведёт к пулу; "
      "negative: свободный порт по-прежнему в списке и помечен 503"),
 ]
 
