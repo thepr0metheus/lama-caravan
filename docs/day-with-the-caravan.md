@@ -17,11 +17,12 @@ Routing page that implements it. Names are made up; every mechanism is real.
   (long contexts), `secretary` (reads private mail — must stay local).
 - Cloud: one metered API provider as the escape valve.
 
-Each agent is a client of the entry: one address (`https://caravan-api.example.org/v1`)
-and a key of its own, made with ＋ on the board — and none of them will ever
-need reconfiguring again. All four are on one router: it decides where their
-requests go, whatever model name they send. (An agent of the older kind would
-point at a proxy port of its own instead, and the router would take the port.)
+The four are agents of the older kind: each has a proxy port of its own, and one
+router takes the four ports — its schedule, queue and failover nodes are what this
+day shows. A client of the entry is not on a router (since 1.3.497): it has one
+address (`https://caravan-api.example.org/v1`) and a key of its own, its models are
+every pool and every model that runs but what is blocked for it, and a pool's rows decide where a request goes, in their order —
+the local cell first, the metered provider after it ([pools.md](pools.md)).
 
 ## Night (00:00–08:00)
 

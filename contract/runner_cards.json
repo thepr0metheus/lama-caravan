@@ -1,0 +1,255 @@
+{
+ "gpus": [
+  {
+   "index": 0,
+   "memoryTotalMiB": 32607,
+   "memoryFreeMiB": 13926
+  },
+  {
+   "index": 1,
+   "memoryTotalMiB": 24576,
+   "memoryFreeMiB": 20000
+  }
+ ],
+ "vram": [
+  {
+   "config": {
+    "ENV": "",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=1",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 1,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=1\nCUDA_VISIBLE_DEVICES=0",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=\"1\"",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 1,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": " CUDA_VISIBLE_DEVICES = 1 ",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 1,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=0,1",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "X=CUDA_VISIBLE_DEVICES=1",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=5",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=GPU-3f2a",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=00",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "# CUDA_VISIBLE_DEVICES=1",
+    "STRATA_VRAM_RESERVE_MIB": ""
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 6144,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "",
+    "STRATA_VRAM_RESERVE_MIB": "4096"
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 10240,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB, plus 4096 MiB left to others",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "",
+    "STRATA_VRAM_RESERVE_MIB": " 512 "
+   },
+   "said": {
+    "device": 0,
+    "reserveMiB": 6656,
+    "who": "Strata",
+    "why": "its smallest card is 6 GB, plus 512 MiB left to others",
+    "lower": "STRATA_VRAM_RESERVE_MIB"
+   }
+  },
+  {
+   "config": {
+    "ENV": "",
+    "STRATA_VRAM_RESERVE_MIB": "2G"
+   },
+   "said": null
+  }
+ ],
+ "pinned": [
+  {
+   "config": {
+    "ENV": ""
+   },
+   "said": 0
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=1"
+   },
+   "said": 1
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=1\nCUDA_VISIBLE_DEVICES=0"
+   },
+   "said": 0
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=\"1\""
+   },
+   "said": 1
+  },
+  {
+   "config": {
+    "ENV": " CUDA_VISIBLE_DEVICES = 1 "
+   },
+   "said": 1
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES="
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=0,1"
+   },
+   "said": 0
+  },
+  {
+   "config": {
+    "ENV": "X=CUDA_VISIBLE_DEVICES=1"
+   },
+   "said": 0
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=5"
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=GPU-3f2a"
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "CUDA_VISIBLE_DEVICES=00"
+   },
+   "said": null
+  },
+  {
+   "config": {
+    "ENV": "# CUDA_VISIBLE_DEVICES=1"
+   },
+   "said": 0
+  }
+ ]
+}

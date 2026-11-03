@@ -1,0 +1,44 @@
+{
+ "cases": [
+  {
+   "path": "Hermes-4-70B-GGUF/lmstudio-community/Q4_K_M/Hermes-4-70B-Q4_K_M.gguf",
+   "model": "Hermes-4-70B-GGUF",
+   "listed": null
+  },
+  {
+   "path": "whisper/ggml-large-v3-turbo.bin",
+   "model": "whisper",
+   "listed": null
+  },
+  {
+   "path": "a//b.gguf",
+   "model": "a",
+   "listed": null
+  },
+  {
+   "path": "root.gguf",
+   "model": "",
+   "listed": null
+  },
+  {
+   "path": "",
+   "model": "",
+   "listed": null
+  },
+  {
+   "path": "/home/u/Hermes-4-70B-GGUF/a/Q4/m.gguf",
+   "model": "",
+   "listed": null
+  },
+  {
+   "path": "../outside/a/b.gguf",
+   "model": "",
+   "listed": null
+  },
+  {
+   "path": "a/../b/c.gguf",
+   "model": "",
+   "listed": null
+  }
+ ]
+}

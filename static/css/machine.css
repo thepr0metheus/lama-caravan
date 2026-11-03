@@ -1,0 +1,413 @@
+/* A machine's page (variant В «Карта памяти» of the screens' redesign; machine-head.js): the layout of its head — the passport and,
+   in the same line, what it does now, its "⋯" and Add model — of the map of its memory under it — a lane per card and one for
+   the RAM, one under another, the cells on their way, and the panel of the cell chosen on them — of the list of models under the
+   map with their cells in it, and of the column at their right: the engines, the model disk, the incidents and the activity. Every
+   colour, font size and radius is a token of ui.css, held so by scripts/check_ui_tokens.py (this file is in its UI_CSS). Linked
+   last on the board's page, so its places win over the card's.
+
+   No frame around the page (the owner, 2026-11-01, variant Р2: "the interface looks as if in a window; better as on /hf"): the head
+   is a strip, and under it two panes from edge to edge, a line between them, each scrolling by itself. The map and the column's
+   parts are sections, told apart by a line; a cell's row in the list has a frame of its own, since it is the thing that is dragged. */
+.machine-page.node-card { border: 0; border-radius: 0; background: transparent; }
+.machine-page > .ui-win--page { padding: 0; }
+.machine-page .ui-win-head { align-items: center; flex-wrap: wrap; padding: 8px 24px; border-bottom: 1px solid var(--ui-line); }
+.machine-page > .ui-win--page > .ui-win-body { padding: 0; gap: 0; }
+.machine-page .ui-win-id .node-scout-old { align-self: flex-start; }
+
+/* What the machine does now, its "⋯" and Add model: one group at the right of its name, wrapping under it on a narrow screen. Its buttons are of the
+   quiet height, Add model keeping the look of the page's one main action: the head is a strip, and it stood 69 px high, higher than any row under it
+   (the owner, 2026-11-03: "it can be made not so high"). */
+.machine-tools { display: flex; align-items: center; gap: var(--ui-s3); flex-wrap: wrap; margin-left: auto; }
+.machine-tools .ui-menu, .machine-tools .ui-btn { flex: none; }
+.machine-tools .ui-btn { height: var(--ui-h-quiet); }
+.machine-tools .ui-btn--main { padding: 0 14px; }
+
+/* The map: its title and how to read it, the lanes one under another, and the panel of the chosen cell. */
+.machine-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s2);
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--ui-line);
+}
+.machine-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ui-s3); flex-wrap: wrap; }
+.machine-map-title { font: 700 var(--ui-fs-section)/1.2 var(--ui-font); color: var(--ui-text); }
+.machine-map-hint { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+.machine-map-lanes { display: flex; flex-direction: column; gap: var(--ui-s4); min-width: 0; container: rack / inline-size; }
+/* The rack: the lanes and, beside them, the list of what lies on them; under them where they would not both fit. */
+.machine-rack { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--ui-s3) var(--ui-s4); align-items: start; }
+.machine-rack-lanes { display: flex; flex-direction: column; gap: 5px; min-width: 0; --lane-who: 264px; --lane-room: 80px; }
+@container rack (max-width: 860px) {
+  .machine-rack { grid-template-columns: minmax(0, 1fr); }
+}
+/* Where the row is short the bar keeps its room, and the words after the picture are cut: their hover has them whole. */
+@container rack (max-width: 1300px) {
+  .machine-rack-lanes { --lane-who: 222px; }
+}
+/* The picture of a device before its label (machine-head.js LanePicture): a box of one size, lower than a lane's 26 px, so the words of
+   every lane start at one place and a rack of six cards is as thin as it was. Where the name has a line of its own, no higher than its words. */
+.machine-lane-pic { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; height: 20px; }
+.machine-lane-pic svg { display: block; }
+.machine-lane-pic .is-body { fill: color-mix(in srgb, var(--ui-act) 62%, var(--ui-ground)); }
+.machine-lane-pic .is-hollow { fill: var(--ui-ground); }
+.machine-lane-pic .is-hub { fill: var(--ui-act-strong); }
+.machine-lane-pic .is-bracket { fill: var(--ui-muted); }
+.machine-lane-pic .is-contact { fill: var(--ui-busy); }
+@container rack (max-width: 620px) {
+  .machine-lane-pic { height: 15px; }
+  .machine-lane-pic svg { height: 15px; width: auto; }
+}
+/* All the cards together, at the end of the map's head. */
+.machine-map-totals { display: inline-flex; align-items: center; gap: var(--ui-s3); font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); white-space: nowrap; }
+.machine-map-total { min-height: 0; margin: 0; padding: 0; border: 0; background: none; color: var(--ui-text); font: 650 var(--ui-fs-fact)/1.4 var(--ui-mono); font-variant-numeric: tabular-nums; cursor: pointer; }
+.machine-map-total:hover { color: var(--ui-act-strong); }
+.machine-map-total:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+.machine-map-key { display: inline-flex; align-items: center; gap: var(--ui-s1); margin-left: auto; font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); white-space: nowrap; }
+.machine-map-key i { display: inline-block; box-sizing: border-box; width: 15px; height: 10px; border-radius: 0; }
+.machine-map-key i.is-weights { border: 2px dashed var(--ui-act); background: color-mix(in srgb, var(--ui-act) 12%, transparent); }
+.machine-map-key i.is-cache { margin-left: var(--ui-s2); border: 2px dashed color-mix(in srgb, var(--ui-act) 55%, transparent); background: color-mix(in srgb, var(--ui-act) 5%, transparent); }
+.machine-map-unplaced, .machine-map-coming {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s2);
+  flex-wrap: wrap;
+  font: 500 var(--ui-fs-fact)/1.4 var(--ui-font);
+  color: var(--ui-muted);
+}
+/* A chip says what its cell does — a copy names its file and its figures — and on a narrow screen its words wrap inside it. */
+.machine-map-unplaced .ui-pill, .machine-map-coming .ui-pill { height: auto; min-height: 30px; max-width: 100%; padding-block: 5px; line-height: 1.3; text-align: left; }
+/* A drag on the rack. A cell can be taken by its block, its row beside the lanes or its row in the list of models; the lane under it says whether it would lie there. */
+.machine-map .ui-lane-blk[data-machine-pick], .machine-map .ui-legend-row[data-machine-pick], .machine-model-launch { touch-action: pan-y; }
+.machine-dragging, .machine-dragging * { cursor: grabbing !important; user-select: none; }
+.machine-drag-tag {
+  position: fixed;
+  z-index: 60;
+  top: 0;
+  left: 0;
+  max-width: 320px;
+  overflow: hidden;
+  padding: 5px var(--ui-s3);
+  border-radius: var(--ui-r2);
+  background: var(--ui-act);
+  color: var(--ui-on-series);
+  font: 650 var(--ui-fs-fact)/1.3 var(--ui-font);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ui-lane[data-machine-drop="ok"] .ui-lane-bar { box-shadow: 0 0 0 2px var(--ui-act); }
+.ui-lane[data-machine-drop="no"] .ui-lane-bar { box-shadow: 0 0 0 2px var(--ui-bad); }
+
+/* The list of models under the rack (machine-models.js, the owner's choices М1 and Н1, 2026-11-02): a row per model, opened in place, and
+   in an opened row its cells, each on two lines. Its title, its filters and its pills of work stay while its rows scroll under them. */
+.machine-models {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s3);
+  padding: 0 24px 28px;
+}
+.machine-models-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s2);
+  margin: 0 -24px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-ground);
+}
+/* Where the rack stays in sight (above), it holds that place: the title goes with the rows. */
+@media (min-height: 780px) {
+  .machine-models-top { position: static; }
+}
+.machine-models-head { display: flex; align-items: center; gap: var(--ui-s2) var(--ui-s3); flex-wrap: wrap; }
+.machine-models-title { font: 700 var(--ui-fs-section)/1.2 var(--ui-font); color: var(--ui-text); }
+.machine-models-hint { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+.machine-models-filters, .machine-models-jobs { display: flex; align-items: center; gap: var(--ui-s2); flex-wrap: wrap; }
+.machine-models-find {
+  flex: 1 1 140px;
+  min-width: 140px;
+  max-width: 240px;
+  box-sizing: border-box;
+  height: 30px;
+  min-height: 0;
+  margin-left: auto;
+  padding: 0 10px;
+  border-radius: var(--ui-r2);
+  border: 1px solid var(--ui-line);
+  background: var(--ui-raised);
+  color: var(--ui-text);
+  font: 500 var(--ui-fs-fact)/1.35 var(--ui-font);
+}
+.machine-models-find:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 1px; }
+.machine-models-list { display: flex; flex-direction: column; border-bottom: 1px solid var(--ui-line); }
+.machine-models-none, .machine-models-empty { margin: 0; font: 500 var(--ui-fs-body)/1.4 var(--ui-font); color: var(--ui-muted); }
+/* The cells with no model's row of their own, among the rows with a cell. */
+.machine-models-rest { display: flex; flex-direction: column; gap: 6px; padding: 8px var(--ui-s2) 10px; border-top: 1px solid var(--ui-line); }
+.machine-model { border-top: 1px solid var(--ui-line); }
+.machine-model.is-open > .machine-model-row { background: var(--ui-raised); }
+.machine-model-row { display: flex; align-items: center; gap: var(--ui-s2); min-height: 34px; padding-right: var(--ui-s2); }
+/* Its columns have fixed widths, the name takes the rest: rows of one, two or seven cells stay even. */
+.machine-model-open {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 170px) 112px 112px 84px;
+  align-items: center;
+  gap: var(--ui-s3);
+  min-width: 0;
+  min-height: 34px;
+  padding: 3px var(--ui-s2);
+  border: 0;
+  background: none;
+  color: var(--ui-text);
+  font: 500 var(--ui-fs-fact)/1.3 var(--ui-font);
+  text-align: left;
+  cursor: pointer;
+}
+.machine-model-open:hover { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
+.machine-model-open:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: -2px; }
+.machine-model-title { display: flex; flex-direction: column; min-width: 0; }
+.machine-model-name { font: 650 var(--ui-fs-row)/1.25 var(--ui-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.machine-model.is-idle .machine-model-name { color: var(--ui-muted); }
+/* The repository it comes from, in small print under its name (the owner, 2026-10-27): whose build it is. It wraps, at its hyphens or
+   after the author's "/" (machine-models.js puts a <wbr> there), at most two lines: cut at its end with an ellipsis, a long id lost the
+   part that told two builds apart. The whole id is in its hover. */
+.machine-model-repo {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;
+  font: 500 var(--ui-fs-label)/1.3 var(--ui-font); color: var(--ui-muted);
+}
+.machine-model-job, .machine-model-sizes, .machine-model-context { color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.machine-model-sizes, .machine-model-context { text-align: right; font-variant-numeric: tabular-nums; }
+.machine-model-context:not(.is-dim) { color: var(--ui-text-dim); }
+/* A 📦 per cell, and how many more past what fits: a column of one width, its marks at the right; no cell is a quiet dash. */
+.machine-model-cells { font-size: var(--ui-fs-body); letter-spacing: -.02em; text-align: right; white-space: nowrap; }
+.machine-model-cells i { margin-left: 3px; font: 650 var(--ui-fs-label)/1 var(--ui-font); font-style: normal; color: var(--ui-text-dim); }
+.machine-model-cells.is-none { color: var(--ui-muted); }
+.machine-model-rate { flex: none; display: inline-flex; justify-content: flex-end; gap: 2px; width: 50px; }
+.machine-model-more { display: flex; flex-direction: column; gap: 6px; padding: 6px var(--ui-s2) 10px; background: var(--ui-well); }
+/* A cell of the model, on two lines between its port and its buttons. A click anywhere on it chooses it, and it is what is dragged up to
+   the rack, so its words are no text to select. */
+.machine-model-launch {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px var(--ui-s3);
+  padding: 6px 10px;
+  border-radius: var(--ui-r2);
+  border: 1px solid var(--ui-line);
+  background: var(--ui-raised);
+  font: 500 var(--ui-fs-fact)/1.35 var(--ui-font);
+  cursor: pointer;
+  user-select: none;
+}
+.machine-model-launch:hover { border-color: var(--ui-line-strong); }
+/* A cell that works is told apart by its whole row, not by the words of its verdict alone (the owner, 2026-10-27: "let the running cells
+   be pleasantly greenish, or clear not only by the label"): a green tint and edge; one that loads its weights or is on its way, an amber
+   edge; a broken one or one that failed to start, a red edge. Its dot says the same. Both read it off the row's own verdict (`data-t-state`
+   of .machine-bench-fit), which the live patch keeps current: no second copy of the state. :where() keeps it under the chosen row's ring. */
+.machine-model-launch:where(:has(.machine-bench-fit[data-t-state="running"])) {
+  --launch-state: var(--ui-good);
+  border-color: color-mix(in srgb, var(--ui-good) 45%, var(--ui-line));
+  background: color-mix(in srgb, var(--ui-good) 9%, var(--ui-raised));
+}
+.machine-model-launch:where(:has(.machine-bench-fit[data-t-state="running"])):hover { border-color: color-mix(in srgb, var(--ui-good) 70%, var(--ui-line)); }
+.machine-model-launch:where(:has(.machine-bench-fit:is([data-t-state="warming"], [data-t-state="downloading"], [data-t-state="starting"],
+  [data-t-state="loading"], [data-t-state="resolving"], [data-t-state="stopping"], [data-t-state="crashed"]))) {
+  --launch-state: var(--ui-busy);
+  border-color: color-mix(in srgb, var(--ui-busy) 45%, var(--ui-line));
+}
+.machine-model-launch:where(:has(.machine-bench-fit:is([data-t-state="broken"], [data-t-state="failed"], [data-t-state="unreachable"]))) {
+  --launch-state: var(--ui-bad);
+  border-color: color-mix(in srgb, var(--ui-bad) 45%, var(--ui-line));
+}
+.machine-model-launch.is-on { border-color: var(--ui-act); box-shadow: inset 0 0 0 1px var(--ui-act); }
+.machine-model-port {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 2px 4px;
+  border-radius: var(--ui-r1);
+  border: 0;
+  background: none;
+  color: var(--ui-text);
+  font: 650 var(--ui-fs-fact)/1.3 var(--ui-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.machine-model-port:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 1px; }
+.machine-model-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--launch-state, var(--ui-muted)); }
+.machine-model-line { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--ui-s3); min-width: 0; }
+.machine-model-line > :empty { display: none; }
+.machine-model-cell-name { font-weight: 650; color: var(--ui-text); }
+.machine-model-quant { font: 500 var(--ui-fs-fact)/1.35 var(--ui-mono); color: var(--ui-text-dim); }
+.machine-model-ctx { color: var(--ui-muted); white-space: nowrap; }
+.machine-model-ctx.over { color: var(--warn); }
+.machine-model-set { color: var(--ui-muted); }
+.machine-bench-size { color: var(--ui-text-dim); font-variant-numeric: tabular-nums; }
+.machine-bench-fit { font: 600 var(--ui-fs-fact)/1.35 var(--ui-font); }
+.machine-bench-fit--good { color: var(--ui-good); }
+.machine-bench-fit--busy { color: var(--ui-busy); }
+.machine-bench-fit--bad { color: var(--ui-bad); }
+.machine-bench-fit--idle { color: var(--ui-text-dim); }
+.machine-model-acts { grid-column: 3; grid-row: 1 / span 2; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; cursor: default; }
+.machine-model-acts .ui-btn, .machine-pick-acts .ui-btn { height: 28px; padding: 0 11px; border-radius: var(--ui-r1); font-size: var(--ui-fs-fact); }
+/* The cell's note (cell-note.js): a third line in the row, the 💬 of the card's note before it, one line however long — the tip has it whole — and a press
+   asks for it again; a cell with none has a ✎ by its buttons (the owner, 2026-11-03: "sign the cells, a comment of my own, visible here"). */
+.machine-model-note { grid-column: 2; justify-self: start; max-width: 100%; margin: 0; padding: 0; border: 0; background: none; color: var(--ui-busy);
+  font: italic 500 var(--ui-fs-fact)/1.4 var(--ui-font); text-align: start; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
+.machine-model-note:hover { text-decoration: underline; }
+.machine-model-note:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+.machine-model-acts .machine-model-note-add { width: 28px; padding: 0; }
+/* The chosen cell's last line: what the strip under the rack said and did until 2026-11-02. A plan's Start stands in for the row's own Start, which would
+   start the cell as it was; a working cell keeps its Stop. */
+.machine-pick { grid-column: 2 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px var(--ui-s3); padding-top: 4px; cursor: default; }
+.machine-pick:empty { display: none; }
+.machine-pick-words { flex: 1 1 240px; min-width: 0; color: var(--ui-text-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+.machine-pick-words b { font-weight: 650; }
+.machine-pick--good .machine-pick-words b { color: var(--ui-good); }
+.machine-pick--busy .machine-pick-words b { color: var(--ui-busy); }
+.machine-pick--bad .machine-pick-words b { color: var(--ui-bad); }
+.machine-pick-acts { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; margin-left: auto; }
+.machine-pick-acts .ui-pill { height: 28px; flex: none; }
+.machine-model-launch:has(.machine-pick[data-t-state="planned"]:not([hidden])) [data-t="machine-model-start"] { display: none; }
+.machine-model-nolaunch { margin: 0; font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+.machine-model-said {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--ui-r2);
+  border: 1px dashed var(--ui-line-strong);
+  color: var(--ui-text-dim);
+  font: 500 var(--ui-fs-fact)/1.45 var(--ui-font);
+  white-space: pre-wrap;
+}
+.machine-model-said b { color: var(--ui-text); font-weight: 650; }
+.machine-model-said.is-unread { color: var(--ui-busy); }
+.machine-model-foot { display: flex; }
+/* Narrow, nothing goes: a row's name takes its own line over the rest, and a cell's buttons a line of their own. */
+@media (max-width: 760px) {
+  .machine-model-open { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+  .machine-model-title { grid-column: 1 / -1; }
+  .machine-model-launch { grid-template-columns: 76px minmax(0, 1fr); }
+  .machine-model-acts { grid-column: 1 / -1; grid-row: auto; }
+  .machine-pick { grid-column: 1 / -1; }
+}
+
+/* The map and the list of models show every cell of the machine: the board's list of cells keeps only their windows, which open from
+   there, and draws no line of its own. */
+.machine-page .fold-slot > .cell-row { display: none; }
+
+/* The list of models at the left, the column of what the machine runs them with at the right (1.3.636); one under the other on
+   a narrow screen. */
+.machine-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: stretch; }
+.machine-main { display: flex; flex-direction: column; min-width: 0; }
+@media (max-width: 1100px) {
+  .machine-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.machine-side { display: flex; flex-direction: column; min-width: 0; border-left: 1px solid var(--ui-line); background: color-mix(in srgb, var(--ui-surface) 45%, var(--ui-ground)); }
+.machine-side-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s2);
+  min-width: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ui-line);
+}
+.machine-side-part:last-child { border-bottom: 0; }
+.machine-side-title { font: 700 var(--ui-fs-row)/1.2 var(--ui-font); color: var(--ui-text); }
+/* Whose the part is (2026-11-03): the machine's name, or the whole caravan's, beside the title and quieter than it. */
+.machine-side-whose { margin-left: var(--ui-s2); font: 500 var(--ui-fs-fact)/1.2 var(--ui-mono); color: var(--ui-muted); overflow-wrap: anywhere; }
+.machine-side-whose::before { content: "· "; }
+.machine-side-none { margin: 0; font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+.machine-incidents { display: flex; align-items: center; gap: var(--ui-s2) var(--ui-s3); flex-wrap: wrap; }
+.machine-incidents-count { font: 700 var(--ui-fs-figure)/1 var(--ui-font); color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.machine-incidents-hint { flex: 1 1 140px; font: 500 var(--ui-fs-fact)/1.35 var(--ui-font); color: var(--ui-muted); }
+/* The engines' strips and shelves and the model cache's line are the board card's own (cards.css, nodes.css): in the column they
+   keep its look and lose its edge padding. */
+.machine-side .node-launchers { margin: 0; padding: 0; }
+
+/* Under the head, the cells' list keeps only their windows and a cell in trouble: one column, no divider. */
+.machine-page > .node-body.machine-cells { grid-template-columns: minmax(0, 1fr); padding: 0; gap: 0; }
+.machine-page > .node-body.machine-cells::before { display: none; }
+/* Every cell's slot stands here with nothing to show, and their gaps were 240 px of empty page. A start waiting for its first word
+   (nodeStartingCardHtml) is what can still show here: then it is a strip under the panes. */
+.machine-page > .machine-cells > .node-servers { gap: 0; padding: 0; }
+
+/* The panes, where the screen is wide enough for two: the page is the window, and the board's boxes around it give their room to
+   the panes. The tools of the board's head stand at the right of the head strip, which keeps them that room. Narrower, the page
+   scrolls as one, with its head and the sections in one column. */
+@media (min-width: 1101px) {
+  html[data-board-view="machine"]:has(.machine-page) { overflow: hidden; }
+  html[data-board-view="machine"] body:has(.machine-page) { height: 100dvh; display: flex; flex-direction: column; }
+  html[data-board-view="machine"] body:has(.machine-page) > .topology-view {
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: none; margin: 0; padding: 0; display: flex; flex-direction: column;
+  }
+  html[data-board-view="machine"] .topology-view > .topology-board,
+  html[data-board-view="machine"] .topology-server-column,
+  html[data-board-view="machine"] .topology-lanes { flex: 1 1 auto; min-height: 0; height: 100%; grid-template-rows: minmax(0, 1fr); }
+  html[data-board-view="machine"] .lane-servers,
+  html[data-board-view="machine"] .lane-servers > .board-col-body { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: 100%; }
+  html[data-board-view="machine"] #topologyLlamaServers { flex: 1 1 auto; min-height: 0; height: 100%; }
+  html[data-board-view="machine"] .lane-servers .machines-head { position: absolute; top: 8px; right: 24px; z-index: 3; margin: 0; }
+  .machine-page.node-card { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .machine-page > .ui-win--page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .machine-page .ui-win-head { padding-right: 250px; }
+  /* The rack across the page above the panes: it stays in sight while they scroll, a cell's row a short way from its lane. On a window too
+     low to hold both, the page scrolls as one and the panes keep a height of their own. */
+  .machine-page > .ui-win--page > .ui-win-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+  .machine-page > .ui-win--page > .ui-win-body > .machine-map { flex: none; }
+  .machine-grid { flex: 1 1 auto; min-height: 420px; grid-template-columns: minmax(0, 1fr) 360px; }
+  .machine-main, .machine-side { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+}
+
+/* The model disk of a machine's page (model-disk.js; the owner, 2026-11-03: "make it prettier"). The cache's head with its state and its switch, the disk as a bar
+   (other files hatched, the cache in its colour), then a row for each folder: its name and buttons on one line, its path whole under them, as the column is narrow
+   and a path cut with "…" was a path nobody could check. The folder that stops a start (Strata's, none chosen) is red. */
+.mdisk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ui-s2);
+  min-width: 0;
+  padding: var(--ui-s3);
+  border: 1px solid var(--ui-line);
+  border-radius: var(--ui-r3);
+  background: var(--ui-surface);
+}
+.mdisk-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ui-s2); min-width: 0; }
+.mdisk-name { font: 700 var(--ui-fs-row)/1.2 var(--ui-font); color: var(--ui-text); cursor: help; }
+.mdisk-actions { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: var(--ui-s1); margin-left: auto; }
+.mdisk-figures { font: 500 var(--ui-fs-fact)/1.35 var(--ui-font); color: var(--ui-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mdisk-figures:empty { display: none; }
+.mdisk-rows { display: flex; flex-direction: column; gap: var(--ui-s2); padding-top: var(--ui-s2); border-top: 1px solid var(--ui-line); }
+.mdisk-setting { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ui-s2); }
+.mdisk-budget { display: inline-flex; align-items: center; gap: var(--ui-s1); font: 500 var(--ui-fs-fact)/1.2 var(--ui-font); color: var(--ui-muted); }
+/* The board's inputs are 42px high and as wide as their container (cards.css): sized here in full. */
+.mdisk .cache-budget { width: 6.5em; min-height: 0; height: var(--ui-h-quiet); padding: 0 var(--ui-s2); font: 500 var(--ui-fs-body)/1 var(--ui-mono); border-radius: var(--ui-r1); }
+.mdisk-row { display: flex; flex-direction: column; gap: var(--ui-s1); min-width: 0; padding: var(--ui-s2) var(--ui-s2) var(--ui-s2) var(--ui-s3); border: 1px solid transparent; border-radius: var(--ui-r2); background: var(--ui-well); }
+.mdisk-row-head { display: flex; align-items: center; gap: var(--ui-s2); min-height: var(--ui-h-quiet); }
+.mdisk-label { font: 650 var(--ui-fs-label)/1.2 var(--ui-font); letter-spacing: .04em; text-transform: uppercase; color: var(--ui-muted); cursor: help; }
+.mdisk-path { font: 500 var(--ui-fs-fact)/1.45 var(--ui-mono); color: var(--ui-text); overflow-wrap: anywhere; }
+.mdisk-note { font: 500 var(--ui-fs-fact)/1.45 var(--ui-font); color: var(--ui-text-dim); overflow-wrap: anywhere; }
+/* What the operator should know of a folder before he chooses it, said quietly under it; what stands in a start's way, in the colour of a refusal. */
+.mdisk-hint { font: 500 var(--ui-fs-fact)/1.45 var(--ui-font); color: var(--ui-muted); overflow-wrap: anywhere; }
+.mdisk-warn { font: 600 var(--ui-fs-fact)/1.45 var(--ui-font); color: var(--ui-bad); overflow-wrap: anywhere; }
+.mdisk-row--bad { border-color: color-mix(in srgb, var(--ui-bad) 55%, transparent); background: color-mix(in srgb, var(--ui-bad) 10%, var(--ui-well)); }
+.mdisk-row--bad .mdisk-label, .mdisk-row--bad .mdisk-note { color: var(--ui-bad); }
+.mdisk-row .ui-btn--icon { width: var(--ui-h-quiet); height: var(--ui-h-quiet); }
+/* The cache's card and the card of Strata's folder, one under the other: Strata's is a shelf of its own, and its row is the card itself, not a box in a box. A card
+   whose folder stops a start (none chosen) is red, as its row was. */
+.mdisk-stack { display: flex; flex-direction: column; gap: var(--ui-s3); min-width: 0; }
+.mdisk--work > .mdisk-row { padding: 0; border: 0; background: none; }
+/* Its name stands as the cache's does, a peer's title and not a row's label: the two cards read as two things (the owner, 2026-11-03). */
+.mdisk--work .mdisk-row-head > .mdisk-label { font: 700 var(--ui-fs-row)/1.2 var(--ui-font); letter-spacing: normal; text-transform: none; color: var(--ui-text); }
+.mdisk--work .mdisk-row--bad .mdisk-row-head > .mdisk-label { color: var(--ui-bad); }
+.mdisk--bad { border-color: color-mix(in srgb, var(--ui-bad) 55%, transparent); background: color-mix(in srgb, var(--ui-bad) 10%, var(--ui-surface)); }
+.mdisk-moving { display: flex; flex-direction: column; gap: var(--ui-s1); }
+.mdisk-error { font: 500 var(--ui-fs-fact)/1.45 var(--ui-font); color: var(--ui-bad); overflow-wrap: anywhere; }
+.mdisk-foreign { display: flex; align-items: center; flex-wrap: wrap; gap: var(--ui-s2); cursor: help; }
+.mdisk-foreign .mdisk-note { flex: 1 1 160px; color: var(--ui-busy); }

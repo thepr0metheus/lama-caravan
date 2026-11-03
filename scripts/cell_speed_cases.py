@@ -17,7 +17,11 @@ The words come out of static/js/i18n/en.js, not out of memory.
 """
 import json
 import re
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _contract import Contract  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -59,13 +63,6 @@ CASES = [
      "negative: a cell that does not run shows neither a speed nor breathing, whatever its last report said"),
 ]
 
-#: A request count as a scout says it, and what it is: (JS source, the same value in Python, the count — None for "not told").
-#: One table for `CellSpeed.count` (static/js/cell-speed.js) and `TokenRates.count` (caravan/admin/telemetry.py): the same rule in two languages,
-#: so both are run against this and cannot drift apart. A whole number from 0 is a count (2.0 is 2); nothing else is, and nothing else is a 0 or a 1.
-COUNTS = [
-    ("2", 2, 2), ("0", 0, 0), ("100", 100, 100), ("2.0", 2.0, 2), ("0.0", 0.0, 0),
-    ("1.5", 1.5, None), ("-1", -1, None), ("-0.5", -0.5, None), ('"2"', "2", None), ('""', "", None),
-    ("true", True, None), ("false", False, None), ("null", None, None), ("undefined", None, None),
-    ("NaN", float("nan"), None), ("Infinity", float("inf"), None), ("-Infinity", float("-inf"), None),
-    ("[]", [], None), ("[2]", [2], None), ("({})", {}, None),
-]
+#: A request count as a scout says it, and what it is: (the value in the browser's words, the count — None for "not told"). One table with the program's
+#: `TokenRates.count`: contract/cell_counts.json.
+COUNTS = [(row["js"], row["count"]) for row in Contract.table("cell_counts")["cases"]]

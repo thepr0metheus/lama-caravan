@@ -58,13 +58,13 @@ for name, server, running, want, why in CASES:
 PINS += [
     ("count_is_a_whole_number",
      "",
-     "[" + ", ".join(js for js, _py, count in COUNTS if count is not None) + "].map((v) => String(CellSpeed.count(v)))",
-     json.dumps([str(count) for _js, _py, count in COUNTS if count is not None]),
-     "positive (the table COUNTS, shared with the Python rule in telemetry.py): a count is a whole number from 0 — 2, a measured 0, a hundred; 2.0 is 2"),
+     "[" + ", ".join(js for js, count in COUNTS if count is not None) + "].map((v) => String(CellSpeed.count(v)))",
+     json.dumps([str(count) for _js, count in COUNTS if count is not None]),
+     "positive (the table COUNTS, shared with the program's TokenRates.count): a count is a whole number from 0 — 2, a measured 0, a hundred; 2.0 is 2"),
     ("count_is_not_anything_else",
      "",
-     "[" + ", ".join(js for js, _py, count in COUNTS if count is None) + "].map((v) => String(CellSpeed.count(v)))",
-     json.dumps(["null"] * sum(1 for _js, _py, count in COUNTS if count is None)),
+     "[" + ", ".join(js for js, count in COUNTS if count is None) + "].map((v) => String(CellSpeed.count(v)))",
+     json.dumps(["null"] * sum(1 for _js, count in COUNTS if count is None)),
      "negative: a float, a negative, text, a boolean, null, NaN, infinity, a list, an object are NOT told (null) — never a 0 (that would say "
      "'idle') and never a 1 (that would say 'working'); read as text, because JSON prints infinity as null and would not tell it from null"),
     ("not_told_is_not_idle_and_not_work",
@@ -72,6 +72,14 @@ PINS += [
      '[new CellSpeed({ genTps: 5 }, true), new CellSpeed({ genTps: 5, requestsProcessing: 0 }, true)].map((c) => [c.requests, c.working, c.held])',
      json.dumps([[None, False, True], [0, False, True]]),
      "a scout that says no count leaves requests null, and a measured 0 is 0: neither claims work, both hold the speed as the last one"),
+    ("no_metrics_is_its_own_state",
+     "",
+     '[[{ noMetrics: true }, true], [{ noMetrics: true, metricsNext: true }, true], [{ noMetrics: "true", metricsNext: true }, true],'
+     ' [{ noMetrics: true, metricsNext: true }, false], [{ metricsNext: true }, true], [{}, true]]'
+     '.map(([s, r]) => { const c = new CellSpeed(s, r); return [c.unmeasured, c.measuredNext]; })',
+     json.dumps([[True, False], [True, True], [False, False], [False, False], [False, False], [False, False]]),
+     "a server that answered it keeps no metrics (scout 2.41) is unmeasured, and its next start brings them when the controller says so; "
+     "negative: the word as text, a cell that does not run, a next start without the refusal, a server that says nothing — none is unmeasured"),
     ("speed_above_zero_on_a_running_cell",
      "",
      '[41.7, "41.7", 0.001].map((v) => new CellSpeed({ genTps: v, requestsProcessing: 1 }, true).speed)',
@@ -133,7 +141,7 @@ def words_and_table():
     for path in sorted((ROOT / "static" / "js" / "i18n").glob("*.js")):
         m = re.search(r'^  tpsLastHelp: "((?:[^"\\]|\\.)*)",$', path.read_text(encoding="utf-8"), re.M)
         hints[path.stem] = m.group(1) if m else ""
-    if len(hints) != 20 or [lang for lang, text in hints.items() if not text]:
+    if len(hints) != 6 or [lang for lang, text in hints.items() if not text]:
         bad.append(f"the hint tpsLastHelp is missing or empty in {[lang for lang, text in hints.items() if not text] or 'a language file'}")
     named = sorted(lang for lang, text in hints.items() if "llama" in text.lower())
     if named:

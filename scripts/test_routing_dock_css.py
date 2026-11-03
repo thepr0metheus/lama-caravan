@@ -25,6 +25,11 @@ It names, too, a stylesheet in which a label of the strip's path can wrap (2026-
 "ID (POOLS)", the new name of the pools' column, broke into two lines over the next row. The column is as wide as its longest label
 (`fit-content`, up to a limit), a label never wraps (`nowrap`), and one that is too long for the limit is cut with an ellipsis.
 
+And it names a stylesheet in which the strip squashes or cuts what it holds (the owner, 2026-10-26: "I see bugs at the bottom"): a
+model's path has four lines and, in Russian, a foot of two, so the left column was taller than the strip and its lines shrank — the
+name and the machine, each cut to one line, to a few pixels. Its lines keep their height (`flex-shrink: 0`), and the room under the
+last card (`--pb-foot`) is not lower than the strip, so the last card can still be lifted clear of it.
+
 Run: python3 scripts/test_routing_dock_css.py
 """
 import re
@@ -94,6 +99,28 @@ class DockCss:
             bad.append("a label may wrap into two lines: no white-space: nowrap on .pb-route dt")
         if label.get("overflow") != "hidden" or label.get("text-overflow") != "ellipsis":
             bad.append("a label too long for its column is not cut with an ellipsis")
+        return bad
+
+    @classmethod
+    def fit_problems(cls, css):
+        """What lets the strip squash or cut what it holds: lines of its left column that may shrink, and a room under the
+        last card lower than the strip."""
+        lines, column, strip = {}, {}, {}
+        for selector, declarations in CssRules.rules(css):
+            if selector == ".pb-dock-id > *":
+                lines.update(declarations)
+            elif selector == ".pb-col":
+                column.update(declarations)
+            elif selector == ".pb-dock":
+                strip.update(declarations)
+        bad = []
+        if lines.get("flex-shrink") != "0":
+            bad.append("the lines of the strip's left column may shrink: no flex-shrink: 0 on .pb-dock-id > *")
+        foot, height = CssRules.px(column.get("--pb-foot", "")), CssRules.px(strip.get("height", ""))
+        if foot is None or height is None:
+            bad.append("the room under the last card (--pb-foot of .pb-col) or the strip's height is not in px: they cannot be compared")
+        elif foot < height:
+            bad.append(f"the room under the last card ({foot:g}px) is lower than the strip ({height:g}px): the last card cannot be lifted clear of it")
         return bad
 
     @classmethod
@@ -204,6 +231,28 @@ def test_flush():
           "сокращённая запись: три значения и два раскладываются на четыре стороны")
 
 
+FIT = """.pb-col { --pb-col-room: 14px; --pb-foot: 204px; }
+.pb-dock { position: sticky; height: 188px; margin: -188px -20px 0; }
+.pb-dock-id { display: flex; flex-direction: column; }
+.pb-dock-id > * { flex-shrink: 0; }"""
+
+
+def test_fit():
+    print("полоса не сжимает и не режет то, что в ней, — на своих образцах:")
+    check(DockCss.fit_problems(FIT) == [], "строки левой колонки держат высоту, места под последней карточкой больше полосы — без замечаний")
+    squashed = FIT.replace(".pb-dock-id > * { flex-shrink: 0; }", "")
+    check(DockCss.fit_problems(squashed) == ["the lines of the strip's left column may shrink: no flex-shrink: 0 on .pb-dock-id > *"],
+          "negative: без правила строки сжимаются (имя и машина — в несколько пикселей), названо")
+    shrinks = FIT.replace("flex-shrink: 0;", "flex-shrink: 1;")
+    check(len(DockCss.fit_problems(shrinks)) == 1, "negative: flex-shrink: 1 — то же, названо")
+    low = FIT.replace("--pb-foot: 204px;", "--pb-foot: 172px;")
+    check(DockCss.fit_problems(low) == ["the room under the last card (172px) is lower than the strip (188px): the last card cannot be lifted clear of it"],
+          "negative: полосу подняли, а место под карточками — нет (172 под 188), названо")
+    em = FIT.replace("--pb-foot: 204px;", "--pb-foot: 12em;")
+    check(DockCss.fit_problems(em) == ["the room under the last card (--pb-foot of .pb-col) or the strip's height is not in px: they cannot be compared"],
+          "место не в px — сказано, а не угадано")
+
+
 def test_the_board():
     print("доска (static/css/pool-board.css):")
     bad = DockCss.problems(CSS.read_text(encoding="utf-8"))
@@ -212,9 +261,11 @@ def test_the_board():
     check(flush == [], "полоса вровень с низом доски" + (f" — {'; '.join(flush)}" if flush else ""))
     route = DockCss.route_problems(CSS.read_text(encoding="utf-8"))
     check(route == [], "подписи пути в полосе в одну строку, колонка по самой длинной" + (f" — {'; '.join(route)}" if route else ""))
+    fit = DockCss.fit_problems(CSS.read_text(encoding="utf-8"))
+    check(fit == [], "строки полосы держат высоту, место под последней карточкой не ниже полосы" + (f" — {'; '.join(fit)}" if fit else ""))
 
 
-for fn in (test_the_rule, test_flush, test_route, test_the_board):
+for fn in (test_the_rule, test_flush, test_route, test_fit, test_the_board):
     fn()
 
 print()

@@ -13,7 +13,8 @@ So the bar is written HERE, once. This script puts it into each page between two
 from page to page is the table PAGES, and nothing else: its title, whether it has a tour to start,
 whether its script wires the account menu's «Security» entry, what it adds beside the account, and
 whether it carries the product's long name. Everything the bar must have everywhere — above all the
-way back to the main board — is in the template and so cannot be left off one page.
+way back to the main board, and the caravan's two model pages — is in the template and so cannot be
+left off one page.
 
     python3 scripts/gen_header.py        # rewrite the bar of every page
     python3 scripts/check_header.py      # the guard: fails on a page whose bar is not the template's
@@ -71,14 +72,11 @@ class AppHeader:
                       tagline=True, security=True, back_only_in="machine"),
         "routing": Page(file="routing.html", title="Routing", title_key="topologyRouterTitle",
                        security=True),
-        "models": Page(file="models.html", title="Models on disk", title_key="modelsPage", tour=False,
-                       actions='<a class="sys-back mdl-hf-link" href="/hf">🤗 HF</a>'),
+        "models": Page(file="models.html", title="Models on disk", title_key="modelsPage", tour=False),
         "system": Page(file="system.html", title="System &amp; settings", title_key="systemSubtitleBrand",
                        tour=False),
         "hf": Page(file="hf.html", title="HuggingFace Browser",
-                   actions='<span id="hfDiskBadge" class="hf-disk-badge" hidden></span>\n'
-                           '<a id="hfOnDiskBtn" data-t="hf-on-disk" class="hf-ondisk-btn" href="/models" '
-                           'title="Manage downloaded models">📦 <span data-label>on disk</span></a>'),
+                   actions='<span id="hfDiskBadge" class="hf-disk-badge" hidden></span>'),
     }
 
     #: <header class="topbar" …> … </header>, as a page has it before and after the markers go in
@@ -134,6 +132,40 @@ class AppHeader:
             '        </div>\n'
             '      </div>')
 
+    #: The caravan's pages in the bar: (the page's name in PAGES, its address, the link's id and data-t, its icon, its label,
+    #: the key of its title). The two model pages are in the bar of every page since the owner's word of 2026-10-24 — "move them into the row where the
+    #: language switches". They stood as two wide buttons in the head of Machines and on each machine's caravan strip, and
+    #: /models and /hf each kept a link to the other besides: four places, and a page could lack the one it needed. A model
+    #: belongs to the caravan, not to a machine or a page. On its own page a link says so (aria-current) and still leads there.
+    #: Routing joined them on 2026-10-29 ("there should also be a button to /routing"), and after them stands the list of machines.
+    BAR_PAGES = (
+        ("models", "/models", "headerModelsLink", "header-models", "📦",
+         '<span class="topbar-page-label" data-i18n="topologyModelsLabel">Models</span>', "modelsPageSub"),
+        ("hf", "/hf", "headerHfLink", "header-hf", "🤗", '<span class="topbar-page-label">Hugging Face</span>', "hfBrowserTitle"),
+        ("routing", "/routing", "headerRoutingLink", "header-routing", "🔀",
+         '<span class="topbar-page-label" data-i18n="topologyRouterTitle">Routing</span>', "headerRoutingTitle"),
+    )
+
+    #: "And to every connected machine, by a drop-down list" (the owner, 2026-10-29). The list is not in the bar: it is the
+    #: controller's, and static/js/header-machines.js reads it when the button is pressed.
+    MACHINES = ('        <div class="topbar-machines" id="headerMachines" data-t="header-machines">\n'
+                '          <button id="headerMachinesBtn" class="topbar-page" type="button" aria-haspopup="menu" aria-expanded="false" '
+                'data-t="header-machines-open" data-title-i18n="headerMachinesTitle"><span aria-hidden="true">🖥</span> '
+                '<span class="topbar-page-label" data-i18n="topologyMachinesSection">Machines</span>'
+                '<span class="lang-caret" aria-hidden="true">▾</span></button>\n'
+                '          <div id="headerMachinesMenu" class="topbar-machines-menu" role="menu" hidden data-t="header-machines-menu"></div>\n'
+                '        </div>\n')
+
+    @classmethod
+    def _pages(cls, name):
+        links = []
+        for page, href, ident, hook, icon, label, title in cls.BAR_PAGES:
+            here = ' aria-current="page"' if page == name else ""
+            links.append(f'        <a id="{ident}" class="topbar-page" href="{href}" data-t="{hook}" data-title-i18n="{title}"{here}>'
+                         f'<span aria-hidden="true">{icon}</span> {label}</a>\n')
+        return ('<nav id="headerPages" class="topbar-pages" data-t="header-pages" data-i18n-aria="headerPagesLabel" aria-label="Pages">\n'
+                f'{"".join(links)}{cls.MACHINES}      </nav>')
+
     @staticmethod
     def _tour():
         return ('<button type="button" class="ob-btn-head" data-ob-tour>\n'
@@ -169,6 +201,7 @@ class AppHeader:
             f'    {cls._brand(page)}\n'
             f'    {cls._title(page)}\n'
             '    <div class="actions">\n'
+            f'      {cls._pages(name)}\n'
             f'{added}'
             f'      {cls._account(page)}\n'
             f'{tour}'

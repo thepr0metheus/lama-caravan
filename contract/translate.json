@@ -1,0 +1,2797 @@
+{
+ "chat_to_responses": [
+  {
+   "why": "no body at all",
+   "body": "",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": []
+   },
+   "model": "row"
+  },
+  {
+   "why": "no body, no row's model",
+   "body": "",
+   "override": null,
+   "sends": {
+    "model": "gpt-5.4-mini",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": []
+   },
+   "model": "gpt-5.4-mini"
+  },
+  {
+   "why": "no JSON goes as it came",
+   "body": "not json",
+   "override": "row",
+   "unchanged": true,
+   "model": null
+  },
+  {
+   "why": "the row's model wins",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "no row's model: the client's",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": null,
+   "sends": {
+    "model": "pool",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "pool"
+  },
+  {
+   "why": "nobody names one",
+   "body": "{\"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": null,
+   "sends": {
+    "model": "gpt-5.4-mini",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "gpt-5.4-mini"
+  },
+  {
+   "why": "an empty row's model is none",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "",
+   "sends": {
+    "model": "pool",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "pool"
+  },
+  {
+   "why": "a system string",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": \"be brief\"}, {\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "be brief",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a system's parts",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": [{\"type\": \"text\", \"text\": \"a\"}, {\"type\": \"other\", \"text\": \"x\"}, {\"type\": \"text\", \"text\": \"b\"}, {\"type\": \"text\"}]}, {\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "a\nb\n",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "an empty system is said empty",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": \"\"}, {\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a system of no content",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\"}, {\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a system that is a number stays what it was",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": 5}, {\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "hi"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "the last system wins",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": \"a\"}, {\"role\": \"system\", \"content\": \"b\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "b",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a user of no content",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": ""
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a user's parts, with images",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"смотри\"}, {\"type\": \"image_url\", \"image_url\": {\"url\": \"https://x/1.png\", \"detail\": \"high\"}}, {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:image/png;base64,AA\", \"detail\": \"odd\"}}, {\"type\": \"image_url\", \"image_url\": {}}, {\"type\": \"image_url\"}, {\"type\": \"other\"}, {\"type\": \"text\"}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "смотри"
+       },
+       {
+        "type": "input_image",
+        "detail": "high",
+        "image_url": "https://x/1.png"
+       },
+       {
+        "type": "input_image",
+        "detail": "auto",
+        "image_url": "data:image/png;base64,AA"
+       },
+       {
+        "type": "input_image",
+        "detail": "auto",
+        "image_url": ""
+       },
+       {
+        "type": "input_image",
+        "detail": "auto",
+        "image_url": ""
+       },
+       {
+        "type": "input_text",
+        "text": ""
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "parts that come to nothing add no message",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"other\"}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a user's number is no text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": 5}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "an assistant's text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": \"ok\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "ok"
+       }
+      ]
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "an assistant of no content adds nothing",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": \"\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "an assistant's calls, with text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": \"calling\", \"tool_calls\": [{\"id\": \"abc\", \"function\": {\"name\": \"f\", \"arguments\": \"{\\\"a\\\":1}\"}}, {\"id\": \"fc_ready\", \"function\": {\"name\": \"g\"}}, {\"id\": \"\", \"function\": {}}, {\"id\": \"x\"}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "output_text",
+        "text": "calling"
+       }
+      ]
+     },
+     {
+      "type": "function_call",
+      "id": "fc_abc",
+      "call_id": "abc",
+      "name": "f",
+      "arguments": "{\"a\":1}"
+     },
+     {
+      "type": "function_call",
+      "id": "fc_ready",
+      "call_id": "fc_ready",
+      "name": "g",
+      "arguments": ""
+     },
+     {
+      "type": "function_call",
+      "id": "fc_",
+      "call_id": "",
+      "name": "",
+      "arguments": ""
+     },
+     {
+      "type": "function_call",
+      "id": "fc_x",
+      "call_id": "x",
+      "name": "",
+      "arguments": ""
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "an assistant's calls, without text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"abc\", \"function\": {\"name\": \"f\", \"arguments\": \"{}\"}}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "type": "function_call",
+      "id": "fc_abc",
+      "call_id": "abc",
+      "name": "f",
+      "arguments": "{}"
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a tool's text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"tool\", \"tool_call_id\": \"abc\", \"content\": \"done\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "type": "function_call_output",
+      "call_id": "abc",
+      "output": "done"
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a tool's list: its JSON as text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"tool\", \"tool_call_id\": \"abc\", \"content\": [{\"type\": \"text\", \"text\": \"привет, мир\", \"n\": 1.5}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "type": "function_call_output",
+      "call_id": "abc",
+      "output": "[{\"type\": \"text\", \"text\": \"\\u043f\\u0440\\u0438\\u0432\\u0435\\u0442, \\u043c\\u0438\\u0440\", \"n\": 1.5}]"
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a tool of no content and no id",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"tool\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [
+     {
+      "type": "function_call_output",
+      "call_id": "",
+      "output": ""
+     }
+    ],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "a role nobody knows",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"developer\", \"content\": \"x\"}, {\"content\": \"y\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "the levers",
+   "body": "{\"messages\": [], \"reasoning_effort\": \" high \", \"verbosity\": \"medium\", \"tool_choice\": \"required\", \"parallel_tool_calls\": false, \"temperature\": 0.5, \"max_tokens\": 5}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "medium"
+    },
+    "reasoning": {
+     "effort": "high"
+    },
+    "include": [],
+    "tool_choice": "required",
+    "parallel_tool_calls": false
+   },
+   "model": "row"
+  },
+  {
+   "why": "a verbosity nobody knows, an effort of spaces",
+   "body": "{\"messages\": [], \"reasoning_effort\": \"  \", \"verbosity\": \"loud\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "an effort that is no text",
+   "body": "{\"messages\": [], \"reasoning_effort\": 5, \"tool_choice\": null}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": null,
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  },
+  {
+   "why": "the tools",
+   "body": "{\"messages\": [], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"read\", \"description\": \"reads\", \"parameters\": {\"type\": \"object\", \"properties\": {\"p\": {\"type\": \"string\"}}}, \"strict\": true}}, {\"type\": \"function\", \"function\": {\"name\": \"bare\"}}, {\"type\": \"function\", \"function\": {\"name\": \"z\", \"description\": \"\", \"parameters\": {}, \"strict\": false}}, {\"type\": \"web_search\"}, \"no tool\", {\"type\": \"function\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true,
+    "tools": [
+     {
+      "type": "function",
+      "name": "read",
+      "description": "reads",
+      "parameters": {
+       "type": "object",
+       "properties": {
+        "p": {
+         "type": "string"
+        }
+       }
+      },
+      "strict": true
+     },
+     {
+      "type": "function",
+      "name": "bare"
+     },
+     {
+      "type": "function",
+      "name": "z",
+      "strict": false
+     },
+     {
+      "type": "web_search"
+     },
+     {
+      "type": "function"
+     }
+    ]
+   },
+   "model": "row"
+  },
+  {
+   "why": "no tools",
+   "body": "{\"messages\": [], \"tools\": []}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "store": false,
+    "stream": true,
+    "instructions": "You are a helpful assistant.",
+    "input": [],
+    "text": {
+     "verbosity": "low"
+    },
+    "include": [],
+    "tool_choice": "auto",
+    "parallel_tool_calls": true
+   },
+   "model": "row"
+  }
+ ],
+ "responses_passthrough": [
+  {
+   "why": "a stream by default",
+   "body": "{\"input\": [{\"role\": \"user\"}], \"model\": \"pool\", \"instructions\": \"x\"}",
+   "override": "row",
+   "sends": {
+    "input": [
+     {
+      "role": "user"
+     }
+    ],
+    "model": "row",
+    "instructions": "x",
+    "store": false,
+    "stream": true
+   },
+   "model": "row",
+   "stream": true
+  },
+  {
+   "why": "asked whole",
+   "body": "{\"input\": [], \"stream\": false}",
+   "override": null,
+   "sends": {
+    "input": [],
+    "stream": true,
+    "model": "gpt-5.4-mini",
+    "store": false
+   },
+   "model": "gpt-5.4-mini",
+   "stream": false
+  },
+  {
+   "why": "asked as a stream, a store said",
+   "body": "{\"input\": [], \"stream\": true, \"store\": true, \"model\": \"own\"}",
+   "override": null,
+   "sends": {
+    "input": [],
+    "stream": true,
+    "store": false,
+    "model": "own"
+   },
+   "model": "own",
+   "stream": true
+  },
+  {
+   "why": "input as a bare string",
+   "body": "{\"input\": \"привет\"}",
+   "override": "row",
+   "sends": {
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "привет"
+       }
+      ]
+     }
+    ],
+    "model": "row",
+    "store": false,
+    "stream": true
+   },
+   "model": "row",
+   "stream": true
+  },
+  {
+   "why": "no JSON",
+   "body": "not json",
+   "override": "row",
+   "sends": {
+    "input": [],
+    "model": "row",
+    "store": false,
+    "stream": true
+   },
+   "model": "row",
+   "stream": true
+  },
+  {
+   "why": "not an object",
+   "body": "[1]",
+   "override": null,
+   "sends": {
+    "input": [],
+    "model": "gpt-5.4-mini",
+    "store": false,
+    "stream": true
+   },
+   "model": "gpt-5.4-mini",
+   "stream": true
+  },
+  {
+   "why": "no body",
+   "body": "",
+   "override": null,
+   "sends": {
+    "input": [],
+    "model": "gpt-5.4-mini",
+    "store": false,
+    "stream": true
+   },
+   "model": "gpt-5.4-mini",
+   "stream": true
+  },
+  {
+   "why": "a null stream is no stream",
+   "body": "{\"stream\": null}",
+   "override": "",
+   "sends": {
+    "stream": true,
+    "model": "gpt-5.4-mini",
+    "store": false
+   },
+   "model": "gpt-5.4-mini",
+   "stream": false
+  }
+ ],
+ "is_responses": [
+  {
+   "path": "/v1/responses",
+   "body": "",
+   "is": true
+  },
+  {
+   "path": "/v1/responses/",
+   "body": "",
+   "is": true
+  },
+  {
+   "path": "/backend/responses",
+   "body": "x",
+   "is": true
+  },
+  {
+   "path": "/v1/chat/completions",
+   "body": "{\"input\": 1}",
+   "is": true
+  },
+  {
+   "path": "/v1/chat/completions",
+   "body": "{\"input\": 1, \"messages\": []}",
+   "is": false
+  },
+  {
+   "path": "/v1/chat/completions",
+   "body": "{\"messages\": []}",
+   "is": false
+  },
+  {
+   "path": "/v1/chat/completions",
+   "body": "not json",
+   "is": false
+  },
+  {
+   "path": "/v1/chat/completions",
+   "body": "[1]",
+   "is": false
+  },
+  {
+   "path": "/v1/chat/completions",
+   "body": "",
+   "is": false
+  },
+  {
+   "path": "/v1/responses/x",
+   "body": "",
+   "is": false
+  },
+  {
+   "path": "",
+   "body": "{\"input\": \"\"}",
+   "is": true
+  }
+ ],
+ "responses_stream": [
+  {
+   "lines": [
+    "event: response.created\n",
+    "data: {\"type\": \"response.created\"}\n",
+    "\n",
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"При\"}\n",
+    "\n",
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"вет \\\"м\\\"\\n\"}\n",
+    "\r\n",
+    "data: {\"type\": \"response.completed\", \"response\": {\"output\": [{\"type\": \"message\"}], \"usage\": {\"input_tokens\": 3, \"output_tokens\": 2, \"x\": 1}}}\n",
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"after the end\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\u041f\\u0440\\u0438\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\u0432\\u0435\\u0442 \\\"\\u043c\\\"\\n\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.output_item.added\", \"output_index\": 2, \"item\": {\"type\": \"message\"}}\n",
+    "data: {\"type\": \"response.output_item.added\", \"output_index\": 3, \"item\": {\"type\": \"function_call\", \"call_id\": \"k1\", \"id\": \"i1\", \"name\": \"f\"}}\n",
+    "data: {\"type\": \"response.output_item.added\", \"output_index\": 5, \"item\": {\"type\": \"function_call\", \"id\": \"i2\"}}\n",
+    "data: {\"type\": \"response.function_call_arguments.delta\", \"output_index\": 3, \"delta\": \"{\\\"a\\\"\"}\n",
+    "data: {\"type\": \"response.function_call_arguments.delta\", \"output_index\": 5, \"delta\": \"1\"}\n",
+    "data: {\"type\": \"response.function_call_arguments.delta\", \"output_index\": 9, \"delta\": \"2\"}\n",
+    "data: {\"type\": \"response.function_call_arguments.delta\"}\n",
+    "data: {\"type\": \"response.completed\", \"response\": {\"output\": [{\"type\": \"function_call\"}]}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"k1\",\"type\":\"function\",\"function\":{\"name\":\"f\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"i2\",\"type\":\"function\",\"function\":{\"name\":\"\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"1\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":9,\"function\":{\"arguments\":\"2\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.output_text.delta\"}\n",
+    "data: not json\n",
+    "data:no space\n",
+    "data: [DONE]\n",
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"after the done\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"cut\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"cut\"},\"finish_reason\":null}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.completed\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {}}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"output_tokens\": 4}}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":4,\"total_tokens\":4}}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  }
+ ],
+ "responses_tally": [
+  {
+   "lines": [
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"При\"}\n",
+    "data: {\"type\": \"response.output_text.delta\"}\n",
+    "data: {\"type\": \"other\"}\n",
+    "event: x\n",
+    "not data\n",
+    "data: not json\n",
+    "data: {\"type\": \"response.output_item.done\", \"item\": {\"type\": \"function_call\", \"name\": \"f\"}}\n",
+    "data: {\"type\": \"response.output_item.done\", \"item\": \"no item\"}\n",
+    "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 3, \"output_tokens\": 2}}}\n"
+   ],
+   "summary": {
+    "events": 6,
+    "deltaTextChars": 3,
+    "usage": {
+     "prompt_tokens": 3,
+     "completion_tokens": 2,
+     "total_tokens": 5
+    },
+    "finishReasons": [
+     "tool_calls"
+    ],
+    "done": true,
+    "response": {
+     "usage": {
+      "input_tokens": 3,
+      "output_tokens": 2
+     },
+     "output": [
+      {
+       "type": "function_call",
+       "name": "f"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.output_item.done\", \"item\": {\"type\": \"message\"}}\n",
+    "data: {\"type\": \"response.completed\", \"response\": {\"output\": [{\"type\": \"message\", \"kept\": 1}]}}\n"
+   ],
+   "summary": {
+    "events": 2,
+    "finishReasons": [
+     "stop"
+    ],
+    "done": true,
+    "response": {
+     "output": [
+      {
+       "type": "message",
+       "kept": 1
+      }
+     ]
+    }
+   }
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.completed\"}\n"
+   ],
+   "summary": {
+    "events": 1,
+    "finishReasons": [
+     "stop"
+    ],
+    "done": true,
+    "response": {}
+   }
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"cut\"}\n"
+   ],
+   "summary": {
+    "events": 1,
+    "deltaTextChars": 3
+   }
+  },
+  {
+   "lines": [],
+   "summary": {}
+  }
+ ],
+ "chat_to_anthropic": [
+  {
+   "why": "no body",
+   "body": "",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "max_tokens": 4096,
+    "messages": []
+   }
+  },
+  {
+   "why": "no body, no row",
+   "body": "",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "max_tokens": 4096,
+    "messages": []
+   }
+  },
+  {
+   "why": "no JSON",
+   "body": "not json",
+   "override": "row",
+   "unchanged": true
+  },
+  {
+   "why": "the row's model",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "the client's",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": null,
+   "sends": {
+    "model": "pool",
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "nobody's",
+   "body": "{\"messages\": []}",
+   "override": "",
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a system string",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": \"s\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "system": "s"
+   }
+  },
+  {
+   "why": "a system's parts",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": [{\"type\": \"text\", \"text\": \"a\"}, \"odd\", {\"type\": \"x\"}, {\"type\": \"text\", \"text\": \"b\"}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "system": "a\nb"
+   }
+  },
+  {
+   "why": "an empty system",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\", \"content\": \"\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "system": ""
+   }
+  },
+  {
+   "why": "a system of no content",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"system\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "system": ""
+   }
+  },
+  {
+   "why": "tool results in a row are one message",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"tool\", \"tool_call_id\": \"a\", \"content\": \"x\"}, {\"role\": \"tool\", \"tool_call_id\": \"b\", \"content\": [{\"p\": \"я\"}]}, {\"role\": \"tool\"}, {\"role\": \"user\", \"content\": \"next\"}, {\"role\": \"tool\", \"tool_call_id\": \"c\", \"content\": \"y\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "a",
+        "content": "x"
+       },
+       {
+        "type": "tool_result",
+        "tool_use_id": "b",
+        "content": "[{\"p\": \"\\u044f\"}]"
+       },
+       {
+        "type": "tool_result",
+        "tool_use_id": "",
+        "content": ""
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "next"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "c",
+        "content": "y"
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "an assistant's text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": \"ok\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": "ok"
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "an assistant of no content",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": ""
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "an assistant's parts",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": [{\"type\": \"text\", \"text\": \"a\"}, {\"type\": \"x\"}, \"odd\", {\"type\": \"text\"}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "a"
+       },
+       {
+        "type": "text",
+        "text": ""
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "an assistant's calls",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"content\": \"calling\", \"tool_calls\": [{\"id\": \"t1\", \"function\": {\"name\": \"f\", \"arguments\": \"{\\\"a\\\": 1}\"}}, {\"id\": \"t2\", \"function\": {\"name\": \"g\", \"arguments\": \"not json\"}}, {\"id\": \"t3\", \"function\": {\"arguments\": {\"b\": 2}}}, {\"id\": \"t4\", \"function\": {\"arguments\": \"\"}}, {\"id\": \"t5\"}, {}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "text",
+        "text": "calling"
+       },
+       {
+        "type": "tool_use",
+        "id": "t1",
+        "name": "f",
+        "input": {
+         "a": 1
+        }
+       },
+       {
+        "type": "tool_use",
+        "id": "t2",
+        "name": "g",
+        "input": {}
+       },
+       {
+        "type": "tool_use",
+        "id": "t3",
+        "name": "",
+        "input": {
+         "b": 2
+        }
+       },
+       {
+        "type": "tool_use",
+        "id": "t4",
+        "name": "",
+        "input": {}
+       },
+       {
+        "type": "tool_use",
+        "id": "t5",
+        "name": "",
+        "input": {}
+       },
+       {
+        "type": "tool_use",
+        "id": "",
+        "name": "",
+        "input": {}
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "an assistant's calls, no text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"t1\", \"function\": {\"name\": \"f\", \"arguments\": \"{\\\"a\\\": 1}\"}}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "t1",
+        "name": "f",
+        "input": {
+         "a": 1
+        }
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a user's text",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": \"hi\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a user of no content",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "user",
+      "content": ""
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a user's parts",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"смотри\"}, {\"type\": \"text\"}, \"odd\", {\"type\": \"other\"}, {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:image/png;base64,AA==\"}}, {\"type\": \"image_url\", \"image_url\": {\"url\": \"data:broken\"}}, {\"type\": \"image_url\", \"image_url\": {\"url\": \"https://x/1.png\"}}, {\"type\": \"image_url\", \"image_url\": {}}, {\"type\": \"image_url\"}]}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "смотри"
+       },
+       {
+        "type": "text",
+        "text": ""
+       },
+       {
+        "type": "image",
+        "source": {
+         "type": "base64",
+         "media_type": "image/png",
+         "data": "AA=="
+        }
+       },
+       {
+        "type": "image",
+        "source": {
+         "type": "base64",
+         "media_type": "image/jpeg",
+         "data": ""
+        }
+       },
+       {
+        "type": "image",
+        "source": {
+         "type": "url",
+         "url": "https://x/1.png"
+        }
+       },
+       {
+        "type": "image",
+        "source": {
+         "type": "url",
+         "url": ""
+        }
+       },
+       {
+        "type": "image",
+        "source": {
+         "type": "url",
+         "url": ""
+        }
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a role nobody knows",
+   "body": "{\"model\": \"pool\", \"messages\": [{\"role\": \"developer\", \"content\": \"x\"}, {\"content\": \"y\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "the tokens: max_tokens",
+   "body": "{\"messages\": [], \"max_tokens\": 5, \"max_completion_tokens\": 6}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 5,
+    "stream": false
+   }
+  },
+  {
+   "why": "the tokens: the other name",
+   "body": "{\"messages\": [], \"max_completion_tokens\": \"6\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 6,
+    "stream": false
+   }
+  },
+  {
+   "why": "the tokens: zero",
+   "body": "{\"messages\": [], \"max_tokens\": 0}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "stream, temperature, top_p",
+   "body": "{\"messages\": [], \"stream\": true, \"temperature\": 0, \"top_p\": 0.5}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": true,
+    "temperature": 0,
+    "top_p": 0.5
+   }
+  },
+  {
+   "why": "nulls",
+   "body": "{\"messages\": [], \"stream\": null, \"temperature\": null, \"top_p\": null, \"stop\": null, \"tool_choice\": null}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a stop word",
+   "body": "{\"messages\": [], \"stop\": \"end\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "stop_sequences": [
+     "end"
+    ]
+   }
+  },
+  {
+   "why": "stop words",
+   "body": "{\"messages\": [], \"stop\": [\"a\", \"b\"]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "stop_sequences": [
+     "a",
+     "b"
+    ]
+   }
+  },
+  {
+   "why": "no stop words",
+   "body": "{\"messages\": [], \"stop\": []}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "the tools",
+   "body": "{\"messages\": [], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"read\", \"description\": \"reads\", \"parameters\": {\"type\": \"object\", \"properties\": {\"p\": {\"type\": \"string\"}}}, \"strict\": true}}, {\"type\": \"function\", \"function\": {\"name\": \"bare\"}}, {\"type\": \"function\", \"function\": {\"name\": \"z\", \"description\": \"\", \"parameters\": {}, \"strict\": false}}, {\"type\": \"web_search\"}, \"no tool\", {\"type\": \"function\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "tools": [
+     {
+      "name": "read",
+      "description": "reads",
+      "input_schema": {
+       "type": "object",
+       "properties": {
+        "p": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     {
+      "name": "bare",
+      "input_schema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     {
+      "name": "z",
+      "input_schema": {
+       "type": "object",
+       "properties": {}
+      }
+     }
+    ]
+   }
+  },
+  {
+   "why": "tools that come to nothing",
+   "body": "{\"messages\": [], \"tools\": [{\"type\": \"web_search\"}]}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "tool choice 'auto'",
+   "body": "{\"messages\": [], \"tool_choice\": \"auto\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "tool_choice": {
+     "type": "auto"
+    }
+   }
+  },
+  {
+   "why": "tool choice 'none'",
+   "body": "{\"messages\": [], \"tool_choice\": \"none\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "tool_choice": {
+     "type": "none"
+    }
+   }
+  },
+  {
+   "why": "tool choice 'required'",
+   "body": "{\"messages\": [], \"tool_choice\": \"required\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "tool_choice": {
+     "type": "any"
+    }
+   }
+  },
+  {
+   "why": "tool choice 'other'",
+   "body": "{\"messages\": [], \"tool_choice\": \"other\"}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "tool choice {'type': 'function', 'function': {'name': 'f'}}",
+   "body": "{\"messages\": [], \"tool_choice\": {\"type\": \"function\", \"function\": {\"name\": \"f\"}}}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "tool_choice": {
+     "type": "tool",
+     "name": "f"
+    }
+   }
+  },
+  {
+   "why": "tool choice {'type': 'function'}",
+   "body": "{\"messages\": [], \"tool_choice\": {\"type\": \"function\"}}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false,
+    "tool_choice": {
+     "type": "tool",
+     "name": ""
+    }
+   }
+  },
+  {
+   "why": "tool choice {'type': 'x'}",
+   "body": "{\"messages\": [], \"tool_choice\": {\"type\": \"x\"}}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "tool choice 5",
+   "body": "{\"messages\": [], \"tool_choice\": 5}",
+   "override": "row",
+   "sends": {
+    "model": "row",
+    "messages": [],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "arguments that are an object already",
+   "body": "{\"messages\": [{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"c1\", \"type\": \"function\", \"function\": {\"name\": \"f\", \"arguments\": {\"a\": 1}}}]}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "c1",
+        "name": "f",
+        "input": {
+         "a": 1
+        }
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "arguments of a falsy number",
+   "body": "{\"messages\": [{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"c1\", \"type\": \"function\", \"function\": {\"name\": \"f\", \"arguments\": 0}}]}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "c1",
+        "name": "f",
+        "input": {}
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "arguments of an empty list",
+   "body": "{\"messages\": [{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"c1\", \"type\": \"function\", \"function\": {\"name\": \"f\", \"arguments\": []}}]}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "c1",
+        "name": "f",
+        "input": {}
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "arguments of a word that is no JSON",
+   "body": "{\"messages\": [{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"c1\", \"type\": \"function\", \"function\": {\"name\": \"f\", \"arguments\": \"not json\"}}]}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "c1",
+        "name": "f",
+        "input": {}
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "arguments of none",
+   "body": "{\"messages\": [{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"c1\", \"type\": \"function\", \"function\": {\"name\": \"f\"}}]}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "assistant",
+      "content": [
+       {
+        "type": "tool_use",
+        "id": "c1",
+        "name": "f",
+        "input": {}
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "two tool results in one message, then a user, then a third",
+   "body": "{\"messages\": [{\"role\": \"tool\", \"tool_call_id\": \"a\", \"content\": \"one\"}, {\"role\": \"tool\", \"tool_call_id\": \"b\", \"content\": [{\"x\": 1}]}, {\"role\": \"user\", \"content\": \"next\"}, {\"role\": \"tool\", \"tool_call_id\": \"c\", \"content\": \"\"}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "a",
+        "content": "one"
+       },
+       {
+        "type": "tool_result",
+        "tool_use_id": "b",
+        "content": "[{\"x\": 1}]"
+       }
+      ]
+     },
+     {
+      "role": "user",
+      "content": "next"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "c",
+        "content": ""
+       }
+      ]
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  },
+  {
+   "why": "a message before the tool results stays before them",
+   "body": "{\"messages\": [{\"role\": \"user\", \"content\": \"first\"}, {\"role\": \"tool\", \"tool_call_id\": \"a\", \"content\": \"one\"}, {\"role\": \"assistant\", \"content\": \"last\"}]}",
+   "override": null,
+   "sends": {
+    "model": "claude-opus-4-8",
+    "messages": [
+     {
+      "role": "user",
+      "content": "first"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "tool_result",
+        "tool_use_id": "a",
+        "content": "one"
+       }
+      ]
+     },
+     {
+      "role": "assistant",
+      "content": "last"
+     }
+    ],
+    "max_tokens": 4096,
+    "stream": false
+   }
+  }
+ ],
+ "anthropic_stream": [
+  {
+   "lines": [
+    "event: message_start\n",
+    "data: {\"type\": \"message_start\", \"message\": {\"usage\": {\"input_tokens\": 3, \"cache_read_input_tokens\": 10, \"cache_creation_input_tokens\": 2, \"output_tokens\": 1}}}\n",
+    "\n",
+    "event: content_block_start\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"При\\\"вет\"}}\n",
+    "data: {\"type\": \"content_block_stop\", \"index\": 0}\n",
+    "data: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\"}, \"usage\": {\"output_tokens\": 5}}\n",
+    "data: {\"type\": \"message_stop\"}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"after the stop\"}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\u041f\\u0440\\u0438\\\"\\u0432\\u0435\\u0442\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":15,\"completion_tokens\":5,\"total_tokens\":20,\"prompt_tokens_details\":{\"cached_tokens\":10},\"cache_creation_input_tokens\":2}}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 15,
+    "completion_tokens": 5,
+    "total_tokens": 20,
+    "prompt_tokens_details": {
+     "cached_tokens": 10
+    },
+    "cache_creation_input_tokens": 2
+   },
+   "known": true
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"content_block_start\", \"index\": 1, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t1\", \"name\": \"f\"}}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 4, \"content_block\": {\"type\": \"tool_use\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"{\\\"a\\\"\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 4, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"1\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 9, \"delta\": {\"type\": \"input_json_delta\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"thinking_delta\", \"thinking\": \"x\"}}\n",
+    "data: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"tool_use\"}}\n",
+    "data: {\"type\": \"message_delta\", \"delta\": {}, \"usage\": {\"input_tokens\": 2, \"output_tokens\": 1}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"t1\",\"type\":\"function\",\"function\":{\"name\":\"f\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"\",\"type\":\"function\",\"function\":{\"name\":\"\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"1\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 2,
+    "completion_tokens": 1,
+    "total_tokens": 3
+   },
+   "known": true
+  },
+  {
+   "lines": [
+    "event: message_delta\n",
+    "data: {\"delta\": {\"stop_reason\": \"max_tokens\"}, \"usage\": {\"output_tokens\": \"7\"}}\n",
+    "event: ping\n",
+    "data: {}\n",
+    "data: {\"delta\": {}}\n",
+    "data: not json\n",
+    "data:no space\n",
+    "data: [DONE]\n",
+    "data: {\"type\": \"message_delta\", \"delta\": {}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":7,\"total_tokens\":7}}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 0,
+    "completion_tokens": 7,
+    "total_tokens": 7
+   },
+   "known": true
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"cut\"}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"cut\"},\"finish_reason\":null}]}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "known": false
+  },
+  {
+   "lines": [],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "known": false
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"content_block_start\", \"index\": 0, \"content_block\": {\"type\": \"text\", \"text\": \"\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"words\"}}\n",
+    "data: {\"type\": \"content_block_stop\", \"index\": 0}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 1, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t1\", \"name\": \"first\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"{\\\"a\\\"\"}}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 2, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t2\", \"name\": \"second\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 2, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"{}\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 1, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \": 1}\"}}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 3, \"content_block\": {\"type\": \"thinking\"}}\n",
+    "data: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"tool_use\"}, \"usage\": {\"output_tokens\": 4}}\n",
+    "data: {\"type\": \"message_stop\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"words\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"t1\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"a\\\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"t2\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\": 1}\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":4,\"total_tokens\":4}}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 0,
+    "completion_tokens": 4,
+    "total_tokens": 4
+   },
+   "known": true
+  },
+  {
+   "lines": [
+    "data: {\"type\": \"content_block_start\", \"index\": 1, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t1\", \"name\": \"first\"}}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 2, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t2\", \"name\": \"second\"}}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 3, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t3\", \"name\": \"third\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 2, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"{}\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 3, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"[]\"}}\n",
+    "data: {\"type\": \"content_block_start\", \"index\": 2, \"content_block\": {\"type\": \"tool_use\", \"id\": \"t4\", \"name\": \"again\"}}\n",
+    "data: {\"type\": \"content_block_delta\", \"index\": 2, \"delta\": {\"type\": \"input_json_delta\", \"partial_json\": \"1\"}}\n",
+    "data: {\"type\": \"message_stop\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"t1\",\"type\":\"function\",\"function\":{\"name\":\"first\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"t2\",\"type\":\"function\",\"function\":{\"name\":\"second\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":2,\"id\":\"t3\",\"type\":\"function\",\"function\":{\"name\":\"third\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"{}\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":2,\"function\":{\"arguments\":\"[]\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":3,\"id\":\"t4\",\"type\":\"function\",\"function\":{\"name\":\"again\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":3,\"function\":{\"arguments\":\"1\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "used": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "known": false
+  }
+ ],
+ "anthropic_whole": [
+  {
+   "body": "{\"content\": [{\"type\": \"text\", \"text\": \"При\"}, {\"type\": \"text\", \"text\": \"вет\"}, {\"type\": \"thinking\"}], \"usage\": {\"input_tokens\": 2, \"output_tokens\": 3}}",
+   "answer": {
+    "id": "cc",
+    "object": "chat.completion",
+    "created": 1000,
+    "model": "the-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "При\nвет"
+      },
+      "finish_reason": "stop"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 2,
+     "completion_tokens": 3,
+     "total_tokens": 5
+    }
+   }
+  },
+  {
+   "body": "{\"content\": [{\"type\": \"tool_use\", \"id\": \"t\", \"name\": \"f\", \"input\": {\"a\": \"я\", \"b\": [1, 2.5]}}, {\"type\": \"tool_use\"}, {\"type\": \"text\"}]}",
+   "answer": {
+    "id": "cc",
+    "object": "chat.completion",
+    "created": 1000,
+    "model": "the-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "",
+       "tool_calls": [
+        {
+         "id": "t",
+         "type": "function",
+         "function": {
+          "name": "f",
+          "arguments": "{\"a\": \"\\u044f\", \"b\": [1, 2.5]}"
+         }
+        },
+        {
+         "id": "",
+         "type": "function",
+         "function": {
+          "name": "",
+          "arguments": "{}"
+         }
+        }
+       ]
+      },
+      "finish_reason": "tool_calls"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 0,
+     "completion_tokens": 0,
+     "total_tokens": 0
+    }
+   }
+  },
+  {
+   "body": "{}",
+   "answer": {
+    "id": "cc",
+    "object": "chat.completion",
+    "created": 1000,
+    "model": "the-model",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": ""
+      },
+      "finish_reason": "stop"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 0,
+     "completion_tokens": 0,
+     "total_tokens": 0
+    }
+   }
+  },
+  {
+   "body": "not json",
+   "unchanged": true
+  }
+ ],
+ "anthropic_usage": [
+  {
+   "steps": [],
+   "openai": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "known": false
+  },
+  {
+   "steps": [
+    {
+     "input_tokens": 3
+    }
+   ],
+   "openai": {
+    "prompt_tokens": 3,
+    "completion_tokens": 0,
+    "total_tokens": 3
+   },
+   "known": true
+  },
+  {
+   "steps": [
+    {
+     "input_tokens": 3,
+     "output_tokens": 1
+    },
+    {
+     "input_tokens": 3,
+     "output_tokens": 5
+    }
+   ],
+   "openai": {
+    "prompt_tokens": 3,
+    "completion_tokens": 5,
+    "total_tokens": 8
+   },
+   "known": true
+  },
+  {
+   "steps": [
+    {
+     "input_tokens": "7",
+     "output_tokens": 7.9,
+     "cache_read_input_tokens": true,
+     "cache_creation_input_tokens": -1
+    }
+   ],
+   "openai": {
+    "prompt_tokens": 7,
+    "completion_tokens": 7,
+    "total_tokens": 14
+   },
+   "known": true
+  },
+  {
+   "steps": [
+    {
+     "cache_read_input_tokens": 4
+    }
+   ],
+   "openai": {
+    "prompt_tokens": 4,
+    "completion_tokens": 0,
+    "total_tokens": 4,
+    "prompt_tokens_details": {
+     "cached_tokens": 4
+    }
+   },
+   "known": true
+  },
+  {
+   "steps": [
+    {
+     "cache_creation_input_tokens": 4
+    }
+   ],
+   "openai": {
+    "prompt_tokens": 4,
+    "completion_tokens": 0,
+    "total_tokens": 4,
+    "cache_creation_input_tokens": 4
+   },
+   "known": true
+  },
+  {
+   "steps": [
+    null
+   ],
+   "openai": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "known": false
+  },
+  {
+   "steps": [
+    {
+     "input_tokens": "x"
+    }
+   ],
+   "openai": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "known": false
+  }
+ ],
+ "chunk_fold": [
+  {
+   "chunks": [
+    "data: {\"id\": \"a\", \"created\": 5, \"model\": \"m\", \"choices\": [{\"index\": 0, \"delta\": {\"role\": \"assistant\", \"content\": \"\"}, \"finish_reason\": null}]}\n\n",
+    "data: {\"id\": \"other\", \"created\": 9, \"model\": \"n\", \"choices\": [{\"index\": 0, \"delta\": {\"content\": \"При\"}}]}\n\n",
+    "data: {\"choices\": [{\"delta\": {\"content\": \"вет\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 1}}\n\n",
+    "data: [DONE]\n\n"
+   ],
+   "finished": true,
+   "completion": {
+    "id": "a",
+    "object": "chat.completion",
+    "created": 5,
+    "model": "m",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "Привет"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+     }
+    ],
+    "usage": {
+     "prompt_tokens": 1
+    }
+   }
+  },
+  {
+   "chunks": [
+    "data: {\"choices\": [{\"index\": 1, \"delta\": {\"content\": \"second\"}}, {\"index\": 0, \"delta\": {\"content\": \"first\"}, \"finish_reason\": \"length\"}]}\n\n"
+   ],
+   "finished": true,
+   "completion": {
+    "id": "",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "first"
+      },
+      "logprobs": null,
+      "finish_reason": "length"
+     },
+     {
+      "index": 1,
+      "message": {
+       "role": "assistant",
+       "content": "second"
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  },
+  {
+   "chunks": [
+    "data: {\"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 1, \"id\": \"b\", \"function\": {\"name\": \"g\", \"arguments\": \"{\"}}, {\"index\": 0, \"id\": \"a\", \"type\": \"custom\", \"function\": {\"name\": \"f\"}}]}}]}\n\n",
+    "data: {\"choices\": [{\"index\": 0, \"delta\": {\"tool_calls\": [{\"index\": 1, \"function\": {\"name\": \"h\", \"arguments\": \"}\"}}, \"odd\", {\"function\": {\"arguments\": 5}}]}, \"finish_reason\": \"tool_calls\"}]}\n\n"
+   ],
+   "finished": true,
+   "completion": {
+    "id": "",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": null,
+       "tool_calls": [
+        {
+         "id": "a",
+         "type": "custom",
+         "function": {
+          "name": "f",
+          "arguments": ""
+         }
+        },
+        {
+         "id": "b",
+         "type": "function",
+         "function": {
+          "name": "gh",
+          "arguments": "{}"
+         }
+        }
+       ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+     }
+    ]
+   }
+  },
+  {
+   "chunks": [
+    "data: {\"choices\": [{\"index\": 0, \"delta\": {\"content\": \"text\", \"tool_calls\": [{\"id\": \"a\"}]}}]}\n\n"
+   ],
+   "finished": false,
+   "completion": {
+    "id": "",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": "text",
+       "tool_calls": [
+        {
+         "id": "a",
+         "type": "function",
+         "function": {
+          "name": "",
+          "arguments": ""
+         }
+        }
+       ]
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  },
+  {
+   "chunks": [
+    "event: x\ndata: not json\n\ndata:{\"id\": \"spaceless\"}\n\n",
+    "data: {\"choices\": [\"odd\", {\"delta\": \"odd\"}, {\"index\": 2}]}\n\n",
+    "data: [1]\n\n"
+   ],
+   "finished": false,
+   "completion": {
+    "id": "spaceless",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "",
+    "choices": [
+     {
+      "index": 0,
+      "message": {
+       "role": "assistant",
+       "content": ""
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+     },
+     {
+      "index": 2,
+      "message": {
+       "role": "assistant",
+       "content": ""
+      },
+      "logprobs": null,
+      "finish_reason": "stop"
+     }
+    ]
+   }
+  },
+  {
+   "chunks": [
+    "data: {\"usage\": \"odd\", \"choices\": null}\n\n"
+   ],
+   "finished": false,
+   "completion": {
+    "id": "",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "",
+    "choices": []
+   }
+  },
+  {
+   "chunks": [],
+   "finished": false,
+   "completion": {
+    "id": "",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "",
+    "choices": []
+   }
+  }
+ ],
+ "python_json": [
+  {
+   "value": "plain",
+   "spaced": "\"plain\"",
+   "letters": "\"plain\"",
+   "compact": "\"plain\""
+  },
+  {
+   "value": "é я",
+   "spaced": "\"\\u00e9 \\u044f\"",
+   "letters": "\"é я\"",
+   "compact": "\"\\u00e9 \\u044f\""
+  },
+  {
+   "value": "😀",
+   "spaced": "\"\\ud83d\\ude00\"",
+   "letters": "\"😀\"",
+   "compact": "\"\\ud83d\\ude00\""
+  },
+  {
+   "value": "tab\there",
+   "spaced": "\"tab\\there\"",
+   "letters": "\"tab\\there\"",
+   "compact": "\"tab\\there\""
+  },
+  {
+   "value": "\u0000\u0001\u001f",
+   "spaced": "\"\\u0000\\u0001\\u001f\"",
+   "letters": "\"\\u0000\\u0001\\u001f\"",
+   "compact": "\"\\u0000\\u0001\\u001f\""
+  },
+  {
+   "value": "",
+   "spaced": "\"\\u007f\"",
+   "letters": "\"\"",
+   "compact": "\"\\u007f\""
+  },
+  {
+   "value": " ",
+   "spaced": "\"\\u0080\\u2028\"",
+   "letters": "\" \"",
+   "compact": "\"\\u0080\\u2028\""
+  },
+  {
+   "value": "quote\" back\\slash /",
+   "spaced": "\"quote\\\" back\\\\slash /\"",
+   "letters": "\"quote\\\" back\\\\slash /\"",
+   "compact": "\"quote\\\" back\\\\slash /\""
+  },
+  {
+   "value": "\b\f\n\r",
+   "spaced": "\"\\b\\f\\n\\r\"",
+   "letters": "\"\\b\\f\\n\\r\"",
+   "compact": "\"\\b\\f\\n\\r\""
+  },
+  {
+   "value": "",
+   "spaced": "\"\"",
+   "letters": "\"\"",
+   "compact": "\"\""
+  },
+  {
+   "value": 0,
+   "spaced": "0",
+   "letters": "0",
+   "compact": "0"
+  },
+  {
+   "value": 1,
+   "spaced": "1",
+   "letters": "1",
+   "compact": "1"
+  },
+  {
+   "value": -3,
+   "spaced": "-3",
+   "letters": "-3",
+   "compact": "-3"
+  },
+  {
+   "value": 1.0,
+   "spaced": "1.0",
+   "letters": "1.0",
+   "compact": "1.0"
+  },
+  {
+   "value": 0.5,
+   "spaced": "0.5",
+   "letters": "0.5",
+   "compact": "0.5"
+  },
+  {
+   "value": 2.5e-05,
+   "spaced": "2.5e-05",
+   "letters": "2.5e-05",
+   "compact": "2.5e-05"
+  },
+  {
+   "value": 1e-05,
+   "spaced": "1e-05",
+   "letters": "1e-05",
+   "compact": "1e-05"
+  },
+  {
+   "value": 0.0001,
+   "spaced": "0.0001",
+   "letters": "0.0001",
+   "compact": "0.0001"
+  },
+  {
+   "value": 1e+16,
+   "spaced": "1e+16",
+   "letters": "1e+16",
+   "compact": "1e+16"
+  },
+  {
+   "value": 1000000000000000.0,
+   "spaced": "1000000000000000.0",
+   "letters": "1000000000000000.0",
+   "compact": "1000000000000000.0"
+  },
+  {
+   "value": 1.5e+22,
+   "spaced": "1.5e+22",
+   "letters": "1.5e+22",
+   "compact": "1.5e+22"
+  },
+  {
+   "value": 5e-324,
+   "spaced": "5e-324",
+   "letters": "5e-324",
+   "compact": "5e-324"
+  },
+  {
+   "value": 1.7976931348623157e+308,
+   "spaced": "1.7976931348623157e+308",
+   "letters": "1.7976931348623157e+308",
+   "compact": "1.7976931348623157e+308"
+  },
+  {
+   "value": 18446744073709551615,
+   "spaced": "18446744073709551615",
+   "letters": "18446744073709551615",
+   "compact": "18446744073709551615"
+  },
+  {
+   "value": true,
+   "spaced": "true",
+   "letters": "true",
+   "compact": "true"
+  },
+  {
+   "value": false,
+   "spaced": "false",
+   "letters": "false",
+   "compact": "false"
+  },
+  {
+   "value": null,
+   "spaced": "null",
+   "letters": "null",
+   "compact": "null"
+  },
+  {
+   "value": [],
+   "spaced": "[]",
+   "letters": "[]",
+   "compact": "[]"
+  },
+  {
+   "value": {},
+   "spaced": "{}",
+   "letters": "{}",
+   "compact": "{}"
+  },
+  {
+   "value": [
+    1,
+    [
+     2,
+     "x"
+    ]
+   ],
+   "spaced": "[1, [2, \"x\"]]",
+   "letters": "[1, [2, \"x\"]]",
+   "compact": "[1,[2,\"x\"]]"
+  },
+  {
+   "value": {
+    "a": 1,
+    "b": {
+     "c": [
+      null,
+      1.5
+     ]
+    },
+    "я": "й"
+   },
+   "spaced": "{\"a\": 1, \"b\": {\"c\": [null, 1.5]}, \"\\u044f\": \"\\u0439\"}",
+   "letters": "{\"a\": 1, \"b\": {\"c\": [null, 1.5]}, \"я\": \"й\"}",
+   "compact": "{\"a\":1,\"b\":{\"c\":[null,1.5]},\"\\u044f\":\"\\u0439\"}"
+  }
+ ]
+}

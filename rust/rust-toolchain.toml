@@ -1,0 +1,5 @@
+# One compiler for every build: the Mac, CI and the NAS image name this file's version.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

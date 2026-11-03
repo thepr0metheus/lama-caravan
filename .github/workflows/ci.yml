@@ -16,12 +16,6 @@ jobs:
       - name: py_compile (whole tree)
         run: python3 -m py_compile $(git ls-files '*.py')
 
-      - name: queue node unit test
-        run: python3 scripts/test_queue_node.py
-
-      - name: automatic model queue lifecycle
-        run: python3 scripts/test_model_queues.py
-
       # The records a scout report and the operator write, and how the board
       # reads them: hosts and clients apart, the scout pull off the request
       # path. Auto-provisioning, which this step was first written for, is gone
@@ -29,41 +23,9 @@ jobs:
       - name: host and client records
         run: |
           set -e
-          python3 scripts/test_client_records.py
-          python3 scripts/test_scout_poll.py
-          python3 scripts/test_scout_report_sample.py
-          python3 scripts/test_foreign_engines.py
-          python3 scripts/test_port_scan_hosts.py
-          python3 scripts/test_engine_outputs.py
-          python3 scripts/test_engine_actions.py
           python3 scripts/test_engine_cell_server.py
-          python3 scripts/test_engine_runners.py
-          python3 scripts/test_engine_cell_reserve.py
-          python3 scripts/test_scout_pairing.py
-          python3 scripts/test_scout_scan.py
-          python3 scripts/test_topology_remote_cells.py
           python3 scripts/test_install_llama_lock.py
-          python3 scripts/test_deploy_same_commit.py
-          python3 scripts/test_cell_autostart.py
-          python3 scripts/test_llama_suspect_hosts.py
-          python3 scripts/test_llama_restore_id.py
-          python3 scripts/test_vllm_shell_line.py
-          python3 scripts/test_vram_reservation.py
-          python3 scripts/test_host_telemetry.py
-          python3 scripts/test_prism_runner.py
-          python3 scripts/test_llama_preview_route.py
-          python3 scripts/test_scout_launch_parity.py
-          python3 scripts/test_vllm_machines.py
-          python3 scripts/test_host_power_schedule.py
-          python3 scripts/test_server_order.py
-          python3 scripts/test_kept_cells.py
-          python3 scripts/test_retired_routes.py
-          python3 scripts/test_api_spec.py
-          python3 scripts/test_monitor_sample.py
-          python3 scripts/test_queue_thresholds.py
-          python3 scripts/test_token_history.py
           # The history of a machine's token speed records what a cell does now, not the rates it holds (1.3.590).
-          python3 scripts/test_tps_ring.py
 
       # These were one `run:` scalar with the second line indented under it,
       # which YAML folds into ONE command — so check_messages_i18n.py has been
@@ -102,96 +64,42 @@ jobs:
           python3 scripts/check_installer_assets.py
           python3 scripts/check_cell_python_floor.py
           python3 scripts/check_cell_self_capture.py
+          python3 scripts/check_shell_pipes.py
+          python3 scripts/check_llama_flags.py
           python3 scripts/check_board_401.py
-          python3 scripts/check_cell_card_keys.py
           python3 scripts/check_cell_kinds.py
+          python3 scripts/check_cell_forms.py
           python3 scripts/check_proxy_id_namespace.py
           python3 scripts/check_same_tab_links.py
           python3 scripts/test_same_tab_links.py
-          python3 scripts/check_carried_fields.py
           python3 scripts/check_board_live_patch.py
           python3 scripts/check_static_modules.py
+          # Every node a test starts goes through scripts/_node.py, so that it gets --single-threaded:
+          # node could hang for good in process.exit (2026-10-21).
+          python3 scripts/check_node_start.py
+          python3 scripts/check_ui_tokens.py
           python3 scripts/check_oop_contract.py
+          python3 scripts/check_rust_contract.py
+          python3 scripts/test_rust_conformance.py
+          python3 scripts/test_rust_scout_conformance.py
+          python3 scripts/test_scout_install.py
+          python3 scripts/test_rust_admin_conformance.py
+          python3 scripts/test_rust_alone.py
+          python3 scripts/test_rust_whole.py
           python3 scripts/check_oauth_owner.py
           python3 scripts/check_subscription_resets.py
           python3 scripts/check_models_dir_source.py
           python3 scripts/check_api_spec.py
           python3 scripts/check_public_leaks.py
-          python3 scripts/test_admin_store.py
-          python3 scripts/test_topology_store.py
-          python3 scripts/test_proxy_store.py
-          python3 scripts/test_stale_copy.py
-          python3 scripts/test_auth_store.py
-          python3 scripts/test_cloud_store.py
-          python3 scripts/test_secret_writes.py
-          python3 scripts/test_scout_errors.py
-          python3 scripts/test_query_flags.py
-          python3 scripts/test_proxy_models.py
-          python3 scripts/test_cloud_context.py
-          python3 scripts/test_model_catalog_breaker.py
-          python3 scripts/test_cloud_accounts.py
-          python3 scripts/test_cloud_refs.py
-          python3 scripts/test_output_refs.py
-          python3 scripts/test_pool_ports.py
-          python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py
-          python3 scripts/test_context_window.py
-          python3 scripts/test_cell_requests.py
-          python3 scripts/test_driver_outlook.py
-          python3 scripts/test_route_windows.py
-          python3 scripts/test_output_health.py
-          python3 scripts/test_usage_reserve.py
-          python3 scripts/test_subscription_usage.py
-          python3 scripts/test_credit_left.py
           # What an Anthropic answer says it used, whole, and the table that prices the cache (1.3.585).
-          python3 scripts/test_anthropic_usage.py
-          python3 scripts/test_model_pricing.py
-          python3 scripts/test_pools.py
-          python3 scripts/test_board_providers.py
-          python3 scripts/test_pool_steps.py
-          python3 scripts/test_pool_watch.py
-          python3 scripts/test_proxy_heartbeat.py
-          python3 scripts/test_proxy_journal.py
-          python3 scripts/test_subscription_resets.py
-          python3 scripts/test_pool_forward.py
-          python3 scripts/test_incidents.py
-          python3 scripts/test_model_card.py
-          python3 scripts/test_cell_crash.py
-          python3 scripts/test_gpu_driver.py
-          python3 scripts/test_config_block.py
-          python3 scripts/test_llama_flags.py
-          python3 scripts/test_kv_cache.py
+          python3 scripts/test_metrics_default.py
           python3 scripts/test_model_freshness.py
           python3 scripts/test_model_jobs.py
           python3 scripts/test_draft_file.py
-          python3 scripts/test_hf_verify.py
-          python3 scripts/test_hf_verify_checkpoint.py
-          python3 scripts/test_hub_hash.py
-          python3 scripts/test_hub_pages.py
-          python3 scripts/test_hf_list_files.py
-          python3 scripts/test_hf_repo_config.py
           python3 scripts/test_hf_checkpoint_layout.py
-          python3 scripts/test_hf_search.py
-          python3 scripts/test_hf_local_check.py
-          python3 scripts/test_model_watch.py
-          python3 scripts/test_model_staging.py
-          python3 scripts/test_model_artifacts.py
-          python3 scripts/test_start_from_library.py
-          python3 scripts/test_model_stores.py
-          python3 scripts/test_store_moves.py
-          python3 scripts/test_model_locator.py
-          python3 scripts/test_models_list.py
-          python3 scripts/test_gguf_header.py
-          python3 scripts/test_header_memory.py
-          python3 scripts/test_models_dir_served.py
           python3 scripts/test_ports.py
-          python3 scripts/test_proxy_forward.py
-          python3 scripts/test_proxy_body.py
-          python3 scripts/test_machine_models.py
-          python3 scripts/test_request_clock.py
-          python3 scripts/test_upstream_pool.py
-          python3 scripts/test_proxy_latency.py
-          python3 scripts/bench_proxy.py --quick
+          python3 scripts/test_frozen_answers.py
           python3 scripts/test_api_body.py
           python3 scripts/test_js_model_meta.py
           python3 scripts/test_js_usage_stats.py
@@ -206,10 +114,34 @@ jobs:
           python3 scripts/test_js_ram_plan.py
           # A machine's model cache on its card: the setting, the figures, the foreign files (1.3.576).
           python3 scripts/test_js_model_cache.py
+          python3 scripts/test_js_model_disk.py
+          python3 scripts/test_js_cell_note.py
           python3 scripts/test_js_cell_memory.py
           python3 scripts/test_js_split_mode.py
+          # Where a llama.cpp cell's model lives: the cards and RAM as llama.cpp's fitting splits them, and what holds it (1.3.616).
+          python3 scripts/test_js_placement.py
+          # What a llama.cpp cell takes — its cache, its buffers, its weights — from the form or a stored config, one rule (1.3.635).
+          python3 scripts/test_js_cell_plan.py
+          # What a model on /models does and how long a context its weights were trained with (1.3.637).
+          python3 scripts/test_js_model_facts.py
+          # The new-cell wizard: what for and which model, how it runs, where and the settings (1.3.638).
+          python3 scripts/test_js_add_model.py
           python3 scripts/test_js_card_fold.py
           python3 scripts/test_js_card_rows.py
+          python3 scripts/test_js_cell_window.py
+          python3 scripts/test_js_library_path.py
+          python3 scripts/test_js_model_queue.py
+          python3 scripts/test_js_client_name.py
+          python3 scripts/test_js_cell_log.py
+          python3 scripts/test_js_cell_chat.py
+          python3 scripts/test_js_cell_settings.py
+          python3 scripts/test_js_ui_parts.py
+          python3 scripts/test_js_ui_menus.py
+          python3 scripts/test_js_machine_head.py
+          # The list of models under a machine's cells: rows, launches, marks (the owner's choice М1).
+          python3 scripts/test_js_machine_models.py
+          python3 scripts/test_js_machine_plan.py
+          python3 scripts/test_stand.py
           python3 scripts/test_js_command_preview.py
           python3 scripts/test_js_form.py
           python3 scripts/test_js_topology_activity.py
@@ -218,7 +150,9 @@ jobs:
           python3 scripts/test_js_cell_previews.py
           python3 scripts/test_js_remote_cells.py
           python3 scripts/test_js_kv_cache.py
+          python3 scripts/test_js_asked_window.py
           python3 scripts/test_js_scout_add.py
+          python3 scripts/test_js_scout_release.py
           python3 scripts/test_js_suspect_banner.py
           python3 scripts/test_js_client_proxies.py
           python3 scripts/test_js_routers.py
@@ -228,12 +162,15 @@ jobs:
           python3 scripts/test_js_pools.py
           python3 scripts/test_js_provider_glances.py
           python3 scripts/test_js_pool_board.py
+          python3 scripts/test_js_pool_reveal.py
           python3 scripts/test_js_step_carry.py
           python3 scripts/test_js_subscription_resets.py
           python3 scripts/test_js_server_order.py
           python3 scripts/test_js_board_view.py
           python3 scripts/test_js_dialogs.py
           python3 scripts/test_confirm_typed_css.py
+          python3 scripts/test_toast_css.py
+          python3 scripts/test_place_words_css.py
           python3 scripts/test_js_dialog_llamas.py
           python3 scripts/test_js_topology_modals.py
           python3 scripts/test_js_charts.py
@@ -256,6 +193,9 @@ jobs:
           python3 scripts/test_js_utils.py
           python3 scripts/test_js_i18n.py
           python3 scripts/test_js_river.py
+          python3 scripts/test_js_river_minnow.py
+          python3 scripts/test_js_river_trout.py
+          python3 scripts/test_js_river_frogs.py
           python3 scripts/test_js_onboarding.py
           python3 scripts/test_js_onboarding_tours.py
           python3 scripts/test_js_main.py
@@ -264,47 +204,19 @@ jobs:
           python3 scripts/test_js_canvas.py
           python3 scripts/test_js_topology_render.py
           python3 scripts/test_js_model_list.py
-          python3 scripts/check_proxy_response_paths.py
-          python3 scripts/check_proxy_sources.py
           python3 scripts/check_firewall_untouched.py
           python3 scripts/check_image_contents.py
-          python3 scripts/test_container_preflight.py
-          python3 scripts/test_listening_ports.py
           python3 scripts/check_container_answers.py
-          python3 scripts/test_container_answers.py
-          python3 scripts/test_legacy_server_checks.py
-          python3 scripts/test_machine_scout.py
-          python3 scripts/test_healthz.py
-          python3 scripts/test_packages.py
-          python3 scripts/test_data_tree.py
-          python3 scripts/test_first_run.py
-          python3 scripts/test_key_entry.py
-          python3 scripts/test_client_address.py
-          python3 scripts/test_proxy_entry.py
-          python3 scripts/test_client_misses.py
-          python3 scripts/test_model_sets.py
           python3 scripts/test_week_windows.py
-          python3 scripts/test_model_schedules.py
-          python3 scripts/test_cell_outputs.py
           python3 scripts/test_js_model_schedule.py
-          python3 scripts/test_entry_models.py
-          python3 scripts/test_openai_errors.py
-          python3 scripts/test_request_fields.py
-          python3 scripts/test_chat_levers.py
-          python3 scripts/test_model_kinds.py
-          python3 scripts/test_proxy_consumers.py
-          python3 scripts/test_consumers.py
           python3 scripts/test_js_consumers.py
-          python3 scripts/test_device_login.py
-          python3 scripts/test_proxy_restart.py
           python3 scripts/check_ci_coverage.py
           python3 scripts/check_test_ports.py
           python3 scripts/check_command_mirrors.py
-          python3 scripts/test_settings_bundle.py
-          python3 scripts/test_data_volume_paths.py
           python3 scripts/test_nas_lockdown.py
           python3 scripts/test_nas_models_library.py
-          python3 scripts/test_board_model_pages.py
+          python3 scripts/test_header_model_pages.py
+          python3 scripts/test_js_header_machines.py
           python3 scripts/test_board_heads.py
           python3 scripts/test_routing_titles.py
           python3 scripts/test_header.py
@@ -313,37 +225,46 @@ jobs:
           python3 scripts/test_routing_dock_css.py
           python3 scripts/test_columns_scroll_css.py
           python3 scripts/test_board_cards_fit_css.py
+          python3 scripts/test_css_machine_glance.py
           python3 scripts/test_cell_strip_css.py
+          python3 scripts/test_cell_settings_css.py
           python3 scripts/test_cables_css.py
           # The input dot is a handle, and what already has the pool is no landing (1.3.587).
           python3 scripts/test_pull_css.py
+          # Only a chosen path makes the rest of Routing step back: pointing at a card only lights it (1.3.676).
+          python3 scripts/test_path_dim_css.py
+          # The star on a cell: kept with its slot, said with the topology, set by one route (1.3.680).
+          python3 scripts/test_js_model_rating.py
           # The breathing is the busy switch's only, and a held speed is quiet (1.3.588).
           python3 scripts/test_cell_speed_css.py
-          python3 scripts/test_model_folder.py
-          python3 scripts/test_cell_restart.py
-          python3 scripts/test_hf_checkpoint_format.py
           # The Strata runner (1.3.512): its command, the files a scout
           # brings, and the launcher against a stand-in Strata.
-          python3 scripts/test_strata_runner.py
           # What a cell keeps in its machine's memory, for the form's RAM scale (1.3.574).
-          python3 scripts/test_cell_ram_plan.py
           # A machine's model cache as its scout reports it, and the two calls the board makes of it (1.3.576).
-          python3 scripts/test_model_cache.py
           python3 scripts/test_css_model_cache.py
           # The GR00T runner and its cell: a robot policy behind HTTP (the SpiderMonkey task).
-          python3 scripts/test_gr00t_runner.py
           python3 scripts/test_gr00t_server.py
           python3 scripts/test_strata_launch.py
-          python3 scripts/test_download_retry.py
-          python3 scripts/test_download_access.py
-          python3 scripts/test_download_replace.py
-          python3 scripts/test_download_cancel.py
           python3 scripts/test_cell_servers.py
+          # The cells' one reader of a recording (1.3.610): WAV itself, the rest through ffmpeg (a stand-in here).
+          python3 scripts/test_cell_recording.py
+          # The voice-clone cell (1.3.611): OpenAI's speech request, the voices kept on the machine, and the
+          # controller's own requests to it over HTTP.
+          python3 scripts/test_tts_server.py
+          # The voice-clone runner (1.3.611): XTTS-v2, CosyVoice2 and F5-TTS on the runner row, one engine a cell.
+          # The live talk with a cell (1.3.612): its own WebSocket passed on behind the board, byte for byte.
+          # The live window over a cell (1.3.612): MiniCPM-o's talk both ways, full duplex and turn by turn.
+          python3 scripts/test_js_voice_live.py
+          # The page a cell serves itself (1.3.613): one form of its https address, at the save and on the card's 🌐.
+          python3 scripts/test_cell_page.py
+          python3 scripts/test_cell_form.py
           # The voice servers (1.3.551 cells, 1.3.553 runners): LFM2.5-Audio's cell server, the launchers of the
           # voice engines against stand-in uv, git and venv python, and the five runners on the runner row.
           python3 scripts/test_lfm_audio_server.py
           python3 scripts/test_voice_launchers.py
-          python3 scripts/test_launcher_runners.py
+          # The voice window (1.3.606): the controller asks a running cell what its runner answers, and the
+          # board's window records a wav, keeps the talk and shows the answer's time.
+          python3 scripts/test_js_voice_talk.py
           python3 scripts/check_cell_health_contract.py
           # Правило, потерявшее и код и ссылку, — потерянный инцидент.
           python3 scripts/check_why_refs.py
@@ -355,7 +276,6 @@ jobs:
           # mirrored, so the public tree has no snapshots to compare against.
           # Skip there, out loud; in a tree that has the directory the test
           # stays as strict as before (missing snapshots are a failure).
-          if [ -d tests/golden ]; then python3 scripts/test_golden.py; else echo "golden: skipped — no tests/golden/ in this tree (not mirrored)"; fi
           python3 scripts/test_guards_fail.py
 
       - name: JS syntax (ES modules)

@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"peer": "10.9.9.5", "forwarded": "10.0.0.9", "real_ip": "10.0.0.8", "sender": "10.9.9.5", "why": "only a proxy on this host is believed"},
+    {"peer": "127.0.0.1", "forwarded": "10.0.0.9", "real_ip": null, "sender": "10.0.0.9"},
+    {"peer": "127.0.0.1", "forwarded": "6.6.6.6, 10.0.0.9", "real_ip": "10.0.0.1", "sender": "10.0.0.9", "why": "the last entry is the one the proxy appended"},
+    {"peer": "127.0.0.1", "forwarded": "10.0.0.9, ", "real_ip": null, "sender": "10.0.0.9"},
+    {"peer": "127.0.0.1", "forwarded": null, "real_ip": " 10.0.0.8 ", "sender": "10.0.0.8"},
+    {"peer": "127.0.0.1", "forwarded": "not an address", "real_ip": "10.0.0.8", "sender": "127.0.0.1", "why": "an address that does not read is no address, and the peer stays"},
+    {"peer": "127.0.0.1", "forwarded": null, "real_ip": null, "sender": "127.0.0.1"},
+    {"peer": "::1", "forwarded": "2001:db8::1", "real_ip": null, "sender": "2001:db8::1"},
+    {"peer": "::ffff:127.0.0.1", "forwarded": "10.0.0.9", "real_ip": null, "sender": "10.0.0.9"},
+    {"peer": "", "forwarded": "10.0.0.9", "real_ip": null, "sender": ""}
+  ]
+}

@@ -1,0 +1,5 @@
+# A test may stop where it found something wrong; the code it tests may not.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

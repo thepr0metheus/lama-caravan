@@ -15,6 +15,9 @@ let _choice = null;
 // in the order the dialog lists them. Reset by every dialog that opens, read
 // only by a "confirm-checks" settle — as _choice is.
 let _checks = null;
+// The boxes of a "confirm-fields" dialog, by key, or null for any other dialog: reset by every dialog that opens, read only by a
+// "confirm-fields" settle — as _choice is.
+let _fields = null;
 // The words a "confirm-typed" dialog waits for, or null for any other dialog. Reset by every dialog that
 // opens, read by the box's typing, by Enter and by the settle itself: the gate is in one place, so a click, a key
 // or a call of `ui.pendingConfirm` cannot get past it.
@@ -28,6 +31,7 @@ function openDialog(message, opts, mode) {
     _mode = mode;
     _choice = null;
     _checks = null;
+    _fields = null;
     _must = mode === "confirm-typed" ? String(opts.must ?? "") : null;
     // A prompt asks for text; a "confirm-choice" offers choices instead.
     const asks = mode === "prompt";
@@ -42,6 +46,7 @@ function openDialog(message, opts, mode) {
     if (meta) { meta.hidden = true; meta.innerHTML = ""; }
     if (meta && mode === "confirm-choice") renderChoices(meta, opts);
     if (meta && mode === "confirm-checks") renderChecks(meta, opts);
+    if (meta && mode === "confirm-fields") renderFields(meta, opts);
     const path = $("confirmPath");
     if (path) path.textContent = opts.detail || "";
     const input = $("confirmInput");
@@ -102,7 +107,9 @@ function openDialog(message, opts, mode) {
     // Move focus into the dialog: the input for prompts, Cancel for dangerous
     // confirms (safe default), the confirm button otherwise.
     requestAnimationFrame(() => {
-      if (asks || _must !== null) { input.focus(); input.select(); }
+      const field = _fields ? Object.values(_fields)[0] : null;
+      if (field) field.focus();
+      else if (asks || _must !== null) { input.focus(); input.select(); }
       else if (dlg.dataset.tone === "danger") $("confirmCancel").focus();
       else btn.focus();
     });
@@ -163,6 +170,33 @@ function renderChecks(meta, opts) {
   });
 }
 
+// The boxes of a "confirm-fields" dialog: a few words or numbers asked with the question, each under its label — where a machine's cache
+// is to be and how much it keeps, asked with the question that turns it on (the owner, 2026-11-03: "show such a window when turning on,
+// and let the folder and the limits be set in it"). opts.fields: [{key, label, value, placeholder, kind: "text" | "number", suffix}].
+// Enter in a box confirms, as it does in a prompt.
+function renderFields(meta, opts) {
+  const fields = (Array.isArray(opts.fields) ? opts.fields : []).filter((f) => f && f.key);
+  if (!fields.length) return;
+  meta.hidden = false;
+  meta.innerHTML = `<div class="dlg-fields">${fields.map((f) => {
+    const key = escapeHtml(String(f.key));
+    const number = f.kind === "number";
+    return `<label class="dlg-field"><span class="dlg-field-label">${escapeHtml(f.label || "")}</span>`
+      + `<span class="dlg-field-box"><input type="${number ? "number" : "text"}"${number ? ' min="1" step="1" inputmode="numeric"' : ' spellcheck="false" autocomplete="off"'}`
+      + ` data-field="${key}" data-t="confirm-field" data-t-id="${key}" value="${escapeHtml(String(f.value ?? ""))}" placeholder="${escapeHtml(f.placeholder || "")}">`
+      + `${f.suffix ? `<span class="dlg-field-suffix">${escapeHtml(f.suffix)}</span>` : ""}</span></label>`;
+  }).join("")}</div>`;
+  _fields = Object.fromEntries([...meta.querySelectorAll("[data-field]")].map((box) => [box.dataset.field, box]));
+  Object.values(_fields).forEach((box) => {
+    box.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); settleAppConfirm(true); } };
+  });
+}
+
+// The boxes' words as the dialog settles them, by key, trimmed.
+function fieldsValue() {
+  return Object.fromEntries(Object.entries(_fields || {}).map(([key, box]) => [key, String(box.value ?? "").trim()]));
+}
+
 // The ticks as the dialog settles them: "all", or the values ticked in the dialog's order.
 function checksValue() {
   if (!_checks) return [];
@@ -216,6 +250,12 @@ export function appConfirmChoice(message, opts = {}) {
   return openDialog(message, opts, "confirm-choice");
 }
 
+// A confirm that asks a few words or numbers with it (renderFields): opts.fields. Resolves {key: words} — each box's words, trimmed — or
+// null on cancel.
+export function appConfirmFields(message, opts = {}) {
+  return openDialog(message, opts, "confirm-fields");
+}
+
 // Resolve the pending dialog (ok=true → confirmed / input submitted). Returns
 // whether one was pending — closeConfirmModal calls this first so Cancel/
 // Escape/overlay-click resolve the promise instead of leaving it hanging.
@@ -228,9 +268,11 @@ export function settleAppConfirm(ok) {
   const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null)
       : _mode === "confirm-choice" ? (ok ? _choice : null)
       : _mode === "confirm-checks" ? (ok ? checksValue() : null)
+      : _mode === "confirm-fields" ? (ok ? fieldsValue() : null)
       : !!ok;
   _mode = "confirm";
   _must = null;
+  _fields = null;
   $("confirmOverlay").hidden = true;
   $("confirmInput").hidden = true;
   $("confirmDelete").disabled = false;

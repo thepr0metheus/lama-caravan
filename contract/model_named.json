@@ -1,0 +1,91 @@
+{
+ "cases": [
+  {
+   "why": "another name is replaced",
+   "body": "{\"model\":\"pool\",\"messages\":[1]}",
+   "model": "real",
+   "becomes": {
+    "model": "real",
+    "messages": [
+     1
+    ]
+   }
+  },
+  {
+   "why": "a body that names none gets one",
+   "body": "{\"messages\":[1]}",
+   "model": "real",
+   "becomes": {
+    "messages": [
+     1
+    ],
+    "model": "real"
+   }
+  },
+  {
+   "why": "a name that is not text is replaced",
+   "body": "{\"model\":5}",
+   "model": "real",
+   "becomes": {
+    "model": "real"
+   }
+  },
+  {
+   "why": "a null name is replaced",
+   "body": "{\"model\":null}",
+   "model": "real",
+   "becomes": {
+    "model": "real"
+   }
+  },
+  {
+   "why": "letters past ASCII stay what they are",
+   "body": "{\"model\":\"пул\",\"text\":\"привет\"}",
+   "model": "модель",
+   "becomes": {
+    "model": "модель",
+    "text": "привет"
+   }
+  },
+  {
+   "why": "the very name: the same bytes, spaces and all",
+   "body": "{ \"model\" : \"real\" }",
+   "model": "real"
+  },
+  {
+   "why": "no model to name: the same bytes",
+   "body": "{ \"model\" : \"pool\" }",
+   "model": ""
+  },
+  {
+   "why": "a list is no object: the same bytes",
+   "body": "[ {\"model\":\"pool\"} ]",
+   "model": "real"
+  },
+  {
+   "why": "not JSON: the same bytes",
+   "body": "not json",
+   "model": "real"
+  },
+  {
+   "why": "no body: nothing",
+   "body": "",
+   "model": "real"
+  },
+  {
+   "why": "a form that does not read: the same bytes",
+   "body": "not a form",
+   "model": "real",
+   "type": "multipart/form-data; boundary=x"
+  },
+  {
+   "why": "the type says it: a JSON body of another type is still named",
+   "body": "{\"model\":\"pool\"}",
+   "model": "real",
+   "type": "text/plain",
+   "becomes": {
+    "model": "real"
+   }
+  }
+ ]
+}

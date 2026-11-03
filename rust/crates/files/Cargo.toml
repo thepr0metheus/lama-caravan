@@ -1,0 +1,15 @@
+[package]
+name = "files"
+description = "The caravan's files: the settings it reads, the journal and the state it writes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+os.workspace = true
+rules.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

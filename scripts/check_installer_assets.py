@@ -7,7 +7,7 @@ and an installer that copies only the server produces a cell that starts, fails
 on ImportError, and looks to the board like a cell that "did not come up",
 with the reason on the client's journal where nobody is reading.
 
-Nothing else catches this. The controller pushes RUNNER_ASSETS in full when it
+Nothing else catches this. The controller pushes a runner's files in full when it
 starts a cell, so the fleet keeps working while the manual installers are
 broken; the break shows up the day someone provisions a new host.
 
@@ -21,7 +21,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin.cell_assets import RUNNER_ASSETS  # noqa: E402
+#: What each runner's cell is handed, as the program lists it: `("runner", &["run_x.sh", "cell_base.py", "x_server.py"])`.
+RUNNER_ASSETS = {runner: re.findall(r'"([^"]+)"', files) for runner, files in re.findall(
+    r'\("([a-z0-9-]+)", &\[([^\]]*)\]\)', (ROOT / "rust/crates/admin/src/fleet/cell_assets.rs").read_text(encoding="utf-8"))}
 
 
 def ships(text, name):

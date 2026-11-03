@@ -23,30 +23,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from caravan.admin.runners import RUNNERS, cell_model_ref  # noqa: E402
-from caravan.admin.config_builder import CONFIG_FIELDS     # noqa: E402
-from caravan.domain.runner import REGISTRY                 # noqa: E402
+from _contract import Contract  # noqa: E402
+from _rust_source import RustSource  # noqa: E402
 
-
-def declared(runner, attr):
-    """Whether this runner's own class body sets the attribute.
-
-    Not `hasattr`: every runner has `model_field`, because the base defines it.
-    The question is whether THIS runner decided.
-    """
-    return any(attr in vars(cls) for cls in type(runner).__mro__[:-2])
+RUNNERS = Contract.table("controller")["runners"]
+CONFIG_FIELDS = RustSource.words("admin/src/config/fields.rs", "ALL")
 
 
 def main():
     errors = []
-    for runner in REGISTRY:
-        for attr, key in (("model_field", "modelField"),
-                          ("shared_picker", "sharedPicker")):
-            if not declared(runner, attr):
-                errors.append(
-                    f"runner {runner.id} does not declare {attr} — it inherits the base's\n"
-                    f"        answer, which is indistinguishable from having decided it.\n"
-                    f"        Say it in the class body, even when the answer is None.")
     for row in RUNNERS:
         rid = row["id"]
         if "modelField" not in row:
@@ -69,13 +54,6 @@ def main():
         if field not in CONFIG_FIELDS:
             errors.append(f"runner {rid} names modelField {field}, which is not a CONFIG_FIELDS entry")
             continue
-        # And the lookup must actually reach it: a runner id the dispatcher does
-        # not recognise falls back to MODEL_FILE, silently.
-        probe = {"RUNNER": rid, "MODEL_FILE": "WRONG"}
-        probe[field] = "SENTINEL"      # set last: for llama, field IS MODEL_FILE
-        got = cell_model_ref(probe)
-        if got != "SENTINEL":
-            errors.append(f"runner {rid}: cell_model_ref returned {got!r}, not its own {field}")
 
     if errors:
         print("runner model fields: FAILED", file=sys.stderr)

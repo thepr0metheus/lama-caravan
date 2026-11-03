@@ -39,7 +39,9 @@ PIN = "3428dfd95309a7f3c84fd93259ded0f810d1ff91"
 DEPS = ("numpy<2.2", "safetensors<0.5", "huggingface-hub<0.25", "einops==0.7.0", "sentencepiece==0.2.0", "sphn==0.1.9", "aiohttp<3.11", "tqdm")
 # gzip: GNU tar runs it to unpack a .tgz (bsdtar, the macOS one, does it itself, which hid the want of it until the GitLab runner).
 # tr, sort, paste: the architectures of the machine's cards, run through nvidia-smi's compute capabilities (run_minicpm_omni.sh).
-UTILITIES = ("sed", "tar", "gzip", "rm", "mkdir", "cp", "chmod", "dirname", "touch", "cat", "env", "ln", "find", "wc", "tr", "sort", "paste")
+# head, awk: a card's memory read through nvidia-smi and turned into the shares of Qwen3-TTS's stages (run_vllm_omni.sh).
+UTILITIES = ("sed", "tar", "gzip", "rm", "mkdir", "cp", "chmod", "dirname", "touch", "cat", "env", "ln", "find", "wc", "tr", "sort", "paste",
+             "head", "awk")
 
 _fail = []
 
@@ -109,7 +111,7 @@ VLLM = r'''#!/bin/bash
 {
   echo "VLLM $*"
   echo "CWD $PWD"
-  echo "ENV PATH0=${PATH%%:*} SPAWN=${VLLM_WORKER_MULTIPROC_METHOD-<unset>} MAX_JOBS=${MAX_JOBS-<unset>} ALLOC=${PYTORCH_CUDA_ALLOC_CONF-<unset>}"
+  echo "ENV PATH0=${PATH%%:*} SPAWN=${VLLM_WORKER_MULTIPROC_METHOD-<unset>} MAX_JOBS=${MAX_JOBS-<unset>} ALLOC=${PYTORCH_CUDA_ALLOC_CONF-<unset>} ANY_NAME=${VLLM_SKIP_MODEL_NAME_VALIDATION-<unset>}"
 } >> "$LOG"
 '''
 
@@ -123,6 +125,19 @@ fi
 '''
 NVIDIA_SMI = r'''#!/bin/bash
 echo "${STUB_CAP:-12.0}"
+'''
+# nvidia-smi asked one card's memory: $STUB_CARDS is "<index>:<MiB> ...", as the machine of the fleet has them (an RTX
+# 3090 and an RTX 5090). A card it does not have is an error, as it is for the real tool. Each call is written to
+# $LOG.smi, so the launcher's other calls read as before.
+NVIDIA_SMI_MEMORY = r'''#!/bin/bash
+echo "$*" >> "$LOG.smi"
+card=""; prev=""
+for a in "$@"; do [ "$prev" = "-i" ] && card="$a"; prev="$a"; done
+for pair in $STUB_CARDS; do
+  if [ "${pair%%:*}" = "$card" ]; then echo "${pair#*:}"; exit 0; fi
+done
+echo "No devices were found" >&2
+exit 6
 '''
 OMNI_SERVER = r'''#!/bin/bash
 {
@@ -481,6 +496,13 @@ def vllm_omni_model(box, name, files):
     return model
 
 
+def deploy_file(omni, name):
+    """A deploy file the launcher wrote, or "" when it wrote none by that name: a check that reads it goes red, and the
+    run goes on to the checks after it."""
+    path = omni / f"{name}.yaml"
+    return path.read_text() if path.is_file() else ""
+
+
 def budgets(yaml_text):
     import re
     return [float(x) for x in re.findall(r"gpu_memory_utilization:\s*([0-9.]+)", yaml_text)]
@@ -518,7 +540,7 @@ def vllm_omni():
                         f"uv pip install --python {venv}/bin/python vllm==0.30.0 vllm-omni==0.30.0"],
               "the venv, then vLLM and vLLM-Omni at the SAME version (one release): " + repr(calls))
         check((venv / ".installed-qwen3-omni").is_file(), "the venv is marked done for its recipe when the install is done")
-        text = (omni / "qwen3-omni.yaml").read_text()
+        text = deploy_file(omni, "qwen3-omni-22031")
         check(budgets(text) == [0.655, 0.225, 0.04] and sum(budgets(text)) < 0.95,
               "qwen3-omni: three stages, budgets add up to less than the card: " + repr(budgets(text)))
         check(text.count('devices: "0"') == 3, "qwen3-omni: every stage on device 0 (the default files want two cards)")
@@ -526,22 +548,23 @@ def vllm_omni():
               "qwen3-omni: Marlin for the thinker's experts, chunks streamed, the first frame after one codec frame")
 
         # Second start: nothing installed again, the deploy file is written again from the launcher.
-        (omni / "qwen3-omni.yaml").write_text("# an old copy\n")
+        (omni / "qwen3-omni-22031.yaml").write_text("# an old copy\n")
         box.forget()
         r = box.run(launcher, "22031", "qwen3-omni", str(qwen), "--install-only")
         check(r.returncode == 0 and box.calls() == [], "the second start installs nothing: " + repr(box.calls()))
-        check((omni / "qwen3-omni.yaml").read_text() == text, "the deploy file is rewritten at every start: it cannot be older than the launcher")
+        check(deploy_file(omni, "qwen3-omni-22031") == text, "the deploy file is rewritten at every start: it cannot be older than the launcher")
 
         # Serving.
         box.forget()
         r = box.run(launcher, "22031", "qwen3-omni", str(qwen))
         calls = box.calls()
         want = (f"VLLM serve {qwen} --omni --served-model-name qwen3-omni --host 0.0.0.0 --port 22031 --stage-init-timeout 1800 --init-timeout 2400 "
-                f"--trust-remote-code --deploy-config {omni}/qwen3-omni.yaml")
+                f"--trust-remote-code --deploy-config {omni}/qwen3-omni-22031.yaml")
         check(r.returncode == 0 and calls[:1] == [want], "serving: the library's folder, the name clients ask for, the port, the deploy file: " + repr(calls[:1]))
         check(f"CWD {omni}" in calls, "the engine runs in the launcher's own folder")
-        check(f"ENV PATH0={venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=expandable_segments:True" in calls,
-              "venv's bin FIRST on the PATH (FlashInfer needs its ninja), spawn, 4 compile jobs, expandable segments: " + repr(calls[-1:]))
+        check(f"ENV PATH0={venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=expandable_segments:True ANY_NAME=1" in calls,
+              "venv's bin FIRST on the PATH (FlashInfer needs its ninja), spawn, 4 compile jobs, expandable segments, and any name a "
+              "client gives the model taken for it (a pool's name): " + repr(calls[-1:]))
         box.forget()
         box.run(launcher, "22031", "qwen3-omni", str(qwen), env={"MAX_JOBS": "12"})
         check(any("MAX_JOBS=12" in c for c in box.calls()), "$MAX_JOBS from the cell's environment is kept")
@@ -574,7 +597,7 @@ def vllm_omni():
         check(calls == [f"uv venv --python 3.12 --seed {step_venv}",
                         f"uv pip install --python {step_venv}/bin/python vllm==0.30.0 vllm-omni==0.30.0 step-audio2==1.0.0"],
               "step-audio2: its own venv, and the one package more (its token2wav code): " + repr(calls))
-        text = (omni / "step-audio2.yaml").read_text()
+        text = deploy_file(omni, "step-audio2-22032")
         check(budgets(text) == [0.6, 0.25] and text.count('devices: "0"') == 2 and "StepAudio2Token2WavForConditionalGeneration" in text,
               "step-audio2: the thinker and the Token2Wav stage on device 0, budgets " + repr(budgets(text)))
         box.forget()
@@ -591,9 +614,9 @@ def vllm_omni():
         r = box.run(launcher, "22032", "step-audio2", str(step))
         calls = box.calls()
         check(calls[:1] == [f"VLLM serve {step} --omni --served-model-name stepfun-ai/Step-Audio-2-mini --host 0.0.0.0 --port 22032 "
-                            f"--stage-init-timeout 1800 --init-timeout 2400 --trust-remote-code --enforce-eager --deploy-config {omni}/step-audio2.yaml"],
+                            f"--stage-init-timeout 1800 --init-timeout 2400 --trust-remote-code --enforce-eager --deploy-config {omni}/step-audio2-22032.yaml"],
               "step-audio2 serving: eager mode on, the model folder is the library's: " + repr(calls[:1]))
-        check(f"ENV PATH0={step_venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=<unset>" in calls,
+        check(f"ENV PATH0={step_venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=<unset> ANY_NAME=1" in calls,
               "step-audio2: no allocator setting that was not proven for it")
 
         # The folder the /hf page leaves out: linked together and fetched at the commit the recipe was proven on.
@@ -612,6 +635,87 @@ def vllm_omni():
         box.forget()
         box.run(launcher, "22032", "step-audio2", str(step))
         check(not any(c.startswith("FETCH") for c in box.calls()), "the second start does not fetch again")
+    finally:
+        box.close()
+
+
+def qwen3_tts():
+    """The Qwen3-TTS recipe: its stages are given MiB, worked out into shares of the card the cell runs on."""
+    launcher = CELLS / "run_vllm_omni.sh"
+    box = Sandbox()
+    try:
+        omni = box.home / "omni"
+        tts = vllm_omni_model(box, "tts", ["config.json", "model.safetensors"])
+        venv = box.home / "venvs" / "omni-qwen3-tts"
+        cards = {"STUB_CARDS": "0:24576 1:32607"}
+        smi = Path(str(box.log) + ".smi")
+        box.tool("nvidia-smi", NVIDIA_SMI_MEMORY)
+
+        # Card 0 when the cell is pinned to none: 6144 and 5120 MiB of 24576.
+        r = box.run(launcher, "22033", "qwen3-tts", str(tts), "--install-only", env=cards)
+        check(r.returncode == 0 and box.calls() == [f"uv venv --python 3.12 --seed {venv}",
+                                                     f"uv pip install --python {venv}/bin/python vllm==0.30.0 vllm-omni==0.30.0"]
+              and (venv / ".installed-qwen3-tts").is_file(),
+              "qwen3-tts: a venv of its own, vLLM and vLLM-Omni of one release, marked done: " + repr(box.calls()))
+        text = deploy_file(omni, "qwen3-tts-22033")
+        check(budgets(text) == [0.25, 0.104] and "gpu_memory_utilization: 0.250" in text,
+              "an unpinned cell: the shares of card 0 (24576 MiB) — 6144 and 2560 MiB: " + repr(budgets(text)))
+        check(smi.read_text().splitlines() == ["-i 0 --query-gpu=memory.total --format=csv,noheader,nounits"],
+              "nvidia-smi is asked the one card's memory, in MiB without units: " + repr(smi.read_text()))
+        check(text.count('devices: "0"') == 2 and text.count("max_num_seqs: 4") == 2 and "model_runner: v2" in text
+              and "to_stage_1: connector_of_shared_memory" in text and "from_stage_0: connector_of_shared_memory" in text
+              and "min_tokens: 2" in text and "max_model_len: 65536" in text,
+              "two stages on device 0 joined by shared memory, four requests at once, vLLM-Omni's own talker settings")
+        check(text != "" and "$" not in text, "negative: the deploy file has no shell variable left unexpanded (and there is a file)")
+
+        # The card the cell is pinned to: the shares are of THAT card, read in the board's numbering.
+        for pin in ("1", "1,0"):
+            smi.write_text("")
+            box.forget()
+            r = box.run(launcher, "22033", "qwen3-tts", str(tts), "--install-only", env={**cards, "CUDA_VISIBLE_DEVICES": pin})
+            text = deploy_file(omni, "qwen3-tts-22033")
+            check(r.returncode == 0 and budgets(text) == [0.188, 0.079] and smi.read_text().startswith("-i 1 "),
+                  f"CUDA_VISIBLE_DEVICES={pin}: the shares of card 1 (32607 MiB), not of card 0: " + repr(budgets(text)))
+
+        # Two cells of the recipe on two cards: a file each, by port, each with its card's shares — one file for the
+        # recipe gave a cell starting beside another the other card's budget (found live, 2026-10-22).
+        box.forget()
+        box.run(launcher, "22034", "qwen3-tts", str(tts), "--install-only", env={**cards, "CUDA_VISIBLE_DEVICES": "0"})
+        box.run(launcher, "22035", "qwen3-tts", str(tts), "--install-only", env={**cards, "CUDA_VISIBLE_DEVICES": "1"})
+        check(budgets(deploy_file(omni, "qwen3-tts-22034")) == [0.25, 0.104]
+              and budgets(deploy_file(omni, "qwen3-tts-22035")) == [0.188, 0.079],
+              "two cells of one recipe, on cards 0 and 1: two deploy files by port, each with its own card's shares")
+        check(not (omni / "qwen3-tts.yaml").exists(), "negative: no file of the recipe alone, which a second cell would rewrite")
+
+        # Refusals before anything is installed: each from a machine where nothing is.
+        for env, words in (({"STUB_CARDS": "0:8192"}, "card 0 has 8192 MiB, and the two stages of Qwen3-TTS need 8704"),
+                           ({**cards, "CUDA_VISIBLE_DEVICES": "5"}, "cannot read the memory of card 5 with nvidia-smi"),
+                           ({"STUB_CARDS": "0:lots"}, "cannot read the memory of card 0 with nvidia-smi")):
+            shutil.rmtree(venv, ignore_errors=True)
+            box.forget()
+            r = box.run(launcher, "22033", "qwen3-tts", str(tts), "--install-only", env=env)
+            check(r.returncode == 1 and words in r.stderr and box.calls() == [] and not venv.exists(),
+                  f"negative: {env} — exit 1, «{words}», nothing installed ({r.stderr.strip()[-120:]})")
+        box.drop("nvidia-smi")
+        box.forget()
+        r = box.run(launcher, "22033", "qwen3-tts", str(tts), "--install-only", env=cards)
+        check(r.returncode == 1 and "cannot read the memory of card 0" in r.stderr and box.calls() == [],
+              "negative: no nvidia-smi on the machine: the same refusal, no share guessed")
+        box.tool("nvidia-smi", NVIDIA_SMI_MEMORY)
+        box.forget()
+        r = box.run(launcher, "22033", "qwen3-tts", str(box.dir / "models" / "nowhere"), env=cards)
+        check(r.returncode == 1 and "config.json is missing" in r.stderr and box.calls() == [],
+              "a folder with no checkpoint is refused first, before the card is asked")
+
+        # Serving: the one name clients ask for, whatever the checkpoint; no allocator setting it was not proven with.
+        box.forget()
+        r = box.run(launcher, "22033", "qwen3-tts", str(tts), env=cards)
+        calls = [c for c in box.calls() if not c.startswith("uv ")]
+        check(r.returncode == 0 and calls[:1] == [f"VLLM serve {tts} --omni --served-model-name qwen3-tts --host 0.0.0.0 --port 22033 "
+                                                   f"--stage-init-timeout 1800 --init-timeout 2400 --trust-remote-code --deploy-config {omni}/qwen3-tts-22033.yaml"],
+              "serving: the library's folder, the name `qwen3-tts`, the port, the deploy file: " + repr(calls[:1]))
+        check(f"ENV PATH0={venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=<unset> ANY_NAME=1" in calls,
+              "qwen3-tts: no allocator setting; any name of the model taken for it: " + repr(calls[-1:]))
     finally:
         box.close()
 
@@ -831,6 +935,7 @@ def main():
     personaplex_without_uv()
     lfm_audio()
     vllm_omni()
+    qwen3_tts()
     minicpm_omni()
     real_files()
     print()

@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("polling,remote-cells,topology-render,dialogs,topology-dnd,canvas,charts,cables,history,favorites,"
          "config-locator,system-panels,onboarding,onboarding-tours,dialog-llamas,models-page,system-page,memory,"
@@ -90,7 +90,7 @@ const reset = () => {
   m.closeCloudProviderModal(); m.ACCOUNT_RETURN.after = null; m.POOL_STEPS.form = null;
   m.POOL_CARDS.open.clear(); m.POOL_CARDS.shown.clear(); if (m.POOL_CARDS.carry) m.POOL_CARDS.carry.phase = "idle";
   us.switchDrag.active = false; us.switchDrag.deferred = false;
-  us.subscriptionUsageCache.clear(); us.apiCostsCache.clear(); us.openrouterLimitsCache.clear();
+  us.subscriptionUsageCache.clear(); us.apiCostsCache.clear(); us.openrouterLimitsCache.clear(); us.deepseekBalanceCache.clear();
   st.ui._lastCloudProvidersKey = "";
   globalThis.__fields = { toast: toastEl(), topologyCloudProviders: laneEl() }; globalThis.__q = {};
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__opened.length = 0; globalThis.__timers.length = 0;
@@ -133,10 +133,10 @@ PINS = [
      "пресет по типу; неизвестный тип — null, не {}"),
     # 2026-10-17, the owner: the Anthropic block must look good. Its sign was a triangle with a bar: a warning.
     ("provider_icons_are_distinct", '',
-     '(() => { const icons = ["openai-subscription", "openai", "anthropic", "openrouter", "ollama", "custom"].map((k) => m.cloudPickerTileIcon(k)); const a = m.cloudPickerTileIcon("anthropic");'
+     '(() => { const icons = ["openai-subscription", "kimi-code", "glm-coding", "minimax-plan", "qwen-token", "opencode-go", "openai", "anthropic", "deepseek", "openrouter", "ollama", "custom"].map((k) => m.cloudPickerTileIcon(k)); const a = m.cloudPickerTileIcon("anthropic");'
      ' return [new Set(icons).size, icons.every((x) => x.startsWith("<svg") && x.endsWith("</svg>")), a.includes("M12 2L2 19.5h20L12 2z"), (a.match(/M/g) || []).length, m.cloudPickerTileIcon("nope") === m.cloudPickerTileIcon("")]; })()',
-     '[6,true,false,4,true]',
-     "у шести провайдеров шесть разных знаков; знак Anthropic — искра из четырёх лучей (4 штриха), а не треугольник с чертой, который читался предупреждением; negative: неизвестный провайдер — общий знак"),
+     '[12,true,false,4,true]',
+     "у двенадцати провайдеров двенадцать разных знаков; знак Anthropic — искра из четырёх лучей (4 штриха), а не треугольник с чертой, который читался предупреждением; negative: неизвестный провайдер — общий знак"),
     # ── account window: opening ──
     ("select_type_fills_form_from_preset", '',
      '(() => { m.selectCloudProviderType("openai-subscription"); const f = st.ui.topologyCloudForm; return [f.isNew, f.name, f.baseUrl, f.authMode, f.oauthConfig.clientId, st.ui.topologyCloudModalOpen, st.ui.topologyCloudPickerOpen]; })()',
@@ -355,6 +355,66 @@ PINS = [
      ' return [paths, fold("or").includes("data-or-limits-refresh"), fold("api").includes("data-api-costs-refresh"), fold("ollama").includes("sub-usage-head")]; })()',
      '[["/api/cloud-accounts/api-costs?id=api","/api/cloud-accounts/openrouter-limits?id=or"],true,true,false]',
      "шаг учётки с ключом: под сгибом то, что говорит провайдер, — OpenRouter свои лимиты ключа, OpenAI API свой расход; negative: у остальных (Ollama) ничего не спрашивается"),
+    ("deepseek_says_its_balance",
+     '',
+     'await (async () => { liveLane(); st.setTopology(TOPO({ cloudAccounts: [...ACCOUNTS(), { id: "ds", type: "deepseek", name: "DS", baseUrl: "https://api.deepseek.com", hasCredential: true, usedIn: [] },'
+     ' { id: "hand", type: "custom", name: "Hand", baseUrl: "https://api.deepseek.com/", hasCredential: true, usedIn: [] }, { id: "dry", type: "deepseek", name: "Dry", baseUrl: "https://api.deepseek.com", hasCredential: false, usedIn: [] }],'
+     ' pools: [{ ...POOLS()[1], steps: [STEP("ds", "ds", "deepseek-flash"), STEP("hand", "hand", "m2"), STEP("dry", "dry", "m3")] }] }));'
+     ' await drawn(); const paths = calls().map((c) => c.path).filter((p) => p.includes("deepseek-balance")).sort(); const h = lane();'
+     ' const fold = (id) => { const s = stepOf(h, "night", id); return s.slice(s.indexOf(`class="pool-step-more"`)); };'
+     ' return [paths, fold("ds").includes("data-ds-balance-refresh"), fold("hand").includes("data-ds-balance-refresh"), fold("dry").includes("data-ds-balance-refresh")]; })()',
+     '[["/api/cloud-accounts/deepseek-balance?id=ds","/api/cloud-accounts/deepseek-balance?id=hand"],true,true,false]',
+     "учётка DeepSeek говорит свой баланс, и учётка «свой адрес», стоящая на его адресе, тоже; negative: без ключа его не спрашивают и не рисуют"),
+    ("deepseek_reading_moves_the_lane",
+     '',
+     'await (async () => { liveLane(); st.setTopology(TOPO({ cloudAccounts: [...ACCOUNTS(), { id: "ds", type: "deepseek", name: "DS", hasCredential: false, usedIn: [] }] })); await drawn(); m.renderTopologyCloudProviders(); const before = st.ui._lastCloudProvidersKey;'
+     ' m.renderTopologyCloudProviders(); const same = st.ui._lastCloudProvidersKey === before; us.deepseekBalanceCache.set("ds", { data: { ok: true, balances: [] }, fetchedAt: 123 }); m.renderTopologyCloudProviders();'
+     ' return [same, st.ui._lastCloudProvidersKey !== before]; })()',
+     '[true,true]',
+     "пришедший баланс DeepSeek перерисовывает полосу; negative: без нового чтения ключ полосы прежний"),
+    ("deepseek_new_key_forgets_the_balance",
+     'const T = TOPO(); st.setTopology({ ...T, cloudProviderPresets: [...(T.cloudProviderPresets || []), { type: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", model: "deepseek-flash", authModes: ["apiKey"] }] });'
+     ' m.openCloudPicker(() => {}); m.selectCloudProviderType("deepseek"); st.ui.topologyCloudForm.name = "DS"; st.ui.topologyCloudForm.apiKey = "sk-x"; globalThis.__fetchReply["/api/cloud-accounts/key"] = { ok: true };',
+     'await (async () => { us.deepseekBalanceCache.set("ds", { data: { ok: false, authError: true }, fetchedAt: 123 }); await m.saveCloudAccount(); const c = calls(); return [c[0].body.account.type, c[0].body.account.baseUrl, c[0].body.account.authMode, us.deepseekBalanceCache.has("ds")]; })()',
+     '["deepseek","https://api.deepseek.com","apiKey",false]',
+     "учётка DeepSeek: адрес из пресета, вход по ключу; новый ключ забывает прочитанный баланс: «ключ отвергнут» старого ключа не остаётся на экране"),
+    ("plans_stand_in_a_group_of_their_own",
+     '',
+     '(() => { st.setTopology(TOPO({ cloudProviderPresets: ["openai-subscription", "kimi-code", "glm-coding", "minimax-plan", "qwen-token", "opencode-go", "openai", "deepseek"].map((type) => ({ type, name: type })), boardProviders: [] }));'
+     ' st.ui.topologyCloudPickerOpen = true; const h = m.renderTopologyCloudPicker(); st.ui.topologyCloudPickerOpen = false;'
+     ' const parts = h.split(`class="cloud-picker-group"`).slice(1).map((p) => [p.slice(1, p.indexOf("</p>")), [...p.matchAll(/data-pick-type="([^"]+)"/g)].map((x) => x[1])]);'
+     ' return [parts, [en.cloudPickerSubscription, en.cloudPickerPlan, en.cloudPickerApiKey]]; })()',
+     '[[["Subscription — sign in, no API key",["openai-subscription"]],["Subscription with a key — a flat monthly price",["kimi-code","glm-coding","minimax-plan","qwen-token","opencode-go"]],["API key — pay per use",["openai","deepseek"]]],'
+     '["Subscription — sign in, no API key","Subscription with a key — a flat monthly price","API key — pay per use"]]',
+     "окно выбора: вход в аккаунт, подписки с ключом, оплата за токены — три группы; negative: подписка с ключом не под заголовком «войти, без ключа»"),
+    ("a_plans_terms_come_before_its_key",
+     'const T = TOPO(); st.setTopology({ ...T, cloudProviderPresets: [{ type: "glm-coding", name: "GLM", baseUrl: "https://api.z.ai/api/coding/paas/v4", authModes: ["apiKey"] }, { type: "qwen-token", name: "Qwen", baseUrl: "https://token-plan.example/v1", authModes: ["apiKey"] }, { type: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", authModes: ["apiKey"] }] });',
+     '(() => { const window = (type) => { m.openCloudPicker(() => {}); m.selectCloudProviderType(type); const h = m.renderTopologyCloudAccountModal(); m.closeCloudProviderModal(); return h; };'
+     ' const glm = window("glm-coding"), qwen = window("qwen-token"), key = window("openai"); const note = \'data-t="cloud-provider-note"\';'
+     ' return [glm.includes(note) && glm.includes(esc(en.cloudNoteGlm)), glm.indexOf(note) < glm.indexOf(\'data-cloud-field="apiKey"\'), glm.includes(\'href="https://z.ai/manage-apikey/subscription">\'), glm.includes(\'data-cloud-field="baseUrl"\'),'
+     ' qwen.includes(note), qwen.includes(\'data-cloud-field="baseUrl"\'), key.includes(note)]; })()',
+     '[true,true,true,true,true,false,false]',
+     "условия плана и ссылка на его страницу сказаны в окне до ключа; у плана с адресом для Китая адрес можно поправить; negative: у Qwen адрес один, а обычный ключ условий не несёт"),
+    ("a_plan_has_no_dollar_credit",
+     'st.setTopology(TOPO({ cloudAccounts: [...ACCOUNTS(), { id: "kimi", type: "kimi-code", name: "Kimi", baseUrl: "https://api.kimi.ai/coding/v1", authMode: "apiKey", hasCredential: true, credentialKind: "apiKey", keyLast4: "ab12", plan: true, usedIn: [] },'
+     ' { id: "pay", type: "deepseek", name: "Pay", baseUrl: "https://api.deepseek.com", authMode: "apiKey", hasCredential: true, credentialKind: "apiKey", keyLast4: "cd34", plan: false, usedIn: [] }] }));',
+     '(() => { const window = (id) => { m.openCloudAccountModal(id); const h = m.renderTopologyCloudAccountModal(); m.closeCloudProviderModal(); return h; }; const plan = window("kimi"), pay = window("pay");'
+     ' return [plan.includes(\'data-cloud-field="creditUsd"\'), pay.includes(\'data-cloud-field="creditUsd"\'), plan.includes(\'data-t="cloud-provider-note"\'), pay.includes(\'data-t="cloud-provider-note"\')]; })()',
+     '[false,true,true,false]',
+     "у плана цена фиксированная: долларового кредита не спрашиваем, а условия остаются и после ключа; negative: у учётки с оплатой за токены кредит есть, условий плана нет"),
+    ("a_plans_count_is_no_money_spent",
+     'globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { ok: true, spend: { kimi: { total: 9, requests: 3, windowDays: 30 }, pay: { total: 9, requests: 3, windowDays: 30 } } };',
+     'await (async () => { liveLane(); await us.refreshProxySpend(); m.renderTopologyCloudProviders(); const plan = m.POOL_CARDS.spend({ id: "kimi", plan: true }), pay = m.POOL_CARDS.spend({ id: "pay", plan: false });'
+     ' return [plan.includes(esc(en.spendSubscriptionNote)), pay.includes(esc(en.spendSubscriptionNote)), pay.includes("spend-line")]; })()',
+     '[true,false,true]',
+     "счёт плана подписан как у подписки: цена по API, а не деньги, которые ушли; negative: у учётки с оплатой за токены этих слов нет"),
+    ("deepseek_in_the_picker",
+     '',
+     '(() => { const words = [m.CLOUD_PICKER_META.deepseek.group, m.cloudProviderName("deepseek")]; st.setTopology(TOPO({ cloudProviderPresets: [{ type: "openai-subscription", name: "Sub" }, { type: "deepseek", name: "DeepSeek" }], boardProviders: [] }));'
+     ' st.ui.topologyCloudPickerOpen = true; const h = m.renderTopologyCloudPicker(); st.ui.topologyCloudPickerOpen = false; const at = h.indexOf("DeepSeek");'
+     ' return [words, at > 0, h.includes(en.cloudDescDeepseek)]; })()',
+     '[["key","DeepSeek"],true,true]',
+     "DeepSeek — плитка окна выбора, с именем и строкой о том, что это; negative: среди провайдеров по ключу: подписки у него нет"),
     ("lane_without_pools",
      'st.setTopology(TOPO({ pools: [] }));',
      '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes(esc(en.poolNone)), h.includes("data-pool-new"), (h.match(/data-pool-card=/g) || []).length, (h.match(/data-t="pool-loose-account"/g) || []).length]; })()',
@@ -372,9 +432,9 @@ PINS = [
      ' await settle(); globalThis.__fetchCalls.length = 0; let sp = 0;'
      ' const ev = (sel, data) => ({ stopPropagation: () => sp++, target: { closest: (s) => (s === sel ? { dataset: data } : null) } });'
      ' for (const [sel, data] of [["[data-usage-refresh]", { usageRefresh: "openai-subscription" }], ["[data-api-costs-refresh]", { apiCostsRefresh: "ollama" }],'
-     '   ["[data-or-limits-refresh]", { orLimitsRefresh: "bare" }], ["nothing", {}]]) { for (const h of lane.handlers) await h(ev(sel, data)); }'
+     '   ["[data-or-limits-refresh]", { orLimitsRefresh: "bare" }], ["[data-ds-balance-refresh]", { dsBalanceRefresh: "whale" }], ["nothing", {}]]) { for (const h of lane.handlers) await h(ev(sel, data)); }'
      ' await settle(); return [lane.handlers.length, sp, calls().map((c) => c.path)]; })()',
-     '[1,3,["/api/cloud-accounts/subscription-usage?id=openai-subscription","/api/cloud-accounts/api-costs?id=ollama","/api/cloud-accounts/openrouter-limits?id=bare"]]',
+     '[1,4,["/api/cloud-accounts/subscription-usage?id=openai-subscription","/api/cloud-accounts/api-costs?id=ollama","/api/cloud-accounts/openrouter-limits?id=bare","/api/cloud-accounts/deepseek-balance?id=whale"]]',
      "defect-history: три перерисовки — один делегат на лейне, один ↻ после первых чтений — один запрос своего вида (было: делегат на каждой перерисовке, K запросов в chatgpt.com); щелчок мимо кнопок — ничего"),
     ("lane_memoised_by_key", '',
      'await (async () => { m.renderTopologyCloudProviders(); await settle(); m.renderTopologyCloudProviders(); globalThis.__fields.topologyCloudProviders.innerHTML = "WIPED"; m.renderTopologyCloudProviders(); const a = lane();'
@@ -643,9 +703,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

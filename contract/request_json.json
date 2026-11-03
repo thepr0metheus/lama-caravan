@@ -1,0 +1,20 @@
+{
+  "cases": [
+    {"text": "{\"model\": \"m\"}", "reads": true, "model": "m", "why": "plain JSON"},
+    {"text": "{\"model\": \"m\", \"messages\": [{\"role\": \"user\", \"content\": \"cut in half \\ud83d\"}]}", "reads": true, "model": "m", "why": "JavaScript's JSON.stringify writes half of a pair so, a text cut in an emoji"},
+    {"text": "{\"model\": \"m\", \"messages\": [{\"content\": \"\\ude00 the other half\"}]}", "reads": true, "model": "m"},
+    {"text": "{\"model\": \"m\", \"content\": \"\\ud83d\\ude00 a whole one\"}", "reads": true, "model": "m"},
+    {"text": "{\"model\": \"m\", \"temperature\": NaN}", "reads": true, "model": "m", "why": "as-is: only Python reads these as numbers"},
+    {"text": "{\"model\": \"m\", \"a\": Infinity, \"b\": -Infinity}", "reads": true, "model": "m"},
+    {"text": "{\"model\": \"NaN\"}", "reads": true, "model": "NaN", "why": "a word in a string is that word"},
+    {"text": "{\"model\": \"\\\\ud83d\"}", "reads": true, "model": "\\ud83d", "why": "an escaped backslash begins no escape"},
+    {"text": "not json", "reads": false},
+    {"text": "", "reads": false},
+    {"text": "[1]", "reads": false, "why": "no JSON object"},
+    {"text": "\"text\"", "reads": false},
+    {"text": "{\"model\": nan}", "reads": false, "why": "Python's words are these, and no others"},
+    {"text": "{\"model\": \"m\"", "reads": false},
+    {"text": "{\"model\": \"m\u0001\"}", "reads": false, "why": "a raw control letter"},
+    {"text": "{\"model\": \"\\x\"}", "reads": false}
+  ]
+}

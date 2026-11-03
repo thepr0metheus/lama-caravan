@@ -1,7 +1,7 @@
 // Per-card activity/health classes and live runtime panels.
 import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { drawTopologyCables, topologyProxyClass } from "./cables.js";
-import { appConfirm, appPrompt } from "./dialogs.js";
+import { appConfirm } from "./dialogs.js";
 import { drawCanvasConnectors, syncQueueNodesLive } from "./canvas.js";
 import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "./charts.js";
 import { t } from "./i18n.js";
@@ -1110,7 +1110,7 @@ export function correlatedTelemetryLines(item) {
 
 // Paths whose answer is a word about the MODEL, and statuses meaning "I have
 // no such path". The same two lists as the proxy's and the controller's
-// (caravan/common/request_kind.py): the panel must judge the same answers by
+// (rust/crates/rules/src/request_kind.rs): the panel must judge the same answers by
 // the same words, or the board and the log drift apart in front of the operator.
 const INFERENCE_PATH_SUFFIXES = [
   "/chat/completions", "/completions", "/embeddings", "/responses", "/messages",
@@ -1341,15 +1341,15 @@ export function topologyProxyActivity(proxyOrId) {
   return { state: "idle", label: "", title: "" };
 }
 
-// Routing card on the main board: how lively the requests are of the clients cabled to a set and of the
-// old-kind ports that feed it — the livest first, a running request, then a failure, then a recent one. The
+// Routing card on the main board: how lively the requests are of the entry's clients — every one goes on to Routing since
+// 1.3.675, each seeing every pool and every model that runs — and of the old-kind ports that feed it — the livest first, a running request, then a failure, then a recent one. The
 // card's render (routers.js) and the repaint of its classes (refreshTopologyActivityState) read it here: it
 // was drawn at render alone, so an alarm that aged out (topologyAlarmIsOver) left the card red until the
 // next render, with the clients' own cards already calm (found live 2026-10-13, after a test refusal).
 export function topologyRouterActivity(router) {
   const clients = (topology?.proxies || []).filter((p) => String(p.kind || "") === "consumer");
   const ids = new Set((router?.inputs || []).map(String));
-  const feeding = [...clients.filter((c) => c.set), ...(topology?.proxies || []).filter((p) => ids.has(String(p.id)))];
+  const feeding = [...clients, ...(topology?.proxies || []).filter((p) => ids.has(String(p.id)) && String(p.kind || "") !== "consumer")];
   const acts = feeding.map(topologyProxyActivity);
   return acts.find((a) => a.state === "active") || acts.find((a) => a.state === "error")
     || acts.find((a) => a.state === "recent") || { state: "idle", title: "" };
@@ -1563,7 +1563,7 @@ export function routeAddress(route, port) {
 }
 
 // What a port's address says on hover: the address itself or, where the ports have no door
-// (topology.portsReachable === false, caravan/admin/proxy_entry.py), why there is none. The
+// (topology.portsReachable === false, rust/crates/admin/src/proxies/entry_settings.rs), why there is none. The
 // controller then gives no address of its own, and the bare ":23001" read as a short one.
 export function routeAddressTip(route, port) {
   const endpoint = String(route?.endpoint || "").trim();
@@ -1682,7 +1682,7 @@ export function routeModelWindowTip(source, model) {
 // three pills fit one row of the card; the tooltips carry the words. The first two
 // facts about the model come from the proxy's topology row, where the
 // controller computed them by the same rule the proxy applies to /v1/models
-// (caravan/common/context_window.py); the board never re-derives the figure,
+// (rust/crates/rules/src/cell_config.rs); the board never re-derives the figure,
 // so the operator and the client cannot read two different numbers for one
 // port. The limit and the switch are the assignment's own fields.
 export function routeContextLineHtml(client, agent, role, route) {
@@ -1828,21 +1828,6 @@ function closeBindMenu() {
   document.querySelector(".agent-bind-menu")?.remove();
 }
 
-// The port next to primary, for a fallback role, if it's free. The
-// "odd-even" pair was designed to read at a glance, but that only held at
-// the MOMENT the port was created: move primary once, and fallback stayed at
-// the old neighbor, with no way from the UI to tell how to catch up to it.
-export function neighbourPortForFallback(hostId, agentId) {
-  const rows = (topology?.assignments?.[hostId]?.assignments) || [];
-  const row = rows.find((r) => r?.agentId === agentId);
-  const primary = (row?.routes || []).find((r) => (r?.role || "primary") === "primary");
-  const tail = String(primary?.proxyId || "").split(":").pop();
-  if (!/^\d+$/.test(tail || "")) return 0;
-  const candidate = Number(tail) + 1;
-  const taken = (topology?.proxies || []).some((p) => Number(p.port) === candidate);
-  return taken ? 0 : candidate;
-}
-
 // Which ports an agent may be bound to. The server refuses a port another
 // agent holds — one port, one owner (bind_agent_to_proxy) — so the picker
 // offers only what a click can get: ports nobody holds and the agent's own
@@ -1866,15 +1851,12 @@ export function bindablePorts(proxies, hostId, agentId) {
 
 // The picker's markup, as a value: what it offers is decided here and can be
 // read without a page.
-export function bindMenuHtml({ hostId, agentId, role, current = "", neighbour = 0, proxies }) {
+export function bindMenuHtml({ hostId, agentId, role, current = "", proxies }) {
   const { open, taken } = bindablePorts(proxies, hostId, agentId);
   const takenTip = taken.map((p) => `${p.port} — ${p.others.map((h) => `${h.agentId} · ${h.role}`).join(", ")}`).join("\n");
   return `
     <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b> · ${escapeHtml(role)}</div>
     ${current ? `<button type="button" class="agent-bind-row remove" data-bind-remove="1">${escapeHtml(t("taBindRemoveRoute"))}</button>` : ""}
-    <button type="button" class="agent-bind-row make" data-bind-new="1">${escapeHtml(t("taBindNewPort"))}</button>
-    ${neighbour ? `<button type="button" class="agent-bind-row make neighbour" data-bind-new="1"
-      data-bind-neighbour="${escapeHtml(String(neighbour))}">${escapeHtml(t("taBindNeighbourPort", { port: String(neighbour) }))}</button>` : ""}
     ${open.map((p) => `
       <button type="button" class="agent-bind-row${String(p.port) === String(current) ? " current" : ""}"
               data-bind-choice="${escapeHtml(String(p.port))}">
@@ -1883,32 +1865,6 @@ export function bindMenuHtml({ hostId, agentId, role, current = "", neighbour = 
       </button>`).join("")}
     ${taken.length ? `<div class="agent-bind-taken" data-t="agent-bind-taken" title="${escapeHtml(takenTip)}">${escapeHtml(t("taBindTakenNote", { count: String(taken.length) }))}</div>` : ""}
   `;
-}
-
-// After a new port is made: hand over the address the agent will use, and say
-// only what happened. The port is born open (no key required, the fleet
-// default), so there is nothing secret to hand over — the message used to say
-// "the key copied" in all twenty languages, about a key that does not exist.
-// The copy itself can fail (no clipboard on a plain-http page, a refused
-// permission); then the message says so, rather than let the operator paste
-// whatever the clipboard held before, believing it is the address.
-// The address is the controller's (the port's row, ConsumerAddress): the page's own name
-// was copied before, and a board opened by a name in front of another machine handed over
-// that machine's port. Where the ports have no door the row has no address: nothing is
-// copied, and the message says how the client gets in — a key through the entry.
-// `copy` and `say` are parameters so both outcomes can be checked by value.
-export async function announceNewPort(port, { copy = copyText, say = toast } = {}) {
-  const row = (topology?.proxies || []).find((p) => Number(p.port) === Number(port));
-  const address = String(row?.endpoint || "");
-  let key = "taBindNewPortMadeNoCopy";
-  if (row && !address && topology?.portsReachable === false) {
-    key = topology?.entry?.url ? "taBindNewPortNoDoor" : "taBindNewPortNoEntry";
-  } else if (address) {
-    key = (await copy(address)) ? "taBindNewPortMade" : "taBindNewPortMadeNoCopy";
-  }
-  const text = t(key, { port: String(port) });
-  say(text);
-  return text;
 }
 
 // The card of an agent given a port stays open for the rest of the visit (CardFold.hold):
@@ -1922,43 +1878,20 @@ function openBindMenu(chip) {
   const hostId = chip.dataset.bindHost;
   const agentId = chip.dataset.bindAgent;
   const current = String(chip.dataset.bindPort || "");
-  // The role must travel all the way to the server: without it, both a bind
-  // and a new port would land on primary — meaning a choice of fallback
-  // would silently overwrite the working route.
+  // The role must travel all the way to the server: without it, a bind would land
+  // on primary — meaning a choice of fallback would silently overwrite the working route.
   const role = String(chip.dataset.bindRole || "primary");
-  const neighbour = role === "fallback" ? neighbourPortForFallback(hostId, agentId) : 0;
 
   const menu = document.createElement("div");
   menu.className = "agent-bind-menu";
   menu.setAttribute("data-t", "agent-bind-menu");
-  menu.innerHTML = bindMenuHtml({ hostId, agentId, role, current, neighbour, proxies: topology?.proxies || [] });
+  menu.innerHTML = bindMenuHtml({ hostId, agentId, role, current, proxies: topology?.proxies || [] });
   document.body.appendChild(menu);
   const box = chip.getBoundingClientRect();
   menu.style.left = `${Math.min(box.left, window.innerWidth - menu.offsetWidth - 12)}px`;
   menu.style.top = `${box.bottom + 4}px`;
 
   menu.addEventListener("click", async (e) => {
-    if (e.target.closest("[data-bind-new]")) {
-      const wanted = Number(e.target.closest("[data-bind-new]").dataset.bindNeighbour || 0);
-      closeBindMenu();
-      const label = await appPrompt(t("taBindNewPortName"),
-        { placeholder: `${agentId} port` });
-      if (label === null) return;
-      try {
-        const res = await api("/api/agent-port", {
-          method: "POST",
-          body: JSON.stringify({ clientId: hostId, agentId, label, role,
-                                 ...(wanted ? { port: wanted } : {}) }),
-        });
-        if (res.topology) setTopology(res.topology);
-        keepAgentCardOpen(hostId, agentId);
-        renderTopology();
-        await announceNewPort(res.route.port);
-      } catch (err) {
-        toast(`${t("taBindFailed")}: ${err.message || err}`, true);
-      }
-      return;
-    }
     if (e.target.closest("[data-bind-remove]")) {
       closeBindMenu();
       // The port keeps listening: it's a live listener an outside agent can

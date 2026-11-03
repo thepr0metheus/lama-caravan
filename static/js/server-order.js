@@ -1,5 +1,5 @@
-// The order of the server cards: the machines' cards (a machine's own window) and, until 2026-10-12,
-// the pools under Pools — one list the controller keeps.
+// The order of the server cards: the machines' cards (a machine's own window), the cards of Routing's
+// Models column (since 1.3.683) and, until 2026-10-12, the pools under Pools — one list the controller keeps.
 import { t } from "./i18n.js";
 import { api, escapeHtml, toast } from "./utils.js";
 
@@ -34,6 +34,10 @@ import { api, escapeHtml, toast } from "./utils.js";
  * moved among the pools, and the machines kept the places the stored order gives them
  * (`merged`). Since 2026-10-12 the pools stand in Routing (pool-board.js) in their own order:
  * the main board has no list under Pools, and nothing binds this class there any more.
+ *
+ * Since 1.3.683 Routing's Models column stands in this list (pool-board.js, `sources`; the owner, 2026-10-28: "the blocks of Models
+ * changed by dragging too"): the same machines and accounts, so a second list would be the same fact twice. It reads the order and
+ * saves through its own door, carried by the grip; `controls`, `apply` and `save` are the buttons of the cards above.
  */
 export class ServerOrder {
   // The kinds of card the list holds: a machine (its node) and a cloud provider or pool (its account).

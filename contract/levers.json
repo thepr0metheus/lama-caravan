@@ -1,0 +1,20 @@
+{
+  "for_cell": [
+    {"body": "{\"reasoning_effort\":\"none\",\"model\":\"m\"}", "path": "/v1/chat/completions", "result": {"reasoning_effort": "none", "model": "m", "chat_template_kwargs": {"enable_thinking": false}}},
+    {"body": "{\"reasoning_effort\":\" minimal \"}", "path": "/v1/chat/completions/", "result": {"reasoning_effort": " minimal ", "chat_template_kwargs": {"enable_thinking": false}}},
+    {"body": "{\"reasoning_effort\":\"none\",\"chat_template_kwargs\":{\"a\":1}}", "path": "/v1/chat/completions?x=1", "result": {"reasoning_effort": "none", "chat_template_kwargs": {"a": 1, "enable_thinking": false}}},
+    {"body": "{\"reasoning_effort\":\"none\",\"chat_template_kwargs\":\"odd\"}", "path": "/v1/chat/completions", "result": {"reasoning_effort": "none", "chat_template_kwargs": {"enable_thinking": false}}},
+    {"body": "{\"reasoning_effort\":\"none\",\"chat_template_kwargs\":{\"enable_thinking\":true}}", "path": "/v1/chat/completions", "result": null, "why": "the client's word wins"},
+    {"body": "{\"reasoning_effort\":\"low\"}", "path": "/v1/chat/completions", "result": null},
+    {"body": "{\"reasoning_effort\":5}", "path": "/v1/chat/completions", "result": null},
+    {"body": "{}", "path": "/v1/chat/completions", "result": null},
+    {"body": "[1]", "path": "/v1/chat/completions", "result": null},
+    {"body": "not json", "path": "/v1/chat/completions", "result": null},
+    {"body": "", "path": "/v1/chat/completions", "result": null},
+    {"body": "{\"reasoning_effort\":\"none\"}", "path": "/v1/embeddings", "result": null}
+  ],
+  "keepalive": [
+    {"model": "m", "payload": {"choices": [{"finish_reason": null, "index": 0, "delta": {"reasoning_content": " "}}], "created": 1000, "id": "chatcmpl-keepalive", "model": "m", "object": "chat.completion.chunk"}},
+    {"model": "", "payload": {"choices": [{"finish_reason": null, "index": 0, "delta": {"reasoning_content": " "}}], "created": 1000, "id": "chatcmpl-keepalive", "model": "", "object": "chat.completion.chunk"}}
+  ]
+}

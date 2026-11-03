@@ -16,7 +16,7 @@ from pathlib import Path
 import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node
+from _node import find_node, probe_args
 ROOT = Path(__file__).resolve().parent.parent
 PROBE = r'''
 import assert from "node:assert/strict";
@@ -293,7 +293,7 @@ probe = ROOT / 'scripts' / '.probe_server_order.tmp.mjs'
 probe.write_text(PROBE)
 try:
     harness = ROOT / 'scripts' / '_js_harness.mjs'
-    result = subprocess.run([node, '--import', f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');", str(probe)], cwd=ROOT,
+    result = subprocess.run(probe_args(node, harness, probe), cwd=ROOT,
                             env={**os.environ, 'JS_ROOT': str(ROOT/'static/js'), 'JS_STUBS': 'i18n,utils'}, capture_output=True, text=True, timeout=20)
     print(result.stdout, end='')
     print(result.stderr, end='', file=sys.stderr)

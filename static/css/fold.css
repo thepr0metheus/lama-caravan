@@ -35,8 +35,10 @@
 /* ── a cell opens in a window ────────────────────────────────────────────
    Since 2026-09-25 a folded cell no longer floats over its lane: a click on
    its line opens its card as a window over a dimmed board (the operator's
-   choice). The window is the card itself (card-rows.js CellWindow), so its
-   buttons, live numbers and repaints are the card's own. */
+   choice). The window (cell-window.js CellWindow) lays out what the card
+   computed: its buttons carry the card's own data attributes, its live
+   numbers are patched in place as the card's are, and it repaints with the
+   lane. */
 .fold-slot > .cell-window,
 .fold-slot > .cell-window-backdrop { display: none; }
 .fold-slot.open > .cell-window-backdrop {
@@ -68,6 +70,288 @@
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
 }
 .cell-window-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* ── the window, variant Г (cell-window.js; the owner, 2026-10-24) ─────────
+   The passport on top, a band that says what the cell does now with its one
+   main button, the rest in tabs. One height for every tab: the window does not
+   jump as the tabs change, and only the panels scroll. Colours come from the
+   theme's tokens, so the window reads in either theme. Every button here sets
+   its own height: the board's buttons carry a 34px minimum (cards.css). */
+.fold-slot.open > .cell-window.cw {
+  gap: 0;
+  padding: 0;
+  width: min(700px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 124px));
+  overflow: hidden;
+}
+.cw-live { display: contents; }
+.cw .cell-window-head { position: relative; align-items: flex-start; padding: 14px 16px 12px; }
+.cwh-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.cwh-title { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.cw .cwh-name { font-size: 18px; letter-spacing: -.01em; white-space: normal; overflow-wrap: anywhere; }
+.cwh-facts { font-size: 12.5px; color: var(--muted); }
+.cwh-where { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.cw .cwh-addr {
+  display: inline-flex; align-items: center; gap: 6px;
+  box-sizing: border-box; height: 26px; min-height: 0; padding: 0 9px;
+  border-radius: 7px; border: 1px solid var(--line); background: var(--field);
+  color: var(--text); font: 550 12px/1 ui-monospace, "SF Mono", Menlo, monospace; cursor: pointer;
+}
+.cw .cwh-addr svg { color: var(--muted); }
+.cw .cwh-addr:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.cwh-place { font-size: 12px; color: var(--muted); }
+.cwh-icon {
+  flex-shrink: 0; box-sizing: border-box; width: 32px; height: 32px; min-height: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
+}
+.cwh-icon:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.cwh-icon:focus-visible, .cw-tab:focus-visible, .cw-act:focus-visible, .cw-btn:focus-visible, .cwm-item:focus-visible,
+.cw .cwh-addr:focus-visible, .cw-band-more:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.cw .cwh-close { margin-left: 0; align-self: flex-start; width: 32px; height: 32px; }
+.cwh-menu {
+  position: absolute; top: 50px; right: 56px; z-index: 3; width: 280px; padding: 6px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--panel);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cwh-menu[hidden] { display: none; }
+.cwm-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  box-sizing: border-box; height: 36px; min-height: 0; padding: 0 10px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--text);
+  font: 500 13px/1.2 inherit; text-align: left; cursor: pointer;
+}
+.cwm-item:hover:not([disabled]) { background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.cwm-item[disabled] { color: var(--muted); opacity: .7; cursor: default; }
+.cwm-check { justify-content: space-between; }
+.cwm-danger:not([disabled]) { color: var(--bad); }
+.cwm-switch {
+  flex: none; display: inline-flex; box-sizing: border-box; width: 30px; height: 17px; padding: 2px;
+  border-radius: 9px; background: var(--line);
+}
+.cwm-switch > span { width: 13px; height: 13px; border-radius: 50%; background: var(--text); }
+.cwm-switch.on { justify-content: flex-end; background: var(--accent); }
+.cwm-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+.cw-band {
+  --cw-tone: var(--muted);
+  margin: 0 16px; padding: 12px 12px 12px 14px;
+  display: flex; align-items: center; gap: 12px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--cw-tone) 34%, var(--line));
+  background: color-mix(in srgb, var(--cw-tone) 8%, var(--panel));
+}
+.cw-band.good { --cw-tone: var(--good); }
+.cw-band.busy { --cw-tone: var(--yellow); }
+.cw-band.bad { --cw-tone: var(--bad); }
+.cw-dot {
+  flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--cw-tone);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cw-tone) 20%, transparent);
+}
+.cw-band-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cw-band-title { font-size: 15px; color: color-mix(in srgb, var(--cw-tone) 50%, var(--text)); }
+.cw-band-sub { min-width: 0; font-size: 12px; line-height: 1.4; color: var(--muted); overflow-wrap: anywhere; }
+.cw-band-sub .model-status-line { padding-left: 0; }
+.cw-band-sub .model-status-line .msl-text { font-size: 12px; white-space: normal; }
+.cw-band-more {
+  flex: none; box-sizing: border-box; height: 30px; min-height: 0; padding: 0 10px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--muted);
+  font: 600 12px/1 inherit; cursor: pointer;
+}
+.cw-band-more:hover { color: var(--text); background: color-mix(in srgb, var(--cw-tone) 12%, transparent); }
+.cw-act {
+  flex: none; display: inline-flex; align-items: center; gap: 8px;
+  box-sizing: border-box; height: 38px; min-height: 0; padding: 0 18px;
+  border-radius: 10px; font: 650 13.5px/1 inherit; cursor: pointer;
+}
+.cw-act.go {
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--text);
+}
+.cw-act.halt {
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line));
+  background: color-mix(in srgb, var(--bad) 10%, var(--panel)); color: color-mix(in srgb, var(--bad) 72%, var(--text));
+}
+.cw-act[disabled] { border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: default; }
+
+.cw-tabs {
+  display: flex; gap: 2px; margin-top: 10px; padding: 0 12px;
+  border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none;
+}
+.cw-tab {
+  flex: none; box-sizing: border-box; height: 38px; min-height: 0; padding: 0 12px;
+  border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent;
+  color: var(--muted); font: 600 13px/1 inherit; cursor: pointer; white-space: nowrap;
+}
+.cw-tab:hover { color: var(--text); }
+.cw-tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.cw-panels { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 18px; }
+.cw-panel { display: flex; flex-direction: column; gap: 14px; }
+.cw-panel[hidden] { display: none; }
+
+.cw-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
+.cw-tile, .cw-mem-card {
+  min-width: 0; padding: 10px 11px; display: flex; flex-direction: column; gap: 5px;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--field);
+}
+.cw-tile-label { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.cw-tile-value { font-size: 19px; font-weight: 650; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+.cw-tile-sub, .cw-mem-sub, .cw-mem-name { font-size: 11.5px; color: var(--muted); }
+.cw-mem-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.cw-mem-figure { font-size: 16px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cw-sec { display: flex; flex-direction: column; gap: 8px; }
+.cw-sec-title { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.cw-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cw-rows { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 22px; }
+.cw-row { display: flex; justify-content: space-between; gap: 10px; min-width: 0; font-size: 12.5px; }
+.cw-row dt { color: var(--muted); }
+.cw-row dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cw-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.cw-btn {
+  box-sizing: border-box; height: 34px; min-height: 0; padding: 0 14px;
+  border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--text);
+  font: 600 12.5px/1 inherit; cursor: pointer;
+}
+.cw-btn:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* A link of the window drawn as its buttons are (the model in the caravan's own pages, 1.3.660). */
+a.cw-btn { display: inline-flex; align-items: center; text-decoration: none; }
+.cw-btn.primary {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 20%, var(--panel));
+}
+.cw-lead, .cw-empty { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.cw-log { display: flex; flex-direction: column; gap: 8px; }
+.cw-ev {
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 5px;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--field);
+}
+.cw-ev.bad { border-color: color-mix(in srgb, var(--bad) 38%, var(--line)); }
+.cw-ev-title { font-size: 13px; }
+.cw-ev-detail { font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.cw-ev-raw {
+  margin: 0; padding: 8px 10px; max-height: 180px; overflow: auto;
+  border-radius: 7px; background: var(--code-bg); color: var(--code-text);
+  font: 500 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+}
+/* The server's own log under the reported events (cell-log.js): the run it is, how many lines, the lines — read at their end. */
+.cw-log + .cw-tail, .cw-empty + .cw-tail { margin-top: 16px; }
+.cw-tail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cw-tail-run {
+  box-sizing: border-box; flex: 1 1 260px; min-width: 0; height: 34px; min-height: 0; padding: 0 10px;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: 500 12.5px/1 inherit;
+}
+.cw-tail-run-one { flex: 1 1 260px; min-width: 0; font-size: 12.5px; color: var(--muted); }
+.cw-tail-count { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cw-tail-lines {
+  margin: 0; padding: 8px 10px; max-height: 320px; overflow: auto;
+  border-radius: 7px; background: var(--code-bg); color: var(--code-text);
+  font: 500 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-word;
+}
+.cw-tail-note { margin: 0; font-size: 11.5px; color: var(--muted); }
+.cw-tail-error { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--bad); overflow-wrap: anywhere; }
+/* The text chat (cell-chat.js): the questions on the right, the answers on the left with what they cost under them. */
+.cw-chat-turns { display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow: auto; padding-right: 2px; }
+.cw-turn { max-width: 86%; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cw-turn.me { align-self: flex-end; border-bottom-right-radius: 4px; background: color-mix(in srgb, var(--accent) 22%, var(--panel)); color: var(--text); }
+.cw-turn.it {
+  align-self: flex-start; border-bottom-left-radius: 4px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--field); border: 1px solid var(--line); color: var(--text);
+}
+.cw-turn.it.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); color: var(--bad); }
+.cw-turn.wait { flex-direction: row; align-items: center; gap: 8px; color: var(--muted); }
+.cw-turn-meta { font-size: 11.5px; color: var(--muted); white-space: normal; font-variant-numeric: tabular-nums; }
+.cw-chat-draft {
+  box-sizing: border-box; width: 100%; min-height: 0; padding: 9px 11px; resize: vertical;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: 500 13px/1.5 inherit;
+}
+.cw-chat-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cw-chat-memory { font-size: 11.5px; color: var(--muted); }
+.cw-chat-page { font-size: 12.5px; }
+.cw-chat-gap { flex: 1; }
+.cw-talk-ways { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+/* The settings edited in the window (cell-settings.js): a search and "only those set" on top, the dialog's tabs as groups on
+   the left, the fields on the right — a changed one outlined. What is not applied stands at the window's foot, under the
+   panels, where no scrolling hides it. The board's inputs are 42px tall and its boxes 22px (cards.css): sized here in full. */
+.cws-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cws .cws-query {
+  box-sizing: border-box; flex: 1 1 220px; width: auto; min-width: 0; height: 34px; min-height: 0; padding: 0 11px;
+  border-radius: 9px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: 500 13px/1 inherit;
+}
+.cws-only { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.cws .cws-only input, .cws .cws-toggle { flex: none; width: 16px; height: 16px; min-height: 0; margin: 0; padding: 0; accent-color: var(--accent); }
+.cws-body { display: grid; grid-template-columns: 172px minmax(0, 1fr); gap: 14px; align-items: start; }
+.cws-groups { position: sticky; top: 0; display: flex; flex-direction: column; gap: 2px; }
+.cws .cws-group {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;
+  box-sizing: border-box; height: 32px; min-height: 0; padding: 0 10px;
+  border: 0; border-radius: 7px; background: transparent; color: var(--muted);
+  font: 550 12.5px/1.2 inherit; text-align: left; cursor: pointer;
+}
+.cws .cws-group:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.cws .cws-group.on { color: var(--text); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.cws-count { font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.cws-fields { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.cws-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 210px); gap: 10px; align-items: center;
+  padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--field);
+}
+.cws-row[data-t-state="changed"] { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
+.cws-name { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* The star at a field brings it to the dialog's Favorites and the wizard's main fields (1.3.638): beside the name, quiet until
+   pressed. It shipped with no rule at all and stood as a white browser button the width of the name over every field
+   (2026-10-26). The editor's rules hang on its own root (.cws), not on the cell window: the wizard draws the same editor. */
+.cws-name:has(> .cws-star) { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 6px; row-gap: 3px; align-items: center; }
+.cws-name > .cws-note { grid-column: 2; }
+.cws .cws-star {
+  flex: none; width: 22px; height: 22px; min-height: 0; margin: 0; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted);
+  font: 400 14px/1 inherit; cursor: pointer; opacity: .55;
+}
+.cws .cws-star:hover { opacity: 1; color: var(--text); }
+.cws .cws-star.on { opacity: 1; color: var(--yellow); }
+.cws-name label { font: 600 12px/1.25 ui-monospace, "SF Mono", Menlo, monospace; color: var(--text); overflow-wrap: anywhere; }
+.cws-note { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.cws-value { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.cws .cws-input {
+  box-sizing: border-box; width: 100%; height: 30px; min-height: 0; padding: 0 9px;
+  border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  font: 500 12.5px/1 ui-monospace, "SF Mono", Menlo, monospace;
+}
+.cws .cws-input[readonly] { color: var(--muted); }
+.cws .cws-query:focus-visible, .cws .cws-input:focus-visible, .cws .cws-toggle:focus-visible, .cws .cws-group:focus-visible,
+.cws .cws-star:focus-visible {
+  outline: 2px solid var(--accent-strong); outline-offset: 1px;
+}
+.cws-default { font-size: 11px; color: var(--muted); }
+.cw-set-more { margin-top: 2px; }
+.cw-foot { flex: none; padding: 10px 16px 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.cw-foot:empty { display: none; }
+.cw-dirty { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cw-dirty-text { flex: 1 1 260px; min-width: 0; font-size: 12.5px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.cw .cw-place-map { margin-top: 0; }
+@media (max-width: 560px) {
+  .cws-body { grid-template-columns: 1fr; }
+  .cws-groups { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+  .cws .cws-group { width: auto; flex: none; }
+  .cws-row { grid-template-columns: 1fr; }
+  .cws-value { justify-content: flex-start; }
+}
+/* The overview carries the card's notes whole, and a failed cell's reason first. */
+.cw .node-server-note { display: block; padding: 0; font-size: 13px; line-height: 1.55; color: var(--text); -webkit-line-clamp: unset; overflow: visible; }
+.cw .node-server-note.model { color: color-mix(in srgb, var(--muted) 35%, var(--text)); }
+.cw .llama-err-block {
+  padding: 10px 12px; border-radius: 8px; gap: 9px;
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line));
+  background: color-mix(in srgb, var(--bad) 9%, var(--field));
+}
+.cw .llama-err-block .llama-err-friendly { font-size: 13.5px; }
+.cw .llama-err-block .llama-err-hint { font-size: 12px; opacity: 1; }
+.cw .llama-err-block .llama-err-raw { font-size: 11px; opacity: .75; }
+@media (max-width: 560px) {
+  .cw-rows { grid-template-columns: 1fr; }
+  .cw-band { flex-wrap: wrap; }
+}
+
 .cwh-name { min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cwh-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
 .cwh-addr { flex-shrink: 0; font-size: 11.5px; color: var(--muted); }
@@ -90,17 +374,6 @@
 }
 .cwh-close:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
 .cwh-close:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
-/* The card keeps its own look; the window only gives it room — the model and
-   its slots side by side, as in the design the operator chose. */
-.cell-window .node-server-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 250px);
-  gap: 12px;
-  align-items: start;
-}
-@media (max-width: 640px) {
-  .cell-window .node-server-body { grid-template-columns: 1fr; }
-}
 
 /* A floating agent card is its own layer. Inside its lane card the agent block
    is drawn transparent and unpadded (canvas.css, .topology-card.agent-card) —
@@ -257,22 +530,14 @@
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-/* The window of a failed cell opens on the reason, over the card. */
-.cell-window > .llama-err-block {
-  padding: 10px 12px;
-  border-radius: 8px;
-  gap: 9px;
-  border: 1px solid color-mix(in srgb, var(--bad, #ff6b7a) 45%, var(--line));
-  background: color-mix(in srgb, var(--bad, #ff6b7a) 9%, var(--field));
-}
-.cell-window > .llama-err-block .llama-err-icon { font-size: 15px; }
-.cell-window > .llama-err-block .llama-err-friendly { font-size: 13.5px; }
-.cell-window > .llama-err-block .llama-err-hint { font-size: 12px; opacity: 1; }
-.cell-window > .llama-err-block .llama-err-raw { font-size: 11px; opacity: .75; }
 .fr-tps { flex-shrink: 0; font: 600 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: color-mix(in srgb, var(--accent) 60%, var(--text)); }
 .fr-tps:empty { display: none; }
 /* The last request's speed, held while the cell has none running: quiet, and the line's words say `last` (cell-speed.js). */
 .fr-tps.held { font-weight: 500; color: var(--muted); }
+/* The window set / the most the model was trained for (card-rows.js CellRow.ctxHtml): quiet, like the port; past the training
+   in the warning colour — the window is stretched. */
+.fr-ctx { flex-shrink: 0; font: 500 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); white-space: nowrap; }
+.fr-ctx.over { color: var(--warn); }
 .cell-row .mbadge { flex-shrink: 0; }
 /* Its memory estimate goes grey with it. The dashed chip kept the cell's
    accent — green on a GPU cell — so a lane of parked cells still read as a lane

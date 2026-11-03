@@ -22,7 +22,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, node_args  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "static" / "js" / "i18n-data.js"
@@ -40,6 +40,8 @@ TRANSLATION_ALLOWLIST = {
     "tmPromptGenTps",          # "prompt / gen t/s" — all identifiers, identical in latin locales
     "yarnChipAuto",            # "YaRN auto ×{factor}" — 'auto' is the same word in es/fr/pt/de/id/it
     "rtTitleOutputServer",     # "Output → server" — literally the same words in it/id
+    "cloudNameGlm",            # "GLM Coding Plan" — the product's own name
+    "cloudNameQwen",           # "Qwen Token Plan" — the product's own name
 }
 
 # Identifiers that legitimately stay latin inside any translation. Only the
@@ -104,7 +106,10 @@ def untranslated(lang, key, value, en_value, allowlist=TRANSLATION_ALLOWLIST):
 
 #: Plain words that ARE words of their language although the file also writes their accented twin:
 #: the rule in DroppedLetters would take them for dropped letters. Each with its reason; an entry
-#: that stops being true is a lie, so the list holds only what the tables really contain.
+#: that stops being true is a lie, so the list holds only what the tables really contain. French and
+#: Turkish, like the rules for other languages here (NON_LATIN, TONAL), wait for their tables: the owner
+#: cut the list to six on 2026-11-01 and may widen it, and the rules are pinned on samples
+#: (test_i18n_untranslated.py).
 PLAIN_WORDS_ALLOWED = {
     "es": {
         "cuanto": "«en cuanto llegue»: the conjunction has no accent, «cuánto» is the question word",
@@ -282,7 +287,7 @@ def main() -> int:
         return 0
     try:
         proc = subprocess.run(
-            [node, "--input-type=module", "-e", NODE_SNIPPET, str(DATA)],
+            node_args(node, "--input-type=module", "-e", NODE_SNIPPET, DATA),
             capture_output=True, text=True,
         )
     except FileNotFoundError:

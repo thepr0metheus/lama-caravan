@@ -1,0 +1,52 @@
+# The caravan in Rust: how it is written is docs/rust-code.md.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+# Every third-party package has its reason in scripts/check_rust_contract.py: a new one fails the guard until it does.
+[workspace.dependencies]
+httparse = "1"
+libc = "0.2"
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+ring = { version = "0.17", default-features = false }
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl", "unicode-case"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+serde_core = "1"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+os = { path = "crates/os" }
+wire = { path = "crates/wire" }
+rules = { path = "crates/rules" }
+files = { path = "crates/files" }
+net = { path = "crates/net" }
+plumbing = { path = "crates/plumbing" }
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+let_underscore_must_use = "deny"
+panic = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+# One request's bug ends that request's thread, not every client's answer: not "abort".
+panic = "unwind"
+strip = "symbols"

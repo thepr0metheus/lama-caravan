@@ -73,6 +73,20 @@ export const M = Object.freeze({
   lerp: (a, b, t) => a + (b - a) * t,
   smooth(a, b, v) { const t = M.clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); },
   wrap: a => Math.atan2(Math.sin(a), Math.cos(a)),
+  /** A number in [0, 1) from three integers: the same three always give the same number (a hash, not a stream of random numbers). */
+  hash2(x, y, s) {
+    let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1442695041);
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  },
+  /** Value noise in [0, 1): smooth between the hashes of the four corners of the cell a point lies in; `s` picks one noise of many. */
+  vnoise(x, y, s) {
+    const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+    const lerp = M.lerp, h = M.hash2;
+    return lerp(lerp(h(ix, iy, s), h(ix + 1, iy, s), u), lerp(h(ix, iy + 1, s), h(ix + 1, iy + 1, s), u), v);
+  },
+  /** The direction half way between two directions (the mean of their unit vectors): a body's outline bends through it, not through a jump. */
+  meanAngle: (a, b) => Math.atan2(Math.sin(a) + Math.sin(b), Math.cos(a) + Math.cos(b)),
   /** Frame-rate independent pull of `cur` toward `target`: `rate` is per second. */
   approach: (cur, target, rate, dt) => target + (cur - target) * Math.exp(-rate * dt),
   turnToward(cur, target, maxStep) {

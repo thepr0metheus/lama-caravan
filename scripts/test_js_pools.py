@@ -21,7 +21,7 @@ from pathlib import Path
 import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node  # noqa: E402
+from _node import find_node, probe_args  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 PROBE = r'''
@@ -153,11 +153,14 @@ const count = (html, re) => (html.match(re) || []).length;
   assert.equal(cards.status(pool, step("b", "bare", "m"), null).text, "cloudNoKeyYet", "a key account without its key says so before the proxy");
   assert.equal(cards.status(pool, step("s", "sub", "m"), st([])).text, "poolNoRequest");
   assert.equal(cards.status(pool, step("s", "sub", "m"), st([{ stepId: "s", reason: "mystery" }])).text, "poolUnavailable", "an unknown reason is not guessed");
+  const standing = cards.status(pool, { id: "r1", kind: "output", output: "srv:22020", enabled: true }, st([{ stepId: "r1", reason: "stopped" }]));
+  assert.deepEqual([standing.look, standing.text, standing.title], ["off-cell", "poolCellOff", "stopped"],
+    "a row the proxy passed by because the board knows its cell stands still (1.3.645) — 'cell off', as one found dead says");
   cards.runtime = { available: false };
   assert.equal(cards.status(pool, step("s", "sub", "m"), null).text, "poolProxySilent");
   const looks = Object.fromEntries(Object.entries(PoolCards.REASONS).map(([r, [k, look]]) => [r, look]));
   assert.deepEqual(Object.keys(looks).sort(), __PROXY_REASONS__,
-    "every reason the proxy gives (caravan/proxy/pool_steps.py) has its words, and no word stands for a reason it never gives");
+    "every reason the proxy gives (rust/crates/proxy/src/pool_steps) has its words, and no word stands for a reason it never gives");
 }
 // what goes back to the server: only what the pool keeps
 {
@@ -547,13 +550,13 @@ def css_rules():
 
 def proxy_reasons():
     """The reasons the proxy gives a row, read from its own source: each `"reason": "<word>"` it
-    writes and the words its REASON table gives a provider's status. The board's table of words
+    gives a row and the words it gives a provider's status. The board's table of words
     (PoolCards.REASONS) is pinned against this list, so a reason added to the proxy without words
     — or words kept for a reason the proxy no longer gives — turns this snapshot red."""
-    src = (ROOT / "caravan" / "proxy" / "pool_steps.py").read_text(encoding="utf-8")
-    words = set(re.findall(r'"reason": "([a-z_]+)"', src))
-    table = re.search(r"REASON = \{([^}]*)\}", src)
-    words |= set(re.findall(r'"([a-z_]+)"', table.group(1) if table else ""))
+    folder = ROOT / "rust" / "crates" / "proxy" / "src" / "pool_steps"
+    src = "".join(path.read_text(encoding="utf-8") for path in folder.glob("*.rs") if path.name != "tests.rs")
+    words = {word for call in re.findall(r'\b(?:un)?fit\((.*)', src) for word in re.findall(r'"([a-z_]+)"', call)}
+    words |= set(re.findall(r'\d{3} => \("([a-z_]+)", ', src))
     return sorted(words)
 
 
@@ -570,7 +573,7 @@ def main():
     probe.write_text(PROBE.replace("__PROXY_REASONS__", json.dumps(reasons)))
     try:
         harness = ROOT / "scripts" / "_js_harness.mjs"
-        result = subprocess.run([node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');", str(probe)], cwd=ROOT,
+        result = subprocess.run(probe_args(node, harness, probe), cwd=ROOT,
                                 env={**os.environ, "JS_ROOT": str(ROOT / "static/js"), "JS_STUBS": "i18n,utils,dialogs"}, capture_output=True, text=True, timeout=30)
         print(result.stdout, end="")
         print(result.stderr, end="", file=sys.stderr)

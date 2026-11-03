@@ -1,0 +1,23 @@
+{
+  "why": "The window a cell asks for: rust/crates/rules/src/cell_config.rs AskedWindow and static/js/asked-window.js answer every case alike.",
+  "cases": [
+    {"field": "131072", "trained": 262144, "asked": 131072, "say": "a number by hand wins, below the trained window"},
+    {"field": "524288", "trained": 262144, "asked": 524288, "say": "a number by hand wins above it too: YaRN is the runner's"},
+    {"field": "4096", "trained": null, "asked": 4096, "say": "a number by hand needs no header"},
+    {"field": 32768, "trained": 262144, "asked": 32768, "say": "a number, not a string"},
+    {"field": " 65536 ", "trained": 262144, "asked": 65536, "say": "spaces around it are not part of it"},
+    {"field": "", "trained": 262144, "asked": 262144, "say": "empty: the window the model was trained for"},
+    {"field": "   ", "trained": 40960, "asked": 40960, "say": "spaces only: empty"},
+    {"field": null, "trained": 131072, "asked": 131072, "say": "no field at all: empty"},
+    {"field": "0", "trained": 131072, "asked": 131072, "say": "0 is llama.cpp's 'from the model': the trained window"},
+    {"field": 0, "trained": 128000, "asked": 128000, "say": "the number 0 too"},
+    {"field": "", "trained": "262144", "asked": 262144, "say": "a trained window written as a string"},
+    {"field": "", "trained": null, "asked": null, "say": "empty and the model's window unknown: nothing is made up"},
+    {"field": "", "trained": 0, "asked": null, "say": "a trained window of 0 is an absence"},
+    {"field": "0", "trained": null, "asked": null, "say": "0 and the model's window unknown: nothing"},
+    {"field": "abc", "trained": 131072, "asked": null, "say": "not a number: no window from the rule, the start names the field"},
+    {"field": "-5", "trained": 131072, "asked": null, "say": "a negative number is not a window"},
+    {"field": "12.5", "trained": 131072, "asked": null, "say": "nor a fraction"},
+    {"field": "1e3", "trained": 131072, "asked": null, "say": "nor an exponent, which a JavaScript Number reads as 1000"}
+  ]
+}

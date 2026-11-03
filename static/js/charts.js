@@ -1,4 +1,5 @@
 // Canvas chart rendering: metric charts, GPU/token history, chart modals.
+import { CardFigures } from "./card-figures.js";
 import { CellSpeed } from "./cell-speed.js";
 import { t } from "./i18n.js";
 import { formatTps } from "./polling.js";
@@ -374,8 +375,9 @@ export function _routeBuckets(samples, canvas) {
   return { buckets, barW };
 }
 
-export function nodeTelemetryRowsHtml(n) {
-  const g0 = (n.gpus || [])[0];
+// `cards: false` — a machine's own page, whose rack says each card's figures on its row: here only what is the machine's as a whole.
+export function nodeTelemetryRowsHtml(n, { cards: cardRows = true } = {}) {
+  const g0 = cardRows ? (n.gpus || [])[0] : null;
   const srv = (n.servers || []).find((s) => s.port);
   const id = String(n.id);
   const hasRoutes = nodeRouteLabels(id).length > 0;
@@ -666,22 +668,31 @@ export function drawNodeTelemetry() {
       const pw = gpuS.map((s) => s.gpu.powerW);
       setVal("power", now.powerW == null ? "—" : `${now.powerW.toFixed(1)} W`, gpuT.breakdown("power"));
       setSpark("power", pw, "rgba(45, 212, 191, 0.9)", Math.max(50, ...pw));
-      // The cards one by one, under the combined lines (nodeTelemetryRowsHtml draws their rows for two cards or more).
-      if (gpuT.cards.length >= 2) {
-        gpuT.cards.forEach((c, i) => {
-          const index = NodeGpuTelemetry.index(c, i);
-          const own = gpuT.cardSamples(i);
-          const one = gpuT.cardCurrent(i);
-          setVal(`gpu:${index}`, one.utilPct == null ? "—" : `${Math.round(one.utilPct)}%`);
-          setSpark(`gpu:${index}`, own.map((x) => x.gpu.utilPct), "rgba(105, 208, 144, 0.9)", 100);
-          setVal(`vram:${index}`, `${one.usedMiB == null ? "—" : gb(one.usedMiB)} / ${gb(one.totalMiB)} GB`);
-          setSpark(`vram:${index}`, own.map((x) => x.gpu.memoryUsedMiB), "rgba(125, 211, 252, 0.9)", one.totalMiB || 1);
-          const watts = own.map((x) => x.gpu.powerW).filter((v) => Number.isFinite(v));
-          setVal(`power:${index}`, one.powerW == null ? "—" : `${one.powerW.toFixed(1)} W`);
-          setSpark(`power:${index}`, own.map((x) => x.gpu.powerW), "rgba(45, 212, 191, 0.9)", Math.max(50, ...watts));
-        });
-      }
+      // The cards one by one: under the combined lines on the board's card (nodeTelemetryRowsHtml draws their rows for two cards or
+      // more), on each card's own row on the machine's page (`mem`: its unit is in the column's head). Whichever is drawn takes its keys.
+      gpuT.cards.forEach((c, i) => {
+        const index = NodeGpuTelemetry.index(c, i);
+        const own = gpuT.cardSamples(i);
+        const one = gpuT.cardCurrent(i);
+        const memory = own.map((x) => x.gpu.memoryUsedMiB);
+        setVal(`gpu:${index}`, CardFigures.load(one.utilPct));
+        setSpark(`gpu:${index}`, own.map((x) => x.gpu.utilPct), "rgba(105, 208, 144, 0.9)", 100);
+        setVal(`vram:${index}`, `${one.usedMiB == null ? "—" : gb(one.usedMiB)} / ${gb(one.totalMiB)} GB`);
+        setSpark(`vram:${index}`, memory, "rgba(125, 211, 252, 0.9)", one.totalMiB || 1);
+        setVal(`mem:${index}`, CardFigures.memory(one.usedMiB == null ? null : one.usedMiB / 1024, one.totalMiB / 1024));
+        setSpark(`mem:${index}`, memory, "rgba(125, 211, 252, 0.9)", one.totalMiB || 1);
+        const watts = own.map((x) => x.gpu.powerW).filter((v) => Number.isFinite(v));
+        setVal(`power:${index}`, CardFigures.power(one.powerW));
+        setSpark(`power:${index}`, own.map((x) => x.gpu.powerW), "rgba(45, 212, 191, 0.9)", Math.max(50, ...watts));
+      });
     }
+    // The RAM's row on the machine's page: the processor's load and what is used, as the scout samples them second by second.
+    const host = ui.latestSystemMonitor?.hosts?.[id] || [];
+    const said = NodeGpuTelemetry.number;
+    setVal("cpu", CardFigures.load(said(n.cpu?.loadPct)));
+    setSpark("cpu", host.map((row) => said(row.cpuPct)).filter((v) => v != null), "rgba(105, 208, 144, 0.9)", 100);
+    setVal("ram", CardFigures.memory(said(n.cpu?.ram?.usedGb), said(n.cpu?.ram?.totalGb)));
+    setSpark("ram", host.map((row) => said(row.ram?.usedGb)).filter((v) => v != null), "rgba(125, 211, 252, 0.9)", said(n.cpu?.ram?.totalGb) || 1);
     if ((n.servers || []).some((s) => s.port)) {
       const telemetry = new NodeTokenTelemetry(n);
       const tokS = telemetry.samples();

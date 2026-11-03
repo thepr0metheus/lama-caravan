@@ -10,7 +10,7 @@ export function effectiveModelsDir(config = {}) {
 }
 
 // Variant 2: the command is built by the single source of truth on the
-// controller (build_llama_args in app.py). The old client-side buildPreviewTokens
+// controller (LlamaArgs in rust/crates/admin/src/config/args.rs). The old client-side buildPreviewTokens
 // mirror was removed — renderCommandPreview() now fetches /api/llama-command-preview.
 
 export function splitCommand(command) {

@@ -1,6 +1,6 @@
 // When a model is open, as the board paints and edits it: windows of weekdays and times of day.
 //
-// The rule is caravan/common/week_windows.py, and this is its twin for the page. A window is
+// The rule is rust/crates/rules/src/model_schedules.rs, and this is its twin for the page. A window is
 // {days, from, to}: days 0..6 with Monday 0, none meaning every day; open from `from`, closed again
 // at `to`; a window whose `to` is not after its `from` runs past midnight and belongs to the day it
 // starts on; `from` equal to `to` is a whole day from that time. Both read a window as the same
@@ -37,7 +37,7 @@ export class WeekWindows {
   }
 
   // The open minutes of the week as sorted, merged [start, end) runs, Monday 00:00 being 0 — the
-  // rule's own reading (WeekWindows.runs in Python). A window that does not read opens nothing.
+  // rule's own reading (WeekWindows::runs in the program). A window that does not read opens nothing.
   static runs(windows) {
     const pieces = [];
     for (const w of Array.isArray(windows) ? windows : []) {

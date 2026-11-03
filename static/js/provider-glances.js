@@ -4,7 +4,7 @@
 // account to it — a subscription goes straight to its sign-in code, a key provider asks for the key —
 // and the same sign-in may be added again. An empty provider is taken off by its ✕. Which account
 // stands under which provider is the controller's word (`boardProviders`,
-// caravan/admin/board_providers.py): the board works none of it out.
+// rust/crates/admin/src/cloud/board_providers.rs): the board works none of it out.
 //
 // An account is one row: its name, whether it can serve, a subscription's windows as last read with
 // the small "↺ N" that opens the window of saved resets, an API key's spend through the caravan and, when

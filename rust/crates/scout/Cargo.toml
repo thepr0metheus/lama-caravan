@@ -1,0 +1,25 @@
+[package]
+name = "scout"
+description = "The scout of one machine in Rust: its cards, its cells, its model cache and its entry, reported to the controller."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "caravan-scout"
+path = "src/main.rs"
+
+[dependencies]
+files.workspace = true
+net.workspace = true
+os.workspace = true
+plumbing.workspace = true
+regex.workspace = true
+rules.workspace = true
+serde_core.workspace = true
+serde_json.workspace = true
+wire.workspace = true
+
+[lints]
+workspace = true

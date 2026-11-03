@@ -1,28 +1,22 @@
 #!/usr/bin/env python3
 """Boot smoke: the controller starts from this tree and answers what a fresh one answers.
 
-A fresh controller is closed (be41edff, 2026-10-07): before the first account only the
-public routes answer — pages lead to /setup and every other route is 401. The CI step
-this replaces still asked a fresh controller for /api/state with `curl -f`, took the 401
-for a broken boot, and was red from that day on an intact tree. It also started
-`python3 app.py &` and never stopped it: on a local run the server held the step's output
-open, and with the state it shared with every earlier run (/tmp/ci) a second run met an
-account the first had left.
+A fresh controller is closed (be41edff, 2026-10-07): before the first account only the public routes answer — pages lead to /setup and every other route is 401. The CI step
+this replaces still asked a fresh controller for /api/state with `curl -f`, took the 401 for a broken boot, and was red from that day on an intact tree. It also started the
+server and never stopped it: on a local run the server held the step's output open, and with the state it shared with every earlier run a second run met an account the
+first had left.
 
-So this asks what the guard says it answers (routes.py `_auth_guard`, route_access.py),
-makes the first account as the setup page does, and asks again as that account. It
-starts its own controller: its own data folder and home (CARAVAN_DATA_DIR, HOME — nothing
-of the machine's real state is read or written), a free port on 127.0.0.1, and a stop on
-every way out.
+So this asks what the guard says it answers, makes the first account as the setup page does, and asks again as that account. It starts its own controller: its own data
+folder and home (CARAVAN_DATA_DIR, HOME — nothing of the machine's real state is read or written), a free port on 127.0.0.1, and a stop on every way out.
 
-It also watches what the controller does BY ITSELF at its start (1.3.544): it reads the models
-folder in the background and keeps what the headers said (`state/gguf-headers.json`), so the first
-page that asks does not wait for every header — 51 s for the 56 models of the NAS, the board's red
-"did not finish loading". The folder it starts with holds one model, and nobody asks for it.
+It also watches what the controller does BY ITSELF at its start (1.3.544): it reads the models folder in the background and keeps what the headers said
+(`state/gguf-headers.json`), so the first page that asks does not wait for every header — 51 s for the 56 models of the NAS, the board's red "did not finish loading". The
+folder it starts with holds one model, and nobody asks for it.
 
 Exit codes: 0 every answer as expected, 1 an answer was not, 2 the server did not start.
 
 Run: python3 scripts/check_boot_smoke.py
+Env: CARAVAN_RUST_ADMIN_BIN says which program, by default rust/target/release/caravan-admin; with no program it says so and passes, unless CARAVAN_RUST_REQUIRED is set.
 """
 from __future__ import annotations
 
@@ -84,6 +78,10 @@ class BootSmoke:
     def free_port() -> int:
         return PORTS.take()
 
+    @staticmethod
+    def program() -> Path:
+        return Path(os.environ.get("CARAVAN_RUST_ADMIN_BIN") or ROOT / "rust" / "target" / "release" / "caravan-admin").resolve()
+
     def env(self) -> dict:
         """The environment the server starts with: this machine's PATH and language, and
         nothing of its state — every path below one fresh folder."""
@@ -91,8 +89,7 @@ class BootSmoke:
         home.mkdir(parents=True, exist_ok=True)
         keep = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "LC_ALL", "TZ", "SYSTEMROOT")}
         return {**keep, "HOME": str(home), "CARAVAN_DATA_DIR": str(self.tmp / "data"),
-                "LLAMACPP_ADMIN_HOST": "127.0.0.1", "LLAMACPP_ADMIN_PORT": str(self.port),
-                "PYTHONDONTWRITEBYTECODE": "1"}
+                "LLAMACPP_ADMIN_HOST": "127.0.0.1", "LLAMACPP_ADMIN_PORT": str(self.port), "CARAVAN_ROOT": str(self.root)}
 
     def seed_model(self) -> None:
         """One model whose header says something, in the models folder of the controller's own data folder."""
@@ -109,7 +106,7 @@ class BootSmoke:
     def start(self) -> bool:
         """Start the server and wait for its first /health; False when it never answers."""
         with open(self.log, "wb") as out:
-            self.proc = subprocess.Popen([sys.executable, "app.py"], cwd=self.root, env=self.env(),
+            self.proc = subprocess.Popen([str(self.program())], cwd=self.root, env=self.env(),
                                          stdout=out, stderr=subprocess.STDOUT)
         deadline = time.time() + self.START_SECONDS
         while time.time() < deadline:
@@ -169,7 +166,8 @@ class BootSmoke:
         except (OSError, ValueError, AttributeError):
             files = {}
         said = next((entry for name, entry in files.items() if name.endswith("demo-Q4_K_M.gguf")), {})
-        self.check((said.get("meta") or {}) == {"general.architecture": "llama", "llama.context_length": 4096},
+        # The facts of the header, and how many keys it holds (the reader's mark of a header read through, 1.3.641).
+        self.check((said.get("meta") or {}) == {"general.architecture": "llama", "llama.context_length": 4096, "caravan.keys": 2},
                    f"the model's header is kept on disk, read before anyone asked (got {sorted(files)!r}, "
                    f"waited up to {self.WARM_SECONDS} s)")
 
@@ -240,6 +238,9 @@ class BootSmoke:
                        f"{page} leads to /login now (got {ans.status} {ans.header('Location')!r})")
 
     def run(self) -> int:
+        if not self.program().exists():
+            print(f"boot smoke: SKIPPED — нет {self.program().name} ({self.program()}): nothing started")
+            return 2 if os.environ.get("CARAVAN_RUST_REQUIRED") else 0
         try:
             self.seed_model()
             if not self.start():

@@ -16,6 +16,9 @@ import {
   apiCostsHtml,
   fetchApiCosts,
   fetchOpenRouterLimits,
+  fetchDeepseekBalance,
+  deepseekBalanceCache,
+  deepseekBalanceHtml,
   fetchProxySpend,
   fetchSubscriptionUsage,
   fetchUpstreamErrors,
@@ -86,7 +89,24 @@ const USAGE_REFRESH_BUTTONS = [
   ["data-usage-refresh", "usageRefresh", "subscription"],
   ["data-api-costs-refresh", "apiCostsRefresh", "apiCosts"],
   ["data-or-limits-refresh", "orLimitsRefresh", "openrouter"],
+  ["data-ds-balance-refresh", "dsBalanceRefresh", "deepseek"],
 ];
+
+// What a key's provider says about it: OpenRouter its key's limits, the OpenAI API its spend (only api.openai.com has the Costs
+// API; elsewhere it 404s), DeepSeek its balance. One table: an account's row and its window (the owner, 2026-10-12: the window
+// holds what is not on the row) both ask it. A key of any other provider has no report: the answer is nothing, not a guess.
+const KEY_REPORTS = [
+  { of: (a) => a.type === "openrouter" || String(a.baseUrl || "").includes("openrouter.ai"), read: fetchOpenRouterLimits, html: openRouterLimitsHtml },
+  { of: (a) => a.type === "openai" || String(a.baseUrl || "").includes("api.openai.com"), read: fetchApiCosts, html: apiCostsHtml },
+  { of: (a) => a.type === "deepseek" || String(a.baseUrl || "").includes("api.deepseek.com"), read: fetchDeepseekBalance, html: deepseekBalanceHtml },
+];
+
+function keyReportHtml(account) {
+  const report = account?.hasCredential ? KEY_REPORTS.find((r) => r.of(account)) : null;
+  if (!report) return "";
+  report.read(account.id);
+  return report.html(account.id);
+}
 
 function bindCloudCardDelegates(cpEl) {
   if (cpEl.dataset.delegated) return;
@@ -166,7 +186,7 @@ export function renderTopologyCloudProviders() {
   const pools = topology?.pools || [];
   // Skip re-render when the pools, their readings and the usage caches haven't changed.
   const usageKeys = accounts.map((a) => {
-    const c = subscriptionUsageCache.get(a.id) || apiCostsCache.get(a.id) || openrouterLimitsCache.get(a.id);
+    const c = subscriptionUsageCache.get(a.id) || apiCostsCache.get(a.id) || openrouterLimitsCache.get(a.id) || deepseekBalanceCache.get(a.id);
     return c ? `${a.id}:${c.fetchedAt || 0}:${c.loading ? 1 : 0}` : `${a.id}:0`;
   }).join("|");
   const pricingKey = pools.flatMap((p) => p.steps || []).map((s) => {
@@ -212,16 +232,9 @@ export function renderTopologyCloudProviders() {
     return { ...(subscription ? { resets: RESET_CARDS.count(accountOf(owner)), pending: RESET_CARDS.pending(accountOf(owner)),
       resetsFailed: RESET_CARDS.failed(accountOf(owner)) } : {}), ...cloudStepSpend(accountId, model) };
   };
-  // An account with a key: what the provider says about it — OpenRouter its key's limits, the
-  // OpenAI API its spend (only api.openai.com has the Costs API; elsewhere it 404s).
-  POOL_CARDS.usage = (account) => {
-    if (!account.hasCredential) return "";
-    if (account.type === "openrouter" || String(account.baseUrl || "").includes("openrouter.ai")) { fetchOpenRouterLimits(account.id); return openRouterLimitsHtml(account.id); }
-    if (account.type === "openai" || String(account.baseUrl || "").includes("api.openai.com")) { fetchApiCosts(account.id); return apiCostsHtml(account.id); }
-    return "";
-  };
+  POOL_CARDS.usage = keyReportHtml;
   // The account's 30 days through the caravan, all its models: the head of a step says its own model's share.
-  POOL_CARDS.spend = (account) => proxySpendHtml(account.id, { subscription: PoolCards.subscription(account) });
+  POOL_CARDS.spend = (account) => proxySpendHtml(account.id, { subscription: PoolCards.subscription(account) || !!account.plan });
   // Tripped upstream endpoints (breaker), then the routed traffic that came back 4xx/5xx over 24h.
   POOL_CARDS.issues = (account) => { fetchUpstreamErrors(); return cloudApiIssuesHtml(account, PoolCards.subscription(account)) + upstreamErrorsHtml(account.id); };
   fetchProxySpend();
@@ -341,7 +354,7 @@ export function selectCloudProviderType(type) {
   renderTopology();
 }
 
-// The main board's providers (caravan/admin/board_providers.py, the owner, 2026-10-12): the picker puts
+// The main board's providers (rust/crates/admin/src/cloud/board_providers.rs, the owner, 2026-10-12): the picker puts
 // one on the board as an empty block, and the "＋" in a block adds an account to it. The controller's
 // answer is the board drawn anew; a refusal is said in a toast and changes nothing.
 export async function addBoardProvider(kind) {
@@ -426,8 +439,15 @@ export function finishCloudAccountWindow(accountId = ui.topologyCloudForm?.accou
 // tables, and which group it stands in — a subscription signs in, the rest take a key.
 export const CLOUD_PICKER_META = {
   "openai-subscription": { color: "#22c55e", name: "cloudNameSubscription", desc: "cloudDescSubscription", group: "subscription" },
+  // A subscription with a key of its own: a tile of its own group, its terms and where its limits are in `note` and `console`.
+  "kimi-code":           { color: "#60a5fa", name: "cloudNameKimi",         desc: "cloudDescKimi",         group: "plan", note: "cloudNoteKimi", console: "https://www.kimi.com/code/console" },
+  "glm-coding":          { color: "#38bdf8", name: "cloudNameGlm",          desc: "cloudDescGlm",          group: "plan", note: "cloudNoteGlm", console: "https://z.ai/manage-apikey/subscription" },
+  "minimax-plan":        { color: "#f472b6", name: "cloudNameMinimax",      desc: "cloudDescMinimax",      group: "plan", note: "cloudNoteMinimax", console: "https://platform.minimax.io/docs/m-plan/other-tools" },
+  "qwen-token":          { color: "#fbbf24", name: "cloudNameQwen",         desc: "cloudDescQwen",         group: "plan", note: "cloudNoteQwen", console: "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-quick-start" },
+  "opencode-go":         { color: "#a3e635", name: "cloudNameOpencodeGo",   desc: "cloudDescOpencodeGo",   group: "plan", note: "cloudNoteOpencodeGo", console: "https://opencode.ai/docs/go/" },
   "openai":              { color: "#60a5fa", name: "cloudNameOpenai",       desc: "cloudDescOpenai",       group: "key" },
   "anthropic":           { color: "#fb923c", name: "cloudNameAnthropic",    desc: "cloudDescAnthropic",    group: "key" },
+  "deepseek":            { color: "#4d7cfe", name: "cloudNameDeepseek",     desc: "cloudDescDeepseek",     group: "key" },
   "openrouter":          { color: "#a78bfa", name: "cloudNameOpenrouter",   desc: "cloudDescOpenrouter",   group: "key" },
   "ollama":              { color: "#34d399", name: "cloudNameOllama",       desc: "cloudDescOllama",       group: "key" },
   "custom":              { color: "#94a3b8", name: "cloudNameCustom",       desc: "cloudDescCustom",       group: "key" },
@@ -450,6 +470,24 @@ export function cloudPickerTileIcon(type) {
       // A spark of eight rays, in the provider's orange. It was a triangle with a bar — a warning sign — and on the board it
       // read as a provider in trouble before it had a key (the owner asked for the Anthropic block to look good, 2026-10-17).
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5v19M2.5 12h19M5.3 5.3l13.4 13.4M18.7 5.3L5.3 18.7"/></svg>`;
+    case "kimi-code":
+      // A crescent: Moonshot's Kimi.
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>`;
+    case "glm-coding":
+      // Three linked hexagon sides: the knots of a graph.
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12L4 7.5M12 12v9"/></svg>`;
+    case "minimax-plan":
+      // A wave of rising and falling bars.
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4M8 6v12M12 9v6M16 4v16M20 10v4"/></svg>`;
+    case "qwen-token":
+      // A round Q: its tail crosses the ring.
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11.5" cy="11.5" r="8"/><path d="M14.5 14.5L20.5 20.5"/></svg>`;
+    case "opencode-go":
+      // A prompt: the agents it is made for live in a terminal.
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 9.5l3 2.5-3 2.5M12.5 15H17"/></svg>`;
+    case "deepseek":
+      // A whale: the line of its back and its tail, and an eye.
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 13.5c0-3.6 3.4-6.5 8-6.5 3.7 0 6.2 1.8 7.2 4.4l3.8-3.4-.9 4.5 1 4.5-3.9-3c-1 3-3.6 4.5-7.1 4.5-4.8 0-8.1-2.3-8.1-6z"/><circle cx="7.5" cy="12" r=".6" fill="currentColor"/></svg>`;
     case "openrouter":
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3l4 4-4 4M3 7h18"/><path d="M7 21l-4-4 4-4M21 17H3"/></svg>`;
     case "ollama":
@@ -480,8 +518,10 @@ export function renderTopologyCloudPicker() {
         </span>
       </button>`;
   };
-  const subscriptions = presets.filter((p) => (CLOUD_PICKER_META[p.type] || {}).group === "subscription");
-  const keys = presets.filter((p) => (CLOUD_PICKER_META[p.type] || {}).group !== "subscription");
+  const groupOf = (p) => (CLOUD_PICKER_META[p.type] || {}).group;
+  const subscriptions = presets.filter((p) => groupOf(p) === "subscription");
+  const plans = presets.filter((p) => groupOf(p) === "plan");
+  const keys = presets.filter((p) => !["subscription", "plan"].includes(groupOf(p)));
   const group = (label, list, wide) => list.length ? `
         <p class="cloud-picker-group">${escapeHtml(t(label))}</p>
         <div class="cloud-picker-grid${wide ? " wide" : ""}">${list.map(tile).join("")}</div>` : "";
@@ -493,12 +533,12 @@ export function renderTopologyCloudPicker() {
           <strong>${escapeHtml(title)}</strong>
           <button class="icon-action compact" type="button" data-cloud-picker-close aria-label="${escapeHtml(t("topologyClose"))}" title="${escapeHtml(t("topologyClose"))}">×</button>
         </div>
-        <div class="cloud-window-body">${group("cloudPickerSubscription", subscriptions, true)}${group("cloudPickerApiKey", keys, false)}</div>
+        <div class="cloud-window-body">${group("cloudPickerSubscription", subscriptions, true)}${group("cloudPickerPlan", plans, false)}${group("cloudPickerApiKey", keys, false)}</div>
       </div>
     </div>`;
 }
 
-// Sign-in by a one-time code (caravan/admin/oauth.py, DeviceLogin). The server says who has it:
+// Sign-in by a one-time code (rust/crates/admin/src/cloud/oauth.rs, DeviceLogin). The server says who has it:
 // `deviceLogin` on the preset of a new account and on every existing one — an old subscription
 // account is type "openai", so the rule is not the form's type.
 export function cloudSignsInByCode(f) {
@@ -529,7 +569,7 @@ export function cloudAccountWindowState(f, acct) {
 // Where a provider's address is the operator's to give: their own endpoint, or an Ollama they
 // run. The big providers have one address, and showing it invited edits that only break the
 // account.
-const CLOUD_ADDRESS_TYPES = new Set(["custom", "ollama"]);
+const CLOUD_ADDRESS_TYPES = new Set(["custom", "ollama", "kimi-code", "glm-coding", "minimax-plan"]);
 
 const SIGN_IN_STATES = new Set(["connect", "waiting", "ended", "connected"]);
 
@@ -611,20 +651,20 @@ function cloudStatusHtml(state, acct) {
     : `<p class="cloud-status warn" data-t="cloud-account-status" data-t-state="no-key">${escapeHtml(t("cloudNoKeyYet"))}</p>`;
 }
 
-// What a key's provider says about it, in its window: OpenRouter its key's limits, the OpenAI API its
-// costs (only api.openai.com has the Costs API; elsewhere it 404s). Until 2026-10-12 it stood under
+// What a key's provider says about it, in its window (KEY_REPORTS). Until 2026-10-12 it stood under
 // Routing's ⋯; the account's window holds what is not on its row (the owner).
 function cloudProviderWordHtml(acct) {
-  if (!acct?.hasCredential) return "";
-  if (acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai")) {
-    fetchOpenRouterLimits(acct.id);
-    return `<div class="cloud-provider-word" data-t="cloud-provider-word">${openRouterLimitsHtml(acct.id)}</div>`;
-  }
-  if (acct.type === "openai" || String(acct.baseUrl || "").includes("api.openai.com")) {
-    fetchApiCosts(acct.id);
-    return `<div class="cloud-provider-word" data-t="cloud-provider-word">${apiCostsHtml(acct.id)}</div>`;
-  }
-  return "";
+  const word = keyReportHtml(acct);
+  return word ? `<div class="cloud-provider-word" data-t="cloud-provider-word">${word}</div>` : "";
+}
+
+// What a subscription with a key asks of its owner, as its documentation has it (CLOUD_PICKER_META): the terms are said before the
+// key is typed, and the limits, which no address of its documentation reports, are where its page shows them. Nothing for the others.
+function cloudProviderNoteHtml(type) {
+  const meta = CLOUD_PICKER_META[type];
+  if (!meta?.note) return "";
+  return `<p class="cloud-hint" data-t="cloud-provider-note">${escapeHtml(t(meta.note))} `
+    + `<a href="${escapeHtml(meta.console)}">${escapeHtml(t("cloudNoteConsole"))}</a></p>`;
 }
 
 // The pools whose rows stand on the account, as its window lists them: what its deletion takes.
@@ -680,14 +720,14 @@ export function renderTopologyCloudAccountModal() {
       ${version ? `<details class="cloud-details"><summary>${escapeHtml(t("cloudDetails"))}</summary>${version}</details>` : ""}`;
     footer = `${remove}${cancel}${save}`;
   } else if (state === "newKey" || state === "newNoKey") {
-    body = `${nameField}${addressField}${authField}${state === "newKey"
+    body = `${cloudProviderNoteHtml(f.type)}${nameField}${addressField}${authField}${state === "newKey"
       ? cloudFieldHtml(t("topologyCloudApiKey"), "apiKey", "", { type: "password", placeholder: t("cloudKeyPlaceholder") }) : ""}`;
     footer = `${cancel}${save}`;
   } else {
     // The credit is a key's to count, so it is asked of an account that has one; its meter counts from the spend reading.
-    const credit = state === "keyAccount" && acct?.hasCredential;
+    const credit = state === "keyAccount" && acct?.hasCredential && !acct?.plan;
     if (credit) fetchProxySpend();
-    body = `${cloudStatusHtml(state, acct)}${cloudProviderWordHtml(acct)}${nameField}${addressField}${state === "keyAccount"
+    body = `${cloudStatusHtml(state, acct)}${cloudProviderWordHtml(acct)}${cloudProviderNoteHtml(acct?.type)}${nameField}${addressField}${state === "keyAccount"
       ? cloudFieldHtml(t("cloudNewKey"), "apiKey", "", { type: "password", placeholder: t("cloudNewKeyPlaceholder") }) : ""}${credit ? cloudCreditHtml(f, acct) : ""}${cloudUsedInHtml(acct)}`;
     footer = `${remove}${cancel}${save}`;
   }
@@ -755,6 +795,7 @@ export async function saveCloudAccount() {
       if (keyRes.topology) setTopology(keyRes.topology);
       // Bust limits cache so the new key is validated immediately after save.
       openrouterLimitsCache.delete(accountId);
+      deepseekBalanceCache.delete(accountId);
       if (!keyRes.ok) {
         toast(`${t("topologyCloudKeyFail")}: ${keyRes.test?.error || ""}`);
         topologyCloudBusy = false;

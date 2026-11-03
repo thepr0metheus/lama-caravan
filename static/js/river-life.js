@@ -1,11 +1,13 @@
 /*
  * river-life.js: everything alive on and over the brook except the fish: insects on the surface
- * film, autumn leaves afloat and falling, ferns leaning over the water, foam and spray.
+ * film, autumn leaves afloat and falling, ferns leaning over the water, foam and spray; the frogs
+ * and the tadpoles are river-frogs.js, placed after the ferns and the branch they keep out from under.
  * BrookLife places them, moves them and answers the pointer.
  */
 import { BranchArt, FernArt, LeafArt, TopFishPainter } from "./river-art.js";
 import { M, Rng } from "./river-core.js";
 import { MinnowShoal, Trout } from "./river-fish.js";
+import { FrogPond } from "./river-frogs.js";
 import { BROOK, BROOK_SHADOW } from "./river-world.js";
 
 /** An insect on the surface film: it struggles, sends out rings and drifts until a fish takes it. */
@@ -398,6 +400,8 @@ export class BrookLife {
       }
     }
     this.branch = { x: -C * 0.06, y: -C * 0.05, angle: 0.18, phase: rng.range(0, M.TAU) };
+    // a stream of their own: the brook's is left as it was, so every seed lays out the rest of the brook as before
+    this.frogs = new FrogPond(this, new Rng(BROOK.layoutSeed + 21));
   }
   /* -------- places the animals ask for -------- */
   waterSpot(rng, minDepth, maxDepth = 1, test = null) {
@@ -475,6 +479,7 @@ export class BrookLife {
     for (const f of this.trout) f.update(dt, this);
     this.shoal.update(dt, this);
     for (const s of this.striders) s.update(dt, this);
+    this.frogs.update(dt);
     for (const l of this.leaves) l.update(dt, this);
     this.leaves = this.leaves.filter(l => l.alive);
     for (const l of this.falling) l.update(dt);
@@ -524,6 +529,7 @@ export class BrookLife {
     for (const f of this.trout) f.drawShadow(s, painter, ch);
     for (const m of this.shoal.fish) m.draw(u, painter);
     for (const f of this.trout) f.draw(u, painter);
+    this.frogs.drawUnder(u, s);
     for (const st of this.striders) { const h = ch.waterDepthPx(st.depth); st.drawShadow(s, h); st.drawRims(u, h); }
     for (const l of this.leaves) l.drawShadow(s, this);
     for (const f of this.flies) f.drawShadow(s, ch.waterDepthPx(0.3));
@@ -537,7 +543,9 @@ export class BrookLife {
     for (const f of this.flies) f.draw(ctx, t);
     for (const s of this.striders) s.draw(ctx);
     this.specks.draw(ctx);
+    this.frogs.drawTop(ctx, 'low');
     for (const f of this.ferns) f.draw(ctx, t, this);
+    this.frogs.drawTop(ctx, 'high');
     for (const l of this.falling) l.draw(ctx);
     const b = this.branch, sway = Math.sin(t * 0.35 + b.phase) * 0.012;
     this.branchArt.sprite.draw(ctx, b.x, b.y, b.angle + sway, 1, 0.96);
@@ -562,6 +570,7 @@ export class BrookLife {
       this.echoes.add(this.time + 0.16, p.x, p.y);
       for (const f of this.trout) if (Math.hypot(f.x - p.x, f.y - p.y) < C * 0.4) f.spook(p.x, p.y, ch);
       this.shoal.spook(p.x, p.y, C * 0.3, ch);
+      this.frogs.plop(p.x, p.y, C * 0.4);
       this.scene.sound((kit, t) => kit.plink(t, { f: 330, ring: 0.42, gain: 0.14, room: 0.3 }));
     }
   }

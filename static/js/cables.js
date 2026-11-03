@@ -208,14 +208,13 @@ export function drawTopologyCables() {
     });
   });
   // Segment 2: a client of the entry (consumers.js) → Routing, lit by its requests (the owner,
-  // 2026-10-11: a client's activity on the cables, as the agents' was). Its one cable leads to a set
-  // of models (2026-10-12), and the sets and pools stand in Routing, not on the main board: on the
-  // main board the cable comes into Routing's card. A client no cable reaches (`set`, the
-  // controller's reading) has none here either. Every request of the client goes down it, whichever
-  // pool and row serve it.
+  // 2026-10-11: a client's activity on the cables, as the agents' was). The pools and the models it
+  // calls stand in Routing, not on the main board: on the main board the cable comes into Routing's
+  // card. Every client has one since 1.3.675 — each sees every pool and every model that runs (the
+  // owner, 2026-10-27: "the cables on the main board — no, there are few of them, let them stay").
+  // Every request of the client goes down it, whichever pool and row serve it.
   const Routing = document.querySelector('[data-topology-router-input][data-router-id="router:default"]');
   (topology.proxies || []).filter(isEntryClient).forEach((p) => {
-    if (!String(p.set || "")) return;
     const source = document.querySelector(`[data-topology-proxy-output][data-proxy-id="${CSS.escape(p.id)}"]`);
     const activity = topologyItemsActivity((it, port) => port === Number(p.port));
     const cable = topologySvgPath(topologyPointFor(source, "center"), topologyPointFor(Routing, "center"),
@@ -226,8 +225,12 @@ export function drawTopologyCables() {
   // Segment 3: Routing's card → the machines and the cloud providers its pools lead to (the owner,
   // 2026-10-12). The rows themselves are Routing's (pool-board.js); here a cable says only that
   // requests can go there — a machine one of whose cells is a pool's row, an account a pool's row
-  // calls (PoolReach) — and it lights while a request runs there: a cell's leg names its output
-  // (`routedOutputId`), a provider's its account (`cloudAccountId`, caravan/proxy/handler.py).
+  // calls (PoolReach) — and it lights while a request runs there: a leg on a machine names its output
+  // (`routedOutputId`), a provider's its account (`cloudAccountId`, rust/crates/proxy/src/exchange/mod.rs). A leg
+  // on a machine is any but a cloud one, as for PoolReach (rust/crates/rules/src/upstream_type.rs: a cell,
+  // a model of the machine's entry, an engine's model; a kind unsaid is a cell's). Only a cell's lit
+  // it before 1.3.665, and since 1.3.655 the pools' rows lead to the machine's models: the right half
+  // of a lit path stayed dark (the owner, 2026-10-26: "I don't see the right part of the active lane").
   const out = document.querySelector('[data-topology-router-output][data-router-id="router:default"]');
   const reach = PoolReach.of(topology);
   const ends = [];
@@ -240,7 +243,7 @@ export function drawTopologyCables() {
   };
   reach.machines.forEach(({ key, outputs }) => towards(
     document.querySelector(`.machine-glance[data-node-id="${CSS.escape(key)}"] > .node-head`),
-    topologyItemsActivity((it) => String(it.upstreamType || "") === "llama" && outputs.includes(String(it.routedOutputId || ""))),
+    topologyItemsActivity((it) => String(it.upstreamType || "llama") !== "cloud" && outputs.includes(String(it.routedOutputId || ""))),
     `machine ${key}`));
   reach.accounts.forEach((id) => towards(
     document.querySelector(`[data-board-provider="${CSS.escape(id)}"] > .node-head`),

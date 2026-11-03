@@ -8,7 +8,7 @@
 // Data: /api/model-stores/moves; starting: /api/model-stores/move; stopping:
 // /api/model-stores/moves/cancel.
 //
-// The job runs ON THE SERVER (caravan/admin/store_moves.py) and the page only
+// The job runs ON THE SERVER (rust/crates/admin/src/models/moves/runner.rs) and the page only
 // draws it, so progress survives a reload and shows in a second tab. Every
 // file is read back from the library and compared before the copy here is
 // deleted — and the question before the start says so, because that deletion

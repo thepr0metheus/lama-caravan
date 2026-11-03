@@ -4,7 +4,7 @@
 Доска получала список моделей один раз, с /api/state, а её опрос читает только
 топологию: полка каравана на карточке машины (и редактор ячейки) не видели
 модель, скачанную после открытия страницы (2026-09-26). Теперь топология несёт
-отпечаток списка (ModelList в caravan/admin/models.py), и ModelListFollower
+отпечаток списка (ModelList в rust/crates/admin/src/models/mod.rs), и ModelListFollower
 дочитывает строки, когда отпечаток страницы от него отстал.
 
 Пинится значениями: когда он НЕ ходит за строками (нет состояния страницы, нет
@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, node_args  # noqa: E402
 
 _fail = []
 
@@ -139,7 +139,7 @@ def main():
     path = ROOT / "scripts" / ".probe_js_model_list.tmp.mjs"
     path.write_text(PROBE)
     try:
-        run = subprocess.run([node, str(path)], capture_output=True, text=True, cwd=ROOT, timeout=60,
+        run = subprocess.run(node_args(node, path), capture_output=True, text=True, cwd=ROOT, timeout=60,
                              env={"PATH": str(Path(node).parent), "JS_ROOT": str(ROOT / "static" / "js")})
     finally:
         path.unlink(missing_ok=True)

@@ -1,0 +1,436 @@
+#!/usr/bin/env bash
+# update-llama.sh — build/update llama.cpp (CUDA) on a caravan-scout host.
+#
+# SYNCED COPY of lama-caravan scripts/install-llama.sh (keep both in step);
+# invoked by the scout's POST /api/llama-node/update background job.
+#
+# Usage:
+#   ./scripts/install-llama.sh [--llama-tag b9101] [--llama-dir DIR] [--force] [--no-restart]
+#
+# Idempotent: skips the build if llama-server already exists.
+# Use --force to rebuild even if the binary is present.
+
+set -euo pipefail
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+info() { echo -e "${GREEN}[install-llama]${NC} $*"; }
+warn() { echo -e "${YELLOW}[warn]${NC}   $*"; }
+err()  { echo -e "${RED}[error]${NC}  $*" >&2; }
+have() { command -v "$1" &>/dev/null; }
+
+# ── defaults ──────────────────────────────────────────────────────────────────
+LLAMA_DIR="${HOME}/llama.cpp"
+LLAMA_TAG=""
+FORCE=0
+
+ACTION=""
+RESTORE_ID=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --llama-tag)   LLAMA_TAG="$2"; shift ;;
+    --llama-dir)   LLAMA_DIR="$2"; shift ;;
+    --force)       FORCE=1 ;;
+    --no-restart)  ;;   # accepted for old callers: nothing here restarts cells (their scouts run them)
+    --list-builds) ACTION="list-builds" ;;
+    --restore)     ACTION="restore"; RESTORE_ID="${2:-}"; shift ;;
+    --archive-current) ACTION="archive" ;;
+    -h|--help)
+      sed -n '/^#/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) err "unknown arg: $1"; exit 1 ;;
+  esac
+  shift
+done
+
+# ── one build at a time in this tree ──────────────────────────────────────────
+# The controller's install-llama.sh and the scout's update-llama.sh build into
+# the same checkout on a machine that runs both, each guarded only inside its
+# own process. Two at once leave a binary half from one commit and half from
+# the other — the franken-build every crash was once traced to. Both take this
+# lock, next to the tree (inside it a fresh git clone would refuse the folder);
+# the second one says so and stops. Listing builds changes nothing and waits
+# for nobody. No flock (macOS) — no lock.
+if [[ "$ACTION" != "list-builds" ]] && command -v flock >/dev/null 2>&1; then
+  exec 9>"${LLAMA_DIR%/}.caravan-build.lock"
+  if ! flock -n 9; then
+    err "another llama.cpp build or restore is running in ${LLAMA_DIR} — wait for it to finish"
+    exit 75
+  fi
+fi
+
+# ── platform checks ───────────────────────────────────────────────────────────
+# ── build archive: every successful build is snapshotted, so a bad release is
+#    a one-click restore instead of an ssh session. Keep = LLAMA_BUILDS_KEEP
+#    (default 5). Restore copies the archived bin/ back and checks the clone
+#    out at that commit, keeping chips/fleet-convergence coherent. ─────────────
+BUILDS_DIR="${LLAMA_BUILDS_DIR:-$HOME/.local/share/lama-caravan/llama-builds}"
+BUILDS_KEEP="${LLAMA_BUILDS_KEEP:-5}"
+
+archive_current_build() {
+  local bin="${LLAMA_DIR}/build/bin/llama-server"
+  [[ -f "$bin" ]] || { warn "nothing to archive: ${bin} missing"; return 0; }
+  local commit ver id dest old size
+  commit=$(git -C "$LLAMA_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  ver=$("$bin" --version 2>&1 | head -1 || true)
+  id="$(date -u +%Y%m%d-%H%M%S)-${commit}"
+  dest="${BUILDS_DIR}/${id}"
+  for old in "${BUILDS_DIR}"/*-"${commit}"; do   # one archive per commit
+    [[ -d "$old" ]] && rm -rf "$old"
+  done
+  mkdir -p "$dest"
+  cp -a "${LLAMA_DIR}/build/bin" "${dest}/bin"
+  [[ -d "${LLAMA_DIR}/build/lib" ]] && cp -a "${LLAMA_DIR}/build/lib" "${dest}/lib"
+  size=$(du -sm "$dest" 2>/dev/null | cut -f1 || echo 0)
+  python3 - "$dest/meta.json" "$commit" "$ver" "${size:-0}" <<'PY'
+import json, sys, time
+open(sys.argv[1], "w").write(json.dumps({
+    "commit": sys.argv[2], "version": sys.argv[3],
+    "sizeMb": int(sys.argv[4] or 0), "builtAt": int(time.time())}))
+PY
+  info "archived build ${id} (${size:-?} MB)"
+  local all count
+  all=$(ls -1d "${BUILDS_DIR}"/*/ 2>/dev/null | sort || true)
+  count=$(printf '%s\n' "$all" | grep -c . || true)
+  if (( count > BUILDS_KEEP )); then
+    printf '%s\n' "$all" | head -n $((count - BUILDS_KEEP)) | while read -r old; do
+      rm -rf "$old" && info "pruned old archive $(basename "$old")"
+    done
+  fi
+}
+
+list_builds() {
+  python3 - "$BUILDS_DIR" <<'PY'
+import json, os, sys
+root, rows = sys.argv[1], []
+if os.path.isdir(root):
+    for name in sorted(os.listdir(root), reverse=True):
+        meta = os.path.join(root, name, "meta.json")
+        if os.path.isfile(meta):
+            try:
+                row = json.load(open(meta)); row["id"] = name; rows.append(row)
+            except Exception:
+                pass
+print(json.dumps(rows))
+PY
+}
+
+restore_build() {
+  local id="$1" dir commit
+  [[ -n "$id" ]] || { err "--restore needs a build id (or commit)"; exit 1; }
+  dir=$(ls -1d "${BUILDS_DIR}"/*"${id}"*/ 2>/dev/null | sort | tail -1 || true)
+  [[ -n "$dir" && -d "$dir" ]] || { err "no archived build matches '${id}'"; list_builds; exit 1; }
+  commit=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('commit',''))" "${dir}meta.json" 2>/dev/null || true)
+  info "restoring $(basename "$dir") into ${LLAMA_DIR}/build ..."
+  mkdir -p "${LLAMA_DIR}/build"
+  rm -rf "${LLAMA_DIR}/build/bin"
+  cp -a "${dir}bin" "${LLAMA_DIR}/build/bin"
+  if [[ -d "${dir}lib" ]]; then
+    rm -rf "${LLAMA_DIR}/build/lib"
+    cp -a "${dir}lib" "${LLAMA_DIR}/build/lib"
+  fi
+  # Keep the clone coherent with the restored binary so the version chips and
+  # the fleet-convergence tag agree with what actually runs.
+  if [[ -n "$commit" ]] && git -C "$LLAMA_DIR" checkout -f "$commit" -q 2>/dev/null; then
+    info "clone checked out at ${commit}"
+  else
+    warn "could not checkout ${commit} — binary restored anyway"
+  fi
+  info "restore done: $("${LLAMA_DIR}/build/bin/llama-server" --version 2>&1 | head -1)"
+  info "running model servers keep their current binary until restarted."
+}
+
+case "$ACTION" in
+  list-builds) list_builds; exit 0 ;;
+  restore)     restore_build "$RESTORE_ID"; exit 0 ;;
+  archive)     archive_current_build; exit 0 ;;
+esac
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  warn "macOS: install llama.cpp via Homebrew: brew install llama.cpp"
+  warn "Then ensure ~/llama.cpp/build/bin/llama-server exists or set LLAMA_HOME."
+  exit 0
+fi
+
+# GPU detect: nvidia-smi first (the build needs it later anyway), lspci as the
+# fallback for driverless boxes. NB: no `grep -q` on a pipe here — under
+# `set -o pipefail` grep -q exits at the first match, lspci dies with SIGPIPE
+# (141) and the whole pipeline reads as "no GPU" — a scheduler-dependent flake.
+if ! nvidia-smi -L >/dev/null 2>&1 \
+   && ! (lspci 2>/dev/null | grep -i "nvidia" >/dev/null); then
+  warn "No NVIDIA GPU detected — skipping llama.cpp build."
+  exit 0
+fi
+
+# ── toolchain ─────────────────────────────────────────────────────────────────
+if ! have nvcc; then
+  info "Installing build deps (cmake, build-essential, git) ..."
+  sudo apt-get update -qq
+  sudo apt-get install -y cmake build-essential git
+  # Try the system CUDA toolkit; if still missing, user must install driver+toolkit manually.
+  if ! have nvcc; then
+    info "nvcc not found after apt — trying nvidia-cuda-toolkit ..."
+    sudo apt-get install -y nvidia-cuda-toolkit || true
+  fi
+fi
+
+if ! have nvcc; then
+  err "nvcc not on PATH — install the CUDA toolkit matching your driver and retry."
+  exit 1
+fi
+
+have cmake || { err "cmake not found"; exit 1; }
+
+# ── detect CUDA architectures from installed GPUs ────────────────────────────
+detect_cuda_arches() {
+  python3 - <<'PY' 2>/dev/null || echo "native"
+import subprocess, re, sys
+try:
+    out = subprocess.check_output(
+        ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+        text=True
+    ).strip()
+    caps = sorted({c.replace(".", "") for c in out.splitlines() if c.strip()})
+    # Blackwell sm_120 needs the 120a suffix for CUDA >= 12.8
+    result = []
+    for c in caps:
+        result.append(c + "a" if c == "120" else c)
+    print(";".join(result))
+except Exception:
+    print("native")
+PY
+}
+
+CUDA_ARCHES=$(detect_cuda_arches)
+info "CUDA architectures: ${CUDA_ARCHES}"
+
+# ── resolve tag ───────────────────────────────────────────────────────────────
+if [[ -z "$LLAMA_TAG" ]]; then
+  info "Fetching latest llama.cpp release tag ..."
+  if have curl; then
+    LLAMA_TAG=$(curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest" \
+      | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])" 2>/dev/null || echo "")
+  fi
+  if [[ -z "$LLAMA_TAG" ]]; then
+    LLAMA_TAG="master"
+    warn "Could not fetch latest tag — using master branch"
+  else
+    info "Latest tag: ${LLAMA_TAG}"
+  fi
+else
+  info "Using pinned tag: ${LLAMA_TAG}"
+fi
+
+# ── clone / update ────────────────────────────────────────────────────────────
+if [[ -d "${LLAMA_DIR}/.git" ]]; then
+  # A stale index.lock blocks every git command in this clone — and since the
+  # clone is a build artifact nobody hand-edits, a lock with NO live git
+  # process behind it can only be the corpse of a crashed/killed run (one from
+  # July sat here for 17 days failing every GUI update at "fetching"). Remove
+  # it only under that exact condition; with a live git process we still stop.
+  if [[ -f "${LLAMA_DIR}/.git/index.lock" ]] && ! pgrep -f "git.*$(basename "$LLAMA_DIR")" >/dev/null 2>&1; then
+    warn "removing stale ${LLAMA_DIR}/.git/index.lock (no live git process owns it)"
+    rm -f "${LLAMA_DIR}/.git/index.lock"
+  fi
+  info "llama.cpp exists at ${LLAMA_DIR} — fetching ..."
+  git -C "$LLAMA_DIR" fetch --tags -q
+  # -f: the clone is a build artifact, not a workspace — discard local edits
+  # (e.g. a previously applied smpbo patch, or deleted tracked test files) so
+  # the checkout always lands on pristine upstream. The probe below re-applies
+  # the workaround if this stack still needs it. Untracked files (downloaded
+  # models under models/) are never touched by checkout.
+  git -C "$LLAMA_DIR" checkout -f "$LLAMA_TAG" -q 2>/dev/null \
+    || git -C "$LLAMA_DIR" checkout -f "tags/${LLAMA_TAG}" -q 2>/dev/null \
+    || git -C "$LLAMA_DIR" checkout -f master -q
+else
+  info "Cloning llama.cpp @ ${LLAMA_TAG} ..."
+  if [[ "$LLAMA_TAG" == "master" ]]; then
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_DIR"
+  else
+    git clone --depth 1 --branch "$LLAMA_TAG" \
+      https://github.com/ggml-org/llama.cpp "$LLAMA_DIR"
+  fi
+fi
+
+# ── Blackwell (sm_120) workaround patch ──────────────────────────────────────
+# Root cause: cudaDeviceProp.sharedMemPerBlockOptin reads from the wrong struct
+# offset when the build CUDA toolkit headers differ from the runtime driver's
+# struct layout (observed on CUDA 13.x / Blackwell: returns a garbage ~4 GiB
+# value instead of the real ~99 KiB). That bogus value is later passed to
+# cudaFuncSetAttribute(MaxDynamicSharedMemorySize), which the driver rejects
+# with "invalid argument", aborting the server (surfaced as "SOFT_MAX failed").
+#
+# Fix: read the value via cudaDeviceGetAttribute() — a stable driver API that
+# does not depend on the struct layout. This single-file change is sufficient;
+# earlier defensive patches to fattn.cu / softmax.cu were verified unnecessary
+# once smpbo is correct (MMA flash-attention and cooperative softmax work fine).
+#
+# 2026-07-10 update: on current driver/toolkit stacks the direct struct read is
+# valid again (verified: RTX 5090 + driver 595.71 + CUDA 13.2 probe reads
+# 101376 == attribute API, and an UNPATCHED build served inference cleanly;
+# upstream closed equivalent PRs #22338/#23766/#24991 as unreproducible). The
+# corruption was tied to early/mixed Blackwell driver+toolkit combos, so the
+# patch is now applied ONLY when the probe below actually reads garbage —
+# on healthy stacks the clone stays pristine (keeps git-based updates clean).
+apply_blackwell_patches() {
+  local dir="$1"
+
+  # ggml-cuda.cu: use cudaDeviceGetAttribute for smpbo (avoids struct layout mismatch)
+  python3 - "$dir/ggml/src/ggml-cuda/ggml-cuda.cu" << 'PY'
+import sys
+path = sys.argv[1]
+with open(path) as f:
+    src = f.read()
+
+old = '        info.devices[id].smpbo = prop.sharedMemPerBlockOptin;\n        info.devices[id].cc = 100*prop.major + 10*prop.minor;'
+new = '''        info.devices[id].cc = 100*prop.major + 10*prop.minor;
+        // Use cudaDeviceGetAttribute instead of prop.sharedMemPerBlockOptin to avoid
+        // struct layout mismatches between CUDA toolkit versions (seen on CUDA 13.x / Blackwell).
+        {
+            int smpbo_val = 0;
+            if (cudaDeviceGetAttribute(&smpbo_val, cudaDevAttrMaxSharedMemoryPerBlockOptin, id) == cudaSuccess && smpbo_val > 0) {
+                info.devices[id].smpbo = (size_t) smpbo_val;
+            } else {
+                info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
+            }
+        }'''
+new_marker = 'cudaDeviceGetAttribute(&smpbo_val, cudaDevAttrMaxSharedMemoryPerBlockOptin'
+if new_marker in src:
+    print('  [skip]  ggml-cuda.cu: smpbo patch already applied')
+elif old in src:
+    src = src.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(src)
+    print('  [patch] ggml-cuda.cu: smpbo via cudaDeviceGetAttribute')
+else:
+    print('  [skip]  ggml-cuda.cu: pattern not found (API may have changed)')
+PY
+}
+
+# Probe whether the direct struct read is trustworthy on THIS driver/toolkit.
+# Exit 0: every GPU reads a sane value matching the attribute API (no patch
+# needed). Exit non-zero: garbage detected, or the probe could not run — in
+# both cases we apply the workaround (it is harmless when not needed).
+smpbo_probe() {
+  local dir rc
+  dir=$(mktemp -d) || return 1
+  cat > "$dir/probe.cu" <<'CU'
+#include <cstdio>
+#include <cuda_runtime.h>
+int main() {
+    int n = 0;
+    if (cudaGetDeviceCount(&n) != cudaSuccess || n == 0) return 1;
+    for (int i = 0; i < n; i++) {
+        cudaDeviceProp p;
+        if (cudaGetDeviceProperties(&p, i) != cudaSuccess) return 1;
+        int attr = 0;
+        if (cudaDeviceGetAttribute(&attr, cudaDevAttrMaxSharedMemoryPerBlockOptin, i) != cudaSuccess) return 1;
+        std::printf("dev %d: struct smpbo=%zu attr=%d\n", i, (size_t) p.sharedMemPerBlockOptin, attr);
+        if (attr <= 0 || (size_t) attr != p.sharedMemPerBlockOptin) return 2;  // garbage / mismatch
+    }
+    return 0;
+}
+CU
+  if ! nvcc -o "$dir/probe" "$dir/probe.cu" >/dev/null 2>&1; then
+    rm -rf "$dir"; return 1
+  fi
+  "$dir/probe"; rc=$?
+  rm -rf "$dir"
+  return $rc
+}
+
+# On sm_120 GPUs: apply the workaround only if the probe reads garbage.
+if echo "${CUDA_ARCHES}" | grep -q '120'; then
+  if smpbo_probe; then
+    info "sm_120: direct sharedMemPerBlockOptin read is valid on this driver/toolkit — smpbo workaround not needed, clone left unpatched"
+  else
+    warn "sm_120: smpbo probe read garbage (or could not run) — applying the workaround patch ..."
+    apply_blackwell_patches "$LLAMA_DIR"
+  fi
+fi
+
+# ── build ─────────────────────────────────────────────────────────────────────
+# Stale build-dir guard: a dir CONFIGURED under one CUDA toolkit and then
+# incrementally rebuilt under another mixes objects compiled against different
+# cudaDeviceProp layouts — the smpbo corruption (June) and the llama_decode
+# "invalid argument" crashes (July) were exactly this franken-build. If the
+# cached compiler version doesn't match the live nvcc, wipe and reconfigure.
+CACHED_CUDA_VER=$(grep -rhoE 'CMAKE_CUDA_COMPILER_VERSION "[0-9.]+"' \
+  "${LLAMA_DIR}/build/CMakeFiles" 2>/dev/null | grep -oE '[0-9.]+' | head -1 || true)
+LIVE_CUDA_VER=$(nvcc --version 2>/dev/null | grep -oE 'release [0-9.]+' | grep -oE '[0-9.]+' || true)
+if [[ -d "${LLAMA_DIR}/build" && -n "$CACHED_CUDA_VER" && -n "$LIVE_CUDA_VER" ]] \
+   && [[ "$CACHED_CUDA_VER" != "$LIVE_CUDA_VER"* && "$LIVE_CUDA_VER" != "$CACHED_CUDA_VER"* ]]; then
+  warn "build/ was configured with CUDA ${CACHED_CUDA_VER} but live nvcc is ${LIVE_CUDA_VER} — wiping build/ (mixed-toolkit objects corrupt cudaDeviceProp reads)."
+  rm -rf "${LLAMA_DIR}/build"
+fi
+
+LLAMA_BIN="${LLAMA_DIR}/build/bin/llama-server"
+if [[ -f "$LLAMA_BIN" && "$FORCE" == "0" ]]; then
+  info "llama-server already built at ${LLAMA_BIN} (use --force to rebuild)"
+else
+  JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+  info "Building llama-server with -j${JOBS} (first build ~10-20 min) ..."
+
+  # Note: do NOT set -DGGML_CUDA_FORCE_CUBLAS=ON. It was used as a stop-gap to
+  # avoid the MMQ kernel crash on Blackwell, but the real fix is the smpbo
+  # correction (apply_blackwell_patches). Forcing cuBLAS only disables the
+  # faster MMQ kernels and buys nothing once smpbo is correct.
+  cmake -S "$LLAMA_DIR" -B "${LLAMA_DIR}/build" \
+    -DGGML_CUDA=ON \
+    -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHES}" \
+    -DLLAMA_BUILD_TESTS=OFF \
+    -DLLAMA_BUILD_EXAMPLES=OFF \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLAMA_USE_PREBUILT_UI=ON \
+    -Wno-dev
+
+  # The build downloads prebuilt UI assets from HuggingFace.
+  # If HF is unreachable (corporate network, etc.) the llama-server target
+  # will fail. In that case we download dist.tar.gz via curl ourselves and
+  # retry with prebuilt UI disabled (using the just-downloaded assets).
+  if ! cmake --build "${LLAMA_DIR}/build" \
+      --config Release --target llama-server -j "$JOBS" 2>&1; then
+
+    UI_DIST="${LLAMA_DIR}/build/tools/ui/dist"
+    UI_ARCHIVE="${LLAMA_DIR}/build/tools/ui/dist.tar.gz"
+    warn "Build failed — likely HuggingFace UI download blocked."
+    info "Attempting to download UI assets via curl ..."
+
+    if curl -fsSL \
+        "https://huggingface.co/buckets/ggml-org/llama-ui/resolve/latest/dist.tar.gz" \
+        -o "$UI_ARCHIVE" \
+        && file "$UI_ARCHIVE" | grep "gzip" >/dev/null; then
+      rm -rf "$UI_DIST"
+      mkdir -p "$UI_DIST"
+      tar -xzf "$UI_ARCHIVE" -C "$UI_DIST"
+      info "UI assets extracted — retrying build ..."
+      cmake -S "$LLAMA_DIR" -B "${LLAMA_DIR}/build" \
+        -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_BUILD_UI=OFF -Wno-dev
+      cmake --build "${LLAMA_DIR}/build" \
+        --config Release --target llama-server -j "$JOBS"
+    else
+      err "Could not download UI assets. Build failed."
+      err "Try running with network access to huggingface.co, or:"
+      err "  download dist.tar.gz manually and place at ${UI_ARCHIVE}"
+      exit 1
+    fi
+  fi
+
+  info "Build complete: ${LLAMA_BIN}"
+  archive_current_build
+fi
+
+if [[ ! -f "$LLAMA_BIN" ]]; then
+  err "Build finished but ${LLAMA_BIN} is missing."
+  exit 1
+fi
+
+# ── faster-whisper ASR server ─────────────────────────────────────────────────
+# Provision it here too so a whisper "command" cell works straight from CARAVAN
+# with no extra setup. Non-fatal: a whisper hiccup must not fail the llama build.
+info "Provisioning faster-whisper ASR server ..."
+bash "$(dirname "$0")/install-whisper.sh" \
+  || warn "whisper provisioning failed (non-fatal) — run scripts/install-whisper.sh manually"
+
+info "Done. llama-server: ${LLAMA_BIN}"
+info "Run 'llama-server --version' to verify:"
+"$LLAMA_BIN" --version 2>/dev/null || true

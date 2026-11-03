@@ -2,11 +2,65 @@
 // its GPU or CPU joins the fleet.
 import { t } from "./i18n.js";
 import { refreshTopology } from "./topology-render.js";
-import { $, api, escapeHtml } from "./utils.js";
+import { $, api, copyText, escapeHtml } from "./utils.js";
+
+/**
+ * The one command that puts a scout on a new machine (the owner, 2026-11-02). The controller
+ * names it (GET /api/fleet/scout-release): it knows the address a machine reaches it at and whether
+ * its release carries a scout at all. One that does not says so rather than showing a command that fails.
+ *
+ * Its state is on it (data-t-state: idle | loading | ready | copied | none | error).
+ */
+export class ScoutInstallLine {
+  constructor(root, { call = api, copy = copyText } = {}) {
+    this.root = root;
+    this.call = call;
+    this.copyText = copy;
+    this.command = root.querySelector("[data-scout-install-command]");
+    this.copyButton = root.querySelector("[data-scout-install-copy]");
+    this.note = root.querySelector("[data-scout-install-note]");
+  }
+
+  bind() {
+    this.copyButton.addEventListener("click", () => this.copy());
+  }
+
+  say(state, words = "") {
+    this.root.dataset.tState = state;
+    this.note.textContent = words;
+  }
+
+  /** The command, or no command: a page must not offer one that would fail. */
+  show(command) {
+    this.command.textContent = command;
+    this.command.hidden = !command;
+    this.copyButton.hidden = !command;
+  }
+
+  async load() {
+    this.show("");
+    this.say("loading", t("scoutInstallLoading"));
+    try {
+      const said = await this.call("/api/fleet/scout-release");
+      const command = String(said?.installCommand || "");
+      this.show(command);
+      if (command) this.say("ready", command.includes("https://") ? t("scoutInstallTrust") : "");
+      else this.say("none", t("scoutInstallNone"));
+    } catch (error) {
+      this.say("error", String(error?.message || error));
+    }
+  }
+
+  async copy() {
+    const landed = await this.copyText(this.command.textContent);
+    if (landed) this.say("copied", t("scoutInstallCopied"));
+    else this.say("ready", t("scoutInstallCopyFailed"));
+  }
+}
 
 /**
  * The address box under the Machines head. The machine only installs its scout
- * (caravan-scout ./install.sh, which prints its address and port); the
+ * (the one command of ScoutInstallLine, which prints its address and port); the
  * operator enters that address here, and the controller pairs the scout:
  * reads it, hands it the controller's address and fleet token, and waits for
  * its first heartbeat (POST /api/topology/scout/connect). Connecting a scout
@@ -26,9 +80,16 @@ import { $, api, escapeHtml } from "./utils.js";
  * open, as it always was.
  */
 export class ScoutAddForm {
-  constructor(root, { opener = null, finderButton = null } = {}) {
+  // How long the word of a connected machine stays before the box closes, ms.
+  static CLOSES_AFTER_MS = 2500;
+
+  constructor(root, { opener = null, finderButton = null, later = (run, ms) => globalThis.setTimeout(run, ms) } = {}) {
     this.root = root;
     this.opener = opener;
+    this.later = later;
+    // The command for a new machine, where the page has it. Read when the box opens: what the controller carries changes with a release.
+    const line = root.querySelector("[data-scout-install]");
+    this.install = line ? new ScoutInstallLine(line) : null;
     this.address = root.querySelector("[data-scout-add-address]");
     this.port = root.querySelector("[data-scout-add-port]");
     this.button = root.querySelector("[data-scout-add-connect]");
@@ -54,6 +115,8 @@ export class ScoutAddForm {
       field.addEventListener("keydown", (e) => { if (e.key === "Enter") this.connect(); });
     }
     this.finder?.bind();
+    this.install?.bind();
+    if (!this.opener) this.install?.load();
   }
 
   say(state, text) {
@@ -66,9 +129,24 @@ export class ScoutAddForm {
   open(on = !!this.root.hidden) {
     this.root.hidden = !on;
     this.opener?.setAttribute("aria-expanded", String(on));
-    if (on) this.address.focus?.();
+    if (on) {
+      this.address.focus?.();
+      this.install?.load();
+    }
     else if (this.finder && !this.finder.panel.hidden) this.finder.toggle();
     return on;
+  }
+
+  // The machine is on the board and the box has said so: it goes by itself a moment later (the owner, 2026-11-02). A box somebody has begun to fill
+  // again, or whose scan still lists machines to connect, stays: the next machine is theirs to add. A page without the opener keeps its box, as it always did.
+  closeSoon() {
+    if (!this.opener) return;
+    this.later(() => {
+      const scanning = this.finder && !this.finder.panel.hidden;
+      if (this.root.dataset.tState !== "ok" || this.address.value.trim() || scanning) return;
+      this.open(false);
+      this.say("idle", "");
+    }, ScoutAddForm.CLOSES_AFTER_MS);
   }
 
   async connect() {
@@ -83,9 +161,15 @@ export class ScoutAddForm {
     this.say("working", t("scoutAddWorking", { url: `${address}:${port || "8092"}` }));
     try {
       const res = await api("/api/topology/scout/connect", { method: "POST", body: { address, port } });
-      this.say("ok", t("scoutAddDone", { name: res.name || res.hostId || address, version: res.scoutVersion || "?" }));
+      const notBack = Array.isArray(res.settingsNotBack) ? res.settingsNotBack : [];
+      const words = [t("scoutAddDone", { name: res.name || res.hostId || address, version: res.scoutCommit || res.scoutVersion || "?" }),
+                     res.settingsBack?.length ? t("scoutAddSettingsBack") : "",
+                     notBack.length ? t("scoutAddSettingsNotBack", { what: notBack.join("; ") }) : ""];
+      this.say("ok", words.filter(Boolean).join(" "));
       this.address.value = "";
       refreshTopology().catch(() => {});
+      // What did not come back is to be read: the box stays for it.
+      if (!notBack.length) this.closeSoon();
     } catch (e) {
       this.say("error", String(e?.message || e));
     } finally {

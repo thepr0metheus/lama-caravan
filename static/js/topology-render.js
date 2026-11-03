@@ -1,11 +1,15 @@
 // Render orchestration: renderAll/renderTopology, structure fingerprint, live sync.
+import { ADD_MODEL } from "./add-model.js";
 import { BOARD_VIEW } from "./board-view.js";
 import { CARD_FOLD } from "./card-fold.js";
 import { CellSpeed } from "./cell-speed.js";
+import { CELL_LOG } from "./cell-log.js";
+import { CELL_SETTINGS } from "./cell-settings.js";
+import { CellWindow } from "./cell-window.js";
 import { ClientLlamaUpdate } from "./client-llama-update.js";
 import { drawTopologyCables, topologyAccentStyle } from "./cables.js";
 import { _cvDrag, bindCanvasInteractions, drawCanvasConnectors } from "./canvas.js";
-import { drawTopologyGpuHistory } from "./charts.js";
+import { drawNodeTelemetry, drawTopologyGpuHistory } from "./charts.js";
 import {
   renderPoolStepDialog,
   renderTopologyCloudAccountModal,
@@ -15,8 +19,14 @@ import {
 import { CONSUMER_CARDS, ConsumerCards } from "./consumers.js";
 import { appConfirmTyped } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
+import { CellNote } from "./cell-note.js";
 import { ModelCacheLine } from "./model-cache.js";
-import { ModelCopy } from "./model-copy.js";
+import { ModelDisk } from "./model-disk.js";
+import { ScoutRelease } from "./scout-release.js";
+import { MACHINE_HEAD_LIVE, MachinePanes } from "./machine-head.js";
+import { MACHINE_MODELS } from "./machine-models.js";
+import { MACHINE_DRAG } from "./machine-plan.js";
+import { ModelCopy, ModelLoad } from "./model-copy.js";
 import { StartStrip } from "./start-strip.js";
 import { MODEL_LIST } from "./model-list.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
@@ -32,7 +42,6 @@ import {
   _stoppingCells,
   bindServerSlotControls,
   actOnEngineButton,
-  openCaravanModelEditor,
   reserveEngineButton,
   serveEngineButton,
   clearPendingRemoteStart,
@@ -52,7 +61,7 @@ import { POOL_BOARD } from "./pool-board.js";
 import { PROVIDER_GLANCES } from "./provider-glances.js";
 import { renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
 import { SERVER_ORDER } from "./server-order.js";
-import { setTopology, state, topology, ui } from "./state.js";
+import { state, topology, TOPOLOGY_READINGS, ui } from "./state.js";
 import { SUSPECT_BANNER } from "./suspect-banner.js";
 import {
   renderKnownProblems,
@@ -89,6 +98,7 @@ import {
   hostAgeText,
   hostPowerTextKey,
   isControllerMachine,
+  machineHeadOf,
   machinesLaneHtml,
   mountNodeTelemetry,
   nodesLaneHtml,
@@ -210,7 +220,7 @@ export function renderTopology() {
   if (clientsEl) {
     const old = clients.length ? sortedLaneCards(laneCards).map((card) => card.html).join("") : "";
     const none = !old && !ConsumerCards.of(topology).length;
-    clientsEl.innerHTML = CONSUMER_CARDS.laneHtml(topology) + (none
+    clientsEl.innerHTML = CONSUMER_CARDS.laneHtml(topology, { others: Boolean(old) }) + (none
       ? `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyClientsWaiting"))}</div></article>` : old);
     CONSUMER_CARDS.bind(clientsEl);
   }
@@ -238,7 +248,12 @@ export function renderTopology() {
   // The main board shows each machine at a glance; a machine's own window, its whole card
   // (board-view.js; the owner, 2026-10-11).
   const llamaServersEl = $("topologyLlamaServers");
-  if (llamaServersEl) llamaServersEl.innerHTML = BOARD_VIEW.isMachine ? nodesLaneHtml(BOARD_VIEW.machine) : machinesLaneHtml();
+  if (llamaServersEl) MachinePanes.replace(llamaServersEl, BOARD_VIEW.isMachine ? nodesLaneHtml(BOARD_VIEW.machine) : machinesLaneHtml());
+  if (BOARD_VIEW.isMachine) {
+    MACHINE_MODELS.readOnce();
+    // The rack's figures and little charts come with the drawing, not with the next tick of the monitor.
+    drawNodeTelemetry();
+  }
   // The cloud providers under the machines, each at a glance (provider-glances.js; the owner,
   // 2026-10-12). A machine's own window has none.
   if (!BOARD_VIEW.isMachine) PROVIDER_GLANCES.mount($("boardProviderCards"), topology, { after: drawTopologyCables });
@@ -395,12 +410,12 @@ export function renderTopology() {
       reserveEngineButton(btn);
     });
   });
-  // "+ Add model" on a machine's card: the cell editor on the next free port
-  // with its model list open; Apply makes the cell (round 10, A).
+  // "+ Add model" on a machine's card and page: the new-cell wizard on the next free port (add-model.js, 1.3.638) —
+  // what the model is for, which, how it runs, where it goes; Create makes the cell.
   $("topologyLlamaServers")?.querySelectorAll("[data-caravan-add]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
-      openCaravanModelEditor(btn.dataset.caravanAdd);
+      ADD_MODEL.open(btn.dataset.caravanAdd);
     });
   });
   // A model of an engine with no cell: unload it or delete its files (step 3).
@@ -442,6 +457,8 @@ export function renderTopology() {
   ClientLlamaUpdate.bind($("topologyLlamaServers"));
   // A machine's model cache: how many of the last models it keeps (scout 2.34+), and the files in it that the scout did not download.
   ModelCacheLine.bind($("topologyLlamaServers"), refreshTopology);
+  CellNote.bind($("topologyLlamaServers"), refreshTopology);
+  ScoutRelease.bind($("topologyLlamaServers"));
   // Power-cycle a host. Confirmed with the host's own name TYPED (appConfirmTyped), because
   // the two headers look alike, rebooting the controller takes the board down with it, and
   // every cell of the machine goes with it. Reboot only — nothing here can switch a headless box back on.
@@ -508,6 +525,8 @@ export function renderTopology() {
 
   // Stopped-slot Start / remove controls (both classic + node lane)
   bindServerSlotControls($("topologyLlamaServers"));
+  // The placement map of the cell whose settings its window edits, drawn from the form into the new Memory tab (cell-settings.js).
+  CELL_SETTINGS.remount(document);
 
   // Refresh source buttons whenever topology re-renders
   renderNvidiaSmiSourceButtons();
@@ -532,7 +551,10 @@ export function renderTopology() {
 let _boardRenderedOnce = false;
 
 export async function refreshTopology() {
-  setTopology(await api("/api/topology"));
+  const number = TOPOLOGY_READINGS.setOut();
+  const reading = await api("/api/topology");
+  // What the page holds is newer and has drawn itself already.
+  if (!TOPOLOGY_READINGS.land(number, reading)) return;
   // The caravan's shelf lists the models the page holds: a moved stamp brings
   // them in before the render that would draw the old ones.
   await MODEL_LIST.follow(topology?.modelsStamp);
@@ -551,8 +573,21 @@ export async function refreshTopology() {
 
 // True while the user is mid-interaction — rebuilding the DOM now would drop an
 // in-progress cable drag or close a proxy form, so we defer the render.
+/** The machine a machine's page shows, or null on any other page. */
+export function machinePageNode() {
+  const id = document.querySelector(".node-card.machine-page")?.dataset?.nodeId;
+  return (id && (topology?.nodes || []).find((n) => n.id === id)) || null;
+}
+
+/** That page's map drawn again in place, for a plan laid or moved between two readings. */
+export function patchMachinePage() {
+  const n = machinePageNode();
+  const el = document.querySelector(".node-card.machine-page");
+  if (n && el) MACHINE_HEAD_LIVE.patch(el, machineHeadOf(n));
+}
+
 export function topologyInteractionActive() {
-  if (topologyPointerDrag || ui.topologyProxyFormOpen || _cvDrag || POOL_BOARD.busy) return true;
+  if (topologyPointerDrag || ui.topologyProxyFormOpen || _cvDrag || POOL_BOARD.busy || MACHINE_DRAG.busy) return true;
   // A focused select/text field anywhere on the poll-rebuilt page defers the
   // rebuild too: a full render replaces the DOM under the user's cursor —
   // closing an open dropdown mid-choice (a port-registry router select) or
@@ -658,18 +693,23 @@ export function topologyStructureParts() {
     .sort().join(",");
   // Routing a port feeds is structure too: binding a port from the "unassigned" list
   // changed only routerId, and Routing kept the old clients and the old badge.
-  // A client's set is its one cable (2026-10-12): moved from another tab, the board redraws it,
-  // and when the models of its set change.
+  // What is blocked for a client and the models it sees are on its cards (1.3.675): changed from another tab, or a model
+  // started or stopped, the board redraws them.
   // So do its errors of the last 30 days, which its card lists.
   const prox = (topology.proxies || [])
-    .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}@${p.routerId || ""}~${p.set || ""}=${(p.models || []).join("+")}`
+    .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}@${p.routerId || ""}~${(p.deny || []).join("+")}=${(p.models || []).join("+")}`
       + `!${p.misses ? (p.misses.items || []).map((m) => `${m.method} ${m.path} ${m.status}x${m.count}`).join(";") + `+${p.misses.more}` : "?"}`)
     .sort().join(",");
   // The pools are outputs in Routing: their names and rows label it — a row of a local model by
   // its output, and an open row as open. Their settings say the window each states to its clients:
   // the number, the switch and the controller's word on what it states now (`window`).
-  // The sets (Routing's «Набор»): their names and the pools each holds, in order.
-  const sets = (topology.sets || []).map((x) => `${x.id}:${x.name}:${(x.pools || []).join("+")}`).join(",");
+  // What every client of the entry is read against (1.3.675): the names a client blocked for nothing sees, what can be blocked,
+  // the models called straight with whether each runs, and the window of the move while it waits for its answer. A reading not
+  // made is "?", not the empty list it would read as.
+  const list = (x, f) => (Array.isArray(x) ? x.map(f).join("+") : "?");
+  const entry = [list(topology.entryModels, String), list(topology.denyChoices?.models, (m) => `${m.key}${m.runs ? "" : "-"}`),
+    list(topology.denyChoices?.pools, (x) => x.key), list(topology.liveCatalog, (m) => `${m.pool}${m.runs ? "" : "-"}`),
+    topology.entryMove ? list(topology.entryMove.twins, (x) => x.id) : ""].join("|");
   const cloud = (topology.pools || [])
     .map((p) => `${p.id}:${p.name}:${(p.steps || []).map((s) => `${s.id}=${s.accountId || ""}/${s.model || ""}/${s.output || ""}${s.enabled === false ? "-" : ""}${s.unlisted ? "!" : ""}`).join("+")}`
       + `#${p.contextLength ?? ""}${p.contextAuto ? "A" : ""}=${"window" in p ? p.window ?? "none" : "?"}`)
@@ -700,6 +740,11 @@ export function topologyStructureParts() {
   const llamaVer = (topology.nodes || [])
     .map((n) => `${n.id}:${(n.llamaBinaryVersion || "").slice(0, 40)}:${(n.llamaBinaryMtime || "").slice(0, 19)}:${n.llamaUpdate?.running ? 1 : 0}:${(n.powerSchedule || {}).enabled ? (n.powerSchedule.at || "") : ""}`)
     .sort().join(",");
+  // The words on the cells' cards: a cell's own note and the comment on its model, and the star on it (1.3.680). One written on
+  // another page — a model's comment on /models, a star from another tab — is on the card at the next answer, and does not wait for
+  // something else to rebuild it.
+  const notes = JSON.stringify(topology.cellNotes || {}) + JSON.stringify(topology.cellModelNotes || {})
+    + JSON.stringify(topology.modelRatings || {});
   // The models the page holds (model-list.js): the caravan's shelf on each
   // card lists them, so a new list rebuilds the cards.
   const models = state?.modelsStamp || "";
@@ -711,7 +756,7 @@ export function topologyStructureParts() {
   // The order of the server cards: Routing's Servers panel is built in that
   // order, and a new order — from this page or another — rebuilds it (server-order.js).
   const order = SERVER_ORDER.current().join(",");
-  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, sets, cloud, levels, providers, decided, llamaVer, models, view, pendingCells, modals, order };
+  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, entry, cloud, levels, providers, decided, llamaVer, notes, models, view, pendingCells, modals, order };
 }
 
 // Decide between a full structural rebuild and a cheap in-place live patch —
@@ -761,6 +806,18 @@ export function _liveShow(el, show) {
   if (el) el.style.display = show ? "" : "none";
 }
 
+// The load line of a cell on its way (scout 2.43, model-copy.js ModelLoad): its words, and its bar — at the share while the scout
+// measures one, looping while it does not. The card, the folded line's strip and the window's band carry one each.
+export function _liveLoad(root, s, phase) {
+  const text = _liveSet(root, "[data-live-load]", ModelLoad.words(s, phase));
+  const bar = text?.parentElement?.querySelector(".msl-bar");
+  if (!bar) return;
+  const load = ModelLoad.now(s);
+  bar.classList.toggle("indeterminate", load?.pct == null);
+  const fill = bar.querySelector("span");
+  if (fill) fill.style.width = load?.pct != null ? `${load.pct}%` : "";
+}
+
 export function syncTopologyLive() {
   if (!topology) return;
   // The pools' cards say which step serves and why the others wait: the proxy's word changes
@@ -782,6 +839,8 @@ export function syncTopologyLive() {
     // What its model cache holds and what the disk has left move with every download.
     _liveSet(nodeEl, "[data-live-cachefigures]", ModelCacheLine.of(n).figures());
     _liveSet(nodeEl, "[data-live-diskpct]", ModelCacheLine.of(n).diskWords());
+    // The machine's page draws the same disk as a bar, and a move's progress: patched as the figures are.
+    ModelDisk.patch(nodeEl, n);
 
     // Header now carries only the platform. Live CPU load% and RAM moved into
     // the CPU block below the GPUs, mirroring a GPU row's util/VRAM.
@@ -811,7 +870,10 @@ export function syncTopologyLive() {
 
     // Server cards: token speed, context usage, download progress.
     (n.servers || []).forEach((s) => {
-      const card = nodeEl.querySelector(`.node-server[data-llama-port="${CSS.escape(String(s.port))}"]`);
+      // A folded cell's window holds its live figures where the full card held them (cell-window.js): the slots' panel, the
+      // copy's line, and its own speed on the band and in the overview.
+      const card = nodeEl.querySelector(`.node-server[data-llama-port="${CSS.escape(String(s.port))}"]`)
+        || nodeEl.querySelector(`[data-cell-window-live][data-llama-port="${CSS.escape(String(s.port))}"]`);
       if (!card) return;
       const running = topologyServerPhase(s) === "running";
       // A folded cell's line carries the one live number it shows — generation
@@ -829,6 +891,7 @@ export function syncTopologyLive() {
           if (hint) tpsEl.setAttribute("title", hint);
           else tpsEl.removeAttribute("title");
         }
+        if (ModelLoad.ON_ITS_WAY.includes(topologyServerPhase(s))) _liveLoad(line, s, topologyServerPhase(s));
         // The copy under the line's name (start-strip.js): the same figures as the card's, without the model's name.
         if (topologyServerPhase(s) === "downloading") {
           const copy = ModelCopy.now(s);
@@ -839,6 +902,10 @@ export function syncTopologyLive() {
         }
       }
       if (running) {
+        const cellSpeed = new CellSpeed(s, running);
+        _liveSet(card, "[data-live-cwtps]", cellSpeed.words(formatTps) || "—");
+        _liveSet(card, "[data-live-cwband]", CellWindow.speedWords(cellSpeed, formatTps));
+        _liveSet(card, "[data-live-cwtpssub]", CellWindow.speedSub(cellSpeed, s.promptTps, formatTps));
         const tpsEl = card.querySelector("[data-live-tps]");
         if (tpsEl) {
           tpsEl.textContent = `${formatTps(s.promptTps || 0)} / ${formatTps(s.genTps || 0)} t/s`;
@@ -857,8 +924,13 @@ export function syncTopologyLive() {
           bar.style.width = `${copy.pct ?? 0}%`;
         }
         _liveSet(card, "[data-live-dl]", ModelCopy.line(copy, s.downloadingFile || t("topologyRemoteDownloading")));
+      } else if (ModelLoad.ON_ITS_WAY.includes(topologyServerPhase(s))) {
+        _liveLoad(card, s, topologyServerPhase(s));
       }
     });
+
+    // A machine's page: the map of its memory and the words of its band (machine-head.js).
+    if (nodeEl.matches?.(".machine-page")) MACHINE_HEAD_LIVE.patch(nodeEl, machineHeadOf(n));
 
     // GPU rows: utilisation/temp/power, VRAM bar + text, sparkline.
     (n.gpus || []).forEach((g) => {
@@ -896,6 +968,9 @@ export function syncTopologyLive() {
       }
     });
   });
+
+  // The log shown in an open cell window is read again while its cell runs (cell-log.js): on this tick, not on a timer of its own.
+  CELL_LOG.tick(document);
 
   // Cheap cable redraw (anchors may have shifted as text widths changed) + keep
   // activity classes/chips in sync via the existing fingerprinted helper.

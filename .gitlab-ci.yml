@@ -30,7 +30,11 @@ variables:
 checks:
   image: python:3.12
   before_script:
-    - curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tgz
+    # A download that stalls is dropped and tried again: on 2026-10-21 one stood for the whole 30 minutes of the job on a
+    # connection that had stopped (the same file came in a fraction of a second from the host), and the job died of its
+    # timeout with no check run. Below 10 KB/s for 30 s, or over 5 minutes, an attempt is given up; four more follow.
+    - curl -fsSL --connect-timeout 20 --speed-limit 10000 --speed-time 30 --max-time 300 --retry 4 --retry-all-errors --retry-delay 5
+      "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" -o /tmp/node.tgz
     - echo "${NODE_SHA256}  /tmp/node.tgz" | sha256sum -c -
     - tar -xzf /tmp/node.tgz -C /usr/local --strip-components=1
     - python3 --version
@@ -45,7 +49,6 @@ checks:
         cp "$f" /tmp/check.mjs
         node --check /tmp/check.mjs || { echo "FAIL $f"; exit 1; }
       done
-    - python3 scripts/bench_proxy.py --quick
     # All the guards and tests. A passing script prints one line, a failing one prints its output,
     # and the job fails at the end, so one run shows every red script and not only the first.
     - |
@@ -60,3 +63,67 @@ checks:
         fi
       done
       exit $fail
+
+# The caravan's Rust (docs/rust-code.md): the compiler's own checks, the tests, the program. Pinned to the version of
+# rust/rust-toolchain.toml (scripts/check_rust_contract.py holds the two equal). The image is on Debian's older release: a program built
+# on it runs on the newer one under the Python image, and not the other way round.
+rust:
+  image: rust:1.99.1-slim-bookworm
+  variables:
+    CARGO_TERM_COLOR: never
+  before_script:
+    # The image's toolchain has the compiler alone; these two are the checks below.
+    - rustup component add clippy rustfmt
+    # The scout links statically: it runs on any Linux machine, whatever C library it has.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends musl-tools
+    - rustup target add x86_64-unknown-linux-musl
+  script:
+    - cd rust
+    - cargo fmt --all -- --check
+    - cargo clippy --locked --workspace --all-targets -- -D warnings
+    - cargo test --locked --workspace
+    - cargo build --locked --release -p proxy -p admin
+    - cargo build --locked --release --target x86_64-unknown-linux-musl -p scout
+  artifacts:
+    paths:
+      - rust/target/release/caravan-proxy
+      - rust/target/x86_64-unknown-linux-musl/release/caravan-scout
+      - rust/target/release/caravan-admin
+    expire_in: 1 day
+
+# The proxy against what the proxy promised, tests/frozen (scripts/test_rust_conformance.py). In the job above it has no Python to run
+# the comparison in; in `checks` it has no program, and says it skipped. Here it has both, and a skip is a failure.
+rust-conformance:
+  image: python:3.12
+  needs: [rust]
+  variables:
+    CARAVAN_RUST_REQUIRED: "1"
+    CARAVAN_RUST_PROXY_BIN: rust/target/release/caravan-proxy
+  script:
+    - python3 scripts/test_rust_conformance.py --slow
+
+# The controller against what it promised, on every path of the API with a fake world around it (scripts/test_rust_admin_conformance.py), the
+# two programs together (scripts/test_rust_alone.py), and the three programs from a machine's pairing to a client's request (scripts/test_rust_whole.py).
+rust-admin-conformance:
+  image: python:3.12
+  needs: [rust]
+  variables:
+    CARAVAN_RUST_REQUIRED: "1"
+    CARAVAN_RUST_ADMIN_BIN: rust/target/release/caravan-admin
+    CARAVAN_RUST_PROXY_BIN: rust/target/release/caravan-proxy
+    CARAVAN_RUST_SCOUT_BIN: rust/target/x86_64-unknown-linux-musl/release/caravan-scout
+  script:
+    - python3 scripts/test_rust_admin_conformance.py
+    - python3 scripts/test_rust_alone.py
+    - python3 scripts/test_rust_whole.py
+    - python3 scripts/check_boot_smoke.py
+
+# The scout against what it promised, from outside (scripts/test_rust_scout_conformance.py).
+rust-scout-conformance:
+  image: python:3.12
+  needs: [rust]
+  variables:
+    CARAVAN_RUST_REQUIRED: "1"
+    CARAVAN_RUST_SCOUT_BIN: rust/target/x86_64-unknown-linux-musl/release/caravan-scout
+  script:
+    - python3 scripts/test_rust_scout_conformance.py

@@ -1,0 +1,527 @@
+[
+ {
+  "name": "a machine with cards",
+  "tools": {
+   "nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,uuid --format=csv,noheader,nounits": [
+    0,
+    "0, Stand Card 24GB, 24576, 1024, 23552, 3, 41, 31.50, GPU-one\n1, Second Card, 8192, 0, 8192, [Not Supported], [N/A], [N/A], GPU-two\n",
+    ""
+   ],
+   "nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader,nounits": [
+    0,
+    "GPU-one, 1200, /usr/bin/python3, 512\nGPU-one, 1300, [Not Found], 256\nGPU-two, 77, [N/A], [N/A]\nnonsense line\n",
+    ""
+   ],
+   "ss -ltnpH": [
+    0,
+    "LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:((\"sshd\",pid=812,fd=3))\nLISTEN 0      4096       127.0.0.1:631        0.0.0.0:*    users:((\"cupsd\",pid=900,fd=7))\nLISTEN 0      511                *:8092             *:*    users:((\"python3\",pid=1200,fd=5),(\"python3\",pid=1201,fd=5))\nLISTEN 0      128             [::]:22            [::]:*    users:((\"sshd\",pid=812,fd=4))\nLISTEN 0      128            [::1]:11434         [::]:*\nLISTEN 0      128    192.0.2.20%eth0:7990      0.0.0.0:*    users:((\"uv run\",pid=77,fd=4))\n",
+    ""
+   ],
+   "ss -ltnH": [
+    0,
+    "LISTEN 0      128          0.0.0.0:22         0.0.0.0:*    users:((\"sshd\",pid=812,fd=3))\nLISTEN 0      4096       127.0.0.1:631        0.0.0.0:*    users:((\"cupsd\",pid=900,fd=7))\nLISTEN 0      511                *:8092             *:*    users:((\"python3\",pid=1200,fd=5),(\"python3\",pid=1201,fd=5))\nLISTEN 0      128             [::]:22            [::]:*    users:((\"sshd\",pid=812,fd=4))\nLISTEN 0      128            [::1]:11434         [::]:*\nLISTEN 0      128    192.0.2.20%eth0:7990      0.0.0.0:*    users:((\"uv run\",pid=77,fd=4))\n",
+    ""
+   ],
+   "sudo -n ufw status": [
+    0,
+    "Status: active\n\nTo                         Action      From\n--                         ------      ----\n22/tcp                     ALLOW       Anywhere\n22001:23000/tcp            ALLOW       192.0.2.10\n8092                       ALLOW       192.0.2.10\n22005                      DENY        Anywhere\n22006/tcp                  ALLOW       Anywhere\n7000,7001/tcp              ALLOW       192.0.2.0/24\n22/tcp (v6)                ALLOW       Anywhere (v6)\n",
+    ""
+   ],
+   "ps -A -o pid=,ppid=,rss=,comm=": [
+    0,
+    "    1     0  1000 systemd\n 1200     1 20480 python3\n 1201  1200  1024 llama-server\n 7777  1201   512 a name with spaces\nnonsense\n",
+    ""
+   ],
+   "ps -eo pid,comm,user,%cpu,%mem,rss --sort=-%cpu": [
+    0,
+    "  PID COMMAND  USER  %CPU %MEM   RSS\n 1200 python3  stand 99.5  2.5 20480\n 1201 llama-server stand 50.0 1.0 10240\n    1 systemd  root   0.0  0.1  1000\n",
+    ""
+   ]
+  },
+  "asks": [
+   "gpus",
+   "gpu_error",
+   "compute_apps",
+   "listeners",
+   "listening_ports",
+   "processes",
+   "top_processes",
+   "firewall:22",
+   "firewall:22500",
+   "firewall:8092",
+   "firewall:22005",
+   "firewall:22006",
+   "firewall:7001",
+   "firewall:9999",
+   "firewall:notaport"
+  ],
+  "said": {
+   "gpus": [
+    {
+     "index": "0",
+     "name": "Stand Card 24GB",
+     "vendor": "nvidia",
+     "driverStatus": "ok",
+     "memoryTotalMiB": "24576",
+     "memoryUsedMiB": "1024",
+     "memoryFreeMiB": "23552",
+     "utilizationGpuPct": "3",
+     "temperatureC": "41",
+     "powerDrawW": "31.50",
+     "uuid": "GPU-one"
+    },
+    {
+     "index": "1",
+     "name": "Second Card",
+     "vendor": "nvidia",
+     "driverStatus": "ok",
+     "memoryTotalMiB": "8192",
+     "memoryUsedMiB": "0",
+     "memoryFreeMiB": "8192",
+     "utilizationGpuPct": "[Not Supported]",
+     "temperatureC": "[N/A]",
+     "powerDrawW": "[N/A]",
+     "uuid": "GPU-two"
+    }
+   ],
+   "gpu_error": "",
+   "compute_apps": [
+    {
+     "gpuUuid": "GPU-one",
+     "pid": 1200,
+     "name": "python3",
+     "usedMiB": 512
+    },
+    {
+     "gpuUuid": "GPU-one",
+     "pid": 1300,
+     "name": "",
+     "usedMiB": 256
+    },
+    {
+     "gpuUuid": "GPU-two",
+     "pid": 77,
+     "name": "",
+     "usedMiB": 0
+    }
+   ],
+   "listeners": {
+    "ok": true,
+    "ports": [
+     {
+      "port": 22,
+      "proc": "sshd",
+      "pid": 812,
+      "addrs": [
+       "0.0.0.0",
+       "[::]"
+      ]
+     },
+     {
+      "port": 631,
+      "proc": "cupsd",
+      "pid": 900,
+      "addrs": [
+       "127.0.0.1"
+      ]
+     },
+     {
+      "port": 7990,
+      "proc": "uv run",
+      "pid": 77,
+      "addrs": [
+       "192.0.2.20%eth0"
+      ]
+     },
+     {
+      "port": 8092,
+      "proc": "python3",
+      "pid": 1200,
+      "addrs": [
+       "*"
+      ]
+     },
+     {
+      "port": 11434,
+      "proc": "",
+      "pid": 0,
+      "addrs": [
+       "[::1]"
+      ]
+     }
+    ]
+   },
+   "listening_ports": [
+    22,
+    631,
+    7990,
+    8092,
+    11434
+   ],
+   "processes": {
+    "1": {
+     "ppid": 0,
+     "rssKb": 1000,
+     "name": "systemd"
+    },
+    "1200": {
+     "ppid": 1,
+     "rssKb": 20480,
+     "name": "python3"
+    },
+    "1201": {
+     "ppid": 1200,
+     "rssKb": 1024,
+     "name": "llama-server"
+    },
+    "7777": {
+     "ppid": 1201,
+     "rssKb": 512,
+     "name": "a name with spaces"
+    }
+   },
+   "top_processes": {
+    "ok": true,
+    "processes": [
+     {
+      "pid": 1200,
+      "name": "python3",
+      "user": "stand",
+      "cpuPct": 99.5,
+      "memPct": 2.5,
+      "rssMiB": 20.0
+     },
+     {
+      "pid": 1201,
+      "name": "llama-server",
+      "user": "stand",
+      "cpuPct": 50.0,
+      "memPct": 1.0,
+      "rssMiB": 10.0
+     },
+     {
+      "pid": 1,
+      "name": "systemd",
+      "user": "root",
+      "cpuPct": 0.0,
+      "memPct": 0.1,
+      "rssMiB": 1.0
+     }
+    ]
+   },
+   "firewall:22": {
+    "state": "all",
+    "allowedFrom": [
+     "Anywhere"
+    ]
+   },
+   "firewall:22500": {
+    "state": "restricted",
+    "allowedFrom": [
+     "192.0.2.10"
+    ]
+   },
+   "firewall:8092": {
+    "state": "restricted",
+    "allowedFrom": [
+     "192.0.2.10"
+    ]
+   },
+   "firewall:22005": {
+    "state": "restricted",
+    "allowedFrom": [
+     "192.0.2.10"
+    ]
+   },
+   "firewall:22006": {
+    "state": "all",
+    "allowedFrom": [
+     "Anywhere"
+    ]
+   },
+   "firewall:7001": {
+    "state": "restricted",
+    "allowedFrom": [
+     "192.0.2.0/24"
+    ]
+   },
+   "firewall:9999": {
+    "state": "blocked",
+    "allowedFrom": []
+   },
+   "firewall:notaport": {
+    "state": "unknown"
+   }
+  }
+ },
+ {
+  "name": "no nvidia-smi, lspci decides",
+  "tools": {
+   "lspci": [
+    0,
+    "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics\n01:00.0 VGA compatible controller: NVIDIA Corporation GB202 [GeForce RTX 5090] (rev a1)\n01:00.1 Audio device: NVIDIA Corporation Device 22e8 (rev a1)\n02:00.0 3D controller: Advanced Micro Devices, Inc. [AMD/ATI] Something\n",
+    ""
+   ]
+  },
+  "asks": [
+   "gpus",
+   "gpu_error",
+   "compute_apps"
+  ],
+  "said": {
+   "gpus": [
+    {
+     "index": "0",
+     "name": "NVIDIA GeForce RTX 5090",
+     "vendor": "nvidia",
+     "driverStatus": "driver_missing"
+    }
+   ],
+   "gpu_error": "",
+   "compute_apps": []
+  }
+ },
+ {
+  "name": "nvidia-smi complains",
+  "tools": {
+   "nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,uuid --format=csv,noheader,nounits": [
+    9,
+    "Failed to initialize NVML: Driver/library version mismatch\n",
+    ""
+   ],
+   "nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader,nounits": [
+    9,
+    "",
+    ""
+   ],
+   "lspci": [
+    0,
+    "00:02.0 VGA compatible controller: Intel Corporation UHD Graphics\n01:00.0 VGA compatible controller: NVIDIA Corporation GB202 [GeForce RTX 5090] (rev a1)\n01:00.1 Audio device: NVIDIA Corporation Device 22e8 (rev a1)\n02:00.0 3D controller: Advanced Micro Devices, Inc. [AMD/ATI] Something\n",
+    ""
+   ]
+  },
+  "asks": [
+   "gpus",
+   "gpu_error",
+   "compute_apps"
+  ],
+  "said": {
+   "gpus": [
+    {
+     "index": "0",
+     "name": "NVIDIA GeForce RTX 5090",
+     "vendor": "nvidia",
+     "driverStatus": "driver_missing"
+    }
+   ],
+   "gpu_error": "Failed to initialize NVML: Driver/library version mismatch",
+   "compute_apps": []
+  }
+ },
+ {
+  "name": "nvidia-smi says nothing",
+  "tools": {
+   "nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,uuid --format=csv,noheader,nounits": [
+    3,
+    "",
+    ""
+   ]
+  },
+  "asks": [
+   "gpus",
+   "gpu_error"
+  ],
+  "said": {
+   "gpus": [],
+   "gpu_error": "nvidia-smi exited with 3"
+  }
+ },
+ {
+  "name": "nvidia-smi complains with code 0",
+  "tools": {
+   "nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,uuid --format=csv,noheader,nounits": [
+    0,
+    "NVIDIA-SMI has failed because it couldn't communicate\n",
+    ""
+   ]
+  },
+  "asks": [
+   "gpus",
+   "gpu_error"
+  ],
+  "said": {
+   "gpus": [],
+   "gpu_error": "NVIDIA-SMI has failed because it couldn't communicate"
+  }
+ },
+ {
+  "name": "nvidia-smi hangs",
+  "tools": {
+   "nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,uuid --format=csv,noheader,nounits": "timeout"
+  },
+  "asks": [
+   "gpus",
+   "gpu_error"
+  ],
+  "said": {
+   "gpus": [],
+   "gpu_error": "nvidia-smi did not answer in 5 s"
+  }
+ },
+ {
+  "name": "no ss, lsof says",
+  "tools": {
+   "lsof +c 0 -nP -iTCP -sTCP:LISTEN": [
+    0,
+    "COMMAND      PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nControlCenter 500 mac    7u  IPv4 0x1234      0t0  TCP *:7000 (LISTEN)\nControlCenter 500 mac    8u  IPv6 0x1235      0t0  TCP *:7000 (LISTEN)\nlm\\x20studio  600 mac   30u  IPv6 0x2         0t0  TCP [::1]:1234 (LISTEN)\nollama        700 mac    3u  IPv4 0x3         0t0  TCP 127.0.0.1:11434 (LISTEN)\n",
+    ""
+   ],
+   "lsof -nP -iTCP -sTCP:LISTEN": [
+    0,
+    "COMMAND      PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME\nControlCenter 500 mac    7u  IPv4 0x1234      0t0  TCP *:7000 (LISTEN)\nControlCenter 500 mac    8u  IPv6 0x1235      0t0  TCP *:7000 (LISTEN)\nlm\\x20studio  600 mac   30u  IPv6 0x2         0t0  TCP [::1]:1234 (LISTEN)\nollama        700 mac    3u  IPv4 0x3         0t0  TCP 127.0.0.1:11434 (LISTEN)\n",
+    ""
+   ],
+   "ps -eo pid,comm,user,%cpu,%mem,rss": [
+    0,
+    "  PID COMMAND  USER  %CPU %MEM   RSS\n 1200 python3  stand 99.5  2.5 20480\n 1201 llama-server stand 50.0 1.0 10240\n    1 systemd  root   0.0  0.1  1000\n",
+    ""
+   ]
+  },
+  "asks": [
+   "listeners",
+   "listening_ports",
+   "top_processes"
+  ],
+  "said": {
+   "listeners": {
+    "ok": true,
+    "ports": [
+     {
+      "port": 1234,
+      "proc": "lm studio",
+      "pid": 600,
+      "addrs": [
+       "[::1]"
+      ]
+     },
+     {
+      "port": 7000,
+      "proc": "ControlCenter",
+      "pid": 500,
+      "addrs": [
+       "*"
+      ]
+     },
+     {
+      "port": 11434,
+      "proc": "ollama",
+      "pid": 700,
+      "addrs": [
+       "127.0.0.1"
+      ]
+     }
+    ]
+   },
+   "listening_ports": [
+    1234,
+    7000,
+    11434
+   ],
+   "top_processes": {
+    "ok": false,
+    "processes": null
+   }
+  }
+ },
+ {
+  "name": "ss fails",
+  "tools": {
+   "ss -ltnpH": [
+    1,
+    "",
+    "ss: cannot open netlink socket\n"
+   ],
+   "ss -ltnH": [
+    1,
+    "",
+    "ss: cannot open netlink socket\n"
+   ]
+  },
+  "asks": [
+   "listeners",
+   "listening_ports"
+  ],
+  "said": {
+   "listeners": {
+    "ok": false,
+    "error": "ss failed; lsof: [Errno 2] No such file or directory: 'lsof'",
+    "ports": []
+   },
+   "listening_ports": null
+  }
+ },
+ {
+  "name": "nothing answers",
+  "tools": {},
+  "asks": [
+   "listeners",
+   "listening_ports",
+   "processes",
+   "top_processes",
+   "firewall:22"
+  ],
+  "said": {
+   "listeners": {
+    "ok": false,
+    "error": "ss: [Errno 2] No such file or directory: 'ss'; lsof: [Errno 2] No such file or directory: 'lsof'",
+    "ports": []
+   },
+   "listening_ports": null,
+   "processes": null,
+   "top_processes": {
+    "ok": false,
+    "processes": null
+   },
+   "firewall:22": {
+    "state": "unknown"
+   }
+  }
+ },
+ {
+  "name": "a firewall that is off",
+  "tools": {
+   "sudo -n ufw status": [
+    0,
+    "Status: inactive\n",
+    ""
+   ]
+  },
+  "asks": [
+   "firewall:22"
+  ],
+  "said": {
+   "firewall:22": {
+    "state": "open",
+    "allowedFrom": []
+   }
+  }
+ },
+ {
+  "name": "a firewall that may not be asked",
+  "tools": {
+   "sudo -n ufw status": [
+    1,
+    "",
+    "sudo: a password is required\n"
+   ]
+  },
+  "asks": [
+   "firewall:22"
+  ],
+  "said": {
+   "firewall:22": {
+    "state": "unknown"
+   }
+  }
+ }
+]

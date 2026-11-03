@@ -75,7 +75,19 @@ export async function api(path, options = {}) {
     headers: { "Content-Type": "application/json" },
     ...encoded,
   });
-  const data = await response.json();
+  const text = await response.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    // Not the caravan's answer: a gateway between the page and the controller gave its own page. The NAS's proxy gave up on a cell's
+    // answer that took 71 s (2026-11-03), and its HTML read as JSON said "Unexpected token '<'" in the cell's talk window.
+    const status = [response.status, response.statusText].filter(Boolean).join(" ");
+    const err = new Error(`${status}: not the caravan's answer — a gateway between this page and the controller answered instead, maybe because it stopped waiting`);
+    err.status = response.status;
+    err.data = null;
+    throw err;
+  }
   if (!response.ok) {
     // Session expired / auth just enabled: hand the user to the login page
     // (auth endpoints handle their own errors inline).
@@ -94,7 +106,7 @@ export async function api(path, options = {}) {
 }
 
 // The controller's refusal of a save made from an older copy of its lists than the stored one
-// (ProxyRevisions, caravan/admin/proxies_config.py): 409, `stale`, and the current topology to
+// (ProxyRevisions, rust/crates/admin/src/proxies/config.rs): 409, `stale`, and the current topology to
 // make the change again on. One reading of that shape for every page that saves whole lists.
 export function isStaleCopy(err) {
   return err?.status === 409 && err.data?.stale === true && !!err.data.topology;
@@ -157,6 +169,13 @@ export function formatBytesMiB(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return value || "";
   return `${Math.round(n)} MiB`;
+}
+
+/** A size in GB as the cell form says it: one decimal from 10 GB, two under; "n/a" for none. */
+export function formatSizeGb(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "n/a";
+  return `${n.toFixed(n >= 10 ? 1 : 2)} GB`;
 }
 
 export function formatMemoryMiB(value) {

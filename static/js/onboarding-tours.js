@@ -1,6 +1,7 @@
-// Tour definitions for the board (index), the cell editor (the tr- modal)
-// and the standalone Routing page. Strings live in
-// i18n-data.js (en/ru; the rest falls back to English via t()).
+// Tour definitions for the main board (index), a machine's page, the cell editor (the tr- modal)
+// and the standalone Routing page. Strings live in onboarding-strings.js, every language
+// (scripts/check_tour_i18n.py).
+import { BOARD_VIEW } from "./board-view.js";
 import { LANGS, messages, onLanguageLoaded } from "./i18n-data.js";
 import { lang, setLang, t } from "./i18n.js";
 import { autoStartOnce, createTour, initTourButtons } from "./onboarding.js";
@@ -44,12 +45,10 @@ function indexSteps() {
     { anchor: ".topology-board", title: t("tourIxBoardT"), body: t("tourIxBoardB") },
     { anchor: "#topologyClients", title: t("tourIxClientsT"), body: t("tourIxClientsB") },
     { anchor: "#topologyProxies", title: t("tourIxProxiesT"), body: t("tourIxProxiesB") },
-    // A step stands on a card of its section: the machines' on a machine's card (its glance on the main
-    // board, its whole card in its own window). The pools stand in Routing (2026-10-12): its card's step tells.
+    // A step stands on a card of its section: the machines' on a machine's card. The pools stand in Routing (2026-10-12): its
+    // card's step tells. A cell's life and a new cell are the machine's page's (machineSteps): the main board draws no cell.
     { anchor: "#topologyLlamaServers .node-card", title: t("tourIxServersT"), body: t("tourIxServersB") },
-    { anchor: "#topologyLlamaServers .node-server", title: t("tourIxCellLifeT"), body: t("tourIxCellLifeB") },
-    { anchor: "[data-t=\"node-caravan-add\"]", title: t("tourIxCellNewT"), body: t("tourIxCellNewB") },
-    { anchor: ".caravan-links", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
+    { anchor: "[data-t=\"header-pages\"]", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
     { anchor: "#usageStatsBtn", title: t("tourIxStatsT"), body: t("tourIxStatsB") },
     { anchor: "#topologyRequestHistoryBtn", title: t("tourIxHistoryT"), body: t("tourIxHistoryB") },
     { anchor: ".monitor-drawer", title: t("tourIxMonitorT"), body: t("tourIxMonitorB") },
@@ -57,40 +56,66 @@ function indexSteps() {
   ];
 }
 
+// A machine's page (BoardView, /machine?host=…; the owner, 2026-10-27: "check the tour on this page"): steps on its own parts.
+// It ran the main board's tour — clients and Routing it does not have, and a ring around the whole page.
+function machineSteps() {
+  return [
+    { center: true, title: t("tourMcWelcomeT"), body: t("tourMcWelcomeB"), onRender: langPicker },
+    { anchor: ".machine-tools", title: t("tourMcToolsT"), body: t("tourMcToolsB") },
+    { anchor: "[data-machine-map]", title: t("tourMcMapT"), body: t("tourMcMapB") },
+    { anchor: "[data-t=\"machine-models\"]", title: t("tourMcModelsT"), body: t("tourMcModelsB") },
+    { anchor: "[data-t=\"machine-add\"]", title: t("tourMcAddT"), body: t("tourMcAddB") },
+    { anchor: "[data-t=\"machine-side-engines\"]", title: t("tourMcEnginesT"), body: t("tourMcEnginesB") },
+    { anchor: "[data-t=\"machine-side-disk\"]", title: t("tourMcDiskT"), body: t("tourMcDiskB") },
+    { anchor: "[data-t=\"machine-side-incidents\"]", title: t("tourMcIncidentsT"), body: t("tourMcIncidentsB") },
+    { anchor: "[data-t=\"machine-side-activity\"]", title: t("tourMcActivityT"), body: t("tourMcActivityB") },
+    { center: true, title: t("tourMcDoneT"), body: t("tourMcDoneB") },
+  ];
+}
+
+// The editor's steps stand on what the form shows: a model's select is hidden behind its picker, and a pair's behind its
+// switch, so their steps stand on their rows; the command is llama.cpp's preview or the other runners' — the one shown
+// (onboarding.js takes the first visible match). On the selects themselves, three steps never showed (2026-10-27).
 function configSteps(pfx) {
   const form = "#llamaRemoteEditForm";
   const startBtn = "#llamaRemoteEditStart";
   return [
     { anchor: `${form} .cell-kind-toggle`, title: t("tourCfgKindT"), body: t("tourCfgKindB") },
-    { anchor: `#${pfx}-MODEL_FILE`, title: t("tourCfgModelT"), body: t("tourCfgModelB") },
-    { anchor: `#${pfx}-MMPROJ_FILE`, title: t("tourCfgMmprojT"), body: t("tourCfgMmprojB") },
-    { anchor: `#${pfx}-SPEC_DRAFT_MODEL_FILE`, title: t("tourCfgSpecT"), body: t("tourCfgSpecB") },
+    { anchor: `${form} .model-file-field`, title: t("tourCfgModelT"), body: t("tourCfgModelB") },
+    { anchor: `${form} .companion-field:has(#${pfx}-MMPROJ_FILE)`, title: t("tourCfgMmprojT"), body: t("tourCfgMmprojB") },
+    { anchor: `${form} .companion-field:has(#${pfx}-SPEC_DRAFT_MODEL_FILE)`, title: t("tourCfgSpecT"), body: t("tourCfgSpecB") },
     { anchor: `#${pfx}-modelInsight`, title: t("tourCfgInsightT"), body: t("tourCfgInsightB") },
     { anchor: `#${pfx}-computeTarget`, title: t("tourCfgComputeT"), body: t("tourCfgComputeB") },
     { anchor: `${form} .advanced-tab-bar`, title: t("tourCfgTabsT"), body: t("tourCfgTabsB") },
     { anchor: `#${pfx}-dynamicFields`, title: t("tourCfgFieldsT"), body: t("tourCfgFieldsB") },
     { anchor: `#${pfx}-asideVramBar`, title: t("tourCfgVramT"), body: t("tourCfgVramB") },
-    { anchor: `#${pfx}-cmdPreview`, title: t("tourCfgCmdT"), body: t("tourCfgCmdB") },
+    { anchor: `#${pfx}-previewCmdline, #${pfx}-cmdPreview`, title: t("tourCfgCmdT"), body: t("tourCfgCmdB") },
     { anchor: `#${pfx}-backups`, title: t("tourCfgBackupsT"), body: t("tourCfgBackupsB") },
     { anchor: startBtn, title: t("tourCfgStartT"), body: t("tourCfgStartB") },
   ];
 }
 
-// Routing is three columns (pool-board.js; the owner, 2026-10-12): one step for each.
+// Routing is three columns (pool-board.js; the owner, 2026-10-12, and since 1.3.675 without sets): one step for each, «Напрямую»
+// on the top of the pools' column, and the models' queue at the head of the last (1.3.663).
 function routingSteps() {
   return [
     { center: true, title: t("tourKbWelcomeT"), body: t("tourKbWelcomeB"), onRender: langPicker },
     { anchor: "[data-t='pb-clients']", title: t("tourKbClientsT"), body: t("tourKbClientsB") },
-    { anchor: "[data-t='pb-sets']", title: t("tourKbSetsT"), body: t("tourKbSetsB") },
+    { anchor: "[data-t='pb-direct']", title: t("tourKbDirectT"), body: t("tourKbDirectB") },
     { anchor: "[data-t='pb-pools']", title: t("tourKbPoolsT"), body: t("tourKbPoolsB") },
     { anchor: "[data-t='pb-models']", title: t("tourKbModelsT"), body: t("tourKbModelsB") },
+    { anchor: "[data-t='pb-queue-settings']", title: t("tourKbQueueT"), body: t("tourKbQueueB") },
   ];
 }
+
+/** Every tour by its page, for the tests that hold each step to what its page draws (scripts/test_js_onboarding_tours.py). */
+export const TOURS = { index: indexSteps, machine: machineSteps, config: () => configSteps("tr"), routing: routingSteps };
 
 function currentSteps() {
   const trOpen = document.getElementById("llamaRemoteEditOverlay")?.hidden === false;
   if (trOpen) return configSteps("tr");
   if (window.ROUTER_STANDALONE) return routingSteps();
+  if (BOARD_VIEW.isMachine) return machineSteps();
   return indexSteps();
 }
 
@@ -100,10 +125,12 @@ function startTour() {
 
 export function initOnboarding() {
   initTourButtons({ title: () => t("tourBtnTitle"), onClick: startTour });
-  const pageKey = window.ROUTER_STANDALONE ? "routing" : "index";
+  const pageKey = window.ROUTER_STANDALONE ? "routing" : BOARD_VIEW.isMachine ? "machine" : "index";
   const contentReady = window.ROUTER_STANDALONE
     ? () => !document.getElementById("appLoader") && !!document.querySelector("[data-pb-root]")
-    : () => !document.getElementById("appLoader") && !!document.querySelector(".topology-board");
+    : BOARD_VIEW.isMachine
+      ? () => !document.getElementById("appLoader") && !!document.querySelector("[data-machine-head]")
+      : () => !document.getElementById("appLoader") && !!document.querySelector(".topology-board");
   autoStartOnce(pageKey, contentReady, () => {
     // Don't interrupt if the user already opened something.
     if (document.querySelector(".ob-root")) return;

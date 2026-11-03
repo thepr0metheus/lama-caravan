@@ -1,0 +1,1077 @@
+{
+ "runners": [
+  {
+   "id": "llama-server",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🦙",
+   "labelKey": "runnerLlama",
+   "benefitsKey": "runnerLlamaBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "llm-gguf"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": true,
+   "commandPath": false,
+   "llamaConfig": true,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerLlamaMinus",
+   "needsKey": "runnerNeedsLlmGguf",
+   "talk": {
+    "modes": [
+     "heard-chat",
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "prism",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🌱",
+   "labelKey": "runnerPrism",
+   "benefitsKey": "runnerPrismBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "llm-gguf"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": true,
+   "commandPath": false,
+   "llamaConfig": true,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerPrismMinus",
+   "needsKey": "runnerNeedsLlmGguf",
+   "talk": {
+    "modes": [
+     "heard-chat",
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "vllm",
+   "sharedPicker": "aim",
+   "modelField": "VLLM_MODEL",
+   "icon": "⚡",
+   "labelKey": "runnerVllm",
+   "benefitsKey": "runnerVllmBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "*"
+   ],
+   "health": "/v1/models",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": true,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "MAX_MODEL_LEN",
+   "vramPlan": null,
+   "keepsRam": true,
+   "minusKey": "runnerVllmMinus",
+   "formatRequirements": {
+    "nvfp4": 10.0,
+    "fp8": 8.9
+   },
+   "talk": {
+    "modes": [
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "strata",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🪨",
+   "labelKey": "runnerStrata",
+   "benefitsKey": "runnerStrataBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "strata-gguf"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": true,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [
+    "qwen4exp"
+   ],
+   "stArchs": [],
+   "contextField": "STRATA_CONTEXT",
+   "vramPlan": {
+    "takesFree": true,
+    "floorMiB": 6144,
+    "reserveField": "STRATA_VRAM_RESERVE_MIB"
+   },
+   "keepsRam": true,
+   "minusKey": "runnerStrataMinus",
+   "needsKey": "runnerNeedsStrataGguf",
+   "gpuOnly": true,
+   "oneCard": true,
+   "workFolder": true,
+   "talk": {
+    "modes": [
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "gr00t",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🦾",
+   "labelKey": "runnerGr00t",
+   "benefitsKey": "runnerGr00tBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "gr00t-st"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "Gr00tN1d7"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 7680
+   },
+   "keepsRam": false,
+   "minusKey": "runnerGr00tMinus",
+   "needsKey": "runnerNeedsGr00tSt",
+   "gpuOnly": true,
+   "oneCard": true
+  },
+  {
+   "id": "whisper",
+   "sharedPicker": "carrier",
+   "modelField": "WHISPER_MODEL",
+   "icon": "🎙️",
+   "labelKey": "runnerWhisper",
+   "benefitsKey": "runnerWhisperBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "whisper-size"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerWhisperMinus",
+   "needsKey": "runnerNeedsWhisperSize",
+   "oneCard": true,
+   "talk": {
+    "modes": [
+     "transcription"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "moonshine",
+   "sharedPicker": "carrier",
+   "modelField": "MOONSHINE_MODEL",
+   "icon": "🌙",
+   "labelKey": "runnerMoonshine",
+   "benefitsKey": "runnerMoonshineBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "moonshine-lang"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerMoonshineMinus",
+   "needsKey": "runnerNeedsMoonshineLang",
+   "talk": {
+    "modes": [
+     "transcription"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "transcribe",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "📝",
+   "labelKey": "runnerTranscribe",
+   "benefitsKey": "runnerTranscribeBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "asr-gguf"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerTranscribeMinus",
+   "needsKey": "runnerNeedsAsrGguf",
+   "talk": {
+    "modes": [
+     "transcription"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "seamless",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🌐",
+   "labelKey": "runnerSeamless",
+   "benefitsKey": "runnerSeamlessBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "seamless-st"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "seamless_m4t",
+    "seamless_m4t_v2"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerSeamlessMinus",
+   "needsKey": "runnerNeedsSeamlessSt",
+   "oneCard": true,
+   "talk": {
+    "modes": [
+     "speech-translation"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "translate",
+   "sharedPicker": "carrier",
+   "modelField": "TRANSLATE_MODEL",
+   "icon": "🔄",
+   "labelKey": "runnerTranslate",
+   "benefitsKey": "runnerTranslateBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "nllb-repo"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerTranslateMinus",
+   "needsKey": "runnerNeedsNllbRepo"
+  },
+  {
+   "id": "personaplex",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🗣️",
+   "labelKey": "runnerPersonaplex",
+   "benefitsKey": "runnerPersonaplexBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "personaplex-st"
+   ],
+   "health": "/",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "personaplex"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 20480
+   },
+   "keepsRam": false,
+   "minusKey": "runnerPersonaplexMinus",
+   "needsKey": "runnerNeedsPersonaplexSt",
+   "gpuOnly": true,
+   "oneCard": true,
+   "page": {
+    "field": "PAGE_URL",
+    "pattern": "https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?::[0-9]{1,5})?(?:/[!-~]*)?"
+   },
+   "launcher": "run_personaplex.sh",
+   "launcherArgs": [
+    "{model}"
+   ],
+   "folderRule": "picked"
+  },
+  {
+   "id": "lfm-audio",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🔊",
+   "labelKey": "runnerLfmAudio",
+   "benefitsKey": "runnerLfmAudioBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "lfm-audio-st"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "Lfm2AudioForConditionalGeneration"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 7168
+   },
+   "keepsRam": false,
+   "minusKey": "runnerLfmAudioMinus",
+   "needsKey": "runnerNeedsLfmAudioSt",
+   "gpuOnly": true,
+   "oneCard": true,
+   "talk": {
+    "modes": [
+     "spoken-chat",
+     "speech"
+    ],
+    "system": "",
+    "voices": {
+     "speech": [
+      "us_female",
+      "us_male",
+      "uk_female",
+      "uk_male"
+     ]
+    },
+    "turns": 1
+   },
+   "launcher": "run_lfm_audio.sh",
+   "launcherArgs": [
+    "{model}"
+   ],
+   "folderRule": "picked"
+  },
+  {
+   "id": "step-audio2",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "👣",
+   "labelKey": "runnerStepAudio2",
+   "benefitsKey": "runnerStepAudio2Benefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "step-audio2-st"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "step_audio_2"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 25600
+   },
+   "keepsRam": false,
+   "minusKey": "runnerStepAudio2Minus",
+   "needsKey": "runnerNeedsStepAudio2St",
+   "gpuOnly": true,
+   "oneCard": true,
+   "talk": {
+    "modes": [
+     "spoken-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   },
+   "launcher": "run_vllm_omni.sh",
+   "launcherArgs": [
+    "step-audio2",
+    "{model}"
+   ],
+   "folderRule": "picked"
+  },
+  {
+   "id": "qwen3-omni",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🎭",
+   "labelKey": "runnerQwen3Omni",
+   "benefitsKey": "runnerQwen3OmniBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "qwen3-omni-st"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "qwen3_omni_moe"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 31744
+   },
+   "keepsRam": false,
+   "minusKey": "runnerQwen3OmniMinus",
+   "needsKey": "runnerNeedsQwen3OmniSt",
+   "gpuOnly": true,
+   "oneCard": true,
+   "talk": {
+    "modes": [
+     "spoken-chat"
+    ],
+    "system": "You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech. Answer in full sentences and write numbers in words.",
+    "voices": {
+     "spoken-chat": [
+      "ethan",
+      "chelsie",
+      "aiden"
+     ]
+    },
+    "turns": 8
+   },
+   "launcher": "run_vllm_omni.sh",
+   "launcherArgs": [
+    "qwen3-omni",
+    "{model}"
+   ],
+   "folderRule": "picked"
+  },
+  {
+   "id": "qwen3-tts",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "📢",
+   "labelKey": "runnerQwen3Tts",
+   "benefitsKey": "runnerQwen3TtsBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "qwen3-tts-st"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [
+    "qwen3_tts"
+   ],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 9216
+   },
+   "keepsRam": false,
+   "minusKey": "runnerQwen3TtsMinus",
+   "needsKey": "runnerNeedsQwen3TtsSt",
+   "gpuOnly": true,
+   "oneCard": true,
+   "talk": {
+    "modes": [
+     "speech"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8,
+    "asksVoices": true,
+    "voiceName": "[A-Za-z0-9_.-]{1,64}",
+    "clone": true
+   },
+   "launcher": "run_vllm_omni.sh",
+   "launcherArgs": [
+    "qwen3-tts",
+    "{model}"
+   ],
+   "folderRule": "picked"
+  },
+  {
+   "id": "voice-clone",
+   "sharedPicker": "ignored",
+   "modelField": "TTS_ENGINE",
+   "icon": "🦜",
+   "labelKey": "runnerVoiceClone",
+   "benefitsKey": "runnerVoiceCloneBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "*"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerVoiceCloneMinus",
+   "oneCard": true,
+   "autoDevice": true,
+   "talk": {
+    "modes": [
+     "speech"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8,
+    "asksVoices": true,
+    "voiceName": "[A-Za-z0-9_.-]{1,64}",
+    "clone": true
+   }
+  },
+  {
+   "id": "minicpm-omni",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🎤",
+   "labelKey": "runnerMinicpmOmni",
+   "benefitsKey": "runnerMinicpmOmniBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "llm-gguf"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 12800
+   },
+   "keepsRam": false,
+   "minusKey": "runnerMinicpmOmniMinus",
+   "needsKey": "runnerNeedsMinicpmOmniGguf",
+   "gpuOnly": true,
+   "oneCard": true,
+   "live": {
+    "protocol": "minicpm-omni"
+   },
+   "launcher": "run_minicpm_omni.sh",
+   "launcherArgs": [
+    "{model}"
+   ],
+   "folderRule": "entry"
+  },
+  {
+   "id": "custom",
+   "sharedPicker": "ignored",
+   "modelField": null,
+   "icon": "🛠️",
+   "labelKey": "runnerCustom",
+   "benefitsKey": "runnerCustomBenefits",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "*"
+   ],
+   "health": "",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "minusKey": "runnerCustomMinus",
+   "autoDevice": true
+  },
+  {
+   "id": "ollama",
+   "sharedPicker": "ignored",
+   "modelField": "ENGINE_MODEL",
+   "icon": "🟠",
+   "labelKey": "runnerOllama",
+   "benefitsKey": "",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "engine-model"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": false,
+   "engineCell": true,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "talk": {
+    "modes": [
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "lmstudio",
+   "sharedPicker": "ignored",
+   "modelField": "ENGINE_MODEL",
+   "icon": "🟣",
+   "labelKey": "runnerLmStudio",
+   "benefitsKey": "",
+   "formats": [
+    "*"
+   ],
+   "artifacts": [
+    "engine-model"
+   ],
+   "health": "/health",
+   "api": "raw",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": false,
+   "engineCell": true,
+   "ggufArchs": [],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": null,
+   "keepsRam": false,
+   "talk": {
+    "modes": [
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  }
+ ],
+ "talkModes": [
+  {
+   "id": "spoken-chat",
+   "labelKey": "talkModeSpokenChat",
+   "takes": "voice",
+   "gives": [
+    "voice",
+    "text"
+   ],
+   "needsHearing": false,
+   "conversation": true,
+   "takesSample": false
+  },
+  {
+   "id": "heard-chat",
+   "labelKey": "talkModeHeardChat",
+   "takes": "voice",
+   "gives": [
+    "text"
+   ],
+   "needsHearing": true,
+   "conversation": true,
+   "takesSample": false
+  },
+  {
+   "id": "text-chat",
+   "labelKey": "talkModeTextChat",
+   "takes": "text",
+   "gives": [
+    "text"
+   ],
+   "needsHearing": false,
+   "conversation": true,
+   "takesSample": false
+  },
+  {
+   "id": "speech",
+   "labelKey": "talkModeSpeech",
+   "takes": "text",
+   "gives": [
+    "voice"
+   ],
+   "needsHearing": false,
+   "conversation": false,
+   "takesSample": true
+  },
+  {
+   "id": "transcription",
+   "labelKey": "talkModeTranscription",
+   "takes": "voice",
+   "gives": [
+    "text"
+   ],
+   "needsHearing": false,
+   "conversation": false,
+   "takesSample": false
+  },
+  {
+   "id": "speech-translation",
+   "labelKey": "talkModeSpeechTranslation",
+   "takes": "voice",
+   "gives": [
+    "text"
+   ],
+   "needsHearing": false,
+   "conversation": false,
+   "takesSample": false
+  }
+ ],
+ "pagePattern": "https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?::[0-9]{1,5})?(?:/[!-~]*)?",
+ "standingPhases": [
+  "reserved",
+  "stopped"
+ ],
+ "windowKinds": [
+  "list",
+  "props",
+  "retrieve"
+ ],
+ "windowPaths": {
+  "cloud": [
+   [
+    "list",
+    "/v1/models"
+   ],
+   [
+    "retrieve",
+    "/v1/models/m"
+   ]
+  ],
+  "llama": [
+   [
+    "list",
+    "/v1/models"
+   ],
+   [
+    "props",
+    "/props"
+   ],
+   [
+    "props",
+    "/v1/props"
+   ]
+  ],
+  "engine": [
+   [
+    "list",
+    "/v1/models"
+   ]
+  ],
+  "other": [
+   [
+    "list",
+    "/v1/models"
+   ]
+  ]
+ },
+ "modelQueueFields": [
+  [
+   "queueYieldSec",
+   0,
+   0,
+   3600
+  ],
+  [
+   "queueLimitSec",
+   0,
+   0,
+   3600
+  ],
+  [
+   "clientTimeoutSec",
+   3600,
+   60,
+   86400
+  ]
+ ],
+ "modelQueueCaps": [
+  {
+   "queueYieldSec": 90,
+   "queueLimitSec": 1500,
+   "said": {
+    "queueYieldSec": 90,
+    "queueLimitSec": 1500,
+    "clientTimeoutSec": 3600
+   }
+  },
+  {
+   "queueYieldSec": 1800,
+   "queueLimitSec": 600,
+   "said": {
+    "queueYieldSec": 600,
+    "queueLimitSec": 600,
+    "clientTimeoutSec": 3600
+   }
+  },
+  {
+   "queueYieldSec": 1800,
+   "queueLimitSec": 0,
+   "said": {
+    "queueYieldSec": 1800,
+    "queueLimitSec": 0,
+    "clientTimeoutSec": 3600
+   }
+  },
+  {
+   "queueYieldSec": 3600,
+   "queueLimitSec": 3600,
+   "said": {
+    "queueYieldSec": 3600,
+    "queueLimitSec": 3600,
+    "clientTimeoutSec": 3600
+   }
+  },
+  {
+   "queueYieldSec": 99999,
+   "queueLimitSec": 60,
+   "said": {
+    "queueYieldSec": 60,
+    "queueLimitSec": 60,
+    "clientTimeoutSec": 3600
+   }
+  },
+  {
+   "queueYieldSec": 0,
+   "queueLimitSec": 60,
+   "said": {
+    "queueYieldSec": 0,
+    "queueLimitSec": 60,
+    "clientTimeoutSec": 3600
+   }
+  }
+ ],
+ "sharedQueueFields": [
+  [
+   "cloudFallbackPct",
+   "spillPct",
+   20,
+   100
+  ],
+  [
+   "stickySlotSec",
+   "stickySlotSec",
+   0,
+   120
+  ],
+  [
+   "loadingModelWaitSec",
+   "loadingModelWaitSec",
+   60,
+   900
+  ]
+ ],
+ "routeGroups": [
+  {
+   "upstream": {
+    "upstreamHost": "10.0.0.9",
+    "upstreamPort": 22001,
+    "upstreamType": "llama"
+   },
+   "group": "10.0.0.9:22001"
+  },
+  {
+   "upstream": {
+    "upstreamHost": "10.0.0.9",
+    "upstreamPort": 11434,
+    "upstreamType": "engine",
+    "upstreamModel": "qwen3:8b"
+   },
+   "group": "10.0.0.9:11434"
+  },
+  {
+   "upstream": {
+    "upstreamHost": "10.0.0.9",
+    "upstreamPort": 8092,
+    "upstreamType": "machine",
+    "upstreamModel": "gemma"
+   },
+   "group": "10.0.0.9:8092/gemma"
+  },
+  {
+   "upstream": {
+    "upstreamHost": "10.0.0.9",
+    "upstreamPort": 8092,
+    "upstreamType": "machine",
+    "upstreamModel": "org/m:q4"
+   },
+   "group": "10.0.0.9:8092/org/m:q4"
+  },
+  {
+   "upstream": {
+    "upstreamHost": "10.0.0.9",
+    "upstreamPort": 22001
+   },
+   "group": "10.0.0.9:22001"
+  }
+ ]
+}

@@ -1,19 +1,13 @@
 #!/usr/bin/env python3
-"""Value snapshot: what a model DOES, as opposed to what launches it.
+"""Value snapshot: what a model DOES, as opposed to what launches it, as the browser decides it (static/js/model-jobs.js).
 
-The rule lives twice — caravan/common/model_jobs.py and
-static/js/model-jobs.js — because the picker decides in the browser and the
-board decides on the server. Both copies are run here against ONE table of
-cases: diverging twins would be exactly the defect this rule was split into
-its own file to prevent.
+The picker decides in the browser and the board in the program (rust/crates/admin/tests/contract.rs): both are held to ONE table of cases, contract/model_jobs.json.
+Diverging twins would be exactly the defect this rule was split into its own file to prevent.
 
-What's pinned. That a `.gguf` is an LLM or a recognizer by its OWN metadata and
-not by its extension; that seamless is speech-translate and NOT asr (it returns
-the target language only, never a transcript, so a consumer picking it up as a
-recognizer would get a translation labelled as a transcription); that a cell's
-live `kinds` outranks the runner table, which is the only way a TTS cell run as
-a typed command can be named as one; and that an unnameable job answers with
-NOTHING rather than falling back to "llm" — the silence this rule exists to end.
+What's pinned. That a `.gguf` is an LLM or a recognizer by its OWN metadata and not by its extension; that seamless is speech-translate and NOT asr (it returns the target
+language only, never a transcript, so a consumer picking it up as a recognizer would get a translation labelled as a transcription); that a cell's live `kinds` outranks the
+runner table, which is the only way a TTS cell run as a typed command can be named as one; and that an unnameable job answers with NOTHING rather than falling back to
+"llm" — the silence this rule exists to end.
 
 Run: python3 scripts/test_model_jobs.py
 """
@@ -24,13 +18,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _node import find_node  # noqa: E402
-from caravan.common.model_jobs import (  # noqa: E402
-    JOBS, cell_jobs, cell_runner_id, jobs_for_artifact, jobs_for_cell, jobs_from_kinds,
-)
+from _contract import Contract  # noqa: E402
+from _node import find_node, node_args  # noqa: E402
 
 _fail = []
 
@@ -41,95 +32,12 @@ def check(cond, msg):
         _fail.append(msg)
 
 
+TABLE = Contract.table("model_jobs")
+JOBS = TABLE["jobs"]
 # (name, kind, sttVariant, arch, family, expected jobs, what the pin is for)
-ARTIFACTS = [
-    ("embed_gguf", "model", "", "", "embedding", ["embed"],
-     "positive: эмбеддинговая модель — ОТДЕЛЬНАЯ работа: она отдаёт векторы, а чат с той же ячейки llama.cpp не поднимет; первая версия правила звала её «LLM», и живая Qwen3-Embedding ходила по доске с 💬"),
-    ("chat_gguf_family_blank", "model", "", "", "", ["llm"],
-     "negative: семейство не названо — обычная языковая модель, а не эмбеддинги по догадке"),
-    ("chat_gguf", "model", "", "", "qwen", ["llm"],
-     "обычный gguf — LLM; и это СКАЗАНО, а не выведено из того, что про него молчат"),
-    ("asr_gguf", "model", "gigaam-rnnt", "", "asr", ["asr"],
-     "тот же .gguf, но с речевыми метаданными — распознавание; расширение их не различает"),
-    ("asr_gguf_whitespace_variant", "model", "   ", "", "", ["llm"],
-     "boundary: пробельный stt.variant — это НЕ речевые веса, а пустое поле"),
-    ("safetensors_chat", "st", "", "qwen3", "", ["llm"],
-     "safetensors под vLLM — тоже LLM"),
-    ("safetensors_seamless", "st", "", "seamless_m4t_v2", "", ["speech-translate"],
-     "positive: seamless — речь → перевод, ОТДЕЛЬНАЯ работа от распознавания: транскрипта он не отдаёт"),
-    ("safetensors_gr00t", "st", "", "Gr00tN1d7", "", ["robot-policy"],
-     "positive: папка GR00T — действия робота, а не чат: её ответ — числа для робота, которых не прочтёт ни один чат-клиент"),
-    ("safetensors_cosmos_backbone", "st", "", "qwen3_vl", "", ["llm"],
-     "negative: основа GR00T (Cosmos, qwen3_vl) — сама по себе чат-модель, не робот"),
-    ("safetensors_personaplex", "st", "", "personaplex", "", ["voice-chat"],
-     "positive: PersonaPlex — голосовой собеседник (речь → речь), а не чат: чат-клиент из списка LLM получил бы WebSocket"),
-    ("safetensors_lfm_audio_by_architecture", "st", "", "Lfm2AudioForConditionalGeneration", "", ["tts"],
-     "positive: LFM2.5-Audio без model_type в config.json — по первой из architectures; он говорит (text → speech), его ячейка сама называет tts"),
-    ("safetensors_step_audio2", "st", "", "step_audio_2", "", ["llm", "voice-chat"],
-     "positive: Step-Audio 2 отвечает и чатом, и голосом по OpenAI API: обе работы, в порядке словаря"),
-    ("safetensors_qwen3_omni", "st", "", "qwen3_omni_moe", "", ["llm", "voice-chat"],
-     "positive: Qwen3-Omni — то же: чат и голос"),
-    ("safetensors_qwen3_family_stays_chat", "st", "", "qwen3_moe", "", ["llm"],
-     "negative: обычный Qwen3 MoE (без речи) остаётся чатом — голос только у архитектур с хозяином"),
-    ("whisper_size", "whisper", "", "", "", ["asr"],
-     "whisper — распознавание, хотя «модель» тут это размер"),
-    ("moonshine_lang", "moonshine", "", "", "", ["asr", "tts"],
-     "moonshine делает ДВЕ работы — и распознаёт, и синтезирует: одна строка ≠ одна работа"),
-    ("nllb_repo", "translate", "", "", "", ["translate"],
-     "NLLB — перевод текста в текст"),
-    ("unknown_kind", "sherpa", "", "", "", [],
-     "negative: неизвестный вид — НИЧЕГО, а не «llm» по умолчанию; выдуманная работа хуже названной"),
-    ("empty_kind", "", "", "", "", [],
-     "negative: пустой вид — тоже ничего"),
-]
-
+ARTIFACTS = [(r["name"], r["kind"], r["sttVariant"], r["arch"], r["family"], r["jobs"], r["why"]) for r in TABLE["artifacts"]]
 # (name, runnerId, kinds, expected jobs, what the pin is for)
-CELLS = [
-    ("llama_cell", "llama-server", [], ["llm"],
-     "раннер без живого отчёта — работа из таблицы раннеров"),
-    ("vllm_cell", "vllm", [], ["llm"], "vLLM — тоже LLM"),
-    ("strata_cell", "strata", [], ["llm"], "Strata — чат-модель (Qwen3.8-Flash-Next), тоже LLM"),
-    ("gr00t_cell", "gr00t", [], ["robot-policy"], "GR00T без живого отчёта — действия робота по таблице раннеров"),
-    ("gr00t_cell_dotted_kind", "gr00t", ["robot-policy", "robot-policy.gr00t"], ["robot-policy"],
-     "живой отчёт ячейки GR00T: голое слово работы и уточнение движком — одна работа"),
-    ("vla_alias", "custom", ["vla"], ["robot-policy"],
-     "«vla» (vision-language-action, как говорит поле) — то же слово, что robot-policy"),
-    ("personaplex_cell", "personaplex", [], ["voice-chat"],
-     "positive: PersonaPlex без живого отчёта (его сервер — не наш, отчёта нет) — голос по таблице раннеров"),
-    ("minicpm_omni_cell", "minicpm-omni", [], ["voice-chat"],
-     "positive: llama.cpp-omni — голос; чатом через вход не отвечает (WebSocket), поэтому llm у него нет"),
-    ("step_audio2_cell", "step-audio2", [], ["llm", "voice-chat"],
-     "positive: ячейка Step-Audio 2 — чат и голос; чип чата рисуется первым"),
-    ("qwen3_omni_cell", "qwen3-omni", [], ["llm", "voice-chat"], "positive: ячейка Qwen3-Omni — чат и голос"),
-    ("lfm_audio_cell_table", "lfm-audio", [], ["tts"],
-     "LFM2.5-Audio без отчёта — «говорит», как сказано и в его сервере"),
-    ("lfm_audio_cell_live", "lfm-audio", ["tts", "tts.lfm-audio"], ["tts"],
-     "живой отчёт LFM — голое слово работы и уточнение движком: одна работа"),
-    ("voice_chat_said_by_a_custom_cell", "custom", ["voice-chat"], ["voice-chat"],
-     "positive: командная ячейка может назвать себя голосовой собеседницей сама — слово в словаре"),
-    ("prism_cell", "prism", [], ["llm"],
-     "defect-history: PrismML — LLM и на сервере: двойник в браузере говорил «llm», а сервер молчал"),
-    ("whisper_cell_dotted_kind", "whisper", ["stt.whisper"], ["asr"],
-     "positive: «stt.whisper» читается по первому сегменту — движок в слове, а работа всё равно понятна"),
-    ("transcribe_cell_bare_kind", "transcribe", ["asr"], ["asr"],
-     "…и голое «asr» из другой ячейки значит ТО ЖЕ САМОЕ — два написания одной работы"),
-    ("moonshine_cell_two_jobs", "moonshine", ["asr", "tts"], ["asr", "tts"],
-     "две работы разом — обе и названы"),
-    ("seamless_cell", "seamless", ["speech-translate"], ["speech-translate"],
-     "positive: seamless говорит про себя правду — речь → перевод"),
-    ("custom_tts_cell_named_by_itself", "custom", ["tts"], ["tts"],
-     "positive: TTS живёт командной ячейкой, и назвать её работой может ТОЛЬКО её собственный отчёт"),
-    ("custom_cell_silent", "custom", [], [],
-     "negative: командная ячейка молчит — работы не выдумываем: команду печатал человек, раннер про неё не знает"),
-    ("live_kinds_outrank_the_table", "whisper", ["tts"], ["tts"],
-     "живой отчёт ПЕРЕВЕШИВАЕТ таблицу: ячейка знает про себя больше, чем ожидание от раннера"),
-    ("unknown_kinds_fall_back_to_runner", "whisper", ["sorcery"], ["asr"],
-     "boundary: непонятное слово в kinds — не отчёт; падаем на таблицу раннера, а не показываем пусто"),
-    ("unknown_runner_silent", "sherpa", [], [],
-     "negative: неизвестный раннер без отчёта — молчание, а не догадка"),
-    ("kinds_order_is_the_vocabulary", "custom", ["tts", "asr"], ["asr", "tts"],
-     "порядок чипов задан словарём, а не порядком в отчёте: две ячейки с теми же работами рисуются одинаково"),
-]
+CELLS = [(r["name"], r["runner"], r["kinds"], r["jobs"], r["why"]) for r in TABLE["cells"]]
 
 
 #: What each cell server declares about itself, by value. The guard next door
@@ -156,29 +64,9 @@ DECLARED = {
 }
 
 
-# A cell's record — its settings and what it says of itself — as the board draws its chips
-# (cellJobs) and the controller tells the proxy what a pool's row does (cell_jobs, 1.3.502):
+# A cell's record — its settings and what it says of itself — as the board draws its chips (cellJobs):
 # (name, settings, what the cell said, expected runner, expected jobs, what the pin is for)
-RECORDS = [
-    ("llama_slot", {"MODEL_FILE": "x.gguf"}, {}, "llama-server", ["llm"],
-     "ячейка с настройками без RUNNER — llama-server, чат"),
-    ("embedding_flag", {"ENABLE_EMBEDDINGS": "1"}, {}, "llama-server", ["embed"],
-     "флаг эмбеддингов — эмбеддинги, хотя раннер llama-server"),
-    ("embedding_flag_off", {"ENABLE_EMBEDDINGS": " Off "}, {}, "llama-server", ["llm"],
-     "negative: флаг выключен словом off — снова чат"),
-    ("command_tts", {"CELL_KIND": "command"}, {"kinds": ["tts.cosyvoice"]}, "custom", ["tts"],
-     "ячейка-команда — раннер custom; голос узнаётся только по её собственным kinds"),
-    ("command_silent", {"CELL_KIND": "command"}, {}, "custom", [],
-     "negative: команда, которая о себе молчит, — работы нет, а не «llm»"),
-    ("no_settings_asr", {}, {"kinds": ["asr"]}, "llama-server", ["asr"],
-     "ячейка, сделанная другим контроллером, — то, что она говорит о себе"),
-    ("no_settings_silent", {}, {}, "llama-server", [],
-     "negative: без настроек и без слов — ничего: раннер по умолчанию был бы догадкой"),
-    ("whisper_upper", {"RUNNER": " Whisper "}, {}, "whisper", ["asr"],
-     "RUNNER читается без регистра и пробелов"),
-    ("seamless_kinds", {"RUNNER": "seamless"}, {"kinds": ["speech-translate"]}, "seamless", ["speech-translate"],
-     "seamless — перевод речи, а не распознавание"),
-]
+RECORDS = [(r["name"], r["config"], r["meta"], r["runner"], r["jobs"], r["why"]) for r in TABLE["records"]]
 
 
 def test_cells_say_what_they_do():
@@ -202,39 +90,6 @@ def test_cells_say_what_they_do():
 def main():
     print("ячейки о себе:")
     test_cells_say_what_they_do()
-    print("правило на сервере — артефакты пикера:")
-    py_art = {}
-    for name, kind, variant, arch, family, want, msg in ARTIFACTS:
-        got = list(jobs_for_artifact(kind, variant, arch, family))
-        py_art[name] = got
-        check(got == want, f"{msg} (got {got})")
-
-    print("правило на сервере — работающие ячейки:")
-    py_cell = {}
-    for name, runner, kinds, want, msg in CELLS:
-        got = list(jobs_for_cell(runner, kinds))
-        py_cell[name] = got
-        check(got == want, f"{msg} (got {got})")
-
-    print("правило на сервере — запись ячейки (настройки и её слова, 1.3.502):")
-    py_rec = {}
-    for name, cfg, meta, runner, want, msg in RECORDS:
-        got = [cell_runner_id(cfg), list(cell_jobs(cell_runner_id(cfg), meta, cfg))]
-        py_rec[name] = got
-        check(got == [runner, want], f"{msg} (got {got})")
-    check(cell_jobs("llama-server", None, None) == () and cell_runner_id(None) == "llama-server",
-          "negative: записи нет вовсе — работы нет, раннер по умолчанию")
-
-    check(jobs_from_kinds(None) == () and jobs_from_kinds([]) == (),
-          "negative: kinds отсутствуют или пусты — пустой ответ, а не падение")
-    check(jobs_from_kinds(["STT.Whisper", " ASR "]) == ("asr",),
-          "регистр и пробелы в kinds не мешают: одна работа, одно слово")
-    check((jobs_from_kinds(["embedding"]), jobs_from_kinds(["vlm"]), jobs_from_kinds(["llm"])) == (("embed",), ("llm",), ("llm",)),
-          "слова движков рядом с ячейками (LM Studio: embedding, vlm, llm) — тот же словарь работ")
-    check(tuple(JOBS) == ("llm", "embed", "asr", "tts", "translate", "speech-translate", "voice-chat", "robot-policy"),
-          "словарь — ровно восемь работ (седьмая — голосовой собеседник, 2026-10-15; восьмая — действия робота, "
-          "2026-10-13), и его порядок и есть порядок чипов")
-
     print("двойник в браузере:")
     node = find_node()
     if not node:
@@ -262,7 +117,7 @@ def main():
     )
     try:
         env = {**os.environ, "JS_FILE": str(ROOT / "static" / "js" / "model-jobs.js")}
-        run = subprocess.run([node, str(probe)], capture_output=True, text=True,
+        run = subprocess.run(node_args(node, probe), capture_output=True, text=True,
                              env=env, cwd=ROOT, timeout=60)
     finally:
         probe.unlink(missing_ok=True)
@@ -278,11 +133,6 @@ def main():
         check(js["cell"].get(name) == want, f"js: {msg} (got {js['cell'].get(name)})")
     for name, _c, _meta, runner, want, msg in RECORDS:
         check(js["rec"].get(name) == [runner, want], f"js: {msg} (got {js['rec'].get(name)})")
-    diverged = ([n for n in py_art if js["art"].get(n) != py_art[n]]
-                + [n for n in py_cell if js["cell"].get(n) != py_cell[n]]
-                + [n for n in py_rec if js["rec"].get(n) != py_rec[n]])
-    check(not diverged,
-          f"обе копии правила отвечают ОДИНАКОВО на всей таблице (разошлись: {diverged})")
     check(js["__jobs"] == list(JOBS), f"словарь совпадает в обеих копиях (got {js['__jobs']})")
     # Marks and labels live BESIDE the vocabulary, in one place, because both the
     # picker row and the cell card draw them. They each kept a private copy for a

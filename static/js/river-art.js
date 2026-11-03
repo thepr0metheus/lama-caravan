@@ -207,9 +207,15 @@ export class TopFishPainter {
     this.L = new Float32Array(maxPoints * 2);
     this.R = new Float32Array(maxPoints * 2);
   }
-  /** Traces the outline: spine points carry x, y and a (the direction toward the tail). */
-  outline(ctx, spine, widths, nose, dx = 0, dy = 0) {
-    const n = spine.length - 1, L = this.L, R = this.R;
+  /**
+   * Traces the outline: spine points carry x, y and a (the direction toward the tail). `open` leaves the cut across the tail end
+   * out, so that a stroke runs along the two sides only.
+   */
+  outline(ctx, spine, widths, nose, dx = 0, dy = 0, open = false) {
+    const n = spine.length - 1;
+    // a typed array drops what is written past its end without a word: a body with more points than the buffer holds would lose its tail
+    if ((n + 1) * 2 > this.L.length) { this.L = new Float32Array((n + 1) * 2); this.R = new Float32Array((n + 1) * 2); }
+    const L = this.L, R = this.R;
     for (let i = 0; i <= n; i++) {
       const s = spine[i], nx = -Math.sin(s.a), ny = Math.cos(s.a), w = widths[i];
       L[i * 2] = s.x + nx * w + dx; L[i * 2 + 1] = s.y + ny * w + dy;
@@ -221,9 +227,70 @@ export class TopFishPainter {
     ctx.quadraticCurveTo(h.x + dx + fx * nose * 2, h.y + dy + fy * nose * 2, L[0], L[1]);
     for (let i = 1; i < n; i++) ctx.quadraticCurveTo(L[i * 2], L[i * 2 + 1], (L[i * 2] + L[i * 2 + 2]) / 2, (L[i * 2 + 1] + L[i * 2 + 3]) / 2);
     ctx.lineTo(L[n * 2], L[n * 2 + 1]);
-    ctx.lineTo(R[n * 2], R[n * 2 + 1]);
+    if (open) ctx.moveTo(R[n * 2], R[n * 2 + 1]); else ctx.lineTo(R[n * 2], R[n * 2 + 1]);
     for (let i = n - 1; i > 0; i--) ctx.quadraticCurveTo(R[i * 2], R[i * 2 + 1], (R[i * 2] + R[i * 2 - 2]) / 2, (R[i * 2 + 1] + R[i * 2 - 1]) / 2);
     ctx.lineTo(R[0], R[1]);
+    if (!open) ctx.closePath();
+  }
+}
+
+/**
+ * An ellipse with a soft edge, from a radial gradient of unit radius that is built once for each table of stops: a gradient belongs
+ * to no canvas, and building one for every eye of every fish in every frame is what would cost.
+ */
+export class SoftShape {
+  static GRADIENTS = new Map();
+  /** Paints at (x, y) an ellipse of radii (rx, ry) turned by `rot`; `stops` is a table [[position 0..1, colour], ...]. */
+  static draw(ctx, x, y, rx, ry, rot, stops) {
+    let g = SoftShape.GRADIENTS.get(stops);
+    if (!g) {
+      g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      for (const [at, colour] of stops) g.addColorStop(at, colour);
+      SoftShape.GRADIENTS.set(stops, g);
+    }
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(rot); ctx.scale(rx, ry);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 1, 0, M.TAU); ctx.fill();
+    ctx.restore();
+  }
+}
+
+/** A fin drawn as a fan of rays from its base: translucent, fading toward its edge, with the rays to be seen in it. */
+export class FinFan {
+  /** How wide the rays are drawn unless the fin says otherwise: [least px, share of the fish's length]. */
+  static RAY_WIDTH = Object.freeze([0.25, 0.0035]);
+  /**
+   * From the base (bx, by) the fin points along `theta` and is `reach` long; `rays` rays spread over `fan` radians to the `side`
+   * (-1 or 1) and sway with the phase `wph` by `wamp`, the longest in the middle. `col` gives base, mid, tip and ray colours as [r, g, b];
+   * `col.rayWidth` ([least px, share of `len`]) says how wide the rays are drawn, and a `col.edge` colour adds a bright line along the
+   * first ray, the fin's leading edge.
+   */
+  static draw(ctx, len, bx, by, theta, reach, fan, rays, wph, wamp, col, alpha, side) {
+    const tips = [];
+    for (let j = 0; j < rays; j++) {
+      const f = rays === 1 ? 0.5 : j / (rays - 1);
+      const a = theta + side * (0.5 - f) * fan + wamp * Math.sin(wph - f * 2.2) * (0.35 + f * 0.65);
+      const l = reach * (0.58 + 0.42 * Math.sin(Math.PI * (0.18 + 0.82 * f)));
+      tips.push([bx + Math.cos(a) * l, by + Math.sin(a) * l]);
+    }
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tips[0][0], tips[0][1]);
+    for (let j = 1; j < rays; j++) {
+      const p = tips[j - 1], q = tips[j];
+      ctx.quadraticCurveTo(M.lerp((p[0] + q[0]) / 2, bx, 0.10), M.lerp((p[1] + q[1]) / 2, by, 0.10), q[0], q[1]);
+    }
     ctx.closePath();
+    const g = ctx.createRadialGradient(bx, by, 0, bx, by, reach);
+    g.addColorStop(0, M.rgba(col.base, alpha)); g.addColorStop(0.55, M.rgba(col.mid, alpha * 0.55)); g.addColorStop(1, M.rgba(col.tip, alpha * 0.2));
+    ctx.fillStyle = g; ctx.fill();
+    const [least, share] = col.rayWidth || FinFan.RAY_WIDTH;
+    ctx.strokeStyle = M.rgba(col.ray, 0.30); ctx.lineWidth = Math.max(least, len * share); ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const t of tips) { ctx.moveTo(bx, by); ctx.lineTo(M.lerp(bx, t[0], 0.97), M.lerp(by, t[1], 0.97)); }
+    ctx.stroke();
+    if (col.edge) {
+      ctx.strokeStyle = M.rgba(col.edge, 0.55); ctx.lineWidth = len * 0.0045;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tips[0][0], tips[0][1]); ctx.stroke();
+    }
   }
 }

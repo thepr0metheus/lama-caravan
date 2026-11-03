@@ -33,7 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _js_pins import run  # noqa: E402
-from hf_quant_cases import QUANT_CASES  # noqa: E402
+from _contract import Contract  # noqa: E402
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -88,9 +88,9 @@ PINS = [
      "квант из имени файла: Q8_0, BF16, в имени нет — пусто, Q4_K_XL из UD-, NVFP4 в любом регистре"),
 
     ("quant_read_off_the_shared_table", "",
-     json.dumps([name for name, _ in QUANT_CASES]) + ".map((n) => V.HfQuant.fromName(n))",
-     json.dumps([quant for _, quant in QUANT_CASES], ensure_ascii=False, separators=(",", ":")),
-     "квант из имени — по общей таблице scripts/hf_quant_cases.py, которую читает и сервер (hf.py): хвост «-00003-of-00006» не квант "
+     json.dumps([row["name"] for row in Contract.table("hf_quant")["cases"]]) + ".map((n) => V.HfQuant.fromName(n))",
+     json.dumps([row["quant"] for row in Contract.table("hf_quant")["cases"]], ensure_ascii=False, separators=(",", ":")),
+     "квант из имени — по общей таблице contract/hf_quant.json, которую читает и программа (HubMemory::quant_of): хвост «-00003-of-00006» не квант "
      "(до 1.3.565 у всех Q… частей он входил в квант: «Q8_0-00003-OF-00006»), PQ2_0 и PTQ1_0 страница знает так же, как сервер"),
 
     ("shape_folds_the_parts_of_a_q_quant", "",
@@ -182,6 +182,43 @@ PINS = [
      '[true,true,"In a library: lama-caravan-models\\nMatches what is on HF\\nours: 10.0 GB · 2026-07-27\\non HF: 10.0 GB · 2026-07-27",false,true,true,true,true,true,"In a library: lama-caravan-models, second-shelf",false,true,"In a library: lama-caravan-models, second-shelf"]',
      "копии в библиотеках на строках: только в библиотеке — сиреневая строка и «📚 ✓ совпадает» с названием библиотеки и сверкой в подсказке, без 🗑; здесь и в библиотеке — метка диска и короткая «📚 ⇪», если сборка другая; спутник в двух библиотеках — обе названы, сверяется первая копия; квант, чьи части в разных библиотеках, называет обе; нигде нет — метки нет"),
 
+    ("have_it_by_standing", "",
+     r"""(() => { const A = { id: "lib-a", name: "lama-caravan-models" }, NEW = 1788790379, OLD = 1780000000;
+        let n = 0; const at = (local, lib = {}) => repo({ id: `a/have-${n++}`, local: { localNames: Object.keys(local), localFiles: local, libraryFiles: lib } });
+        const file = (facts) => facts.files.find((x) => x.name === "m-Q6_K.gguf"); const have = (facts, verified) => V.HfRepoView.haveIt(facts, file(facts), verified);
+        const same = at({ "m-Q6_K.gguf": { size: 10 * GB, mtime: NEW } });
+        const bySize = at({ "m-Q6_K.gguf": { size: 10 * GB - 5, mtime: NEW } });
+        const notLoaded = catalog.repo("a/not-loaded"); notLoaded.setFiles({ files: FILES() });
+        return { disk: have(same), unknown: have(at({ "m-Q6_K.gguf": { size: 10 * GB } })), noMeta: have(at({ "m-Q6_K.gguf": null })),
+          bySize: have(bySize), byDate: have(at({ "m-Q6_K.gguf": { size: 10 * GB, mtime: OLD } })),
+          library: have(at({}, { "m-Q6_K.gguf": [{ store: A, size: 10 * GB, mtime: NEW }] })), libraryDiffers: have(at({}, { "m-Q6_K.gguf": [{ store: A, size: 10 * GB - 5, mtime: NEW }] })),
+          diskDiffersLibrarySame: have(at({ "m-Q6_K.gguf": { size: 10 * GB - 5, mtime: NEW } }, { "m-Q6_K.gguf": [{ store: A, size: 10 * GB, mtime: NEW }] })),
+          nowhere: have(at({})), notLoaded: have(notLoaded),
+          verifiedDiffers: have(same, { "m-Q6_K.gguf": { state: "differs" } }), verifiedSame: have(bySize, { "m-Q6_K.gguf": { state: "same" } }) }; })()""",
+     '{"disk":"disk","unknown":"disk","noMeta":"disk","bySize":null,"byDate":null,"library":"library","libraryDiffers":null,"diskDiffersLibrarySame":"library",'
+     '"nowhere":null,"notLoaded":null,"verifiedDiffers":null,"verifiedSame":"disk"}',
+     "что у нас уже есть: копия на диске, такая же, как на HF («✓»), или та, что не с чем сверить («?»; без даты, без сведений о файле), — «disk»; "
+     "другого размера или раньше по дню (⇪) — нет; то же для копии в библиотеке; на диске другая, а в библиотеке такая же — «library»; нигде, и сведения о диске "
+     "ещё не пришли — нет (не знаем — не «есть»); проверка по хэшу «отличается» открывает файл такого же размера, «совпадает» закрывает файл другого размера"),
+
+    ("shut_box_on_what_we_have", "",
+     r"""(() => { const A = { id: "lib-a", name: "lama-caravan-models" };
+        const f = repo({ local: { ...LOCAL(), libraryFiles: { "m-Q6_K.gguf": [{ store: A, size: 10 * GB, mtime: 1788790379 }], "m-Q8_0.gguf": [{ store: A, size: 12669647328, mtime: 1788790379 }] } } });
+        const h = view.html(f, state({ picks: f.files.map((x) => x.path) }));
+        const box = (row) => (row.match(/<input[^>]*>/) || [""])[0];
+        const info = (row) => [box(row).includes(" disabled"), box(row).includes(" checked"), (row.match(/<td title="([^"]*)">/) || [])[1] || null];
+        const bf = rowOf(h, "BF16"), pick = (path) => rowOf(view.html(f, state({ picks: [path] })), "BF16");
+        return { q8: info(rowOf(h, "Q8_0")), q6: info(rowOf(h, "Q6_K")), q4: info(rowOf(h, "Q4_K_M")), bf: info(bf), bfPaths: (box(bf).match(/data-paths="([^"]*)"/) || [])[1],
+          part1: info(pick("m-BF16-00001-of-00002.gguf"))[1], part2: info(pick("m-BF16-00002-of-00002.gguf"))[1],
+          mm: info(fileRowOf(h, "mmproj-m-bf16.gguf")), mm2: info(fileRowOf(h, "mmproj-m-f16.gguf")),
+          chosen: view.html(f, state({ picks: ["m-Q8_0.gguf"] })).includes("select a quant, and what goes with it is marked") }; })()""",
+     '{"q8":[true,false,"Already on disk — delete the copy first to download it again"],"q6":[true,false,"Already in a library: lama-caravan-models — no need to download it again"],'
+     '"q4":[false,true,null],"bf":[false,true,null],"bfPaths":"[&quot;m-BF16-00002-of-00002.gguf&quot;]","part1":false,"part2":true,'
+     '"mm":[true,false,"Already on disk — delete the copy first to download it again"],"mm2":[false,true,null],"chosen":true}',
+     "ящик закрыт (disabled), пуст и с подсказкой там, где файл уже есть: Q8_0 и mmproj на диске (у Q8_0 есть и копия в библиотеке, подсказка называет диск первым), Q6_K в библиотеке — даже если их пути лежат в выборе; открыт у Q4_K_M и второго mmproj, "
+     "которых нет; у BF16 из двух частей (первая у нас такая же, вторая другого размера) он открыт, берёт только вторую и отмечен только когда выбрана она; "
+     "выбранный, но уже имеющийся квант не считается выбранным (подпись «выберите квант» остаётся)"),
+
     ("low_groups_fold_and_open", "",
      r"""(() => { const f = repo(); const folded = view.html(f, state()); const opened = view.html(f, state({ lowOpen: new Set([3]) }));
         return [folded.includes('data-t="hf-low-toggle" data-t-id="3" aria-expanded="false"'), folded.includes("Q3_K_M</span>"), !!rowOf(folded, "Q3_K_M"),
@@ -190,15 +227,15 @@ PINS = [
      "низкие группы свёрнуты и перечисляют кванты; раскрытая группа 3 бит показывает строки, 2 бит остаётся свёрнутой; группа нечитаемой битности не прячется"),
 
     ("a_chosen_quant_and_its_companions", "",
-     r"""(() => { const f = repo({ local: LOCAL() }); const q8 = f.files.filter((x) => x.quant === "Q8_0").map((x) => x.path);
-        const none = view.html(f, state()); const picked = view.html(f, state({ picks: q8 }));
+     r"""(() => { const f = repo({ local: LOCAL() }); const q6 = ["m-Q6_K.gguf"];
+        const none = view.html(f, state()); const picked = view.html(f, state({ picks: q6 }));
         const mm = fileRowOf(picked, "mmproj-m-bf16.gguf"); const q4 = fileRowOf(picked, "mtp-m-Q4_0.gguf");
-        return [rowOf(picked, "Q8_0").includes(" checked"), rowOf(none, "Q8_0").includes(" checked"), none.includes("select a quant, and what goes with it is marked"),
-                picked.includes("for the selected Q8_0"), mm.includes("hfp-rec"), mm.includes("is-local"), q4.includes("hfp-rec"),
-                rowOf(picked, "BF16").includes('data-paths="[&quot;m-BF16-00001-of-00002.gguf&quot;,&quot;m-BF16-00002-of-00002.gguf&quot;]"')]; })()""",
+        return [rowOf(picked, "Q6_K").includes(" checked"), rowOf(none, "Q6_K").includes(" checked"), none.includes("select a quant, and what goes with it is marked"),
+                picked.includes("for the selected Q6_K"), mm.includes("hfp-rec"), mm.includes("is-local"), q4.includes("hfp-rec"),
+                rowOf(picked, "BF16").includes('data-paths="[&quot;m-BF16-00002-of-00002.gguf&quot;]"')]; })()""",
      '[true,false,true,true,true,true,false,true]',
-     "выбранный квант отмечен; без выбора — «выберите квант»; с выбором — «к выбранному Q8_0», метка на mmproj (он же на диске), не на mtp-Q4_0; квант из частей выбирает все пути"),
-
+     "выбранный квант (Q6_K, которого у нас нет) отмечен; без выбора — «выберите квант»; с выбором — «к выбранному Q6_K», метка на mmproj (он же на диске), не на mtp-Q4_0; "
+     "у BF16 из частей, где первая часть у нас такая же, а вторая другого размера, щелчок берёт только вторую"),
     ("delete_only_what_is_on_disk", "",
      r"""(() => { const h = view.html(repo({ local: LOCAL() }), state());
         const bf = rowOf(h, "BF16"); const q6 = rowOf(h, "Q6_K"); const mm = fileRowOf(h, "mmproj-m-f16.gguf");

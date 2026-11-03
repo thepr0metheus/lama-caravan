@@ -395,7 +395,7 @@ else
     if curl -fsSL \
         "https://huggingface.co/buckets/ggml-org/llama-ui/resolve/latest/dist.tar.gz" \
         -o "$UI_ARCHIVE" \
-        && file "$UI_ARCHIVE" | grep -q "gzip"; then
+        && file "$UI_ARCHIVE" | grep "gzip" >/dev/null; then
       rm -rf "$UI_DIST"
       mkdir -p "$UI_DIST"
       tar -xzf "$UI_ARCHIVE" -C "$UI_DIST"

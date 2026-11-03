@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Caravan parts</title>
+  <!-- The foundation's showcase (step 0 of the screens' redesign): every part of static/js/ui-parts.js in every state, on the
+       board's own stylesheets, in both themes. A developer's page, not served by the controller: open it through any static
+       server started at the repository's root, e.g. `python3 -m http.server 8768` and http://localhost:8768/docs/ui-parts.html. -->
+  <link rel="stylesheet" href="../static/css/base.css">
+  <link rel="stylesheet" href="../static/css/cards.css">
+  <link rel="stylesheet" href="../static/css/ui.css">
+  <style>
+    body { padding: 32px 24px 64px; }
+    .sheet { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 36px; }
+    .sheet h1 { margin: 0; font-size: var(--ui-fs-page); }
+    .sheet h2 { margin: 0 0 14px; font-size: var(--ui-fs-section); }
+    .lineup { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .stack { display: flex; flex-direction: column; gap: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+    .note { margin: 6px 0 0; color: var(--ui-muted); font-size: var(--ui-fs-fact); }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <header class="lineup" style="justify-content: space-between">
+      <div class="stack" style="gap: 4px">
+        <span class="ui-label">Caravan · step 0 of the redesign</span>
+        <h1>The parts every screen is built from</h1>
+      </div>
+      <div id="themes"></div>
+    </header>
+    <section><h2>Buttons</h2><div id="buttons" class="lineup"></div><p class="note">Main — one to an area · plain · quiet · danger — in a "⋯" menu, asking first · halt — the band's Stop · icon — with a label for a reader.</p></section>
+    <section><h2>Switches, choices, filters</h2><div id="controls" class="lineup"></div></section>
+    <section><h2>Badges</h2><div id="badges" class="lineup"></div><p class="note">Only for an exception; the normal gets none.</p></section>
+    <section><h2>Status bands</h2><div id="bands" class="stack"></div></section>
+    <section><h2>Meters</h2><div id="meters" class="grid"></div><p class="note">A colour per cell, hatching for the other processes, dashes for an estimate. No bar while the total is not known.</p></section>
+    <section><h2>Lanes of a memory map</h2><div id="lanes" class="stack"></div><p class="note">Variant В of a machine's page: a cell's block names it while it is wide enough and chooses it on a click; the chosen one is ringed. Hatching for the other processes, dashes for where a cell would go. No bar while the total is not known.</p></section>
+    <section><h2>Rows</h2><div id="rows" class="ui-list"></div></section>
+    <section><h2>A window frame</h2><div id="frame" style="max-width: 720px"></div></section>
+  </main>
+  <script type="module">
+    import { Addr, Badge, Band, Button, Frame, Lane, Meter, Pill, Row, Seg, Switch, Tabs } from "../static/js/ui-parts.js";
+
+    const put = (id, parts) => { document.getElementById(id).innerHTML = parts.map((p) => (typeof p === "string" ? p : p.html())).join(""); };
+    const theme = (name) => { document.documentElement.dataset.theme = name; paintThemes(); };
+    const paintThemes = () => {
+      const now = document.documentElement.dataset.theme;
+      put("themes", [new Seg({ label: "Theme", options: [{ text: "Default", on: now === "dark", attrs: 'data-theme-pick="dark"' }, { text: "llm", on: now === "llm", attrs: 'data-theme-pick="llm"' }] })]);
+    };
+    document.addEventListener("click", (e) => { const t = e.target.closest("[data-theme-pick]"); if (t) theme(t.dataset.themePick); });
+    paintThemes();
+
+    put("buttons", [
+      new Button({ kind: "main", text: "Add model", icon: "plus" }), new Button({ text: "Open all settings…" }),
+      new Button({ kind: "quiet", text: "Log" }), new Button({ kind: "danger", text: "Delete…" }),
+      new Button({ kind: "halt", text: "Stop" }), new Button({ kind: "icon", icon: "more", label: "More actions" }),
+      new Button({ text: "Change the port…", disabled: true, title: "only a parked cell" })
+    ]);
+    put("controls", [
+      new Switch({ label: "Cell :22001", on: true }), new Switch({ label: "Cell :22002" }), new Switch({ label: "Cell :22003", on: true, busy: true, title: "Starting…" }),
+      new Switch({ label: "Cell :22004", disabled: true }),
+      new Seg({ label: "State", options: [{ text: "All", count: 28, on: true }, { text: "Running", count: 1 }, { text: "Stopped", count: 27 }] }),
+      new Pill({ text: "Chat", count: 15, on: true }), new Pill({ text: "Voice", count: 4 })
+    ]);
+    put("badges", [new Badge({ tone: "good", text: "autostart" }), new Badge({ tone: "busy", text: "will not fit now" }), new Badge({ tone: "bad", text: "crashed 4×" }),
+                   new Badge({ tone: "act", text: "new" }), new Badge({ text: "old server" })]);
+    put("bands", [
+      new Band({ tone: "good", title: "Running", sub: "waiting for requests · ≈ 39,6 GB on the cards", action: new Button({ kind: "halt", text: "Stop" }).html() }),
+      new Band({ tone: "busy", title: "Starting", sub: "loading the weights · 45 s at the last start" }),
+      new Band({ title: "Stopped", sub: "the cards and the RAM are free · autostart off", action: new Button({ kind: "main", text: "Start" }).html() }),
+      new Band({ tone: "bad", title: "Failed to start", sub: "card 0 ran out of memory · cudaMalloc failed: out of memory", action: new Button({ kind: "main", text: "Start again" }).html() }),
+      new Band({ tone: "good", title: "Cells running: 1 of 28", inline: true })
+    ]);
+    put("lanes", [
+      new Lane({ label: "GPU 0", side: "RTX 3090 · 24,0 GB · 51 °C", free: "2,3 GB free", total: 24, blocks: [{ value: 0.4, kind: "other", name: "Xorg", figure: "0,4 GB", title: "Xorg · 0,4 GB" },
+        { value: 13.4, name: ":22020 Hermes-4-70B", figure: "13,4 GB", title: ":22020 Hermes-4-70B — click to choose", pick: "data-demo", on: true },
+        { value: 7.9, series: 2, name: ":22010 Qwen3VL-8B-Instruct", figure: "7,9 GB", title: ":22010 Qwen3VL-8B-Instruct — click to choose", pick: "data-demo" }] }),
+      new Lane({ label: "GPU 1", side: "RTX 5090 · 31,8 GB · 46 °C", free: "31,8 GB free", total: 31.8, blocks: [{ value: 9, kind: "estimate", name: "would go :22017", figure: "≈9,0 GB" }] }),
+      new Lane({ label: "RAM", side: "60,5 GB · CPU 1%", free: "51,8 GB free", total: 60.5, blocks: [{ value: 5.9, kind: "other", name: "the system", figure: "5,9 GB" },
+        { value: 2.8, series: 3, name: ":22001 Qwen3-Embedding-0.6B", figure: "2,8 GB", title: ":22001 — click to choose", pick: "data-demo" }] }),
+      new Lane({ label: "GPU 2", foot: "the scout does not report this card's memory", total: null })
+    ]);
+    put("meters", [
+      new Meter({ label: "RAM", side: "60,5 GB", value: "8,7", unit: "of 60,5 GB", total: 60.5, parts: [{ value: 5.9, kind: "other", title: "the system" }, { value: 2.8, title: ":22001" }], foot: "system 5,9 GB · cells 2,8 GB" }),
+      new Meter({ label: "GPU 0 · RTX 3090", side: "0% · 51 °C", value: "22,1", unit: "of 24,0 GB", total: 24, parts: [{ value: 0.4, kind: "other" }, { value: 13.4, title: ":22020" }, { value: 8.3, series: 2, title: ":22010" }], foot: "held by :22020, :22010" }),
+      new Meter({ label: "GPU 1 · RTX 5090", side: "0% · 46 °C", value: "0,0", unit: "of 31,8 GB", total: 31.8, parts: [{ value: 17.3, kind: "estimate", title: "where :22006 would go" }], foot: "the dashes: where :22006 would go" }),
+      new Meter({ label: "GPU 2", value: "—", foot: "the scout does not report this card", total: null })
+    ]);
+    put("rows", [
+      new Row({ state: new Switch({ label: "Cell :22001", on: true }).html(), title: "Qwen3-Embedding-0.6B", facts: ":22001 · llama.cpp · f16 · 0.6B", value: "2,8 GB in RAM", live: true,
+                open: 'data-open="22001"', label: "Open the cell :22001", tail: new Badge({ tone: "good", text: "autostart" }).html() }),
+      new Row({ state: new Switch({ label: "Cell :22020" }).html(), title: "Hermes-4-70B", facts: ":22020 · llama.cpp · Q4_K_M · 70B", value: "≈ 39,6 GB", note: "part goes to RAM", open: 'data-open="22020"', label: "Open the cell :22020" }),
+      new Row({ state: new Switch({ label: "Cell :22026" }).html(), title: "Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit", facts: ":22026 · Qwen3-Omni · AWQ · 30B", value: "≈ 31,0 GB", note: "one card cannot hold it", noteTone: "busy", open: 'data-open="22026"', label: "Open the cell :22026" }),
+      new Row({ state: new Switch({ label: "Cell :22005" }).html(), title: "large-v3-turbo", facts: ":22005 · whisper", note: "not measured", open: 'data-open="22005"', label: "Open the cell :22005" })
+    ]);
+    put("frame", [new Frame({
+      title: "Hermes-4-70B", facts: "chat · llama.cpp · Q4_K_M · 70B · 39,6 GB", label: "Cell :22020",
+      addr: new Addr({ text: "10.0.0.5:22020", label: "Copy the address" }).html(),
+      tools: new Button({ kind: "icon", icon: "more", label: "More actions" }).html() + new Button({ kind: "icon", icon: "close", label: "Close" }).html(),
+      band: new Band({ tone: "good", title: "Running", sub: "waiting for requests · ≈ 39,6 GB on the cards", action: new Button({ kind: "halt", text: "Stop" }).html() }).html(),
+      tabs: new Tabs({ label: "Cell", cls: "ui-win-tabs", tabs: [{ text: "Overview", on: true }, { text: "Memory" }, { text: "Settings" }, { text: "Log" }, { text: "Talk" }] }).html(),
+      body: '<p class="note" style="margin: 0">The tab\'s own content.</p>',
+      foot: '<span style="flex: 1">Not applied: CTX_SIZE.</span>' + new Button({ text: "Discard" }).html() + new Button({ kind: "main", text: "Apply" }).html()
+    })]);
+  </script>
+</body>
+</html>

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Snapshot of static/js/kv-cache.js — the browser's copy of "a quantized V cache needs flash attention".
 
-The rule is Python's (caravan/common/kv_cache.py) and the browser says it at Apply, before the cell crashes
-four times and gives up (2026-10-14). The two copies run ONE table of cases, scripts/fixtures/kv-cache-cases.json:
+The rule is the program's (rust/crates/rules/src/cell_config.rs KvCache) and the browser says it at Apply, before the cell crashes
+four times and gives up (2026-10-14). The two copies run ONE table of cases, contract/kv_cache.json:
 which pair is refused, in which spellings, and what is not (flash attention unstated, a K cache, the draft's
 cache types, the types of plain numbers). A case the copies would answer differently turns this red or
-scripts/test_kv_cache.py red.
+rust/crates/admin/tests/contract.rs red.
 
 Run: python3 scripts/test_js_kv_cache.py
 """
@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _js_pins import run  # noqa: E402
 
-CASES = json.loads((Path(__file__).resolve().parent / "fixtures" / "kv-cache-cases.json").read_text(encoding="utf-8"))["cases"]
+CASES = json.loads((Path(__file__).resolve().parent.parent / "contract" / "kv_cache.json").read_text(encoding="utf-8"))["cases"]
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -30,7 +30,7 @@ PINS = [
     ("the_table_of_cases", "",
      r"""CASES.filter((c) => K.KvCache.refusedType(c.config) !== c.refused).map((c) => c.say)""",
      "[]",
-     "таблица случаев — та же, что у Python: каждый ответ совпал (названы только расхождения)"),
+     "таблица случаев — та же, что у программы: каждый ответ совпал (названы только расхождения)"),
 
     ("the_table_says_both_answers", "",
      r"""[CASES.filter((c) => c.refused).length > 3, CASES.filter((c) => !c.refused).length > 6, CASES.length]""",

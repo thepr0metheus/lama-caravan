@@ -2,6 +2,7 @@
 // Diagnostics panels (the former System modal), plus a hero strip with the
 // numbers an operator checks first. The section renderers are shared with
 // system-panels.js — this file only orchestrates the page.
+import { HeaderMachines } from "./header-machines.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { appConfirm, appPrompt, settleAppConfirm } from "./dialogs.js";
@@ -66,7 +67,6 @@ function renderHero(info) {
   if (disk.totalGb != null) tiles.push(stat(t("ctrlDisk"), `${disk.freeGb} GB ${t("ctrlDiskFree")}`, (disk.freeGb || 0) < 50 ? "warn" : "good"));
   const models = (info && info.models) || {};
   if (models.count != null) tiles.push(stat(t("ctrlModels"), `${models.count} · ${models.totalGb || 0} GB`));
-  if (info && info.python) tiles.push(stat("Python", info.python));
   el.innerHTML = tiles.join("");
   const foot = $("sysFoot");
   if (foot) foot.textContent = state.appVersion ? `lama-caravan v${state.appVersion}` : "";
@@ -114,6 +114,7 @@ function bindUserChip() {
     window.location = "/login";
   };
   $("authLogoutBtn")?.addEventListener("click", doLogout);
+  new HeaderMachines({ get: api, words: t }).bind();
   api("/api/auth/me").then((me) => {
     if (!me.enabled || !me.authenticated) return;
     $("userChipName").textContent = me.user + (me.role === "viewer" ? t("userViewerSuffix") : "");

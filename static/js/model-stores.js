@@ -12,7 +12,7 @@
 // hears of it through onScope and reads `scope`.
 //
 // The page never looks inside a store itself. The server does, from a child
-// process with a deadline (caravan/admin/model_stores.py), so a dead NAS
+// process with a deadline (rust/crates/admin/src/routes/models.rs), so a dead NAS
 // arrives here as the state "unknown" and is drawn as "not answering" — never
 // as a spinner that does not end.
 import { appConfirm } from "./dialogs.js";

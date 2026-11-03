@@ -40,7 +40,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 from pace_cases import expected as eta_expected, inputs_js as eta_inputs  # noqa: E402
 
 # The same neighbours the models page stubs: the real i18n.js and utils.js pull
@@ -530,8 +530,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

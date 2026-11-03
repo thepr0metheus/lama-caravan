@@ -13,6 +13,8 @@
   --yellow: #d4b520;
   --priority: #e4ad53;
   --fallback: #60a5fa;
+  /* The built-in client, Open WebUI (consumers.js, pool-board.js): its card and the OW marks of the models it sees. */
+  --builtin: #8fb4ff;
   --bad: #ff8585;
   --good: #69d090;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.32);
@@ -35,6 +37,7 @@ html[data-theme="llm"] {
   --warn: #fb923c;
   --yellow: #d4b520;
   --priority: #f4bf4f;
+  --builtin: #9fbdff;
   --bad: #ff6b7a;
   --good: #7dd3fc;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
@@ -152,12 +155,14 @@ html:not([data-board-view="machine"]) .topbar-back[data-view-only="machine"] { d
   line-height: 1.2;
 }
 
+/* It may wrap: a line of 81 letters that could not stood first in the way of the bar's own row, and at 1440 px it pushed the
+   language picker out of the window once Routing and the machines joined the bar (1.3.684). */
 .brand-acronym {
   font-size: 10px;
   font-weight: 400;
+  line-height: 1.2;
   color: var(--muted);
   letter-spacing: 0.01em;
-  white-space: nowrap;
 }
 
 .project-git-branch {
@@ -253,3 +258,13 @@ main {
   max-width: 1680px;
 }
 
+/* The owner's like or dislike of a model (static/js/model-rating.js), wherever it is shown: unset, its buttons are grey and quiet, so the
+   mark set is what the eye finds. */
+.model-rating { flex: none; margin: 0 3px; font-size: 12px; line-height: 1; }
+.model-rate-btn {
+  flex: none; width: 24px; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  font-size: 13px; line-height: 1; cursor: pointer; filter: grayscale(1); opacity: .45;
+}
+.model-rate-btn:hover { opacity: .85; }
+.model-rate-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.model-rate-btn.is-on { filter: none; opacity: 1; background: color-mix(in srgb, var(--accent) 16%, transparent); }

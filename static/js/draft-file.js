@@ -1,9 +1,9 @@
-// Which speculative type a draft file is for, read from its path — the twin of
-// caravan/common/draft_file.py; scripts/test_draft_file.py runs both against
+// Which speculative type a draft file is for, read from its path — the browser's copy of
+// rust/crates/admin/src/config/draft_file.rs; contract/draft_file.json holds both to
 // ONE table of cases. The cell editor names a draft's type here when a model is
 // picked or speculation is switched on, and the board's command preview names
 // it for a cell whose type is left empty. The server's builder, which launches
-// the cell, reads the Python copy: two copies that drifted once already (the
+// the cell, reads the program's copy: two copies that drifted once already (the
 // scanner offered a file in a model's mtp/ folder as its draft, and this rule
 // named it draft-simple).
 export class DraftFile {

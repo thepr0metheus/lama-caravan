@@ -1,0 +1,230 @@
+[
+ {
+  "name": "llama.cpp gauges and pairs",
+  "props": {
+   "default_generation_settings": {
+    "n_ctx": 4096
+   },
+   "total_slots": 2
+  },
+  "steps": [
+   {
+    "at": 100,
+    "text": "# HELP x\nllamacpp:requests_processing 2\nllamacpp:prompt_tokens_seconds 10.5\nllamacpp:predicted_tokens_seconds 20.25\nllamacpp:kv_cache_usage_ratio 0.25\nllamacpp:prompt_tokens_total 100\nllamacpp:prompt_seconds_total 10\nllamacpp:tokens_predicted_total 200\nllamacpp:tokens_predicted_seconds_total 8\n",
+    "start": "s1"
+   },
+   {
+    "at": 101,
+    "text": "kept",
+    "start": "s1"
+   },
+   {
+    "at": 103,
+    "text": "# HELP x\nllamacpp:requests_processing 2\nllamacpp:prompt_tokens_seconds 0\nllamacpp:predicted_tokens_seconds 0\nllamacpp:kv_cache_usage_ratio 0.25\nllamacpp:prompt_tokens_total 150\nllamacpp:prompt_seconds_total 12\nllamacpp:tokens_predicted_total 260\nllamacpp:tokens_predicted_seconds_total 11\n",
+    "start": "s1"
+   },
+   {
+    "at": 106,
+    "text": "# HELP x\nllamacpp:requests_processing 2\nllamacpp:prompt_tokens_seconds 0\nllamacpp:predicted_tokens_seconds 0\nllamacpp:kv_cache_usage_ratio 0.25\nllamacpp:prompt_tokens_total 150\nllamacpp:prompt_seconds_total 12\nllamacpp:tokens_predicted_total 260\nllamacpp:tokens_predicted_seconds_total 11\n",
+    "start": "s1"
+   },
+   {
+    "at": 109,
+    "text": "# HELP x\nllamacpp:requests_processing 2\nllamacpp:prompt_tokens_seconds 0\nllamacpp:predicted_tokens_seconds 0\nllamacpp:kv_cache_usage_ratio 0.25\nllamacpp:prompt_tokens_total 10\nllamacpp:prompt_seconds_total 1\nllamacpp:tokens_predicted_total 10\nllamacpp:tokens_predicted_seconds_total 1\n",
+    "start": "s2"
+   },
+   {
+    "at": 112,
+    "text": "# HELP x\nllamacpp:requests_processing 2\nllamacpp:prompt_tokens_seconds 0\nllamacpp:predicted_tokens_seconds 0\nllamacpp:kv_cache_usage_ratio 0.25\nllamacpp:prompt_tokens_total 5\nllamacpp:prompt_seconds_total 1\nllamacpp:tokens_predicted_total 10\nllamacpp:tokens_predicted_seconds_total 2\n",
+    "start": "s2"
+   }
+  ],
+  "said": [
+   {
+    "requestsProcessing": 2,
+    "promptTps": 10.5,
+    "genTps": 20.25,
+    "ctxMax": 4096,
+    "ctxUsed": 1024
+   },
+   {
+    "requestsProcessing": 2,
+    "promptTps": 10.5,
+    "genTps": 20.25,
+    "ctxMax": 4096,
+    "ctxUsed": 1024
+   },
+   {
+    "requestsProcessing": 2,
+    "promptTps": 25.0,
+    "genTps": 20.0,
+    "ctxMax": 4096,
+    "ctxUsed": 1024
+   },
+   {
+    "requestsProcessing": 2,
+    "promptTps": 25.0,
+    "genTps": 20.0,
+    "ctxMax": 4096,
+    "ctxUsed": 1024
+   },
+   {
+    "requestsProcessing": 2,
+    "promptTps": 10.0,
+    "genTps": 10.0,
+    "ctxMax": 4096,
+    "ctxUsed": 1024
+   },
+   {
+    "requestsProcessing": 2,
+    "promptTps": 5.0,
+    "genTps": 5.0,
+    "ctxMax": 4096,
+    "ctxUsed": 1024
+   }
+  ],
+  "slots": 2,
+  "ctx": 4096
+ },
+ {
+  "name": "vLLM counters",
+  "props": {},
+  "steps": [
+   {
+    "at": 100,
+    "text": "vllm:num_requests_running{engine=\"0\"} 1\nvllm:num_requests_running{engine=\"1\"} 2\nvllm:num_requests_waiting 3\nvllm:prompt_tokens_total 100\nvllm:generation_tokens_total 200\nvllm:kv_cache_usage_perc 0.5\n",
+    "start": ""
+   },
+   {
+    "at": 104,
+    "text": "vllm:num_requests_running{engine=\"0\"} 1\nvllm:num_requests_running{engine=\"1\"} 2\nvllm:num_requests_waiting 3\nvllm:prompt_tokens_total 140\nvllm:generation_tokens_total 300\nvllm:kv_cache_usage_perc 0.5\n",
+    "start": ""
+   },
+   {
+    "at": 108,
+    "text": "vllm:num_requests_running{engine=\"0\"} 1\nvllm:num_requests_running{engine=\"1\"} 2\nvllm:num_requests_waiting 3\nvllm:prompt_tokens_total 10\nvllm:generation_tokens_total 300\nvllm:kv_cache_usage_perc 0.5\n",
+    "start": ""
+   }
+  ],
+  "said": [
+   {
+    "requestsProcessing": 3,
+    "requestsWaiting": 3
+   },
+   {
+    "requestsProcessing": 3,
+    "requestsWaiting": 3,
+    "promptTps": 10.0,
+    "genTps": 25.0
+   },
+   {
+    "requestsProcessing": 3,
+    "requestsWaiting": 3,
+    "genTps": 0.0
+   }
+  ],
+  "slots": null,
+  "ctx": 0
+ },
+ {
+  "name": "Strata",
+  "props": {
+   "n_ctx": 1000
+  },
+  "steps": [
+   {
+    "at": 100,
+    "text": "strata:live_tok_s 0\nstrata:live_prefill_tok_s_mean 0\nvllm:prompt_tokens_total 100\nvllm:prefix_cache_hits_total 40\nvllm:generation_tokens_total 200\nstrata:totals_prompt_seconds_total 6\nstrata:totals_decode_seconds_total 10\nvllm:num_requests_waiting 1\n",
+    "start": ""
+   },
+   {
+    "at": 103,
+    "text": "strata:live_tok_s 50.5\nstrata:live_prefill_tok_s_mean 0\nvllm:prompt_tokens_total 120\nvllm:prefix_cache_hits_total 40\nvllm:generation_tokens_total 260\nstrata:totals_prompt_seconds_total 7\nstrata:totals_decode_seconds_total 11\nvllm:num_requests_waiting 1\n",
+    "start": ""
+   },
+   {
+    "at": 106,
+    "text": "strata:live_tok_s 0\nstrata:live_prefill_tok_s_mean 0\nvllm:prompt_tokens_total 120\nvllm:prefix_cache_hits_total 40\nvllm:generation_tokens_total 260\nstrata:totals_prompt_seconds_total 7\nstrata:totals_decode_seconds_total 11\nvllm:num_requests_waiting 1\n",
+    "start": ""
+   }
+  ],
+  "said": [
+   {
+    "requestsWaiting": 1,
+    "promptTps": 10.0,
+    "genTps": 20.0,
+    "ctxMax": 1000
+   },
+   {
+    "requestsWaiting": 1,
+    "promptTps": 20.0,
+    "genTps": 50.5,
+    "ctxMax": 1000
+   },
+   {
+    "requestsWaiting": 1,
+    "promptTps": 20.0,
+    "genTps": 50.5,
+    "ctxMax": 1000
+   }
+  ],
+  "slots": null,
+  "ctx": 1000
+ },
+ {
+  "name": "a server that keeps none",
+  "props": {},
+  "steps": [
+   {
+    "at": 100,
+    "status": 501,
+    "start": ""
+   },
+   {
+    "at": 103,
+    "status": 404,
+    "start": ""
+   },
+   {
+    "at": 106,
+    "status": 503,
+    "start": ""
+   },
+   {
+    "at": 109,
+    "gone": true,
+    "start": ""
+   }
+  ],
+  "said": [
+   {
+    "noMetrics": true
+   },
+   {
+    "noMetrics": true
+   },
+   {},
+   {}
+  ],
+  "slots": null,
+  "ctx": 0
+ },
+ {
+  "name": "odd lines",
+  "props": null,
+  "steps": [
+   {
+    "at": 100,
+    "text": "# only\n\nllamacpp:requests_processing nan\nllamacpp:predicted_tokens_seconds -1\nnot_ours 5\nllamacpp:prompt_tokens_seconds notanumber\nllamacpp:requests_processing 1.9\n",
+    "start": ""
+   }
+  ],
+  "said": [
+   {
+    "requestsProcessing": 1
+   }
+  ],
+  "slots": null,
+  "ctx": 0
+ }
+]

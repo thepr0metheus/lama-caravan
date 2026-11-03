@@ -27,3 +27,4 @@ logs/
 *.preredesign-*
 .bench_cache/
 var/
+rust/target

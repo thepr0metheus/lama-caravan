@@ -1,0 +1,6127 @@
+{
+ "outputs": [
+  {
+   "id": "mm:a",
+   "upstreamType": "machine",
+   "upstreamModel": "gemma",
+   "name": "gemma",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22001
+   ],
+   "jobs": [
+    "llm"
+   ]
+  },
+  {
+   "id": "mm:b",
+   "upstreamType": "machine",
+   "upstreamModel": "stopped-one",
+   "name": "stopped-one",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": []
+  },
+  {
+   "id": "mm:c",
+   "upstreamType": "machine",
+   "upstreamModel": "twin",
+   "name": "twin",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22002
+   ]
+  },
+  {
+   "id": "mm:d",
+   "upstreamType": "machine",
+   "upstreamModel": "twin",
+   "name": "twin",
+   "hostId": "box-2",
+   "upstreamHost": "10.0.0.2",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22003
+   ]
+  },
+  {
+   "id": "mm:e",
+   "upstreamType": "machine",
+   "upstreamModel": "pooled",
+   "name": "pooled",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22004
+   ]
+  },
+  {
+   "id": "mm:f",
+   "upstreamType": "machine",
+   "upstreamModel": "added-too",
+   "name": "added-too",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22005
+   ]
+  },
+  {
+   "id": "mm:g",
+   "upstreamType": "machine",
+   "upstreamModel": "ear",
+   "name": "ear",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22006
+   ],
+   "jobs": [
+    "asr"
+   ]
+  },
+  {
+   "id": "mm:h",
+   "upstreamType": "machine",
+   "upstreamModel": "unsaid",
+   "name": "unsaid",
+   "hostId": "box-2",
+   "upstreamHost": "10.0.0.2",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22007
+   ]
+  },
+  {
+   "id": "mm:i",
+   "upstreamType": "machine",
+   "upstreamModel": "held-still",
+   "name": "held-still",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22008
+   ],
+   "stopped": true
+  },
+  {
+   "id": "mm:j",
+   "upstreamType": "machine",
+   "upstreamModel": "on-schedule",
+   "name": "on-schedule",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22009
+   ]
+  },
+  {
+   "id": "mm:k",
+   "upstreamType": "machine",
+   "upstreamModel": "ghost-added",
+   "name": "ghost-added",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22010
+   ]
+  },
+  {
+   "id": "srv:x",
+   "upstreamType": "llama",
+   "upstreamModel": "a-cell",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 22011
+  },
+  {
+   "id": "cb:x",
+   "upstreamType": "cloud",
+   "name": "a-cloud-output"
+  },
+  {
+   "id": "mm:vision",
+   "upstreamType": "machine",
+   "upstreamModel": "seer",
+   "name": "seer",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "llm"
+   ],
+   "inputs": [
+    "text",
+    "image"
+   ],
+   "contextLength": 8192
+  },
+  {
+   "id": "mm:hear",
+   "upstreamType": "machine",
+   "upstreamModel": "listener",
+   "name": "listener",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "asr"
+   ],
+   "languages": [
+    "en",
+    "ru",
+    "de"
+   ],
+   "maxAudioMs": 30000
+  },
+  {
+   "id": "mm:hear2",
+   "upstreamType": "machine",
+   "upstreamModel": "listener-two",
+   "name": "listener-two",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "asr"
+   ],
+   "languages": [
+    "ru",
+    "en"
+   ],
+   "maxAudioMs": 20000
+  },
+  {
+   "id": "mm:voice",
+   "upstreamType": "machine",
+   "upstreamModel": "speaker",
+   "name": "speaker",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "tts"
+   ]
+  },
+  {
+   "id": "mm:embed",
+   "upstreamType": "machine",
+   "upstreamModel": "embedder",
+   "name": "embedder",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "embed"
+   ],
+   "contextLength": "4096"
+  },
+  {
+   "id": "mm:robot",
+   "upstreamType": "machine",
+   "upstreamModel": "robot",
+   "name": "robot",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "robot-policy"
+   ]
+  },
+  {
+   "id": "mm:both",
+   "upstreamType": "machine",
+   "upstreamModel": "omni",
+   "name": "omni",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "llm",
+    "voice-chat"
+   ]
+  },
+  {
+   "id": "mm:odd job",
+   "upstreamType": "machine",
+   "upstreamModel": "odd-id",
+   "name": "odd-id",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "llm"
+   ]
+  },
+  {
+   "id": "mm:nojob",
+   "upstreamType": "machine",
+   "upstreamModel": "word-no-job",
+   "name": "word-no-job",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "a job nobody knows"
+   ]
+  },
+  {
+   "id": "mm:vision",
+   "upstreamType": "machine",
+   "upstreamModel": "second-of-an-id",
+   "name": "second-of-an-id",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "tts"
+   ]
+  },
+  {
+   "id": "mm:nohost",
+   "upstreamType": "machine",
+   "upstreamModel": "homeless-a",
+   "name": "homeless-a",
+   "hostId": "",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ]
+  },
+  {
+   "id": "mm:nohost2",
+   "upstreamType": "machine",
+   "upstreamModel": "homeless-a",
+   "name": "homeless-a",
+   "hostId": "",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ]
+  },
+  {
+   "id": "mm:",
+   "upstreamType": "machine",
+   "upstreamModel": "broken-id-kept-open",
+   "name": "broken-id-kept-open",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ]
+  },
+  {
+   "id": "srv:22050",
+   "upstreamType": "llama",
+   "upstreamModel": "a-cell-model",
+   "name": "a-cell-model",
+   "jobs": [
+    "llm"
+   ],
+   "contextLength": 2048
+  },
+  {
+   "id": "eng:1",
+   "upstreamType": "ollama",
+   "upstreamModel": "engine-model",
+   "name": "engine-model",
+   "jobs": [
+    "llm"
+   ]
+  },
+  "not an output",
+  {
+   "id": "mm:nolang",
+   "upstreamType": "machine",
+   "upstreamModel": "no-languages",
+   "name": "no-languages",
+   "hostId": "box-1",
+   "upstreamHost": "10.0.0.1",
+   "upstreamPort": 8092,
+   "copyPorts": [
+    22100
+   ],
+   "jobs": [
+    "asr"
+   ]
+  }
+ ],
+ "cloud": {
+  "accounts": [
+   {
+    "id": "acc-1",
+    "authMode": "noKey",
+    "type": "custom"
+   },
+   {
+    "id": "acc-key",
+    "type": "openai"
+   },
+   {
+    "id": "acc-sub",
+    "accountType": "openai-subscription"
+   },
+   {
+    "id": "acc-url",
+    "baseUrl": "https://chatgpt.com/backend-api"
+   },
+   {
+    "id": "acc-text",
+    "type": "custom"
+   },
+   {
+    "id": "acc-blank",
+    "type": "custom"
+   },
+   {
+    "id": "acc-none",
+    "type": "custom"
+   },
+   {
+    "id": "acc-anth",
+    "type": "anthropic"
+   },
+   {
+    "id": "acc-deep",
+    "type": "deepseek"
+   },
+   {
+    "id": "acc-glm",
+    "type": "glm-coding"
+   },
+   {
+    "id": "acc-qwen",
+    "type": "qwen-token"
+   },
+   {
+    "id": "acc-alias",
+    "testAliasOf": "acc-key",
+    "type": "other"
+   },
+   {
+    "id": "acc-lost",
+    "testAliasOf": "gone"
+   },
+   {
+    "id": "acc-chain",
+    "testAliasOf": "acc-alias"
+   },
+   "not an account",
+   {
+    "name": "no id"
+   }
+  ],
+  "addedModels": {
+   "acc-1": [
+    "added-too",
+    "account-model"
+   ],
+   "acc-gone": [
+    "ghost-added"
+   ],
+   "acc-key": [
+    "key-chat",
+    "key-ear",
+    "key-silent",
+    "windowed",
+    "zero-window",
+    "added-too"
+   ],
+   "acc-sub": [
+    "gpt-sub",
+    "gpt-sub"
+   ],
+   "acc-url": [
+    "url-sub"
+   ],
+   "acc-text": [
+    "text-key-model"
+   ],
+   "acc-blank": [
+    "blank-key-model"
+   ],
+   "acc-none": [
+    "no-key-model"
+   ],
+   "acc-anth": [
+    "claude-x"
+   ],
+   "acc-deep": [
+    "deep-x"
+   ],
+   "acc-glm": [
+    "glm-x"
+   ],
+   "acc-qwen": [
+    "qwen-x"
+   ],
+   "acc-alias": [
+    "alias-model"
+   ],
+   "acc-lost": [
+    "lost-model"
+   ],
+   "acc-chain": [
+    "chain-model"
+   ]
+  },
+  "pools": [
+   {
+    "id": "pool-1",
+    "name": "Pooled",
+    "steps": [
+     {
+      "id": "r1",
+      "output": "mm:e"
+     }
+    ]
+   },
+   {
+    "id": "p-fixed",
+    "name": "for agents",
+    "contextLength": 100000,
+    "steps": [
+     {
+      "id": "a",
+      "accountId": "acc-sub",
+      "model": "gpt-sub"
+     },
+     {
+      "id": "b",
+      "accountId": "acc-key",
+      "model": "key-chat"
+     }
+    ]
+   },
+   {
+    "id": "p-auto",
+    "name": "auto window",
+    "contextAuto": true,
+    "contextLength": 7,
+    "steps": [
+     {
+      "id": "a",
+      "accountId": "acc-key",
+      "model": "windowed"
+     },
+     {
+      "id": "b",
+      "output": "mm:vision"
+     }
+    ]
+   },
+   {
+    "id": "p-auto-alias",
+    "name": "alias window",
+    "contextAuto": true,
+    "steps": [
+     {
+      "id": "a",
+      "accountId": "acc-alias",
+      "model": "windowed"
+     }
+    ]
+   },
+   {
+    "id": "p-auto-silent",
+    "name": "silent window",
+    "contextAuto": true,
+    "contextLength": "12",
+    "steps": [
+     {
+      "id": "a",
+      "accountId": "acc-key",
+      "model": "key-silent"
+     }
+    ]
+   },
+   {
+    "id": "p-auto-off-row",
+    "name": "off row window",
+    "contextAuto": true,
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     },
+     {
+      "id": "b",
+      "accountId": "acc-key",
+      "model": "key-silent",
+      "enabled": false
+     }
+    ]
+   },
+   {
+    "id": "p-mixed",
+    "name": "mixed",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     },
+     {
+      "id": "b",
+      "output": "mm:hear"
+     }
+    ]
+   },
+   {
+    "id": "p-silent",
+    "name": "says nothing",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     },
+     {
+      "id": "b",
+      "accountId": "acc-key",
+      "model": "key-silent"
+     }
+    ]
+   },
+   {
+    "id": "p-ears",
+    "name": "ears",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:hear"
+     },
+     {
+      "id": "b",
+      "output": "mm:hear2"
+     }
+    ]
+   },
+   {
+    "id": "p-ears-one-silent",
+    "name": "ears one silent",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:hear"
+     },
+     {
+      "id": "b",
+      "output": "mm:nolang"
+     }
+    ]
+   },
+   {
+    "id": "p-chats",
+    "name": "chats",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     },
+     {
+      "id": "b",
+      "accountId": "acc-sub",
+      "model": "gpt-sub"
+     },
+     {
+      "id": "c",
+      "accountId": "acc-anth",
+      "model": "claude-x"
+     }
+    ]
+   },
+   {
+    "id": "p-subs",
+    "name": "pictures",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     },
+     {
+      "id": "b",
+      "accountId": "acc-url",
+      "model": "url-sub"
+     }
+    ]
+   },
+   {
+    "id": "p-open",
+    "name": "open",
+    "steps": [
+     {
+      "id": "a"
+     },
+     {
+      "id": "b",
+      "accountId": "acc-key"
+     }
+    ]
+   },
+   {
+    "id": "p-off",
+    "name": "off",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision",
+      "enabled": false
+     },
+     {
+      "id": "b",
+      "output": "mm:hear",
+      "automatic": false
+     }
+    ]
+   },
+   {
+    "id": "p-gone",
+    "name": "rows gone",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:no-such"
+     },
+     {
+      "id": "b",
+      "accountId": "no-such",
+      "model": "x"
+     }
+    ]
+   },
+   {
+    "id": "p-partly-gone",
+    "name": "one row gone",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:no-such"
+     },
+     {
+      "id": "b",
+      "output": "mm:hear"
+     }
+    ]
+   },
+   {
+    "id": "p-dup-row",
+    "name": "dup row",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     },
+     {
+      "id": "a",
+      "output": "mm:hear"
+     },
+     "a row"
+    ]
+   },
+   {
+    "id": "p-no-name"
+   },
+   {
+    "id": 77,
+    "name": "numbered"
+   },
+   {
+    "id": "p-twice",
+    "name": "first of an id"
+   },
+   {
+    "name": "no id"
+   },
+   "not a pool",
+   {
+    "id": "p-twice",
+    "name": "second of an id"
+   },
+   {
+    "id": "p-blank",
+    "name": "   "
+   },
+   {
+    "id": "p-ru",
+    "name": "Общий",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     }
+    ]
+   },
+   {
+    "id": "p-closed",
+    "name": "closed pool",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     }
+    ]
+   },
+   {
+    "id": "p-limited",
+    "name": "limited",
+    "contextLength": 50000,
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     }
+    ]
+   },
+   {
+    "id": "p-text-window",
+    "name": "text window",
+    "contextLength": "9000",
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     }
+    ]
+   },
+   {
+    "id": "p-flag-window",
+    "name": "flag window",
+    "contextLength": true,
+    "steps": [
+     {
+      "id": "a",
+      "output": "mm:vision"
+     }
+    ]
+   },
+   {
+    "id": "p-cell",
+    "name": "on a cell",
+    "contextAuto": true,
+    "steps": [
+     {
+      "id": "a",
+      "output": "srv:22050"
+     }
+    ]
+   }
+  ],
+  "schedules": {
+   "out:mm:j": {
+    "enabled": true,
+    "windows": []
+   }
+  },
+  "modelJobs": {
+   "acc-key": {
+    "key-chat": [
+     "llm"
+    ],
+    "key-ear": [
+     "asr"
+    ],
+    "windowed": [
+     "llm"
+    ],
+    "robot": [
+     "robot-policy"
+    ]
+   }
+  }
+ },
+ "secrets": {
+  "acc-key": {
+   "apiKey": "x"
+  },
+  "acc-sub": {
+   "oauth": {
+    "accessToken": "x"
+   }
+  },
+  "acc-url": {
+   "apiKey": "x"
+  },
+  "acc-text": "x",
+  "acc-blank": "  ",
+  "acc-anth": {
+   "apiKey": "x"
+  },
+  "acc-deep": {
+   "apiKey": "x"
+  },
+  "acc-glm": {
+   "apiKey": "x"
+  },
+  "acc-qwen": {
+   "apiKey": "x"
+  },
+  "acc-alias": {
+   "apiKey": "its own is not asked"
+  },
+  "acc-lost": {
+   "apiKey": "x"
+  },
+  "acc-chain": {
+   "apiKey": "x"
+  }
+ },
+ "catalogue": {
+  "accounts": {
+   "acc-key": {
+    "models": [
+     {
+      "id": "windowed",
+      "contextLength": 64000
+     },
+     {
+      "id": "zero-window",
+      "contextLength": 0
+     }
+    ]
+   },
+   "acc-alias": {
+    "models": [
+     {
+      "id": "windowed",
+      "contextLength": 1
+     }
+    ]
+   }
+  }
+ },
+ "cases": [
+  {
+   "wanted": "gemma",
+   "picked": "live:mm:a",
+   "pool": "live:mm:a"
+  },
+  {
+   "wanted": "unsaid",
+   "picked": "live:mm:h",
+   "why": "a model that says nothing of itself: the rows decide, and there is one",
+   "pool": "live:mm:h"
+  },
+  {
+   "wanted": "ghost-added",
+   "picked": "live:mm:k",
+   "why": "a model added to an account the file has not: no second place",
+   "pool": "live:mm:k"
+  },
+  {
+   "wanted": "Gemma",
+   "picked": null,
+   "why": "a request spells the name as the list does",
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "",
+   "picked": null,
+   "refused": "entry:no-model"
+  },
+  {
+   "wanted": "nobody",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "stopped-one",
+   "picked": null,
+   "refused": "entry:model-stopped"
+  },
+  {
+   "wanted": "twin",
+   "picked": null,
+   "why": "a name in two places has its place in brackets",
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "twin (box-1)",
+   "picked": "live:mm:c",
+   "pool": "live:mm:c"
+  },
+  {
+   "wanted": "twin (box-2)",
+   "picked": "live:mm:d",
+   "pool": "live:mm:d"
+  },
+  {
+   "wanted": "pooled",
+   "picked": null,
+   "why": "a name both a pool and a model have is the pool's, as the pool spells it",
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "Pooled",
+   "picked": "pool-1",
+   "why": "the pool is called by its own name, and its row is that machine's model",
+   "pool": "pool-1"
+  },
+  {
+   "wanted": "added-too",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "added-too (box-1)",
+   "picked": "live:mm:f",
+   "pool": "live:mm:f"
+  },
+  {
+   "wanted": "added-too (acc-1)",
+   "picked": "live:acc:acc-1/added-too",
+   "why": "an account that needs no key has no credential a row can name: Python's row says the same",
+   "pool": "live:acc:acc-1/added-too"
+  },
+  {
+   "wanted": "added-too (acc-key)",
+   "picked": "live:acc:acc-key/added-too",
+   "pool": "live:acc:acc-key/added-too"
+  },
+  {
+   "wanted": "account-model",
+   "picked": "live:acc:acc-1/account-model",
+   "pool": "live:acc:acc-1/account-model"
+  },
+  {
+   "wanted": "ear",
+   "picked": "live:mm:g",
+   "why": "Python refuses it next: the kind of the pool",
+   "refused": "entry:unsupported"
+  },
+  {
+   "wanted": "ear",
+   "picked": "live:mm:g",
+   "path": "/v1/audio/transcriptions",
+   "pool": "live:mm:g"
+  },
+  {
+   "wanted": "gemma",
+   "picked": "live:mm:a",
+   "path": "/v1/embeddings",
+   "refused": "entry:unsupported"
+  },
+  {
+   "wanted": "unsaid",
+   "picked": "live:mm:h",
+   "path": "/v1/embeddings",
+   "why": "a model that says nothing of itself: its row decides",
+   "pool": "live:mm:h"
+  },
+  {
+   "wanted": "held-still",
+   "picked": "live:mm:i",
+   "why": "the pool answers next: the board knows it stands still, and it is the pool's only row",
+   "pool": "live:mm:i"
+  },
+  {
+   "wanted": "on-schedule",
+   "picked": "live:mm:j",
+   "why": "the pool decides by the schedule",
+   "pool": "live:mm:j"
+  },
+  {
+   "wanted": "a-cell",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "a-cell-model",
+   "picked": null,
+   "why": "a cell's output is no model a client calls by itself",
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "модель",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "gemma",
+   "picked": null,
+   "deny": [
+    "model:mm:a"
+   ],
+   "refused": "entry:model-closed"
+  },
+  {
+   "wanted": "gemma",
+   "picked": null,
+   "deny": [
+    "host:box-1"
+   ],
+   "refused": "entry:model-closed"
+  },
+  {
+   "wanted": "gemma",
+   "picked": "live:mm:a",
+   "deny": [
+    "host:box-2",
+    "model:mm:h",
+    "pool:pool-1"
+   ],
+   "pool": "live:mm:a"
+  },
+  {
+   "wanted": "Pooled",
+   "picked": null,
+   "deny": [
+    "pool:pool-1"
+   ],
+   "refused": "entry:model-closed"
+  },
+  {
+   "wanted": "key-chat",
+   "picked": null,
+   "deny": [
+    "account:acc-key"
+   ],
+   "refused": "entry:model-closed"
+  },
+  {
+   "wanted": "key-chat",
+   "picked": null,
+   "deny": [
+    "model:acc:acc-key/key-chat"
+   ],
+   "refused": "entry:model-closed"
+  },
+  {
+   "wanted": "key-chat",
+   "picked": "live:acc:acc-key/key-chat",
+   "deny": [
+    "account:acc-other",
+    "model:acc:acc-other/key-chat"
+   ],
+   "pool": "live:acc:acc-key/key-chat"
+  },
+  {
+   "wanted": "no-key-model",
+   "picked": null,
+   "why": "an account signed out",
+   "refused": "entry:model-stopped"
+  },
+  {
+   "wanted": "blank-key-model",
+   "picked": null,
+   "refused": "entry:model-stopped"
+  },
+  {
+   "wanted": "lost-model",
+   "picked": null,
+   "why": "an alias of an account gone",
+   "refused": "entry:model-stopped"
+  },
+  {
+   "wanted": "chain-model",
+   "picked": null,
+   "why": "an alias of an alias",
+   "refused": "entry:model-stopped"
+  },
+  {
+   "wanted": "alias-model",
+   "picked": "live:acc:acc-alias/alias-model",
+   "why": "an alias calls by its original's credential",
+   "pool": "live:acc:acc-alias/alias-model"
+  },
+  {
+   "wanted": "text-key-model",
+   "picked": "live:acc:acc-text/text-key-model",
+   "pool": "live:acc:acc-text/text-key-model"
+  },
+  {
+   "wanted": "gpt-sub",
+   "picked": "live:acc:acc-sub/gpt-sub",
+   "pool": "live:acc:acc-sub/gpt-sub"
+  },
+  {
+   "wanted": "for agents",
+   "picked": "p-fixed",
+   "why": "a signed-in account comes first",
+   "pool": "p-fixed"
+  },
+  {
+   "wanted": "FOR AGENTS",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "p-fixed",
+   "picked": null,
+   "why": "a pool is called by its name, its id only when it has none",
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "p-no-name",
+   "picked": "p-no-name",
+   "pool": "p-no-name"
+  },
+  {
+   "wanted": "77",
+   "picked": null,
+   "why": "a pool's id is its name when it has none, and this one has one",
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "numbered",
+   "picked": "77",
+   "pool": "77"
+  },
+  {
+   "wanted": "second of an id",
+   "picked": "p-twice",
+   "pool": "p-twice"
+  },
+  {
+   "wanted": "first of an id",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "p-blank",
+   "picked": "p-blank",
+   "why": "a blank name is no name",
+   "pool": "p-blank"
+  },
+  {
+   "wanted": "Общий",
+   "picked": "p-ru",
+   "why": "a pool whose first row is a machine's model",
+   "pool": "p-ru"
+  },
+  {
+   "wanted": "общий",
+   "picked": null,
+   "refused": "entry:model-unknown"
+  },
+  {
+   "wanted": "odd-id",
+   "picked": "live:mm:odd job",
+   "why": "CloudPools.OUTPUT refuses the id: its row is open",
+   "pool": "live:mm:odd job"
+  },
+  {
+   "wanted": "broken-id-kept-open",
+   "picked": "live:mm:",
+   "pool": "live:mm:"
+  },
+  {
+   "wanted": "auto window",
+   "picked": "p-auto",
+   "pool": "p-auto"
+  },
+  {
+   "wanted": "mixed",
+   "picked": "p-mixed",
+   "why": "a mixed pool leaves the work to its rows",
+   "pool": "p-mixed"
+  },
+  {
+   "wanted": "mixed",
+   "picked": "p-mixed",
+   "path": "/v1/audio/speech",
+   "pool": "p-mixed"
+  },
+  {
+   "wanted": "ears",
+   "picked": "p-ears",
+   "path": "/v1/audio/transcriptions",
+   "pool": "p-ears"
+  },
+  {
+   "wanted": "ears",
+   "picked": "p-ears",
+   "refused": "entry:unsupported"
+  },
+  {
+   "wanted": "off",
+   "picked": "p-off",
+   "pool": "p-off"
+  },
+  {
+   "wanted": "rows gone",
+   "picked": "p-gone",
+   "pool": "p-gone"
+  },
+  {
+   "wanted": "one row gone",
+   "picked": "p-partly-gone",
+   "path": "/v1/audio/transcriptions",
+   "pool": "p-partly-gone"
+  },
+  {
+   "wanted": "on a cell",
+   "picked": "p-cell",
+   "pool": "p-cell"
+  },
+  {
+   "wanted": "dup row",
+   "picked": "p-dup-row",
+   "pool": "p-dup-row"
+  },
+  {
+   "wanted": "for agents",
+   "picked": null,
+   "deny": [
+    "pool:p-fixed"
+   ],
+   "refused": "entry:model-closed"
+  },
+  {
+   "wanted": "Общий",
+   "picked": "p-ru",
+   "deny": [
+    "model:mm:vision",
+    "host:box-1"
+   ],
+   "why": "a model closed shuts only the client's own call of it: the pool serves it whole",
+   "pool": "p-ru"
+  },
+  {
+   "wanted": "homeless-a (machine)",
+   "picked": "live:mm:nohost",
+   "why": "a machine that says nothing is called `machine`; the first of two under that name answers",
+   "pool": "live:mm:nohost"
+  },
+  {
+   "wanted": "word-no-job",
+   "picked": "live:mm:nojob",
+   "why": "a word that is no job makes the kind mixed, and a mixed kind leaves it to the rows",
+   "pool": "live:mm:nojob"
+  },
+  {
+   "wanted": "word-no-job",
+   "picked": "live:mm:nojob",
+   "path": "/v1/embeddings",
+   "pool": "live:mm:nojob"
+  },
+  {
+   "wanted": "seer",
+   "picked": "live:mm:vision",
+   "pool": "live:mm:vision"
+  },
+  {
+   "wanted": "seer",
+   "picked": "live:mm:vision",
+   "path": "/v1/audio/speech",
+   "refused": "entry:unsupported"
+  },
+  {
+   "wanted": "second-of-an-id",
+   "picked": null,
+   "why": "an output of an id already seen is no second model",
+   "refused": "entry:model-unknown"
+  }
+ ],
+ "refusals": [
+  {
+   "wanted": "gemma",
+   "deny": [
+    "model:mm:a"
+   ],
+   "closed": true,
+   "stopped": false
+  },
+  {
+   "wanted": "gemma",
+   "deny": [],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "stopped-one",
+   "deny": [],
+   "closed": false,
+   "stopped": true
+  },
+  {
+   "wanted": "stopped-one",
+   "deny": [
+    "model:mm:b"
+   ],
+   "closed": true,
+   "stopped": true
+  },
+  {
+   "wanted": "stopped-one",
+   "deny": [
+    "host:box-1"
+   ],
+   "closed": true,
+   "stopped": true
+  },
+  {
+   "wanted": "Pooled",
+   "deny": [
+    "pool:pool-1"
+   ],
+   "closed": true,
+   "stopped": false
+  },
+  {
+   "wanted": "Pooled",
+   "deny": [],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "pooled",
+   "deny": [
+    "model:mm:e"
+   ],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "no-key-model",
+   "deny": [],
+   "closed": false,
+   "stopped": true
+  },
+  {
+   "wanted": "no-key-model",
+   "deny": [
+    "account:acc-none"
+   ],
+   "closed": true,
+   "stopped": true
+  },
+  {
+   "wanted": "nobody",
+   "deny": [],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "",
+   "deny": [],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "key-chat",
+   "deny": [
+    "host:box-1"
+   ],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "twin (box-1)",
+   "deny": [
+    "host:box-1"
+   ],
+   "closed": true,
+   "stopped": false
+  },
+  {
+   "wanted": "twin (box-2)",
+   "deny": [
+    "host:box-1"
+   ],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "twin",
+   "deny": [
+    "host:box-1"
+   ],
+   "closed": false,
+   "stopped": false
+  },
+  {
+   "wanted": "for agents",
+   "deny": [
+    "model:mm:a"
+   ],
+   "closed": false,
+   "stopped": false
+  }
+ ],
+ "lists": [
+  {
+   "route": {},
+   "want": [
+    {
+     "id": "Pooled",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "for agents",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 100000,
+     "max_model_len": 100000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "auto window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "alias window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000
+    },
+    {
+     "id": "silent window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 12,
+     "max_model_len": 12
+    },
+    {
+     "id": "off row window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "mixed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "says nothing",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ears",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "ears one silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "chats",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "pictures",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "off",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "rows gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "one row gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "dup row",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "p-no-name",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "numbered",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "second of an id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "p-blank",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "Общий",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "closed pool",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "limited",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 50000,
+     "max_model_len": 50000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 9000,
+     "max_model_len": 9000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "flag window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "on a cell",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 2048,
+     "max_model_len": 2048,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "gemma",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "twin (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "twin (box-2)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "added-too (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "unsaid",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "held-still",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "on-schedule",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ghost-added",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "seer",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "listener",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "listener-two",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "ru",
+       "en"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "speaker",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->audio",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "audio"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "tts"
+      ]
+     }
+    },
+    {
+     "id": "embedder",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 4096,
+     "max_model_len": 4096,
+     "architecture": {
+      "modality": "text->embeddings",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "embeddings"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "embed"
+      ]
+     }
+    },
+    {
+     "id": "robot",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "image+text->actions",
+      "input_modalities": [
+       "image",
+       "text"
+      ],
+      "output_modalities": [
+       "actions"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "robot-policy"
+      ]
+     }
+    },
+    {
+     "id": "omni",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "caravan": {
+      "jobs": [
+       "llm",
+       "voice-chat"
+      ]
+     }
+    },
+    {
+     "id": "odd-id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "word-no-job",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "broken-id-kept-open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "no-languages",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "added-too (acc-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "account-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "key-chat",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "key-ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "key-silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "windowed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "zero-window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "added-too (acc-key)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "gpt-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "url-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text-key-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "claude-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "deep-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "glm-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "qwen-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "alias-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    }
+   ]
+  },
+  {
+   "route": {
+    "contextLength": 16000
+   },
+   "want": [
+    {
+     "id": "Pooled",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "for agents",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "auto window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "alias window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "silent window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 12,
+     "max_model_len": 12
+    },
+    {
+     "id": "off row window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "mixed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "says nothing",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "ears",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "ears one silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "chats",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "pictures",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "off",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "rows gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "one row gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "dup row",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "p-no-name",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "numbered",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "second of an id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "p-blank",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "Общий",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "closed pool",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "limited",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 9000,
+     "max_model_len": 9000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "flag window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "on a cell",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 2048,
+     "max_model_len": 2048,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "gemma",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "twin (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "twin (box-2)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "added-too (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "unsaid",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "held-still",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "on-schedule",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "ghost-added",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "seer",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "listener",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "listener-two",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "ru",
+       "en"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "speaker",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->audio",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "audio"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "tts"
+      ]
+     }
+    },
+    {
+     "id": "embedder",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 4096,
+     "max_model_len": 4096,
+     "architecture": {
+      "modality": "text->embeddings",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "embeddings"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "embed"
+      ]
+     }
+    },
+    {
+     "id": "robot",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "image+text->actions",
+      "input_modalities": [
+       "image",
+       "text"
+      ],
+      "output_modalities": [
+       "actions"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "robot-policy"
+      ]
+     }
+    },
+    {
+     "id": "omni",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "caravan": {
+      "jobs": [
+       "llm",
+       "voice-chat"
+      ]
+     }
+    },
+    {
+     "id": "odd-id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "word-no-job",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "broken-id-kept-open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "no-languages",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "added-too (acc-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "account-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "key-chat",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "key-ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "key-silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "windowed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "zero-window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "added-too (acc-key)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "gpt-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "url-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text-key-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "claude-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "deep-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "glm-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "qwen-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "alias-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    }
+   ]
+  },
+  {
+   "route": {
+    "contextLength": 16000,
+    "contextAuto": true
+   },
+   "want": [
+    {
+     "id": "Pooled",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "for agents",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 100000,
+     "max_model_len": 100000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "auto window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "alias window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000
+    },
+    {
+     "id": "silent window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 12,
+     "max_model_len": 12
+    },
+    {
+     "id": "off row window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "mixed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "says nothing",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "ears",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "ears one silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "chats",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "pictures",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "off",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "rows gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "one row gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "dup row",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "p-no-name",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "numbered",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "second of an id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "p-blank",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "Общий",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "closed pool",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "limited",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 50000,
+     "max_model_len": 50000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 9000,
+     "max_model_len": 9000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "flag window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "on a cell",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 2048,
+     "max_model_len": 2048,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "gemma",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "twin (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "twin (box-2)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "added-too (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "unsaid",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "held-still",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "on-schedule",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "ghost-added",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "seer",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "listener",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "listener-two",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "ru",
+       "en"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "speaker",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->audio",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "audio"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "tts"
+      ]
+     }
+    },
+    {
+     "id": "embedder",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 4096,
+     "max_model_len": 4096,
+     "architecture": {
+      "modality": "text->embeddings",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "embeddings"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "embed"
+      ]
+     }
+    },
+    {
+     "id": "robot",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "image+text->actions",
+      "input_modalities": [
+       "image",
+       "text"
+      ],
+      "output_modalities": [
+       "actions"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "robot-policy"
+      ]
+     }
+    },
+    {
+     "id": "omni",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "caravan": {
+      "jobs": [
+       "llm",
+       "voice-chat"
+      ]
+     }
+    },
+    {
+     "id": "odd-id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "word-no-job",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "broken-id-kept-open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "no-languages",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "added-too (acc-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "account-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "key-chat",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "key-ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "key-silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "windowed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "zero-window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "added-too (acc-key)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "gpt-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "url-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text-key-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "claude-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "deep-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "glm-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "qwen-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    },
+    {
+     "id": "alias-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 16000,
+     "max_model_len": 16000
+    }
+   ]
+  },
+  {
+   "route": {
+    "contextAuto": true
+   },
+   "want": [
+    {
+     "id": "Pooled",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "for agents",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 100000,
+     "max_model_len": 100000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "auto window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "alias window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000
+    },
+    {
+     "id": "silent window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 12,
+     "max_model_len": 12
+    },
+    {
+     "id": "off row window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "mixed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "says nothing",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ears",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "ears one silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "chats",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "pictures",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "off",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "rows gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "one row gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "dup row",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "p-no-name",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "numbered",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "second of an id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "p-blank",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "Общий",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "closed pool",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "limited",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 50000,
+     "max_model_len": 50000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 9000,
+     "max_model_len": 9000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "flag window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "on a cell",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 2048,
+     "max_model_len": 2048,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "gemma",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "twin (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "twin (box-2)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "added-too (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "unsaid",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "held-still",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "on-schedule",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ghost-added",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "seer",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "listener",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "listener-two",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "ru",
+       "en"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "speaker",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->audio",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "audio"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "tts"
+      ]
+     }
+    },
+    {
+     "id": "embedder",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 4096,
+     "max_model_len": 4096,
+     "architecture": {
+      "modality": "text->embeddings",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "embeddings"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "embed"
+      ]
+     }
+    },
+    {
+     "id": "robot",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "image+text->actions",
+      "input_modalities": [
+       "image",
+       "text"
+      ],
+      "output_modalities": [
+       "actions"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "robot-policy"
+      ]
+     }
+    },
+    {
+     "id": "omni",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "caravan": {
+      "jobs": [
+       "llm",
+       "voice-chat"
+      ]
+     }
+    },
+    {
+     "id": "odd-id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "word-no-job",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "broken-id-kept-open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "no-languages",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "added-too (acc-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "account-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "key-chat",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "key-ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "key-silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "windowed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "zero-window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "added-too (acc-key)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "gpt-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "url-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text-key-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "claude-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "deep-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "glm-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "qwen-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "alias-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    }
+   ]
+  },
+  {
+   "route": {
+    "deny": [
+     "pool:p-fixed",
+     "pool:p-auto",
+     "model:mm:a",
+     "account:acc-key",
+     "host:box-2",
+     "pool:nobody"
+    ]
+   },
+   "want": [
+    {
+     "id": "Pooled",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "alias window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 64000,
+     "max_model_len": 64000
+    },
+    {
+     "id": "silent window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 12,
+     "max_model_len": 12
+    },
+    {
+     "id": "off row window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "mixed",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "says nothing",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ears",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "ears one silent",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "chats",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "pictures",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "off",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "rows gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "one row gone",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "dup row",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "p-no-name",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "numbered",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "second of an id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "p-blank",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "Общий",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "closed pool",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "limited",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 50000,
+     "max_model_len": 50000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 9000,
+     "max_model_len": 9000,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "flag window",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "on a cell",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 2048,
+     "max_model_len": 2048,
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "twin (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "added-too (box-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ear",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "held-still",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "on-schedule",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "ghost-added",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "seer",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 8192,
+     "max_model_len": 8192,
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "listener",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "en",
+       "ru",
+       "de"
+      ],
+      "max_audio_ms": 30000
+     }
+    },
+    {
+     "id": "listener-two",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ],
+      "languages": [
+       "ru",
+       "en"
+      ],
+      "max_audio_ms": 20000
+     }
+    },
+    {
+     "id": "speaker",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->audio",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "audio"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "tts"
+      ]
+     }
+    },
+    {
+     "id": "embedder",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "context_length": 4096,
+     "max_model_len": 4096,
+     "architecture": {
+      "modality": "text->embeddings",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "embeddings"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "embed"
+      ]
+     }
+    },
+    {
+     "id": "robot",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "image+text->actions",
+      "input_modalities": [
+       "image",
+       "text"
+      ],
+      "output_modalities": [
+       "actions"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "robot-policy"
+      ]
+     }
+    },
+    {
+     "id": "omni",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "caravan": {
+      "jobs": [
+       "llm",
+       "voice-chat"
+      ]
+     }
+    },
+    {
+     "id": "odd-id",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "word-no-job",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "homeless-a (machine)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "broken-id-kept-open",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "no-languages",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "audio->text",
+      "input_modalities": [
+       "audio"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "asr"
+      ]
+     }
+    },
+    {
+     "id": "added-too (acc-1)",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "account-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "gpt-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "url-sub",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text+image->text",
+      "input_modalities": [
+       "text",
+       "image"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "text-key-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "claude-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "deep-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "glm-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan",
+     "architecture": {
+      "modality": "text->text",
+      "input_modalities": [
+       "text"
+      ],
+      "output_modalities": [
+       "text"
+      ]
+     },
+     "caravan": {
+      "jobs": [
+       "llm"
+      ]
+     }
+    },
+    {
+     "id": "qwen-x",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    },
+    {
+     "id": "alias-model",
+     "object": "model",
+     "created": 0,
+     "owned_by": "caravan"
+    }
+   ]
+  }
+ ],
+ "unsure": [
+  {
+   "why": "a file of the old form",
+   "cloud": {
+    "blocks": [
+     {
+      "id": "b1"
+     }
+    ]
+   }
+  },
+  {
+   "why": "a pool of the old form",
+   "cloud": {
+    "pools": [
+     {
+      "id": "p",
+      "members": []
+     }
+    ]
+   }
+  },
+  {
+   "why": "a cloud file that does not read",
+   "cloud": null
+  },
+  {
+   "why": "an account whose id is no clean word",
+   "cloud": {
+    "accounts": [
+     {
+      "id": 5
+     }
+    ]
+   }
+  }
+ ],
+ "group": {
+  "id": "mm:a",
+  "group": "10.0.0.1:8092/gemma"
+ }
+}

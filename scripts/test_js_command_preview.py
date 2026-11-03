@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 _fail = []
 
@@ -65,10 +65,9 @@ if node is None:
 probe = ROOT / "scripts" / ".probe_cmd_preview.tmp.mjs"
 probe.write_text(PROBE, encoding="utf-8")
 try:
-    hook = f"data:text/javascript,import {{ register }} from 'node:module'; register('file://{ROOT}/scripts/_js_harness.mjs');"
     env = {"JS_ROOT": str(ROOT / "static" / "js"), "PATH": "/usr/bin:/bin",
            "JS_STUBS": "form,llama-edit,cloud,topology-render,polling,favorites,remote-cells"}
-    proc = subprocess.run([node, "--import", hook, str(probe)], capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
+    proc = subprocess.run(probe_args(node, ROOT / "scripts" / "_js_harness.mjs", probe), capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
 finally:
     probe.unlink(missing_ok=True)
 if proc.returncode != 0:

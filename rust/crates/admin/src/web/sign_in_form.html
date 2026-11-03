@@ -1,0 +1,15 @@
+<form id="loginForm" data-t="login-form">
+      <label for="u" data-i18n="user">Username</label>
+      <input id="u" autocomplete="username" autofocus data-t="login-username">
+      <label for="p" data-i18n="pass">Password</label>
+      <input id="p" type="password" autocomplete="current-password" data-t="login-password">
+      <button class="primary" type="submit" data-i18n="signin" data-t="login-submit">Sign in</button>
+      <!-- role="alert" because this <p> starts EMPTY and is filled by script
+           after a failed sign-in. Without it a screen reader never learns the
+           attempt failed — the text simply appears, silently, and the only
+           feedback is that nothing happened. alert (not status) because it
+           answers an action the user just took and should interrupt. It also
+           gives the element a real role instead of generic, so a test can ask
+           getByRole("alert") rather than for the paragraph by name. -->
+      <p class="err" id="e" role="alert" data-t="login-error"></p>
+    </form>

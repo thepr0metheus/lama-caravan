@@ -194,6 +194,17 @@ export class Channel {
   }
   /** A move of `dn` px across the stream, as a screen vector. */
   across(dn) { return this.landscape ? { x: 0, y: dn } : { x: dn, y: 0 }; }
+  /** How much of a screen vector goes across the stream (px, signed as `across`). */
+  acrossOf(v) { return this.landscape ? v.y : v.x; }
+  /**
+   * Which way across the stream the middle lies from (x, y): 1 or -1, as `across` counts, or 0 within `level` px of the middle
+   * line. A fish goes round a rock on this side of it, so that a rock by a bank never sends it between the two (the owner,
+   * 2026-10-20: "a fish at the bank may go between the bank and the rock and get stuck").
+   */
+  middleSide(x, y, level = 0) {
+    const off = this.centre(this.sOf(x, y)) - this.nOf(x, y);
+    return Math.abs(off) <= level ? 0 : Math.sign(off);
+  }
   /**
    * How far (px, across the stream, signed) a point must move toward the middle to stand `margin` px inside the
    * water's edge: 0 when it already does. The bank is drawn over the edge; what crosses it swims under the moss.

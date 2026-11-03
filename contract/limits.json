@@ -1,0 +1,3168 @@
+{
+ "base_url": [
+  {
+   "text": "https://ChatGPT.com/backend-api",
+   "read": {
+    "tls": true,
+    "host": "chatgpt.com",
+    "port": 443,
+    "netloc": "ChatGPT.com",
+    "path": "/backend-api"
+   }
+  },
+  {
+   "text": "http://127.0.0.1:8080/v1?x=1#y",
+   "read": {
+    "tls": false,
+    "host": "127.0.0.1",
+    "port": 8080,
+    "netloc": "127.0.0.1:8080",
+    "path": "/v1"
+   }
+  },
+  {
+   "text": "HTTP://x",
+   "read": {
+    "tls": false,
+    "host": "x",
+    "port": 80,
+    "netloc": "x",
+    "path": ""
+   }
+  },
+  {
+   "text": "http://x",
+   "read": {
+    "tls": false,
+    "host": "x",
+    "port": 80,
+    "netloc": "x",
+    "path": ""
+   }
+  },
+  {
+   "text": "https://x:",
+   "read": {
+    "tls": true,
+    "host": "x",
+    "port": 443,
+    "netloc": "x:",
+    "path": ""
+   }
+  },
+  {
+   "text": "ftp://x",
+   "read": {
+    "tls": true,
+    "host": "x",
+    "port": 443,
+    "netloc": "x",
+    "path": ""
+   }
+  },
+  {
+   "text": "https://user:word@x:81/p",
+   "read": {
+    "tls": true,
+    "host": "x",
+    "port": 81,
+    "netloc": "user:word@x:81",
+    "path": "/p"
+   }
+  },
+  {
+   "text": "https://[::1]:81/p",
+   "read": {
+    "tls": true,
+    "host": "::1",
+    "port": 81,
+    "netloc": "[::1]:81",
+    "path": "/p"
+   }
+  },
+  {
+   "text": "https://[::1]/p",
+   "read": {
+    "tls": true,
+    "host": "::1",
+    "port": 443,
+    "netloc": "[::1]",
+    "path": "/p"
+   }
+  },
+  {
+   "text": "https://x",
+   "read": {
+    "tls": true,
+    "host": "x",
+    "port": 443,
+    "netloc": "x",
+    "path": ""
+   }
+  },
+  {
+   "text": "",
+   "read": null
+  },
+  {
+   "text": "x",
+   "read": null
+  },
+  {
+   "text": "https://",
+   "read": null
+  },
+  {
+   "text": "https:///p",
+   "read": null
+  },
+  {
+   "text": "https://x:port",
+   "read": null
+  },
+  {
+   "text": "https://x:70000",
+   "read": null
+  },
+  {
+   "text": "https://u@",
+   "read": null
+  },
+  {
+   "text": "http://h:8a0/x",
+   "read": null
+  },
+  {
+   "text": "http://h:80a/x",
+   "read": null
+  },
+  {
+   "text": "http://h:/x",
+   "read": {
+    "tls": false,
+    "host": "h",
+    "port": 80,
+    "netloc": "h:",
+    "path": "/x"
+   }
+  },
+  {
+   "text": "https://h:0443/x",
+   "read": {
+    "tls": true,
+    "host": "h",
+    "port": 443,
+    "netloc": "h:0443",
+    "path": "/x"
+   }
+  }
+ ],
+ "upstream_path": [
+  {
+   "base": "",
+   "incoming": "/v1/chat/completions",
+   "path": "/v1/chat/completions"
+  },
+  {
+   "base": "/",
+   "incoming": "/v1/chat/completions",
+   "path": "/v1/chat/completions"
+  },
+  {
+   "base": "/api",
+   "incoming": "/v1/chat/completions",
+   "path": "/api/v1/chat/completions"
+  },
+  {
+   "base": "/v1",
+   "incoming": "/v1/chat/completions",
+   "path": "/v1/chat/completions"
+  },
+  {
+   "base": "/v1/",
+   "incoming": "/v1/chat/completions",
+   "path": "/v1/chat/completions"
+  },
+  {
+   "base": "/api/v4",
+   "incoming": "/v1/chat/completions",
+   "path": "/api/v4/chat/completions"
+  },
+  {
+   "base": "/v4",
+   "incoming": "/other",
+   "path": "/v4/other"
+  },
+  {
+   "base": "/v",
+   "incoming": "/v1/a",
+   "path": "/v/v1/a"
+  },
+  {
+   "base": "/v1a",
+   "incoming": "/v1/a",
+   "path": "/v1a/v1/a"
+  },
+  {
+   "base": "/v4",
+   "incoming": "/v1",
+   "path": "/v4/v1"
+  },
+  {
+   "base": "/v4",
+   "incoming": "/v12/a",
+   "path": "/v4/v12/a"
+  },
+  {
+   "base": "/v4",
+   "incoming": "/v1/",
+   "path": "/v4/"
+  }
+ ],
+ "client_name": [
+  {
+   "policy": {
+    "clientName": " pi (linux; x64) "
+   },
+   "fields": {
+    "USER-AGENT": "x",
+    "X-Title": "t",
+    "HTTP-Referer": "r",
+    "x-openrouter-title": "o",
+    "session-id": "s"
+   },
+   "says": {
+    "session-id": "s",
+    "User-Agent": "pi (linux; x64)"
+   }
+  },
+  {
+   "policy": {},
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": ""
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": "  "
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": 5
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": "имя"
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": "a\nb"
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "user-agent": "own"
+   }
+  },
+  {
+   "policy": {
+    "clientName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "fields": {
+    "user-agent": "own"
+   },
+   "says": {
+    "User-Agent": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   }
+  }
+ ],
+ "usage_headers": [
+  {
+   "headers": {
+    "X-Codex-Primary-Window-Minutes": "300",
+    "x-codex-primary-used-percent": "12.7",
+    "x-codex-primary-reset-at": "5000",
+    "x-codex-secondary-window-minutes": "10080",
+    "x-codex-secondary-used-percent": "3",
+    "x-codex-secondary-reset-at": "0"
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 12,
+     "resetAt": 5000
+    },
+    {
+     "seconds": 604800,
+     "usedPct": 3,
+     "resetAt": null
+    }
+   ]
+  },
+  {
+   "headers": {
+    "x-codex-primary-window-minutes": "0",
+    "x-codex-primary-used-percent": "1"
+   },
+   "windows": []
+  },
+  {
+   "headers": {
+    "x-codex-primary-window-minutes": "-5",
+    "x-codex-primary-used-percent": "1"
+   },
+   "windows": []
+  },
+  {
+   "headers": {
+    "x-codex-primary-window-minutes": "300"
+   },
+   "windows": []
+  },
+  {
+   "headers": {
+    "x-codex-primary-used-percent": "1"
+   },
+   "windows": []
+  },
+  {
+   "headers": {
+    "x-codex-primary-window-minutes": "x",
+    "x-codex-primary-used-percent": "1"
+   },
+   "windows": []
+  },
+  {
+   "headers": {
+    "x-codex-primary-window-minutes": "300",
+    "x-codex-primary-used-percent": "x"
+   },
+   "windows": []
+  },
+  {
+   "headers": {
+    "x-codex-secondary-window-minutes": "60",
+    "x-codex-secondary-used-percent": "100",
+    "x-codex-secondary-reset-at": "x"
+   },
+   "windows": [
+    {
+     "seconds": 3600,
+     "usedPct": 100,
+     "resetAt": null
+    }
+   ]
+  },
+  {
+   "headers": {},
+   "windows": []
+  }
+ ],
+ "usage_page": [
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": {
+      "limit_window_seconds": 18000,
+      "used_percent": 12.5,
+      "reset_at": 5000
+     },
+     "secondary_window": {
+      "limit_window_seconds": 604800,
+      "used_percent": 3,
+      "reset_at": 0
+     },
+     "additional": {
+      "limit_window_seconds": 604800,
+      "used_percent": 90
+     }
+    }
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 12,
+     "resetAt": 5000
+    },
+    {
+     "seconds": 604800,
+     "usedPct": 3,
+     "resetAt": null
+    }
+   ]
+  },
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": {
+      "limit_window_seconds": 0,
+      "used_percent": 1
+     }
+    }
+   },
+   "windows": []
+  },
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": {
+      "used_percent": 1
+     }
+    }
+   },
+   "windows": []
+  },
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": {
+      "limit_window_seconds": 60
+     }
+    }
+   },
+   "windows": []
+  },
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": {
+      "limit_window_seconds": 60,
+      "used_percent": "7.9",
+      "reset_at": "9"
+     }
+    }
+   },
+   "windows": [
+    {
+     "seconds": 60,
+     "usedPct": 7,
+     "resetAt": 9
+    }
+   ]
+  },
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": "odd"
+    }
+   },
+   "windows": []
+  },
+  {
+   "page": {
+    "rate_limit": "odd"
+   },
+   "windows": []
+  },
+  {
+   "page": {},
+   "windows": []
+  },
+  {
+   "page": {
+    "rate_limit": {
+     "primary_window": {
+      "limit_window_seconds": "x",
+      "used_percent": 1
+     }
+    }
+   },
+   "windows": []
+  }
+ ],
+ "reserve": [
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 90,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 18000,
+    "remainingPct": 10,
+    "reservePct": 10,
+    "resetAt": 500
+   }
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 89,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 90,
+     "resetAt": 100
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 90,
+     "resetAt": 99
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 100,
+     "resetAt": null
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 3600,
+     "usedPct": 100,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 10,
+    "604800": 20
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 95,
+     "resetAt": 500
+    },
+    {
+     "seconds": 604800,
+     "usedPct": 85,
+     "resetAt": 900
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 604800,
+    "remainingPct": 15,
+    "reservePct": 20,
+    "resetAt": 900
+   }
+  },
+  {
+   "raw": {
+    "18000": 10,
+    "604800": 20
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 95,
+     "resetAt": 900
+    },
+    {
+     "seconds": 604800,
+     "usedPct": 85,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 18000,
+    "remainingPct": 5,
+    "reservePct": 10,
+    "resetAt": 900
+   }
+  },
+  {
+   "raw": {
+    "18000": 10,
+    "604800": 20
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 95,
+     "resetAt": 900
+    },
+    {
+     "seconds": 604800,
+     "usedPct": 85,
+     "resetAt": 900
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 18000,
+    "remainingPct": 5,
+    "reservePct": 10,
+    "resetAt": 900
+   }
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 150,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 18000,
+    "remainingPct": 0,
+    "reservePct": 10,
+    "resetAt": 500
+   }
+  },
+  {
+   "raw": {},
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 100,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 95
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 12,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 18000,
+    "remainingPct": 88,
+    "reservePct": 90,
+    "resetAt": 500
+   }
+  },
+  {
+   "raw": {
+    "18000": 95
+   },
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 9,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": {
+    "18000": 0,
+    "x": 5,
+    "60": true,
+    "-5": 5,
+    "120": "7",
+    "180": "x",
+    "240": null
+   },
+   "windows": [
+    {
+     "seconds": 120,
+     "usedPct": 95,
+     "resetAt": 500
+    },
+    {
+     "seconds": 60,
+     "usedPct": 100,
+     "resetAt": 500
+    },
+    {
+     "seconds": 180,
+     "usedPct": 100,
+     "resetAt": 500
+    },
+    {
+     "seconds": 240,
+     "usedPct": 100,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": {
+    "windowSeconds": 120,
+    "remainingPct": 5,
+    "reservePct": 7,
+    "resetAt": 500
+   }
+  },
+  {
+   "raw": null,
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 100,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": null
+  },
+  {
+   "raw": "odd",
+   "windows": [
+    {
+     "seconds": 18000,
+     "usedPct": 100,
+     "resetAt": 500
+    }
+   ],
+   "now": 100,
+   "hit": null
+  }
+ ],
+ "levels_document": {
+  "key": {
+   "m": {
+    "stopAt": {
+     "18000": 10
+    },
+    "switchAt": {
+     "18000": 30,
+     "604800": 5
+    }
+   },
+   "lifted": {
+    "stopAt": {},
+    "switchAt": {}
+   },
+   "old": {
+    "switchAt": {
+     "18000": 25
+    }
+   },
+   "higher-stop": {
+    "stopAt": {
+     "18000": 50
+    },
+    "switchAt": {
+     "18000": 20
+    }
+   },
+   "odd": "not an entry"
+  },
+  " spaced ": {
+   " m ": {
+    "stopAt": {
+     "60": 7
+    }
+   }
+  },
+  "": {
+   "m": {
+    "stopAt": {
+     "60": 7
+    }
+   }
+  },
+  "odd-account": 5
+ },
+ "levels": [
+  {
+   "account": "key",
+   "model": "m",
+   "stop": {
+    "18000": 10
+   },
+   "switch": {
+    "18000": 30,
+    "604800": 5
+   }
+  },
+  {
+   "account": "key",
+   "model": "lifted",
+   "stop": {},
+   "switch": {}
+  },
+  {
+   "account": "key",
+   "model": "old",
+   "stop": {
+    "18000": 25
+   },
+   "switch": {
+    "18000": 25
+   }
+  },
+  {
+   "account": "key",
+   "model": "higher-stop",
+   "stop": {
+    "18000": 50
+   },
+   "switch": {
+    "18000": 50
+   }
+  },
+  {
+   "account": "key",
+   "model": "odd",
+   "stop": {
+    "18000": 10,
+    "604800": 10
+   },
+   "switch": {
+    "18000": 10,
+    "604800": 10
+   }
+  },
+  {
+   "account": "key",
+   "model": "unset",
+   "stop": {
+    "18000": 10,
+    "604800": 10
+   },
+   "switch": {
+    "18000": 10,
+    "604800": 10
+   }
+  },
+  {
+   "account": "nobody",
+   "model": "m",
+   "stop": {
+    "18000": 10,
+    "604800": 10
+   },
+   "switch": {
+    "18000": 10,
+    "604800": 10
+   }
+  },
+  {
+   "account": "spaced",
+   "model": "m",
+   "stop": {
+    "60": 7
+   },
+   "switch": {
+    "60": 7
+   }
+  },
+  {
+   "account": "",
+   "model": "m",
+   "stop": {
+    "18000": 10,
+    "604800": 10
+   },
+   "switch": {
+    "18000": 10,
+    "604800": 10
+   }
+  }
+ ],
+ "schedule": [
+  {
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "09:00",
+     "to": "19:00"
+    }
+   ],
+   "now": 723540,
+   "open": false,
+   "opensAt": 723600
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "09:00",
+     "to": "19:00"
+    }
+   ],
+   "now": 723600,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "09:00",
+     "to": "19:00"
+    }
+   ],
+   "now": 759600,
+   "open": false,
+   "opensAt": 1328400
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "09:00",
+     "to": "19:00"
+    }
+   ],
+   "now": 820800,
+   "open": false,
+   "opensAt": 1328400
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "22:00",
+     "to": "08:00"
+    }
+   ],
+   "now": 806340,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "22:00",
+     "to": "08:00"
+    }
+   ],
+   "now": 806400,
+   "open": false,
+   "opensAt": 1375200
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "22:00",
+     "to": "08:00"
+    }
+   ],
+   "now": 975600,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "22:00",
+     "to": "08:00"
+    }
+   ],
+   "now": 939600,
+   "open": false,
+   "opensAt": 943200
+  },
+  {
+   "windows": [
+    {
+     "from": "00:00",
+     "to": "00:00"
+    }
+   ],
+   "now": 529200,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1
+     ],
+     "from": "10:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 554340,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1
+     ],
+     "from": "10:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": 1072800
+  },
+  {
+   "windows": [
+    {
+     "from": "09:00",
+     "to": "10:00"
+    },
+    {
+     "from": "10:00",
+     "to": "11:00"
+    }
+   ],
+   "now": 642600,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:00",
+     "to": "10:00"
+    },
+    {
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 633600,
+   "open": false,
+   "opensAt": 637200
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ],
+     "from": "9:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 811800,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [],
+   "now": 435600,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": "odd",
+   "now": 435600,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "24:00",
+     "to": "10:00"
+    },
+    {
+     "from": "09:60",
+     "to": "10:00"
+    },
+    {
+     "from": "009:00",
+     "to": "10:00"
+    },
+    {
+     "from": "9:5",
+     "to": "10:00"
+    },
+    {
+     "to": "10:00"
+    },
+    {
+     "from": "09:00"
+    },
+    {
+     "from": "09:00",
+     "to": "10:00",
+     "days": [
+      7
+     ]
+    },
+    {
+     "from": "09:00",
+     "to": "10:00",
+     "days": [
+      true
+     ]
+    },
+    {
+     "from": "09:00",
+     "to": "10:00",
+     "days": "x"
+    },
+    "x"
+   ],
+   "now": 435600,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "24:00",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "24:00",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "23:59",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "23:59",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:60",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:60",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:59",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": 554340
+  },
+  {
+   "windows": [
+    {
+     "from": "09:59",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "009:00",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "009:00",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "9:05",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": 551100
+  },
+  {
+   "windows": [
+    {
+     "from": "9:05",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "9:5",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "9:5",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": ":30",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": ":30",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "a:b",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "a:b",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:5x",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "09:5x",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": "  09:00 ",
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": 550800
+  },
+  {
+   "windows": [
+    {
+     "from": "  09:00 ",
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": null,
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": null,
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": 900,
+     "to": "23:59"
+    }
+   ],
+   "now": 547200,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "from": 900,
+     "to": "23:59"
+    }
+   ],
+   "now": 554400,
+   "open": false,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      0
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 378000,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      0
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 377940,
+   "open": false,
+   "opensAt": 378000
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      0
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 381600,
+   "open": false,
+   "opensAt": 982800
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      0
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 648000,
+   "open": false,
+   "opensAt": 982800
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      0
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 950340,
+   "open": false,
+   "opensAt": 982800
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "23:00",
+     "to": "01:00"
+    }
+   ],
+   "now": 347400,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "23:00",
+     "to": "01:00"
+    }
+   ],
+   "now": 349200,
+   "open": false,
+   "opensAt": 946800
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "23:00",
+     "to": "01:00"
+    }
+   ],
+   "now": 946740,
+   "open": false,
+   "opensAt": 946800
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    },
+    {
+     "days": [
+      1
+     ],
+     "from": "10:00",
+     "to": "11:00"
+    }
+   ],
+   "now": 469800,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    },
+    {
+     "days": [
+      1
+     ],
+     "from": "10:01",
+     "to": "11:00"
+    }
+   ],
+   "now": 468000,
+   "open": false,
+   "opensAt": 468060
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1
+     ],
+     "from": "09:00",
+     "to": "12:00"
+    },
+    {
+     "days": [
+      1
+     ],
+     "from": "10:00",
+     "to": "11:00"
+    }
+   ],
+   "now": 473400,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1,
+      3
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 561600,
+   "open": false,
+   "opensAt": 637200
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      1,
+      3
+     ],
+     "from": "09:00",
+     "to": "10:00"
+    }
+   ],
+   "now": 648000,
+   "open": false,
+   "opensAt": 1069200
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "00:00",
+     "to": "00:00"
+    },
+    {
+     "days": [
+      0
+     ],
+     "from": "00:00",
+     "to": "00:00"
+    }
+   ],
+   "now": 388800,
+   "open": true,
+   "opensAt": null
+  },
+  {
+   "windows": [
+    {
+     "days": [
+      6
+     ],
+     "from": "00:00",
+     "to": "00:00"
+    },
+    {
+     "days": [
+      0
+     ],
+     "from": "00:00",
+     "to": "00:00"
+    }
+   ],
+   "now": 561600,
+   "open": false,
+   "opensAt": 864000
+  }
+ ],
+ "schedules_document": {
+  "out:mm:a": {
+   "enabled": true,
+   "windows": [
+    {
+     "days": [
+      4
+     ],
+     "from": "09:00",
+     "to": "19:00"
+    }
+   ]
+  },
+  "out:mm:off": {
+   "enabled": false,
+   "windows": []
+  },
+  "out:mm:truthy": {
+   "enabled": 1,
+   "windows": []
+  },
+  "acc:key/m": {
+   "enabled": true,
+   "windows": []
+  },
+  "acc:key": {
+   "enabled": true,
+   "windows": []
+  },
+  "acc:a/b/c": {
+   "enabled": true,
+   "windows": []
+  },
+  "other": {
+   "enabled": true,
+   "windows": []
+  },
+  "out:mm:odd": "x",
+  "out:bad": {
+   "enabled": true,
+   "windows": []
+  }
+ },
+ "closed": [
+  {
+   "key": "out:mm:a",
+   "now": 727200,
+   "closed": null
+  },
+  {
+   "key": "out:mm:a",
+   "now": 640800,
+   "closed": {
+    "opensAt": 723600
+   }
+  },
+  {
+   "key": "out:mm:off",
+   "now": 640800,
+   "closed": null
+  },
+  {
+   "key": "out:mm:truthy",
+   "now": 640800,
+   "closed": null
+  },
+  {
+   "key": "acc:key/m",
+   "now": 640800,
+   "closed": {
+    "opensAt": null
+   }
+  },
+  {
+   "key": "acc:key",
+   "now": 640800,
+   "closed": null
+  },
+  {
+   "key": "acc:a/b/c",
+   "now": 640800,
+   "closed": {
+    "opensAt": null
+   }
+  },
+  {
+   "key": "other",
+   "now": 640800,
+   "closed": null
+  },
+  {
+   "key": "out:mm:odd",
+   "now": 640800,
+   "closed": null
+  },
+  {
+   "key": "out:bad",
+   "now": 640800,
+   "closed": null
+  },
+  {
+   "key": "nobody",
+   "now": 640800,
+   "closed": null
+  }
+ ],
+ "effort_offered": [
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "offered": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning_effort\"}}",
+   "offered": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ]
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"other\"}}",
+   "offered": []
+  },
+  {
+   "status": 429,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none'.\", \"param\": \"reasoning.effort\"}}",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "not json",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "[1]",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": \"x\"}",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Supported values are: 'weird', 'it''s', 'low'\", \"param\": \"reasoning.effort\"}}",
+   "offered": [
+    "low"
+   ]
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Supported values are: nothing\", \"param\": \"reasoning.effort\"}}",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'm' model. Supported values are: 'low' and 'it's'.\", \"param\": \"reasoning.effort\"}}",
+   "offered": [
+    "low"
+   ]
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'm' model. Supported values are: 'low', '', 'high'.\", \"param\": \"reasoning.effort\"}}",
+   "offered": [
+    "low",
+    "high"
+   ]
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'm' model. Supported values are: 'a b', 'c-d', 'e_f', 'g1'.\", \"param\": \"reasoning.effort\"}}",
+   "offered": []
+  },
+  {
+   "status": 400,
+   "body": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'm' model. Supported values are: 'low\", \"param\": \"reasoning.effort\"}}",
+   "offered": []
+  }
+ ],
+ "effort_fit": [
+  {
+   "body": {
+    "model": "m",
+    "reasoning": {
+     "effort": "none",
+     "x": 1
+    }
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": {
+    "model": "m",
+    "asked": "none",
+    "sent": "low",
+    "takes": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ]
+   },
+   "sends": {
+    "model": "m",
+    "reasoning": {
+     "effort": "low",
+     "x": 1
+    }
+   },
+   "swap": {
+    "asked": "none",
+    "sent": "low"
+   },
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "model": "m",
+    "reasoning_effort": "none"
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": {
+    "model": "m",
+    "asked": "none",
+    "sent": "low",
+    "takes": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ]
+   },
+   "sends": {
+    "model": "m",
+    "reasoning_effort": "low"
+   },
+   "swap": {
+    "asked": "none",
+    "sent": "low"
+   },
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "model": "m",
+    "reasoning": {
+     "effort": "high"
+    }
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": null,
+   "sends": {
+    "model": "m",
+    "reasoning": {
+     "effort": "high"
+    }
+   },
+   "swap": null,
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "model": "m",
+    "reasoning": {
+     "effort": "odd"
+    }
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": null,
+   "sends": {
+    "model": "m",
+    "reasoning": {
+     "effort": "odd"
+    }
+   },
+   "swap": null,
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "model": "m",
+    "reasoning": {
+     "effort": "none"
+    }
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"no list\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": null,
+   "sends": {
+    "model": "m",
+    "reasoning": {
+     "effort": "none"
+    }
+   },
+   "swap": null,
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "model": "m"
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": null,
+   "sends": {
+    "model": "m"
+   },
+   "swap": null,
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "reasoning": "odd",
+    "reasoning_effort": "none"
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": {
+    "model": "",
+    "asked": "none",
+    "sent": "low",
+    "takes": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ]
+   },
+   "sends": {
+    "reasoning": "odd",
+    "reasoning_effort": "low"
+   },
+   "swap": {
+    "asked": "none",
+    "sent": "low"
+   },
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "reasoning": {
+     "effort": ""
+    },
+    "model": "m"
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": null,
+   "sends": {
+    "reasoning": {
+     "effort": ""
+    },
+    "model": "m"
+   },
+   "swap": null,
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "reasoning": {
+     "effort": 5
+    },
+    "model": "m"
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": null,
+   "sends": {
+    "reasoning": {
+     "effort": 5
+    },
+    "model": "m"
+   },
+   "swap": null,
+   "elsewhere": null
+  },
+  {
+   "body": {
+    "model": 5,
+    "reasoning_effort": "none"
+   },
+   "status": 400,
+   "error": "{\"error\": {\"message\": \"Unsupported value: 'none' is not supported with the 'gpt-6.1-sol' model. Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'.\", \"param\": \"reasoning.effort\"}}",
+   "before": null,
+   "lesson": {
+    "model": "5",
+    "asked": "none",
+    "sent": "low",
+    "takes": [
+     "low",
+     "medium",
+     "high",
+     "xhigh",
+     "max"
+    ]
+   },
+   "sends": {
+    "model": 5,
+    "reasoning_effort": "low"
+   },
+   "swap": {
+    "asked": "none",
+    "sent": "low"
+   },
+   "elsewhere": null
+  }
+ ],
+ "nearest_effort": [
+  {
+   "asked": "none",
+   "offered": [
+    "low",
+    "max"
+   ],
+   "nearest": "low"
+  },
+  {
+   "asked": "medium",
+   "offered": [
+    "low",
+    "high"
+   ],
+   "nearest": "low"
+  },
+  {
+   "asked": "xhigh",
+   "offered": [
+    "low",
+    "high"
+   ],
+   "nearest": "high"
+  },
+  {
+   "asked": "max",
+   "offered": [
+    "none"
+   ],
+   "nearest": "none"
+  },
+  {
+   "asked": "low",
+   "offered": [
+    "low"
+   ],
+   "nearest": "low"
+  },
+  {
+   "asked": "odd",
+   "offered": [
+    "low"
+   ],
+   "nearest": null
+  },
+  {
+   "asked": "low",
+   "offered": [
+    "odd"
+   ],
+   "nearest": null
+  },
+  {
+   "asked": "low",
+   "offered": [],
+   "nearest": null
+  }
+ ],
+ "reserve_names": [
+  {
+   "raw": {
+    "18000": 10
+   },
+   "seconds": 18000,
+   "names": true
+  },
+  {
+   "raw": {
+    "18000": 10
+   },
+   "seconds": 3600,
+   "names": false
+  },
+  {
+   "raw": {
+    "0": 10
+   },
+   "seconds": 0,
+   "names": false
+  },
+  {
+   "raw": {
+    "18000": 0
+   },
+   "seconds": 18000,
+   "names": false
+  },
+  {
+   "raw": {
+    "-5": 10
+   },
+   "seconds": -5,
+   "names": false
+  },
+  {
+   "raw": {
+    "60": true
+   },
+   "seconds": 60,
+   "names": false
+  },
+  {
+   "raw": {
+    "1": 1
+   },
+   "seconds": 1,
+   "names": true
+  },
+  {
+   "raw": {
+    "18000": 1
+   },
+   "seconds": 18000,
+   "names": true
+  },
+  {
+   "raw": {},
+   "seconds": 18000,
+   "names": false
+  },
+  {
+   "raw": null,
+   "seconds": 18000,
+   "names": false
+  }
+ ],
+ "pool_refusal": [
+  {
+   "why": "no row at all",
+   "steps": [],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step: add one on the board",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step: add one on the board\", \"pool_id\": \"p\", \"steps\": [], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` cannot serve now. Try again later.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "30"
+    ]
+   ]
+  },
+  {
+   "why": "a limit, with its reset ahead",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 2000
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 429,
+   "retryAfter": 999,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (quota)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (quota)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 2000}], \"resets_at\": 2000, \"opens_at\": null}}",
+   "told": 429,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` has reached its usage limit. Try again in 17 min.",
+     "type": "rate_limit_error",
+     "param": null,
+     "code": "rate_limit_exceeded"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "999"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "a limit whose reset has passed",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 1000
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 429,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (quota)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (quota)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 1000}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 429,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` has reached its usage limit. Try again in 30 s.",
+     "type": "rate_limit_error",
+     "param": null,
+     "code": "rate_limit_exceeded"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "30"
+    ]
+   ]
+  },
+  {
+   "why": "a limit whose reset is now",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 1000.5
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 429,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (quota)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (quota)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 1000.5}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 429,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` has reached its usage limit. Try again in 30 s.",
+     "type": "rate_limit_error",
+     "param": null,
+     "code": "rate_limit_exceeded"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "30"
+    ]
+   ]
+  },
+  {
+   "why": "every kind of limit, the soonest said",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "reserve",
+     "resetAt": 3000
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "payment",
+     "resetAt": 2000.5
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "disabled"
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 429,
+   "retryAfter": 1000,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (reserve); r (payment); r (disabled)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (reserve); r (payment); r (disabled)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"reserve\", \"resetAt\": 3000}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"payment\", \"resetAt\": 2000.5}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"disabled\"}], \"resets_at\": 2000.5, \"opens_at\": null}}",
+   "told": 429,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` has reached its usage limit. Try again in 17 min.",
+     "type": "rate_limit_error",
+     "param": null,
+     "code": "rate_limit_exceeded"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "1000"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "a limit beside something else",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 2000
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "tried"
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 999,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (quota); r (tried)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (quota); r (tried)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 2000}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"tried\"}], \"resets_at\": 2000, \"opens_at\": null}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` cannot serve now. Try again later.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "999"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "a reason that is no limit",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "tried"
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "credential_missing"
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (tried); r (credential_missing)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (tried); r (credential_missing)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"tried\"}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"credential_missing\"}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` cannot serve now. Try again later.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "30"
+    ]
+   ]
+  },
+  {
+   "why": "under a second away",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 1000.75
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 429,
+   "retryAfter": 1,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (quota)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (quota)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 1000.75}], \"resets_at\": 1000.75, \"opens_at\": null}}",
+   "told": 429,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` has reached its usage limit. Try again in 1 s.",
+     "type": "rate_limit_error",
+     "param": null,
+     "code": "rate_limit_exceeded"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "1"
+    ]
+   ]
+  },
+  {
+   "why": "past the minute a client still waits",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 5000
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 429,
+   "retryAfter": 3999,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (quota)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (quota)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 5000}], \"resets_at\": 5000, \"opens_at\": null}}",
+   "told": 429,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` has reached its usage limit. Try again in 1 h 7 min.",
+     "type": "rate_limit_error",
+     "param": null,
+     "code": "rate_limit_exceeded"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "3999"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "no row does this work",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "format_unsupported"
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "format_unsupported"
+    }
+   ],
+   "now": 1000.5,
+   "path": "/v1/audio/transcriptions?x=1",
+   "status": 400,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (format_unsupported); r (format_unsupported)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (format_unsupported); r (format_unsupported)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"format_unsupported\"}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"format_unsupported\"}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 400,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` does not serve POST /v1/audio/transcriptions. Pick a model of your list that does.",
+     "type": "invalid_request_error",
+     "param": "model",
+     "code": null
+    }
+   },
+   "headers": []
+  },
+  {
+   "why": "one row does not do this work, another is held",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "format_unsupported"
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "tried"
+    }
+   ],
+   "now": 1000.5,
+   "path": "/v1/audio/transcriptions",
+   "status": 503,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (format_unsupported); r (tried)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (format_unsupported); r (tried)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"format_unsupported\"}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"tried\"}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` cannot serve now. Try again later.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "30"
+    ]
+   ]
+  },
+  {
+   "why": "every row closed, opening later",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "closed",
+     "opensAt": 4000
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 2999,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (closed)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (closed)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"closed\", \"opensAt\": 4000}], \"resets_at\": null, \"opens_at\": 4000}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` is closed by its schedule until at 4000. Try again in 50 min.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "2999"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "every row closed, the soonest of two",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "closed",
+     "opensAt": 4000
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "closed",
+     "opensAt": 3000
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 1999,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (closed); r (closed)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (closed); r (closed)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"closed\", \"opensAt\": 4000}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"closed\", \"opensAt\": 3000}], \"resets_at\": null, \"opens_at\": 3000}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` is closed by its schedule until at 3000. Try again in 34 min.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "1999"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "every row closed, and no window opens",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "closed",
+     "opensAt": null
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (closed)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (closed)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"closed\", \"opensAt\": null}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` is closed by its schedule, and no window of it opens.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": []
+  },
+  {
+   "why": "closed beside a limit: the sooner of a reset and an opening",
+   "steps": [
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "closed",
+     "opensAt": 4000
+    },
+    {
+     "stepId": "r",
+     "kind": "account",
+     "eligible": false,
+     "reason": "quota",
+     "resetAt": 2000
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 999,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (closed); r (quota)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (closed); r (quota)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"closed\", \"opensAt\": 4000}, {\"stepId\": \"r\", \"kind\": \"account\", \"eligible\": false, \"reason\": \"quota\", \"resetAt\": 2000}], \"resets_at\": 2000, \"opens_at\": 4000}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` cannot serve now. Try again later.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "999"
+    ],
+    [
+     "x-should-retry",
+     "false"
+    ]
+   ]
+  },
+  {
+   "why": "a row that says no reason",
+   "steps": [
+    {
+     "stepId": "r"
+    }
+   ],
+   "now": 1000.5,
+   "path": "",
+   "status": 503,
+   "retryAfter": 30,
+   "kind": "pool_unavailable",
+   "message": "Pool the pool has no step that fits now: r (unknown)",
+   "body": "{\"error\": {\"type\": \"pool_unavailable\", \"message\": \"Pool the pool has no step that fits now: r (unknown)\", \"pool_id\": \"p\", \"steps\": [{\"stepId\": \"r\"}], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 503,
+   "payload": {
+    "error": {
+     "message": "The model `the pool` cannot serve now. Try again later.",
+     "type": "server_error",
+     "param": null,
+     "code": "model_unavailable"
+    }
+   },
+   "headers": [
+    [
+     "Retry-After",
+     "30"
+    ]
+   ]
+  },
+  {
+   "why": "a response to go on from",
+   "context": true,
+   "steps": [],
+   "now": 1000.5,
+   "path": "",
+   "status": 400,
+   "retryAfter": 30,
+   "kind": "pool_context_required",
+   "message": "A pool with more than one step needs the full conversation history in input; previous_response_id belongs to one account and cannot be switched safely.",
+   "body": "{\"error\": {\"type\": \"pool_context_required\", \"message\": \"A pool with more than one step needs the full conversation history in input; previous_response_id belongs to one account and cannot be switched safely.\", \"pool_id\": \"p\", \"steps\": [], \"resets_at\": null, \"opens_at\": null}}",
+   "told": 400,
+   "payload": {
+    "error": {
+     "message": "A pool with more than one step needs the full conversation history in input; previous_response_id belongs to one account and cannot be switched safely.",
+     "type": "invalid_request_error",
+     "param": null,
+     "code": "pool_context_required"
+    }
+   },
+   "headers": []
+  }
+ ],
+ "provider_auth": [
+  {
+   "account": {
+    "id": "a",
+    "name": "a",
+    "type": "openai",
+    "authMode": "apiKey",
+    "baseUrl": "https://x/v1"
+   },
+   "field": "Authorization",
+   "prefix": "Bearer ",
+   "extra": [],
+   "anthropic": false
+  },
+  {
+   "account": {
+    "id": "a",
+    "name": "a",
+    "type": "anthropic",
+    "authMode": "apiKey",
+    "baseUrl": "https://x/v1"
+   },
+   "field": "x-api-key",
+   "prefix": "",
+   "extra": [
+    [
+     "anthropic-version",
+     "2023-06-01"
+    ]
+   ],
+   "anthropic": true
+  },
+  {
+   "account": {
+    "id": "a",
+    "name": "a",
+    "type": "openrouter",
+    "authMode": "apiKey",
+    "baseUrl": "https://x/v1"
+   },
+   "field": "Authorization",
+   "prefix": "Bearer ",
+   "extra": [],
+   "anthropic": false
+  },
+  {
+   "account": {
+    "id": "a",
+    "name": "a",
+    "type": "custom",
+    "authMode": "apiKey",
+    "baseUrl": "https://x/v1"
+   },
+   "field": "Authorization",
+   "prefix": "Bearer ",
+   "extra": [],
+   "anthropic": false
+  },
+  {
+   "account": {
+    "id": "a",
+    "name": "a",
+    "type": "another",
+    "authMode": "apiKey",
+    "baseUrl": "https://x/v1"
+   },
+   "field": "Authorization",
+   "prefix": "Bearer ",
+   "extra": [],
+   "anthropic": false
+  }
+ ],
+ "account_claim": [
+  {
+   "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJwbGFpbiJ9fQ.signature",
+   "claim": "plain"
+  },
+  {
+   "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJcdTAwZmZcdTAwZmU-Pj8_fn4ifX0.signature",
+   "claim": "ÿþ>>??~~"
+  },
+  {
+   "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJcdTA0NGZcdTA0MzFcdTA0M2JcdTA0M2VcdTA0M2FcdTA0M2UifX0.signature",
+   "claim": "яблоко"
+  },
+  {
+   "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICJhPmI_YyJ9fQ.signature",
+   "claim": "a>b?c"
+  },
+  {
+   "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7ImNoYXRncHRfYWNjb3VudF9pZCI6ICIifX0.signature",
+   "claim": null,
+   "why": "an empty name is no name: every caller says `or \"\"`"
+  },
+  {
+   "token": "",
+   "claim": null
+  },
+  {
+   "token": "one-part",
+   "claim": null
+  },
+  {
+   "token": "a.b",
+   "claim": null
+  },
+  {
+   "token": "a.!!!.c",
+   "claim": null
+  },
+  {
+   "token": "head.eyJvdGhlciI6IDF9.signature",
+   "claim": null
+  },
+  {
+   "token": "head.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOiB7fX0.signature",
+   "claim": null
+  }
+ ],
+ "catalogue_document": {
+  "accounts": {
+   "a": {
+    "models": [
+     {
+      "id": "m"
+     },
+     {
+      "id": "n"
+     }
+    ]
+   },
+   "empty": {
+    "models": []
+   },
+   "no-list": {},
+   "odd": {
+    "models": "x"
+   }
+  }
+ },
+ "catalogue_lists": [
+  {
+   "account": "a",
+   "model": "m",
+   "lists": true
+  },
+  {
+   "account": "a",
+   "model": "x",
+   "lists": false
+  },
+  {
+   "account": "empty",
+   "model": "m",
+   "lists": false
+  },
+  {
+   "account": "no-list",
+   "model": "m",
+   "lists": null
+  },
+  {
+   "account": "odd",
+   "model": "m",
+   "lists": null
+  },
+  {
+   "account": "nobody",
+   "model": "m",
+   "lists": null
+  },
+  {
+   "account": "a",
+   "model": "",
+   "lists": null
+  }
+ ]
+}

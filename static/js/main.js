@@ -3,16 +3,27 @@ import { BootStep } from "./boot-step.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { BOARD_VIEW } from "./board-view.js";
 import { CARD_FOLD, FoldPeek } from "./card-fold.js";
+import { CELL_CHAT } from "./cell-chat.js";
+import { CELL_LOG } from "./cell-log.js";
+import { CELL_SETTINGS } from "./cell-settings.js";
+import { UI_MENUS } from "./ui-menus.js";
+import { HeaderMachines } from "./header-machines.js";
+import { CellFit, MACHINE_PICK, MachineMap, SIDE_INCIDENTS } from "./machine-head.js";
+import { MACHINE_MODELS } from "./machine-models.js";
+import { ADD_MODEL } from "./add-model.js";
+import { MACHINE_DRAG, MachinePlanStart } from "./machine-plan.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
 import { drawCanvasConnectors } from "./canvas.js";
-import { drawTopologyServerStats, systemSamples } from "./charts.js";
+import { drawTopologyServerStats, openChartModal, systemSamples } from "./charts.js";
+import { appConfirm } from "./dialogs.js";
+import { getFavFields, toggleFavorite } from "./favorites.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
 import { fetchModelPricing, fetchProxyDailyStats } from "./model-meta.js";
 import { initOnboarding } from "./onboarding-tours.js";
-import { bindMonitorDrawer, loadState, startTopologyMonitor } from "./polling.js";
+import { bindMonitorDrawer, formatTps, LIVE_REFRESH_MS, loadState, refreshRoutingState, scheduleLiveRefresh, startTopologyMonitor } from "./polling.js";
 import { refreshRouteErrBadges } from "./topology-activity.js";
-import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
+import { CELL_FORM, cellServiceAction, purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { mountScoutAdd } from "./scout-add.js";
 import { openIncidentsModal } from "./topology-nodes.js";
@@ -22,7 +33,7 @@ import {
   topologyPointerDrag,
   topologyRouterInputAtPoint,
 } from "./topology-dnd.js";
-import { activeView, flushPendingTopologyRender, refreshTopology, renderAll, renderTopology, setActiveView } from "./topology-render.js";
+import { activeView, flushPendingTopologyRender, machinePageNode, patchMachinePage, refreshTopology, renderAll, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal, refreshUsageOnReturn } from "./usage-stats.js";
 import { $, api, bindTooltips, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
 
@@ -40,12 +51,13 @@ function initRouterStandalonePage() {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("confirmOverlay").hidden) closeConfirmModal();
   });
-  // Routing page is the pools' board (pool-board.js): it draws what the topology says, and the
-  // monitor keeps the topology fresh. A `?id=` from the routers' days names nothing any more.
+  // Routing page is the pools' board (pool-board.js): it draws what the topology says, the live beat keeps the topology
+  // fresh, and the monitor runs the drops along its cables. A `?id=` from the routers' days names nothing any more.
   BootStep.waitsFor("/api/topology");
   refreshTopology().then(() => {
     renderTopology();
     startTopologyMonitor();
+    scheduleLiveRefresh(LIVE_REFRESH_MS, refreshRoutingState);
     hideAppLoader();
     markPageState("ready");
   }).catch((err) => { hideAppLoader(); markPageState("error", err.message); toast(err.message); });
@@ -60,6 +72,7 @@ function bindUserChip() {
     window.location = "/login";
   };
   $("authLogoutBtn")?.addEventListener("click", doLogout);
+  new HeaderMachines({ get: api, words: t }).bind();
   // Header account chip: shown when sign-in is enabled; menu = Security / Log out.
   api("/api/auth/me").then((me) => {
     if (!me.enabled || !me.authenticated) return;
@@ -152,6 +165,64 @@ document.addEventListener("DOMContentLoaded", async () => {
     busy: () => !!topologyPointerDrag,
     changed: () => { renderTopology(); requestAnimationFrame(drawTopologyCables); },
   }).bind(document);
+  // A cell window's log (cell-log.js): read when its tab opens, again by its buttons and its choice of a run.
+  CELL_LOG.bind(document);
+  // A cell window's text chat (cell-chat.js): Send, Clear, Enter in the message, and what is typed.
+  CELL_CHAT.bind(document, { format: formatTps });
+  // A cell window's settings and placement map (cell-settings.js), edited in the cell editor's form itself.
+  CELL_SETTINGS.bind(document, { form: CELL_FORM, confirm: appConfirm,
+                                favorites: { list: getFavFields, toggle: (field) => toggleFavorite(field, "tr-") } });
+  // The parts' "⋯" menus (ui-menus.js): open, close by Escape or a click outside, step aside when an item is chosen.
+  UI_MENUS.bind();
+  // A cell chosen on a machine's map (machine-head.js): its blocks ringed, without a drawing of the board, and its
+  // model's row in the list opened, with the cell's last line. A like or a dislike is the model's: the answer goes on the topology, so that a drawing before the next
+  // reading does not undo it.
+  MACHINE_PICK.bind(document, { redraw: renderTopology, notify: toast, openChart: openChartModal,
+                                marked: (model, rating) => MACHINE_MODELS.marked(document, model, rating),
+                                listed: () => MACHINE_MODELS.show(document),
+                                save: async (model, rating) => {
+                                  const res = await api("/api/model-rating", { method: "POST", body: { model, rating } });
+                                  if (topology) topology.modelRatings = res.ratings;
+                                  return res;
+                                } });
+  // The list of models: a filter, a work, words typed, a row opened, a new cell from a model (machine-models.js).
+  MACHINE_MODELS.bind(document, { read: () => api("/api/model-notes"), redraw: renderTopology, newCell: (host, model) => ADD_MODEL.open(host, model) });
+  // A cell dragged on the rack, a handle moved, and the plan's Start and Cancel (machine-plan.js).
+  const phaseOf = (port) => {
+    const server = (machinePageNode()?.servers || []).find((s) => String(s.port) === String(port));
+    return server ? MachineMap.phase(server) : "";
+  };
+  MACHINE_DRAG.bind(document, {
+    cells: () => MACHINE_PICK.cells, node: machinePageNode, chosenPort: () => MACHINE_PICK.port,
+    place: (facts, node) => CellFit.of(facts).place(node),
+    choose: (port) => { MACHINE_PICK.port = String(port); MACHINE_PICK.show(document); },
+    patch: patchMachinePage,
+    bring: (port) => MACHINE_PICK.bringRow(document, port),
+    stop: (port) => document.querySelector(`[data-t="machine-model-stop"][data-t-id="${CSS.escape(String(port))}"]`)?.click(),
+    notify: toast,
+  });
+  new MachinePlanStart({
+    save: (body) => api("/api/topology/server-cell/save-config", { method: "POST", body: JSON.stringify(body) }),
+    act: (hostId, port, action) => cellServiceAction(hostId, port, action),
+    phase: async (port) => { await refreshTopology().catch(() => {}); return phaseOf(port); },
+  }).bind(document, {
+    target: (plan) => {
+      const server = (machinePageNode()?.servers || []).find((s) => String(s.port) === plan.port);
+      const facts = MACHINE_PICK.cells.get(plan.port);
+      if (!server || !facts) return null;
+      const name = `:${plan.port}${facts.name ? ` ${facts.name}` : ""}`;
+      const where = new MachineMap(machinePageNode(), { cells: MACHINE_PICK.cells, plan });
+      const words = where.planWhere(where.fit(where.node.servers.find((s) => String(s.port) === plan.port)));
+      const cells = plan.evict.map((p) => `:${p}`).join(", ");
+      return { hostId: facts.host, config: server.slotConfig || {}, cacheModels: server.cacheModels, room: where.node,
+               question: t(plan.evict.length ? "machinePlanConfirmEvict" : plan.moved ? "machinePlanConfirmMove" : "machinePlanConfirm", { cell: name, where: words, cells }) };
+    },
+    confirm: (question) => appConfirm(question, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }),
+    notify: toast,
+    redraw: renderTopology,
+  });
+  // The incidents' way in from a machine's side column (machine-head.js), the same opener as the bar's "⚠".
+  SIDE_INCIDENTS.bind(document, { open: openIncidentsModal });
   // A click on a machine's glance opens the machine's page (board-view.js) in this tab (the owner,
   // 2026-10-12: the card itself opens, no "↗ Open"; 2026-10-17: in this tab, not in a window of
   // its own). The machine's name is the card's link, and a link is the browser's: a click on it,

@@ -34,8 +34,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from caravan.common.queue_policy import SharedQueuePolicy
-from _node import find_node, node_search_paths  # noqa: E402
+from _contract import Contract  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("dialogs,form,llama-edit,polling,remote-cells,routers,topology-activity,topology-proxies,topology-render,"
          "charts,cables,cloud,history,favorites,config-locator,system-panels,onboarding,onboarding-tours,usage-stats,"
@@ -163,21 +163,20 @@ PINS = [
      ' px(23001, { keyTail: "a1b2", portClosed: true }); px(23002, { keyTail: "", portClosed: false }); st.topology.entry = { url: "https://caravan-api.example/v1", port: 23999 };',
      '(() => { const h = panels().left; const row = (port) => { const at = h.indexOf(`data-cv-in-row="in:skynet:proxy:${port}"`); return h.slice(at, h.indexOf("</div>", at)); };'
      ' return [row(23001).includes("🔑 …a1b2") && row(23001).includes(i18n.t("consumerEntryOnly")), row(23001).includes("cv-in-port-num"),'
-     ' row(23002).includes(i18n.t("consumerNoKey")) && row(23002).includes(\'data-cv-port-key="23002"\'), h.includes("caravan-api.example/v1") && h.includes("data-cv-entry-copy")]; })()',
+     ' row(23002).includes(i18n.t("consumerNoKey")) && !row(23002).includes("data-cv-port-key"), h.includes("caravan-api.example/v1") && h.includes("data-cv-entry-copy")]; })()',
      '[true,false,true,true]',
-     "строка клиента говорит, как потребитель входит: ключ и «только вход» — без номера порта; без ключа — «Выдать ключ»; над строками — адрес входа"),
+     "строка клиента говорит, как потребитель входит: ключ и «только вход» — без номера порта; без ключа — так и сказано, кнопок порта нет; над строками — адрес входа"),
     ("consumer_row_clicks_reach_their_action",
      '',
      'await (async () => { const ca = (await import(pathToFileURL(process.env.JS_ROOT + "/consumer-access.js").href)).CONSUMER_ACCESS;'
-     ' const calls = []; const keep = { giveKey: ca.giveKey, closePort: ca.closePort, reopenPort: ca.reopenPort, copyEntry: ca.copyEntry, setupEntry: ca.setupEntry };'
-     ' ca.giveKey = (p) => calls.push(["give", p]); ca.closePort = (p) => calls.push(["close", p]); ca.reopenPort = (p) => calls.push(["reopen", p]); ca.copyEntry = () => calls.push(["copy"]); ca.setupEntry = () => calls.push(["setup"]);'
-     ' const l = (docListeners.click || []).find((x) => String(x.fn).includes("data-cv-port-key"));'
+     ' const calls = []; const keep = { copyEntry: ca.copyEntry, setupEntry: ca.setupEntry, turnOffEntry: ca.turnOffEntry };'
+     ' ca.copyEntry = () => calls.push(["copy"]); ca.setupEntry = () => calls.push(["setup"]); ca.turnOffEntry = () => calls.push(["off"]);'
+     ' const l = (docListeners.click || []).find((x) => String(x.fn).includes("data-cv-entry-copy"));'
      ' const fire = (sel, data) => { let stopped = 0; l.fn({ target: { closest: (s) => (s === sel ? { dataset: data } : null) }, stopPropagation: () => stopped++ }); return stopped; };'
-     ' const s = [fire("[data-cv-port-key]", { cvPortKey: "23002" }), fire("[data-cv-port-close]", { cvPortClose: "8022" }),'
-     ' fire("[data-cv-port-reopen]", { cvPortReopen: "23001" }), fire("[data-cv-entry-copy]", {}), fire("[data-cv-entry-setup]", {}), fire("[data-cv-port-edit]", { cvPortEdit: "23001" })];'
+     ' const s = [fire("[data-cv-entry-copy]", {}), fire("[data-cv-entry-setup]", {}), fire("[data-cv-entry-off]", {}), fire("[data-cv-port-edit]", { cvPortEdit: "23001" })];'
      ' Object.assign(ca, keep); return [calls, s]; })()',
-     '[[["give","23002"],["close","8022"],["reopen","23001"],["copy"],["setup"]],[1,1,1,1,1,0]]',
-     "клик по кнопке строки клиента доходит до своего действия с номером своего порта; «Настроить вход» и ✎ входа — до настройки входа; negative: чужой клик (✎ порта) не трогается и не гасится"),
+     '[[["copy"],["setup"],["off"]],[1,1,1,0]]',
+     "клик по кнопке входа доходит до своего действия; negative: чужой клик (✎ порта) не трогается и не гасится"),
     ("inputs_block_empty_says_so", 'st.topology.routers[0].inputs = [];', '(() => { const h = panels().left; return [h.includes("cv-inputs-client"), h.includes("${"), h.includes(i18n.t("cvNoProxyPorts"))]; })()', '[false,false,true]',
      "роутер без портов: блок клиентов пуст и говорит это словами из en.js, а не буквальным `${…}`"),
     ("inputs_block_unclaimed_and_no_orphans", 'st.setTopology(TOPO({ orphanedAgents: [{ agentId: "ghost", clientId: "box-z", ports: [23901] }] })); st.topology.routers[0].inputs.push("skynet:proxy:8022");', '(() => { const h = panels().left; return [h.includes("routing-unclaimed"), h.includes(":8022"), h.includes("cv-orphan-agents"), h.includes("ghost · box-z"), h.includes(":23901"), h.includes(\'data-cv-orphan-agent="ghost"\')]; })()',
@@ -362,7 +361,7 @@ PINS = [
 
 
 PINS += [
-    ("shared_queue_settings_contract", '', 'qs.QueueSettings.FIELDS.map(f => [f.key, f.spec, f.fallback, f.max])', json.dumps([[field[0], spec, field[1], field[3]] for spec, field in SharedQueuePolicy.FIELDS.items()], separators=(",", ":")), "названия полей, умолчания и границы браузера совпадают с общим правилом сервера"),
+    ("shared_queue_settings_contract", '', 'qs.QueueSettings.FIELDS.map(f => [f.key, f.spec, f.fallback, f.max])', json.dumps(Contract.table("controller")["sharedQueueFields"], separators=(",", ":")), "названия полей, умолчания и границы браузера совпадают с общим правилом сервера"),
     ("shared_queue_settings_once", '', '(() => { st.topology.proxyPolicy = { cloudFallbackPct: 5, stickySlotSec: 20, loadingModelWaitSec: 60 }; const h = qs.QUEUE_SETTINGS.html(); return [(h.match(/data-cv-queue-policy=/g) || []).length, h.includes(\'value="5"\'), h.includes(\'value="20"\'), h.includes(\'value="60"\'), qs.QUEUE_SETTINGS.values()]; })()', '[3,true,true,true,{"spillPct":5,"stickySlotSec":20,"loadingModelWaitSec":60}]', "одна общая панель содержит ровно три поля"),
     ("shared_queue_settings_save_patch", '', 'await (async () => { globalThis.__fetchReply["/api/agent-proxies/policy"] = { ok: true, config: { policy: { cloudFallbackPct: 17, stickySlotSec: 20, loadingModelWaitSec: 60 } } }; await qs.QUEUE_SETTINGS.save("cloudFallbackPct", "17"); return [globalThis.__fetchCalls.map(c => [c.path, JSON.parse(c.body)]), qs.QUEUE_SETTINGS.values(), qs.QUEUE_SETTINGS.saving]; })()', '[[["/api/agent-proxies/policy",{"policy":{"cloudFallbackPct":17}}]],{"spillPct":17,"stickySlotSec":20,"loadingModelWaitSec":60},false]', "запись отправляет только изменённое поле; после ответа все очереди читают новую политику"),
     ("shared_queue_settings_zero_and_invalid", '', 'await (async () => { globalThis.__fetchReply["/api/agent-proxies/policy"] = { config: { policy: { cloudFallbackPct: 0, stickySlotSec: 0, loadingModelWaitSec: 0 } } }; await qs.QUEUE_SETTINGS.save("stickySlotSec", "0"); const results = []; for (const raw of ["", "-1", "1.5", "121", "bad"]) { try { await qs.QUEUE_SETTINGS.save("stickySlotSec", raw); results.push(false); } catch (_) { results.push(true); } } return [qs.QUEUE_SETTINGS.values(), results, globalThis.__fetchCalls.length]; })()', '[{"spillPct":0,"stickySlotSec":0,"loadingModelWaitSec":0},[true,true,true,true,true],1]', "ноль сохраняется; пустое, дробное и выход за границы не уходят на сервер"),
@@ -440,9 +439,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

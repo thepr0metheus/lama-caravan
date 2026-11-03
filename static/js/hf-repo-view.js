@@ -11,7 +11,7 @@
 // same and the first one always won.
 //
 // Rendering only: the page owns the state and the requests.
-import { compareLocalFile, freshMark } from "./model-freshness.js";
+import { DIFFERS, compareLocalFile, freshMark } from "./model-freshness.js";
 import { escapeHtml } from "./utils.js";
 import { HfFormat, hfT, hfText } from "./hf-text.js";
 
@@ -33,7 +33,7 @@ const LOW_QUANT_RE = /\b(IQ[123]_|Q[23]_)/i;
 //: The quant inside a file name — the same pattern the server uses for models (hf.py, _QUANT_PAT).
 const QUANT_IN_NAME_RE = /\b(PQ2_0|PTQ1_0|NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_-][A-Z0-9]+(?:[_-][A-Z0-9]+)*|BF16|F16|F32)\b/i;
 //: The tail the parts of a split GGUF carry ("-00003-of-00006"): no part of the quant, which is why it is cut off before
-//: the name is read (hf.py, _SHARD_TAIL). scripts/hf_quant_cases.py is the one table both copies are run against.
+//: the name is read (HubMemory::quant_of). contract/hf_quant.json is the one table both copies are run against.
 const SHARD_TAIL_RE = /-\d{5}-of-\d{5}(?=\.gguf$)/i;
 //: Bit-depth groups, best first; at or below this one a group is "low".
 const LOW_BITS = 3;
@@ -232,6 +232,35 @@ export class HfRepoView {
     return worst ? { ...worst, places: [...places] } : null;
   }
 
+  // Whether we already have a file, and where: "disk" (this one), "library" (one a move carried it to) or null. A copy that is the
+  // build HF has now, or whose standing cannot be told (a "?"), is not downloaded again: the box on it stays empty and shut (the
+  // owner, 2026-10-18: "do not let the box be ticked on files that are already downloaded here, so as not to download them twice").
+  // A copy that differs from HF's — by size, by date or by a verify, the ⇪ — is the one case left: a newer build can still be
+  // downloaded over it, after the page's question.
+  static haveIt(facts, file, verified) {
+    const settled = (fresh) => !!fresh && !DIFFERS.includes(fresh.state);
+    if (facts.localNames && facts.localNames.has(file.name) && settled(HfRepoView.fresh(facts, file, verified))) return "disk";
+    return settled(HfRepoView.libraryFresh(facts, file)) ? "library" : null;
+  }
+
+  // The parts of a row still to get: the ones we do not have, or have in another build.
+  static rowOpen(facts, row, verified) {
+    return row.files.filter((f) => !HfRepoView.haveIt(facts, f, verified));
+  }
+
+  // A row is chosen when it has parts left to get and every one of them is ticked: a row we have whole is never chosen.
+  static rowOn(facts, row, picked, verified) {
+    const open = HfRepoView.rowOpen(facts, row, verified);
+    return open.length > 0 && open.every((f) => picked.has(f.path));
+  }
+
+  // The words on a shut box: where the copy is. This disk comes first, as it does in the column beside the box.
+  static haveNote(facts, files, verified) {
+    if (files.some((f) => HfRepoView.haveIt(facts, f, verified) === "disk")) return hfT("onDiskNoPick");
+    const places = new Set(files.flatMap((f) => (HfRepoView.libraryFresh(facts, f) || { places: [] }).places));
+    return hfT("inLibraryNoPick", { places: [...places].join(", ") });
+  }
+
   constructor({ bench, catalog }) {
     this.bench = bench;
     this.catalog = catalog;
@@ -322,7 +351,7 @@ export class HfRepoView {
       return st ? "" : `<div class="hfp-empty">${escapeHtml(hfT("noGguf"))}</div>`;
     }
     const picked = new Set(state.picks || []);
-    const pickedQuants = shape.groups.flatMap((g) => g.rows).filter((row) => row.files.every((f) => picked.has(f.path))).map((row) => row.quant);
+    const pickedQuants = shape.groups.flatMap((g) => g.rows).filter((row) => HfRepoView.rowOn(facts, row, picked, state.verified)).map((row) => row.quant);
     const rec = HfRepoView.recommended(facts, pickedQuants);
     let body = "";
     for (const group of shape.groups) {
@@ -375,18 +404,21 @@ export class HfRepoView {
   }
 
   quantRowHtml(facts, row, picked, state) {
-    const on = row.files.every((f) => picked.has(f.path));
+    const open = HfRepoView.rowOpen(facts, row, state.verified);
+    const on = HfRepoView.rowOn(facts, row, picked, state.verified);
+    const shut = open.length === 0;
+    const note = shut ? ` title="${escapeHtml(HfRepoView.haveNote(facts, row.files, state.verified))}"` : "";
     const fresh = HfRepoView.rowFresh(facts, row, state.verified);
     const library = HfRepoView.rowLibraryFresh(facts, row);
     const local = row.files.filter((f) => facts.localNames && facts.localNames.has(f.name));
-    const paths = JSON.stringify(row.files.map((f) => f.path));
+    const paths = JSON.stringify(open.map((f) => f.path));
     const cls = ["hfp-q", on ? "is-picked" : "", local.length ? "is-local" : library ? "is-library" : "", row.low ? "is-low" : ""].filter(Boolean).join(" ");
     const del = local.length
       ? `<button type="button" class="hfp-icon-btn" data-act="delete" data-names="${escapeHtml(JSON.stringify(local.map((f) => f.name)))}" data-t="hf-file-delete" data-t-id="${escapeHtml(local[0].name)}" title="${escapeHtml(hfT("deleteLocalTitle"))}" aria-label="${escapeHtml(hfT("deleteLocalTitle"))}">🗑</button>`
       : "";
     const parts = row.files.length > 1 ? ` <span class="hfp-parts">×${row.files.length}</span>` : "";
     return `<tr class="${cls}" data-t="hf-quant" data-t-id="${escapeHtml(row.quant)}">`
-      + `<td><input type="checkbox" class="hfp-check" data-act="pick" data-paths="${escapeHtml(paths)}" data-t="hf-file-check" data-t-id="${escapeHtml(row.files[0].path)}"${on ? " checked" : ""} aria-label="${escapeHtml(`${hfT("selectForDownload")}: ${row.quant}`)}"></td>`
+      + `<td${note}><input type="checkbox" class="hfp-check" data-act="pick" data-paths="${escapeHtml(paths)}" data-t="hf-file-check" data-t-id="${escapeHtml(row.files[0].path)}"${on ? " checked" : ""}${shut ? " disabled" : ""} aria-label="${escapeHtml(`${hfT("selectForDownload")}: ${row.quant}`)}"${note}></td>`
       + `<td class="q">${escapeHtml(row.quant)}${parts}</td>`
       + `<td class="fn" title="${escapeHtml(row.files.map((f) => f.path).join("\n"))}">${escapeHtml(row.files[0].name)}</td>`
       + `<td class="r">${escapeHtml(HfFormat.bytes(row.size))}</td>`
@@ -396,7 +428,9 @@ export class HfRepoView {
   }
 
   fileRowHtml(facts, f, picked, rec, state) {
-    const on = picked.has(f.path);
+    const shut = !!HfRepoView.haveIt(facts, f, state.verified);
+    const note = shut ? ` title="${escapeHtml(HfRepoView.haveNote(facts, [f], state.verified))}"` : "";
+    const on = !shut && picked.has(f.path);
     const local = facts.localNames && facts.localNames.has(f.name);
     const fresh = local ? HfRepoView.fresh(facts, f, state.verified) : null;
     const library = HfRepoView.libraryFresh(facts, f);
@@ -407,7 +441,7 @@ export class HfRepoView {
       ? `<button type="button" class="hfp-icon-btn" data-act="delete" data-names="${escapeHtml(JSON.stringify([f.name]))}" data-t="hf-file-delete" data-t-id="${escapeHtml(f.name)}" title="${escapeHtml(hfT("deleteLocalTitle"))}" aria-label="${escapeHtml(hfT("deleteLocalTitle"))}">🗑</button>`
       : "";
     return `<tr class="${cls}" data-t="hf-file" data-t-id="${escapeHtml(f.path)}">`
-      + `<td><input type="checkbox" class="hfp-check" data-act="pick" data-paths="${escapeHtml(JSON.stringify([f.path]))}" data-t="hf-file-check" data-t-id="${escapeHtml(f.path)}"${on ? " checked" : ""} aria-label="${escapeHtml(`${hfT("selectForDownload")}: ${f.name}`)}"></td>`
+      + `<td${note}><input type="checkbox" class="hfp-check" data-act="pick" data-paths="${escapeHtml(JSON.stringify([f.path]))}" data-t="hf-file-check" data-t-id="${escapeHtml(f.path)}"${on ? " checked" : ""}${shut ? " disabled" : ""} aria-label="${escapeHtml(`${hfT("selectForDownload")}: ${f.name}`)}"${note}></td>`
       + `<td class="q">${f.kind === "model" ? escapeHtml(f.quant || "—") : `<span class="hfp-badge is-${escapeHtml(f.kind)}">${escapeHtml(kind)}</span>`}</td>`
       + `<td class="fn" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</td>`
       + `<td class="r">${escapeHtml(HfFormat.bytes(f.size))}</td>`

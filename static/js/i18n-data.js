@@ -1,31 +1,18 @@
-// UI translation data. 20 languages; strings missing from a language fall
-// back to English (see t() in i18n helpers).
+// UI translation data. Six languages since 2026-11-01 (the owner: keep these, widen later if needed; the fourteen
+// cut then are in the git history, in the commit that cut them); strings missing from a language fall back to English
+// (see t() in i18n helpers).
 export const LANGS = [
   { code: "en", emoji: "☕", label: "English" },
   { code: "zh", emoji: "🐼", label: "中文" },
-  { code: "hi", emoji: "🪷", label: "हिन्दी" },
   { code: "es", emoji: "🥘", label: "Español" },
-  { code: "fr", emoji: "🥐", label: "Français" },
-  { code: "ar", emoji: "🕌", label: "العربية" },
-  { code: "bn", emoji: "🐅", label: "বাংলা" },
-  { code: "pt", emoji: "⚽", label: "Português" },
-  { code: "ru", emoji: "🪆", label: "Русский" },
-  { code: "ja", emoji: "🗻", label: "日本語" },
   { code: "de", emoji: "🥨", label: "Deutsch" },
-  { code: "id", emoji: "🦎", label: "Bahasa Indonesia" },
-  { code: "ur", emoji: "🌙", label: "اردو" },
-  { code: "tr", emoji: "🧿", label: "Türkçe" },
-  { code: "ko", emoji: "🥋", label: "한국어" },
-  { code: "vi", emoji: "🛵", label: "Tiếng Việt" },
-  { code: "it", emoji: "🍕", label: "Italiano" },
-  { code: "te", emoji: "🪔", label: "తెలుగు" },
-  { code: "mr", emoji: "🥭", label: "मराठी" },
-  { code: "ta", emoji: "🐘", label: "தமிழ்" },
+  { code: "ru", emoji: "🪆", label: "Русский" },
+  { code: "ar", emoji: "🕌", label: "العربية" },
 ];
 
 // ── the tables themselves ────────────────────────────────────────────────────
 // One file per language under ./i18n/, loaded when that language is selected.
-// They used to live here, all twenty of them, in a single 1.95 MB module that
+// They used to live here, all of them (twenty then), in a single 1.95 MB module that
 // every page downloaded in full to render ONE of them — 62% of the JS on the
 // board, and the largest thing on a cold load by a wide margin.
 //
@@ -86,8 +73,8 @@ export async function loadLanguage(code) {
   }
 }
 
-/** Every language at once. For the CI guards that compare all twenty against
- *  English — never call this from the page; it is the 1.9 MB this split exists
+/** Every language at once. For the CI guards that compare them all against
+ *  English — never call this from the page; it is the megabytes this split exists
  *  to avoid. */
 export async function allMessages() {
   await Promise.all(LANGS.map((l) => loadLanguage(l.code)));

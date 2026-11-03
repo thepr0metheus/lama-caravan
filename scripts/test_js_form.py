@@ -38,8 +38,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(ROOT))
-from _node import find_node, node_search_paths  # noqa: E402
-from caravan.domain.runner import registry_json  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
+from _contract import Contract  # noqa: E402
 
 _fail = []
 
@@ -68,6 +68,8 @@ globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._t
   const owner = (arch) => reg.find((r) => (r.stArchs || []).includes(String(arch || ""))) || null;
   (globalThis.__stubReturns ||= {})["llama-edit.stOwner"] = owner;
   globalThis.__stubReturns["llama-edit.stKind"] = (arch) => ((owner(arch) || {}).artifacts || ["safetensors"])[0];
+  // The registry the real accessor gives: the form reads which runners ignore the model picker off it.
+  globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => reg;
 }
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/form.js").href);
 const F = (o) => { globalThis.__fields = o; return m.readConfigForm(""); };
@@ -76,7 +78,7 @@ const base = { PORT: { value: " 22001 " }, MODEL_FILE: { value: "a.gguf" }, MMPR
 const pick = (c) => ({ PORT: c.PORT, MODEL_FILE: c.MODEL_FILE, MMPROJ_FILE: c.MMPROJ_FILE, DRAFT: c.SPEC_DRAFT_MODEL_FILE, RUNNER: c.RUNNER,
   KIND: c.CELL_KIND, DIR: c.LLAMA_MODELS_DIR, FA: c.ENABLE_FLASH_ATTN, KV: c.KV_OFFLOAD, MMAP: c.MMAP, FIT: c.FIT, THREADS: c.THREADS,
   COMMAND: c.COMMAND, VLLM: c.VLLM_MODEL, NAME: c.MODEL_NAME, TRUST: c.TRUST_REMOTE_CODE, SEQS: c.MAX_NUM_SEQS, KVDT: c.KV_CACHE_DTYPE,
-  PARSER: c.REASONING_PARSER, n: Object.keys(c).length });
+  PARSER: c.REASONING_PARSER, TTS: c.TTS_ENGINE, PAGE: c.PAGE_URL, n: Object.keys(c).length });
 const out = {
   exports: Object.keys(m).length,
   rc: {
@@ -90,6 +92,10 @@ const out = {
       KV_CACHE_DTYPE: { value: " fp8 " }, REASONING_PARSER: { value: " nano_v3 " } })),
     whisper: pick(F({ ...base, RUNNER: { value: "whisper" } })),
     moonshine: pick(F({ ...base, RUNNER: { value: "moonshine" } })),
+    voiceClone: pick(F({ ...base, RUNNER: { value: "voice-clone" }, TTS_ENGINE: { value: " f5 " } })),
+    personaplex: pick(F({ ...base, RUNNER: { value: "personaplex" }, PAGE_URL: { value: " https://personaplex.example.org " } })),
+    pageOnLlama: pick(F({ ...base, PAGE_URL: { value: "https://personaplex.example.org" } })),
+    pageOnMinicpm: pick(F({ ...base, RUNNER: { value: "minicpm-omni" }, PAGE_URL: { value: "https://personaplex.example.org" } })),
     command: pick(F({ ...base, CELL_KIND: { value: "command" }, COMMAND: { value: " run.sh --x " } })),
     commandRunner: pick(F({ ...base, CELL_KIND: { value: "command" }, RUNNER: { value: "custom-x" } })),
     named: pick(F({ ...base, MODEL_NAME: { value: " gemma " } })),
@@ -146,11 +152,27 @@ const shut = combo(true), open = combo(false);
   st.setState({ ...st.state, config: { MODEL_FILE: "cfg.gguf", MMPROJ_FILE: "cfg-mm.gguf", SPEC_DRAFT_MODEL_FILE: "cfg-d.gguf" } });
   const keep = globalThis.__fields;
   globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: {} }, "tr-MMPROJ_FILE": { value: "" }, "tr-SPEC_DRAFT_MODEL_FILE": { value: "x-d.gguf" } };
+  { const was = st.topology; st.setTopology({ ...(was || {}), modelRatings: { rated: "like", other: "dislike" } });
+    out.ratedChoices = m.ModelChoices.items("", [{ kind: "model", path: "rated/a/Q4/m.gguf" }, { kind: "model", path: "plain/a/Q4/m.gguf" }, { kind: "model", path: "loose.gguf" }]).filter((c) => c.kind === "model").map((c) => [c.value, c.rating]);
+    st.setTopology(was); }
   out.choice = { normal: m.modelChoiceOf("tr-") };
   globalThis.__fields["tr-MODEL_FILE"].value = "own.gguf";
   out.choice.own = m.modelChoiceOf("tr-").model;
   globalThis.__fields["tr-MODEL_FILE"].dataset.pickPending = "1";
   out.choice.pending = m.modelChoiceOf("tr-");
+  {
+    // An empty field of a cell's form stands for that cell's config, not for the controller's default model.
+    const form = globalThis.__fields;
+    globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: {} }, "tr-MMPROJ_FILE": { value: "" }, "tr-SPEC_DRAFT_MODEL_FILE": { value: "" } };
+    (globalThis.__stubReturns ||= {})["remote-cells.formConfigOf"] = (pfx) => (pfx === "tr-" ? { MODEL_FILE: "" } : null);
+    const empty = m.modelChoiceOf("tr-").model;
+    globalThis.__stubReturns["remote-cells.formConfigOf"] = (pfx) => (pfx === "tr-" ? { MODEL_FILE: "cell.gguf", MMPROJ_FILE: "cell-mm.gguf" } : null);
+    const own = m.modelChoiceOf("tr-");
+    delete globalThis.__stubReturns["remote-cells.formConfigOf"];
+    const none = m.modelChoiceOf("tr-").model;
+    out.choice.ofTheCell = [empty, own.model, own.mmproj, none];
+    globalThis.__fields = form;
+  }
   globalThis.__fields = keep;
   st.setState(saved);
   const ev = []; const sel = { value: "a.gguf", dataset: {}, dispatchEvent: (e) => { ev.push(e.type); return true; } };
@@ -509,6 +531,17 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
     try { m.maybeAutofillModelHelpersPfx("tr-", opts); } catch (e) { return "threw: " + String((e && e.message) || e); }
     return seen.map((s) => s.slice());
   };
+  // The alias a model gets while the operator gives none (ModelAlias, 2026-10-25): its own name, an HF cache folder by its repository.
+  out.alias = [
+    m.ModelAlias.of("gemma-4-12B-it-GGUF/bartowski/Q5_K_M/gemma-4-12B-it-Q5_K_M.gguf"),
+    m.ModelAlias.of("Q/u/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"),
+    m.ModelAlias.of("whisper/models--Systran--faster-whisper-large-v3-turbo"),
+    m.ModelAlias.of("translate/models--facebook--nllb-200-distilled-600M"),
+    m.ModelAlias.of("Qwen3-TTS-12Hz-1.7B-Base/Qwen/SAFETENSORS", { name: "Qwen3-TTS-12Hz-1.7B-Base" }),
+    m.ModelAlias.of("models-of-mine/q8/x.gguf"),
+    m.ModelAlias.of("x/models--only"),
+    m.ModelAlias.of(""),
+  ];
   out.previewsLast = {
     pick: fill({ aliasFollow: true }, "old-model", true),
     pickOverTyped: fill({ aliasFollow: true }, "typed-by-hand", false),
@@ -632,12 +665,11 @@ probe_path.write_text(PROBE)
 try:
     env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"),
            "JS_STUBS": "favorites,config-locator,llama-edit,polling,remote-cells,system-panels,cloud,topology-render,charts,dialogs",
-           "RUNNERS_JSON": json.dumps(registry_json()),
+           "RUNNERS_JSON": json.dumps(Contract.table("controller")["runners"]),
            # mcFormatMtime — toLocaleDateString: the value depends on Node's locale and timezone.
            "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
     run = subprocess.run(
-        [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-         str(probe_path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=60)
+        probe_args(node, harness, probe_path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=60)
 finally:
     probe_path.unlink(missing_ok=True)
 if run.returncode != 0:
@@ -647,17 +679,30 @@ if run.returncode != 0:
 got = json.loads(run.stdout.strip().splitlines()[-1])
 
 print("модуль:")
-check(got["exports"] == 43, "form.js экспортирует 43 функции (пересчитай при изменении охвата; +ModelCompanions, 2026-10-17; +mcOpen, раунд 10; "
-      "+modelChoiceOf, +mcAwaitPick)")
+check(got["ratedChoices"] == [["rated/a/Q4/m.gguf", "like"], ["plain/a/Q4/m.gguf", ""], ["loose.gguf", ""]],
+      f"выбор модели знает оценку папки, в которой она лежит (владелец, 2026-10-31: «в месте, где выбираем»); negative: у другой модели и у файла прямо в библиотеке её нет (got {got['ratedChoices']})")
+_form_js = (ROOT / "static" / "js" / "form.js").read_text(encoding="utf-8")
+check('<span class="mc-item-name">${escapeHtml(fname)}</span>${ModelRating.markHtml(item.rating, t)}' in _form_js, "строка выбора рисует оценку сразу за именем файла")
+check(got["exports"] == 46, "form.js экспортирует 46 имён (пересчитай при изменении охвата; +ModelCompanions, 2026-10-17; +mcOpen, раунд 10; "
+      "+modelChoiceOf, +mcAwaitPick; +ModelAlias, 2026-10-25; +ModelChoices, 1.3.638; +modelWindowFor, 1.3.651)")
+a = got["alias"]
+check(a[:2] == ["gemma-4-12b-it-q5_k_m", "qwen3.8-flash-next-ud-iq4_xs"],
+      "алиас по умолчанию — имя модели строчными: GGUF без .gguf и без «-00001-of-00003» частей")
+check(a[2:4] == ["faster-whisper-large-v3-turbo", "nllb-200-distilled-600m"],
+      "defect-history (2026-10-25): папка кэша HF — по имени репозитория, без «models--Systran--»: так whisper стоял в списке "
+      "моделей машины как models--systran--faster-whisper-large-v3-turbo")
+check(a[4] == "qwen3-tts-12hz-1.7b-base", "safetensors — по папке модели, а не по папке формата, которой кончается путь")
+check(a[5:] == ["x", "models--only", ""],
+      "negative: «models» в начале имени — не кэш HF; папка без репозитория после «models--» остаётся как есть; нет пути — нет алиаса")
 check(got["classicGone"] == [],
       f"negative: помощников классической формы одиночного сервера больше нет — Gemma-режимы, автошаблон, "
       f"сырой вывод; она ушла с ячейками контроллера в шаге 6.9 (got {got['classicGone']})")
 
 print("readConfigForm — поля:")
 rc = got["rc"]
-check(rc["llama"]["n"] == 147 and rc["empty"]["n"] == 147,
-      "конфиг всегда из 147 ключей, даже с пустой формы (1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T; 1.3.550: +TRUST_REMOTE_CODE; "
-      "1.3.555: +MAX_NUM_SEQS, KV_CACHE_DTYPE, REASONING_PARSER)")
+check(rc["llama"]["n"] == 150 and rc["empty"]["n"] == 150,
+      "конфиг всегда из 150 ключей, даже с пустой формы (1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T; 1.3.550: +TRUST_REMOTE_CODE; 1.3.697: +CPU_OFFLOAD_GB; "
+      "1.3.555: +MAX_NUM_SEQS, KV_CACHE_DTYPE, REASONING_PARSER; 1.3.611: +TTS_ENGINE; 1.3.613: +PAGE_URL)")
 check(rc["named"]["NAME"] == "gemma" and rc["namedWhisper"]["NAME"] == "ear" and rc["llama"]["NAME"] == "",
       "MODEL_NAME (1.3.507) — имя модели на входе машины, у любого раннера, без пробелов; поля нет — пусто")
 check(rc["llama"]["PORT"] == "22001", "порт обрезан от пробелов")
@@ -691,6 +736,14 @@ check(rc["commandRunner"]["RUNNER"] == "custom-x", "явный RUNNER побеж
 check(rc["seamless"]["RUNNER"] == "seamless", "RUNNER обрезан от пробелов")
 check(all(rc[r]["MODEL_FILE"] == "" and rc[r]["MMPROJ_FILE"] == "" and rc[r]["DRAFT"] == "" for r in ("vllm", "whisper", "moonshine", "command")),
       "vllm/whisper/moonshine/command сбрасывают MODEL_FILE, MMPROJ_FILE, SPEC_DRAFT_MODEL_FILE")
+check(rc["voiceClone"].get("TTS") == "f5" and rc["voiceClone"]["MODEL_FILE"] == "" and rc["voiceClone"]["MMPROJ_FILE"] == ""
+      and rc["voiceClone"]["DRAFT"] == "" and rc["llama"].get("TTS") == "",
+      "клон голоса (1.3.611): движок сохраняется обрезанным, файла модели нет — раннер не читает общий выбор (sharedPicker "
+      "ignored, по слову реестра); у llama.cpp поле пустое")
+check(rc["personaplex"]["PAGE"] == "https://personaplex.example.org",
+      "адрес страницы ячейки (1.3.613): у раннера, который отдаёт свою страницу (строка реестра `page`), он сохраняется обрезанным")
+check(rc["pageOnLlama"]["PAGE"] == "" and rc["pageOnMinicpm"]["PAGE"] == "" and rc["empty"]["PAGE"] == "",
+      "negative: у раннера без своей страницы адреса нет, даже если в поле что-то осталось; поля нет на форме — пусто")
 check(rc["vllm"]["VLLM"] == "org/m", "VLLM_MODEL обрезан")
 check(all(rc[r]["MODEL_FILE"] == "a.gguf" and rc[r]["MMPROJ_FILE"] == "mm.gguf" and rc[r]["DRAFT"] == "d.gguf" for r in ("seamless", "transcribe")),
       "seamless/transcribe СОХРАНЯЮТ модель — как есть, не в списке сброса")
@@ -750,6 +803,9 @@ print("modelChoiceOf / mcAwaitPick:")
 check(got["choice"]["normal"] == {"model": "cfg.gguf", "mmproj": "cfg-mm.gguf", "draft": "x-d.gguf"}
       and got["choice"]["own"] == "own.gguf",
       "перерисовка держит значения формы, пустое поле — из конфига (как было); своё значение важнее конфига")
+check(got["choice"]["ofTheCell"] == ["", "cell.gguf", "cell-mm.gguf", "cfg.gguf"],
+      f"defect-history: пустое поле формы ячейки — это её конфиг, а не модель контроллера: список прыгал на неё, и «Применить» её сохраняла; "
+      f"negative: у ячейки поле пусто — пусто и остаётся; у формы без конфига — модель контроллера, как было (got {got['choice']['ofTheCell']})")
 check(got["choice"]["pending"] == {"model": "", "mmproj": "", "draft": ""},
       "defect-history: форма «＋ Add model» ждёт выбора — все три поля пустые при перерисовке; раньше модель конфига "
       "возвращалась в поле, когда приходил список с машины, и Apply создавал ячейку с ней")
@@ -868,10 +924,9 @@ check(got.get("splitSizes") == [["S/a/IQ2/S-IQ2-00001-of-00002.gguf", "68 GB \u0
                                ["W/a/Q4/whole-Q4.gguf", "4 GB"], ["H/a/Q8/half-00001-of-00003.gguf", "5 GB \u00d71/3"]],
       f"модель из частей в пикере — размер ВСЕЙ модели и число частей («68 GB ×2»); недостающая часть названа («×1/3»: её нельзя запустить, а выглядела бы целой); "
       f"negative: целый файл и «часть 1 из 1» — без «×» (got {got.get('splitSizes')})")
-check(got["stRows"] == [[True, True], [False, True]] and got.get("stPickError") is None,
-      f"папка safetensors — в пикере формы, чья машина читает дерево моделей контроллера (машина контроллера); "
-      f"negative: у другой машины скаута папки vLLM нет; defect-history: папку SeamlessM4T другая машина видит — "
-      f"скаут 2.30 приносит её сам (got {got['stRows']}, {got.get('stPickError')})")
+check(got["stRows"] == [[True, True], [True, True]] and got.get("stPickError") is None,
+      f"папка safetensors — в пикере на любой машине: скаут приносит её через контроллер или показывает, смонтировано ли что-нибудь или нет "
+      f"(got {got['stRows']}, {got.get('stPickError')})")
 check(got["specPick"] == [["gemma-4-31b-it/mtp/gemma-4-31B-it-MTP-Q8_0.gguf", "draft-mtp", True],
                           ["x/default/dflash-x.gguf", "draft-dflash", True],
                           ["", "draft-eagle3", True],

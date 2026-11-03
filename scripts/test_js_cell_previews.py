@@ -14,7 +14,7 @@ after the autofill); only the preview lied.
 The pick runs the page's own handlers: the change listeners that
 openLlamaRemoteEdit puts on the model field, in the order it puts them, started
 by mcSelectItem, the call a click on a picker row makes. Every expected command
-is the server's own (the runner classes of caravan/domain/runner.py) for the
+is the program's own (contract/runner_lines.json) for the
 fields the pick leaves in the form: the preview must be the command Apply will
 save, not a command of its own.
 
@@ -41,7 +41,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(ROOT))
 from _js_pins import run  # noqa: E402
-from caravan.domain.runner import get as _runner, registry_json  # noqa: E402
+from _contract import Contract, RunnerLines  # noqa: E402
 
 LLAMA = "llama-3.3-70b-instruct-q4_k_m.gguf"
 GEMMA = "gemma-3-27b-it-q4_k_m.gguf"
@@ -197,7 +197,7 @@ const untilAsked = async () => { for (let i = 0; i < 100 && !asked().length; i++
 
 def _exec(runner, cfg):
     """The line the server builds for a cell of that runner: what Apply saves."""
-    return "exec " + _runner(runner).command(cfg)
+    return "exec " + RunnerLines.of(runner, cfg)
 
 
 def _pin(pid, setup, expr, expected, msg):
@@ -439,7 +439,7 @@ PINS = [
 ]
 
 if __name__ == "__main__":
-    pre = (PREAMBLE.replace("__REG__", json.dumps(registry_json()))
+    pre = (PREAMBLE.replace("__REG__", json.dumps(Contract.table("controller")["runners"]))
            .replace("__MODELS__", json.dumps(MODELS)).replace("__ARTIFACTS__", json.dumps(ARTIFACTS))
            .replace("__LLAMA__", LLAMA).replace("__PORT__", PORT))
     sys.exit(run("js cell-previews", ".probe_js_cell_previews.tmp.mjs", pre, PINS,

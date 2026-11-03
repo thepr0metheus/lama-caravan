@@ -6,10 +6,12 @@ import { refreshFavoritesPanel } from "./favorites.js";
 import { KvCache } from "./kv-cache.js";
 import {
   badge,
+  hoistExtraArgs,
   maybeAutofillModelHelpersPfx,
   mcAwaitPick,
   mcOpen,
   modelsByPath,
+  modelWindowFor,
   readConfigForm,
   renderChatTemplateHint,
   renderFields,
@@ -23,14 +25,16 @@ import { t } from "./i18n.js";
 import { saveRouters } from "./routers.js";
 import {
   applyConfigToForm,
+  effectiveRunnerId,
   renderCellPreviews,
+  runnerContextField,
   runnerRegistry,
   usesLlamaConfig,
   setEditCurrentCommand,
   suggestedSnapshotName,
   wireCellKindToggle,
 } from "./llama-edit.js";
-import { cellHolds, machineGpuLabel, refreshComputeTarget } from "./memory.js";
+import { cellHolds, machineGpuLabel, mountPlacementMap, refreshComputeTarget } from "./memory.js";
 import { startMonitor } from "./polling.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
@@ -39,8 +43,12 @@ import {
 } from "./topology-nodes.js";
 import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
+import { TalkCell, TalkWindow } from "./voice-talk.js";
+import { LiveCell, LiveWindow } from "./voice-live.js";
 
 export let _trCachedModels = new Set(); // relative paths of .gguf files cached on the current remote host
+// The config this form was opened on. Null while no form was opened.
+let _trFormConfig = null;
 // The machine a scout reports, by its id: GPUs, CPU, address, liveness. Its
 // own record (topology.hosts) — not the client that may share the id, which
 // is the operator's and carries agents, no hardware (docs/scout-split.md).
@@ -129,19 +137,150 @@ export function startRemoteStartWatch() {
   }, 2000);
 }
 
-// Shared server-slot actions (used by the node view).
-export function openRemoteFormForHost(hostId, port = "", { pickModel = false } = {}) {
-  const host = topologyHost(hostId) || {};
-  openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], port, { pickModel });
+// Shared server-slot actions (used by the node view). The cell window may keep edits of a cell's settings not applied
+// (cell-settings.js): that cell's dialog shows them as they stand, and the form is filled for another cell — or this one
+// afresh — only when the operator lets them go.
+export async function openRemoteFormForHost(hostId, port = "", { pickModel = false } = {}) {
+  if (!pickModel && CELL_FORM.keeps(hostId, port)) {
+    CELL_FORM.show();
+    return;
+  }
+  if (!(await CELL_FORM.mayFill(hostId, port))) return;
+  CELL_FORM.fill(hostId, port, { pickModel });
 }
 
-// "+ Add model" on a machine's card (2026-09-27, round 10: the operator chose
-// A): the cell editor opens on the next free port with its model list already
-// open, and Apply makes the cell. The button alone makes nothing, so a change
-// of mind leaves no port taken.
-export function openCaravanModelEditor(hostId) {
-  return openRemoteFormForHost(hostId, String(nextTopologyCellPort() || ""), { pickModel: true });
+/**
+ * The cell editor's form, for the cell window's Settings and Memory tabs (cell-settings.js). The window edits the very inputs
+ * the dialog edits — filled without the dialog (`fill`), read as the dialog's Apply reads them (`read`), written as its own
+ * handlers write them (`set`), saved by its Apply (`save`) — so the checks, the placement map and the command previews stay
+ * the dialog's, in one place. One form, one cell at a time: `holds` says whose inputs it has. What is done to the form by other
+ * hands — filled for a cell, saved, its dialog closed — is heard by `on`.
+ */
+export class CellForm {
+  static EVENTS = ["filled", "saved", "hidden"];
+
+  constructor() {
+    this.listeners = Object.fromEntries(CellForm.EVENTS.map((kind) => [kind, []]));
+    // Who keeps edits of the form outside its dialog — the cell window: {keeps(hostId, port), leave(hostId, port)}.
+    this.keeper = null;
+    this.watching = false;
+  }
+
+  holds(hostId, port) {
+    return !!_trCellPort && String(_trHostId) === String(hostId) && String(_trCellPort) === String(port);
+  }
+
+  /** The form filled with the cell's saved config; `hidden`: without its dialog (the cell window's own filling). */
+  fill(hostId, port, { pickModel = false, hidden = false } = {}) {
+    const host = topologyHost(hostId) || {};
+    openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], port, { pickModel, hidden });
+  }
+
+  keepBy(keeper) {
+    this.keeper = keeper;
+  }
+
+  /** True when the edits kept outside the dialog are this cell's, and the form holds them. */
+  keeps(hostId, port) {
+    return !!this.keeper?.keeps?.(hostId, port) && this.holds(hostId, port);
+  }
+
+  /** May the form be filled for cell hostId:port now? Its keeper asks the operator about edits not applied; with no keeper, yes. */
+  async mayFill(hostId, port) {
+    return this.keeper?.leave ? !!(await this.keeper.leave(hostId, port)) : true;
+  }
+
+  read() {
+    return readConfigForm("tr-");
+  }
+
+  /** Writes `value` into a field as typing would (a box as "1"/"0"), and lets the form's own listeners draw again what reads it
+   *  — the placement map, the previews, the optional toggle marked as stated. False for a field the form has not. */
+  set(field, value) {
+    const el = $(`tr-${field}`);
+    if (!el) return false;
+    if (el.type === "checkbox") el.checked = String(value) === "1";
+    else el.value = String(value ?? "");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  /** The box as the form draws it: an optional toggle its config does not state shows the server's default. */
+  checked(field) {
+    return !!$(`tr-${field}`)?.checked;
+  }
+
+  /** A field the form does not let be typed in: a cell's port, which is moved on the board. */
+  locked(field) {
+    const el = $(`tr-${field}`);
+    return !!(el && (el.readOnly || el.disabled));
+  }
+
+  /** What leaving a field does in the dialog: EXTRA_ARGS hands the flags that have fields of their own to those fields. */
+  settle(field) {
+    return field === "EXTRA_ARGS" ? hoistExtraArgs("tr-") : Promise.resolve();
+  }
+
+  /** The field a window is typed into for the form's runner (CTX_SIZE, vLLM's MAX_MODEL_LEN, Strata's STRATA_CONTEXT). */
+  windowField() {
+    return runnerContextField(effectiveRunnerId("tr-"));
+  }
+
+  /** The most the form's model takes (form.js modelWindowFor): what its window field shows as the placeholder; 0 unknown. */
+  modelWindow() {
+    return modelWindowFor("tr-");
+  }
+
+  /** The dialog's Apply. `confirmed`: the question Apply asks was answered by the button that called it (the new-cell
+   *  wizard's Create), and is not asked twice. */
+  save({ confirmed = false } = {}) {
+    return submitRemoteLlamaStart({ confirmed });
+  }
+
+  /** The dialog over the board, with the form as it stands. */
+  show() {
+    const ov = $("llamaRemoteEditOverlay");
+    if (!ov) return;
+    ov.hidden = false;
+    if (!ov.hasAttribute("tabindex")) ov.tabIndex = -1;
+    ov.focus({ preventScroll: true });
+    // The tab bar's overflow is measured on screen, and a filling without the dialog measured nothing.
+    setTimeout(() => syncConfigTabs("tr-"), 0);
+  }
+
+  /** The map of the cards and RAM drawn from the form in `box` (memory.js); false for a cell that has none. */
+  placeMap(box) {
+    return mountPlacementMap("tr-", box);
+  }
+
+  /** The form itself, for a listener of its edits. */
+  element() {
+    return $("llamaRemoteEditForm");
+  }
+
+  on(kind, fn) {
+    this.listeners[kind]?.push(fn);
+    if (kind === "hidden") this.watch();
+  }
+
+  /** "filled" and "hidden" carry nothing; "saved" carries the config sent. */
+  emit(kind, ...args) {
+    for (const fn of this.listeners[kind] || []) fn(...args);
+  }
+
+  /** The dialog is closed by many hands — its ✕, Escape, its backdrop, a save — and each only sets `hidden`: that is heard here. */
+  watch() {
+    const ov = $("llamaRemoteEditOverlay");
+    if (this.watching || !ov || typeof MutationObserver === "undefined") return;
+    this.watching = true;
+    new MutationObserver(() => {
+      if (ov.hidden) this.emit("hidden");
+    }).observe(ov, { attributes: true, attributeFilter: ["hidden"] });
+  }
 }
+
+export const CELL_FORM = new CellForm();
 
 // ── Port picker: move a parked cell to another free port ─────────────────────
 // Grid of the fleet-wide port pool (cells on every host + proxy ports share
@@ -419,6 +558,7 @@ async function postReserve(hostId, pendingPort, plan) {
 
 // `force`: start a cell in an engine whose model would not fit into the
 // cards' free memory anyway — sent only after the operator said so.
+/** @returns whether the cell was asked to do it: false when the action was refused or failed, the reason already said to the operator. */
 export async function cellServiceAction(hostId, port, actionName, { force = false } = {}) {
   const cellKey = `${hostId}:${port}`;
   _pendingCellActions.set(cellKey, actionName);
@@ -444,14 +584,15 @@ export async function cellServiceAction(hostId, port, actionName, { force = fals
       const need = `${s.basis === "weights" ? "≥" : "≈"} ${engineSizeText(s.needBytes)}`;
       if (await appConfirm(t("cellEngineShort", { model: s.model, need, free: engineSizeText(s.freeBytes), port: String(port) }),
         { confirmLabel: t("cellStartAnyway"), scene: "start" })) {
-        await cellServiceAction(hostId, port, actionName, { force: true });
+        return cellServiceAction(hostId, port, actionName, { force: true });
       }
-      return;
+      return false;
     }
     // The request can succeed (HTTP 200) but the agent may reject the action —
     // e.g. a client has a single server slot and another cell is still
     // starting/downloading. Surface that instead of silently doing nothing.
-    if (res && res.ok === false) {
+    const refused = !!res && res.ok === false;
+    if (refused) {
       const raw = String((res.result && res.result.error) || res.error || t("cellActionFailed"));
       const busy = /already|in progress|already running/i.test(raw);
       toast(busy
@@ -468,11 +609,13 @@ export async function cellServiceAction(hostId, port, actionName, { force = fals
       _pendingCellActions.delete(cellKey);
       refreshTopology().catch(() => {});
     }
+    return !refused;
   } catch (e) {
     _stoppingCells.delete(cellKey);
     _pendingCellActions.delete(cellKey);
     if (!topologyInteractionActive()) renderTopology();
     toast(String(e));
+    return false;
   }
 }
 
@@ -764,6 +907,21 @@ export function bindServerSlotControls(root) {
     }));
   root.querySelectorAll("[data-node-cell-boot]").forEach((b) =>
     b.addEventListener("click", () => cellServiceAction(b.dataset.nodeCellBoot, b.dataset.nodeCellPort, b.dataset.nodeCellBootAction)));
+  // 🎙 the voice window over the running cell (voice-talk.js): its own element, so the board's repaints keep the talk.
+  root.querySelectorAll("[data-cell-talk]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      TalkWindow.open(TalkCell.fromButton(b));
+    }));
+  // 📞 the live window over the running cell (voice-live.js): its own element too, and its line outlives a repaint.
+  root.querySelectorAll("[data-cell-live]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      LiveWindow.open(LiveCell.fromButton(b));
+    }));
+  // 🌐 the page the cell serves itself (cell-page.js): a link, followed in this tab; the card under it hears nothing.
+  root.querySelectorAll("[data-cell-page]").forEach((a) =>
+    a.addEventListener("click", (e) => e.stopPropagation()));
   // ⇄ RESERVED step → the free-port picker (parked cells only; the render
   // sets the attr under the same conditions as delete).
   root.querySelectorAll("[data-cell-port-reassign]").forEach((b) =>
@@ -1017,6 +1175,11 @@ export function formOnControllerMachine(pfx) {
   return pfx === "tr-" && isControllerMachine(_trHostId);
 }
 
+// What an empty model field of this form stands for (form.js modelChoiceOf): the config it was opened on; null for a form that has none.
+export function formConfigOf(pfx) {
+  return pfx === "tr-" ? _trFormConfig : null;
+}
+
 // ── Per-cell schedule panel (right rail of the cell editor) ──────────────────
 const SCHED_DAY_KEYS = ["dayMo", "dayTu", "dayWe", "dayTh", "dayFr", "daySa", "daySu"];
 let _schedSaveTimer = 0;
@@ -1176,7 +1339,7 @@ export function cellFormTitle(host, port, existing) {
   return t(existing ? "remoteCellTitle" : "remoteNewCellTitle", { port, host });
 }
 
-export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", { pickModel = false } = {}) {
+export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", { pickModel = false, hidden = false } = {}) {
   _trHostId = hostId;
   _trClientGpus = Array.isArray(clientGpus) ? clientGpus : [];
   _trGpuName = String(gpuName || _trClientGpus[0]?.name || "");
@@ -1245,7 +1408,10 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     MODEL_FILE:           skynetCfg.MODEL_FILE       || "",
     MMPROJ_FILE:          skynetCfg.MMPROJ_FILE      || "",
     CHAT_TEMPLATE_FILE:   "",
-    CTX_SIZE:             skynetCfg.CTX_SIZE         || "4096",
+    // Empty: the cell starts with the window its model was trained for (AskedWindow) — the owner, 2026-10-26: "if the context
+    // size was not entered by hand, put in exactly the largest the model was trained on". It said 4096 here, and every cell
+    // made since the controller moved to the NAS (its config has no CTX_SIZE) kept a 4096 nobody typed.
+    CTX_SIZE:             skynetCfg.CTX_SIZE         || "",
     N_GPU_LAYERS:         skynetCfg.N_GPU_LAYERS     || "999",
     CACHE_TYPE_K:         skynetCfg.CACHE_TYPE_K     || "q8_0",
     CACHE_TYPE_V:         skynetCfg.CACHE_TYPE_V     || "q8_0",
@@ -1255,9 +1421,12 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     // and crashed four times on its first start (2026-10-14).
     ENABLE_FLASH_ATTN:    skynetCfg.ENABLE_FLASH_ATTN    || "1",
     ENABLE_CONT_BATCHING: skynetCfg.ENABLE_CONT_BATCHING || "",
-    ENABLE_METRICS:       skynetCfg.ENABLE_METRICS   || "",
     OFFLOAD_MMPROJ:       skynetCfg.OFFLOAD_MMPROJ   || "",
-    ENABLE_JINJA:         skynetCfg.ENABLE_JINJA     || "",
+    // ON for a new cell too: llama.cpp reads chat templates with Jinja by default since b10357, and the builder says OFF out loud
+    // (--no-jinja) for a box left empty. A gemma-4 cell made by the wizard answered its first question with 500 "this custom
+    // template is not supported, try using --jinja" (2026-10-26); the owner had turned it on by hand on every chat cell.
+    // An embedding cell gets --no-jinja from the builder whatever this says.
+    ENABLE_JINJA:         skynetCfg.ENABLE_JINJA     || "1",
     PARALLEL:             "1",
     HOST:                 "0.0.0.0",
     PORT:                 _trCellPort || "8180",
@@ -1295,6 +1464,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   const cacheEl = $("tr-cacheModels");
   if (cacheEl) cacheEl.checked = _trSlotHasConfig ? !!_trSlotCache : true;
 
+  _trFormConfig = remoteDefaults;
   applyConfigToForm(remoteDefaults, "tr-");
   const trPortEl = $("tr-PORT");
   if (trPortEl) trPortEl.readOnly = !!_trCellPort;
@@ -1368,21 +1538,27 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
       remTitleEl.after(b);
     }
   }
-  const _ov = $("llamaRemoteEditOverlay");
-  _ov.hidden = false;
-  // Focus into the dialog — same reason as the controller editor.
-  if (!_ov.hasAttribute("tabindex")) _ov.tabIndex = -1;
-  _ov.focus({ preventScroll: true });
-  // "+ Add model": the model is the first thing to pick — its list opens on
-  // the dialog now on screen (its search takes the focus from there).
-  if (pickModel) mcOpen($("tr-MODEL_FILE"));
+  // `hidden`: the cell window fills the form for its Settings and Memory tabs (cell-settings.js) and shows no dialog.
+  if (!hidden) {
+    const _ov = $("llamaRemoteEditOverlay");
+    _ov.hidden = false;
+    // Focus into the dialog — same reason as the controller editor.
+    if (!_ov.hasAttribute("tabindex")) _ov.tabIndex = -1;
+    _ov.focus({ preventScroll: true });
+    // "+ Add model": the model is the first thing to pick — its list opens on
+    // the dialog now on screen (its search takes the focus from there).
+    if (pickModel) mcOpen($("tr-MODEL_FILE"));
+  }
+  CELL_FORM.emit("filled");
 
   // Load backups asynchronously
   fetchAndRenderRemoteBackups(hostId).catch(() => {});
 }
 
-export async function submitRemoteLlamaStart() {
-  if (_trPurging) { toast(t("topologyPurgeCacheBlocksStart")); return; }
+/** Apply: a cell's config saved — true when it was; a refusal said before asking and a confirm declined are false, and the
+ *  cell window waits on that answer (cell-settings.js). A new cell started answers nothing: no window edits one. */
+export async function submitRemoteLlamaStart({ confirmed = false } = {}) {
+  if (_trPurging) { toast(t("topologyPurgeCacheBlocksStart")); return false; }
   const config = readConfigForm("tr-");
   // Command-path runners (custom/vllm/whisper) carry no MODEL_FILE — their
   // artifact lives in COMMAND/VLLM_MODEL/WHISPER_MODEL respectively.
@@ -1415,26 +1591,30 @@ export async function submitRemoteLlamaStart() {
   // "select a model" was two dialogs for nothing (an empty model is what
   // "+ Add model" opens with).
   if (isCommand) {
-    if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return; }
+    if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return false; }
   } else if (runnerId === "vllm") {
-    // A model picked in the list and no path: the path is derived from the pick only on the controller's own machine, and
-    // for another one it is typed — "Select a model" said the opposite of what the picker shows (2026-10-17, Qwen3-Omni AWQ).
-    if (!(config.VLLM_MODEL || "").trim()) { toast(t(($("tr-MODEL_FILE")?.value || "").trim() ? "vllmPathNeeded" : "selectModel")); return; }
-  } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return; }
+    // A model picked in the list names its place among the controller's models, on any machine: only with nothing picked is there nothing to serve.
+    if (!(config.VLLM_MODEL || "").trim()) {
+      const picked = ($("tr-MODEL_FILE")?.value || "").trim();
+      if (!picked) { toast(t("selectModel")); return false; }
+      config.VLLM_MODEL = picked;
+    }
+  } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return false; }
   // A pair llama.cpp does not start with is said now, with the way out — not after the cell
   // has crashed four times and given up (the fields of the llama form mean nothing to the others).
   if (!isCommandPath) {
     const refused = KvCache.refusedType(config);
-    if (refused) { toast(t("kvCacheNeedsFlash", { type: refused })); return; }
+    if (refused) { toast(t("kvCacheNeedsFlash", { type: refused })); return false; }
   }
-  if (!(await appConfirm(_startMsg, {
+  if (!confirmed && !(await appConfirm(_startMsg, {
     danger: false,
     confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),
     scene: "start",
-  }))) return;
+  }))) return false;
 
   // Cell mode: save config without starting (same as controller "Apply")
   if (_trCellPort) {
+    let saved = false;
     const held = cellHolds("tr-");        // does the cell run? — asked before the request, while the form still names it
     const btn = $("llamaRemoteEditStart");
     const orig = btn.textContent;
@@ -1462,6 +1642,8 @@ export async function submitRemoteLlamaStart() {
         if (!topologyInteractionActive()) renderTopology();
       }, 2600);
       refreshTopology().catch(() => {});
+      saved = true;
+      CELL_FORM.emit("saved", config);
     } catch (e) {
       toast(String(e));
     } finally {
@@ -1469,7 +1651,7 @@ export async function submitRemoteLlamaStart() {
       btn.disabled = false;
       btn.classList.remove("btn-busy");
     }
-    return;
+    return saved;
   }
 
   const btn  = $("llamaRemoteEditStart");

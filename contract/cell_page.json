@@ -1,0 +1,136 @@
+{
+ "cases": [
+  {
+   "said": "https://personaplex.example.org",
+   "kept": "https://personaplex.example.org"
+  },
+  {
+   "said": "  https://personaplex.example.org \n",
+   "kept": "https://personaplex.example.org"
+  },
+  {
+   "said": "HTTPS://PersonaPlex.Example.ORG",
+   "kept": "HTTPS://PersonaPlex.Example.ORG"
+  },
+  {
+   "said": "https://personaplex.example.org:8443",
+   "kept": "https://personaplex.example.org:8443"
+  },
+  {
+   "said": "https://personaplex.example.org/",
+   "kept": "https://personaplex.example.org/"
+  },
+  {
+   "said": "https://personaplex.example.org/talk?voice=NATF2.pt#top",
+   "kept": "https://personaplex.example.org/talk?voice=NATF2.pt#top"
+  },
+  {
+   "said": "https://10.0.0.5:22021",
+   "kept": "https://10.0.0.5:22021"
+  },
+  {
+   "said": "https://localhost",
+   "kept": "https://localhost"
+  },
+  {
+   "said": "https://a-b.example.org",
+   "kept": "https://a-b.example.org"
+  },
+  {
+   "said": "https://personaplex.example.org/x\"y",
+   "kept": "https://personaplex.example.org/x\"y"
+  },
+  {
+   "said": "",
+   "kept": ""
+  },
+  {
+   "said": "   ",
+   "kept": ""
+  },
+  {
+   "said": "http://personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "javascript:alert(1)",
+   "kept": null
+  },
+  {
+   "said": "https://",
+   "kept": null
+  },
+  {
+   "said": "https:///talk",
+   "kept": null
+  },
+  {
+   "said": "//personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "wss://personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "https://user:secret@personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "https://user@personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex.example.org:port",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex.example.org:123456",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex .example.org",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex.example.org/a b",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex.example.org/a\nb",
+   "kept": null
+  },
+  {
+   "said": "https://-personaplex.example.org",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex-.example.org",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex..example.org",
+   "kept": null
+  },
+  {
+   "said": "https://пример.рф",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex.example.org/é",
+   "kept": null
+  },
+  {
+   "said": "https://personaplex.example.org?x=1",
+   "kept": null
+  },
+  {
+   "said": "https://Kelvin.example.org",
+   "kept": null
+  }
+ ]
+}

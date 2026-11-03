@@ -2,11 +2,20 @@
 import { drawTopologyCables } from "./cables.js";
 import { BoardView } from "./board-view.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
-import { CellEye, CellFilter, CellRow, CellWindow, EngineStrip, FoldSlot, ShelfLine } from "./card-rows.js";
+import { CellEye, CellFilter, CellRow, EngineStrip, FoldSlot, ShelfLine } from "./card-rows.js";
 import { CellMemory } from "./cell-memory.js";
+import { CellFit, MACHINE_PICK, MachineHead, MachineMap, MachineSide } from "./machine-head.js";
+import { MACHINE_PLAN } from "./machine-plan.js";
+import { CardPin } from "./placement.js";
 import { CellSpeed } from "./cell-speed.js";
+import { CELL_CHAT, CellChat } from "./cell-chat.js";
+import { CELL_LOG } from "./cell-log.js";
+import { CELL_SETTINGS } from "./cell-settings.js";
+import { CellWindow } from "./cell-window.js";
+import { runnerDeviceCaps, shortGpuName, VllmPlacement } from "./memory.js";
+import { SplitMode } from "./split-mode.js";
 import { ClientLlamaUpdate } from "./client-llama-update.js";
-import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
+import { nodeTelemetryRowsHtml, renderTopologyIncidents, systemSamples, topologyIncidentItems } from "./charts.js";
 import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
 import {
@@ -29,7 +38,7 @@ import {
   nodeStartingCardHtml,
   remoteStartPending,
 } from "./remote-cells.js";
-import { state, topology } from "./state.js";
+import { state, topology, ui } from "./state.js";
 import {
   topologyLlamaActivity,
   topologyRuntimePanelHtml,
@@ -38,10 +47,16 @@ import {
 } from "./topology-activity.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
-import { runnerFixedVramGb, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
+import { LibraryPath } from "./library-path.js";
+import { ModelRating } from "./model-rating.js";
+import { runnerContextField, runnerFixedVramGb, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
 import { ModelCacheLine } from "./model-cache.js";
-import { ModelCopy } from "./model-copy.js";
+import { ModelDisk } from "./model-disk.js";
+import { ModelCopy, ModelLoad } from "./model-copy.js";
 import { StartStrip } from "./start-strip.js";
+import { TalkCell } from "./voice-talk.js";
+import { LiveCell } from "./voice-live.js";
+import { PageCell } from "./cell-page.js";
 import { JOB_LABELS, JOB_MARKS, cellJobs, cellRunnerId, jobsFromKinds } from "./model-jobs.js";
 // The record rule lives beside the vocabulary (model-jobs.js); the card's modules import it from here.
 export { cellJobs, cellRunnerId };
@@ -50,7 +65,7 @@ import { DraftFile } from "./draft-file.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
 // Known safetensors format folder names (mirror of _ST_FORMAT_HINTS in
-// caravan/admin/models.py) — used to read <Model>/<author>/<FORMAT> paths.
+// rust/crates/admin/src/models/mod.rs) — used to read <Model>/<author>/<FORMAT> paths.
 // NOT "ST": that is the badge the backend shows when it recognises none of
 // these, never a directory anyone writes. Listing it here made the mirror
 // strip a segment the backend would have kept, so the two would have disagreed
@@ -58,16 +73,11 @@ import { DraftFile } from "./draft-file.js";
 const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
                          "INT4", "W4A16", "BNB", "BF16", "FP16", "FP32"]);
 
-// Runner identity chip shown IN the model-name row of every cell card —
-// replaces the generic "chip" svg so the engine is readable at a glance.
-// The config field that holds a cell's context window: the runner's own
-// (vLLM's MAX_MODEL_LEN, Strata's STRATA_CONTEXT), from the server's runner
-// classes. Read as CTX_SIZE, their cards drew the window every config inherits.
-function cellContextField(runnerId) {
-  return runnerRegistry().find((r) => r.id === runnerId)?.contextField || "CTX_SIZE";
-}
+// What a scout's last failed attempt died of, by its kind: the card's ⚠ and the window's log say it alike. Any other kind is a crash.
+const PREV_ERROR_WORDS = { oom: "cellErrOom", exec: "cellErrExec", model: "cellErrModel", port: "cellErrPort" };
 
-function runnerChipHtml(runnerId) {
+// [icon, name] of a runner, or null for one nobody names: the chip and the window's line of facts say it alike.
+function runnerLabel(runnerId) {
   const known = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
                   "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
                   "transcribe": ["📝", "transcribe.cpp"],
@@ -77,7 +87,13 @@ function runnerChipHtml(runnerId) {
   // A runner this table does not name speaks for itself, from the registry:
   // its icon and its name (the engine runners — 🟠 Ollama, 🟣 LM Studio).
   const row = known ? null : runnerRegistry().find((r) => r.id === runnerId && r.labelKey);
-  const meta = known || (row ? [String(row.icon || ""), t(row.labelKey)] : null);
+  return known || (row ? [String(row.icon || ""), t(row.labelKey)] : null);
+}
+
+// Runner identity chip shown IN the model-name row of every cell card —
+// replaces the generic "chip" svg so the engine is readable at a glance.
+function runnerChipHtml(runnerId) {
+  const meta = runnerLabel(runnerId);
   if (!meta) return "";
   return `<span class="mbadge mbadge-cmd node-runner-chip">${escapeHtml(meta[0])} ${escapeHtml(meta[1])}</span>`;
 }
@@ -633,22 +649,9 @@ export function llamaBuildChipHtml(n) {
     : "";
 }
 
-// The caravan's two pages, on the second line of its strip (2026-09-27: the
-// operator moved them there from over the machines): the models on the disks
-// and in the libraries, and Hugging Face to download more — the strip's
-// «download» went with the move. The same pages on every machine's strip: a
-// model belongs to the caravan, and any machine runs it.
-function caravanLinksHtml(n) {
-  const id = escapeHtml(String(n.id));
-  return `<span class="caravan-links">`
-    + `<a class="models-bar-link models-bar-models" href="/models" title="${escapeHtml(t("modelsPageSub"))}"`
-    + ` data-t="node-caravan-models" data-t-id="${id}"><span aria-hidden="true">📦</span><span>${escapeHtml(t("topologyModelsLabel"))}</span></a>`
-    + `<a class="models-bar-link models-bar-hf" href="/hf" title="${escapeHtml(t("hfBrowserTitle"))}"`
-    + ` data-t="node-caravan-hf" data-t-id="${id}"><span aria-hidden="true">🤗</span><span>Hugging Face</span></a></span>`;
-}
-
 // The caravan on a machine's card (2026-09-27, round 10: the operator chose
-// A): its strip, under it the model cache's line (model-cache.js, 1.3.576: how many of the last
+// A): its strip (its two model pages left its second line for the header of every page, 2026-10-24), under it the
+// model cache's line (model-cache.js, 1.3.576: how many of the last
 // models the machine's disk keeps), and then not the list of its models but one line, "+ Add
 // model". It opens the cell editor on the next free port with the model list
 // already open; the cell is made on Apply, and a change of mind leaves no port
@@ -656,10 +659,7 @@ function caravanLinksHtml(n) {
 // left without a cell, is said under it. Shut while a reserve on this machine
 // is taking the port the editor would offer.
 export function nodeCaravanGroupHtml(n, servers = [], models = state.models) {
-  const build = llamaBuildChipHtml(n);
-  const strip = new EngineStrip({ key: `${n.id}:caravan`, engine: "caravan", hook: "node-caravan", state: "ok",
-                                  label: t("launcherCaravan"), version: build ? "llama.cpp" : "", build,
-                                  links: caravanLinksHtml(n) }).html();
+  const strip = nodeCaravanStripHtml(n);
   const rows = caravanModelsWithoutCell(n, servers, models);
   const id = escapeHtml(String(n.id));
   const reserving = _reservingCells.has(String(n.id));
@@ -677,6 +677,14 @@ export function nodeCaravanGroupHtml(n, servers = [], models = state.models) {
   return `<div class="node-launcher-group">${strip}${ModelCacheLine.of(n).html()}${add}${said}</div>`;
 }
 
+// The caravan's strip on a machine: llama.cpp's build there and the update that converges it (llamaBuildChipHtml) — at the head of
+// the caravan's group on the board's card, and among the engines of the machine's own page (machineSideHtml).
+export function nodeCaravanStripHtml(n) {
+  const build = llamaBuildChipHtml(n);
+  return new EngineStrip({ key: `${n.id}:caravan`, engine: "caravan", hook: "node-caravan", state: "ok",
+                           label: t("launcherCaravan"), version: build ? "llama.cpp" : "", build }).html();
+}
+
 // What the lane shows right over a machine's chips, whichever chip is pressed:
 // a group for each launcher of its cells — the caravan first, then the engines.
 export function nodeLaunchersHtml(n, servers, models = state.models) {
@@ -687,7 +695,7 @@ export function nodeLaunchersHtml(n, servers, models = state.models) {
 // What the machine's next boot does to its NVIDIA card, said before the reboot
 // (2026-09-26: a kernel the automatic updates had installed came up without its
 // signed driver, and nothing had said so). The controller draws the conclusion
-// from the scout's facts (caravan/domain/driver_outlook.py); here it is only
+// from the scout's facts (rust/crates/admin/src/domain/driver_outlook.rs); here it is only
 // worded — at the head of the Compute column, where the card would be missed.
 const DRIVER_NEXT_BOOT = { missing: "driverNextBootMissing", unsigned: "driverNextBootUnsigned",
                            "untrusted-key": "driverNextBootUntrusted" };
@@ -719,6 +727,30 @@ function engineOutputAnchorsHtml(n) {
 }
 
 // Small firewall-access badge (icon + tooltip) for a server's port.
+// Who reaches a cell's port, by its machine's firewall — the scout's word, Machine.ufw_access (1.3.656). Step 4 of the owner's
+// plan, variant B (2026-10-26): the cells' ports answer the controller alone. So the board links a cell's own address — its
+// llama.cpp page, its address in the details — only where the firewall lets everyone in: from this browser a port that answers
+// the controller alone leads nowhere. A machine whose firewall nobody read (no ufw, no passwordless sudo) keeps the link: whom
+// it lets in is not known, and the link is what it always was. The line under a cell the controller cannot reach names the
+// controller's rule for the cells' range — "sudo ufw allow <port>" opened the port to everyone and undid the owner's rule.
+export class CellReach {
+  /** Whether the firewall the scout read lets anyone reach the port: open to all, ufw off, or not said — false when it names
+   *  whom it lets in (restricted) or lets nobody in (blocked). */
+  static everyone(firewall) {
+    return !["restricted", "blocked"].includes(String(firewall?.state || ""));
+  }
+
+  /** The rule that lets the controller — it alone — reach every cell of a machine, for the machine's owner to run: from the
+   *  controller's address to the controller's range of cell ports. "" when there is no address to name (none, or a loopback
+   *  one: a controller on the cell's own machine goes by loopback, which the firewall lets through) or no range. */
+  static controllerRule(address, range) {
+    const ip = String(address || "").trim();
+    const from = Number(range?.from), to = Number(range?.to);
+    if (!ip || /^(127\.|localhost$|::1$)/.test(ip) || !(from > 0) || !(to >= from)) return "";
+    return `sudo ufw allow from ${ip} to any port ${from}:${to} proto tcp`;
+  }
+}
+
 export function firewallBadge(fw) {
   if (!fw || !fw.state || fw.state === "unknown") return "";
   const from = (fw.allowedFrom || []).join(", ");
@@ -920,7 +952,7 @@ export function engineRunnerOf(srv) {
 
 // `only`: the launcher the machine's chips narrow its cells to ("caravan" or
 // an engine runner's id), "" for all — the lane decides it (nodesLaneHtml).
-export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
+export function nodeServerCardHtml(node, s, { fold = false, only = "", picks = null } = {}) {
   const isStopping = _stoppingHosts.has(node.id);
   const port = s.port;
   const slotHostId = node.id;
@@ -961,9 +993,15 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const _prevErrChip = (srv) => {
     const err = srv.status?.lastError;
     if (!err) return "";
-    const kindKey = { oom: "cellErrOom", exec: "cellErrExec", model: "cellErrModel", port: "cellErrPort" }[err.kind] || "cellErrCrash";
+    const kindKey = PREV_ERROR_WORDS[err.kind] || "cellErrCrash";
     const tip = `${t("cellPrevAttempt")} ${t(kindKey)}\n\n${err.tail || err.detail || ""}`.trim();
     return `<span class="msl-prev-err" title="${escapeHtml(tip)}">⚠</span>`;
+  };
+  // The bar of a cell on its way: at the share of its load while its scout measures one, looping while it does not.
+  const _loadBar = (srv) => {
+    const load = ModelLoad.now(srv);
+    return load?.pct != null ? `<span class="msl-bar"><span style="width:${load.pct}%"></span></span>`
+      : `<span class="msl-bar indeterminate"><span></span></span>`;
   };
   let statusRow = "";
   // The same status for the folded line (start-strip.js): the copy's own figures, or the words of the card's line while the cell
@@ -983,14 +1021,10 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     startCopy = copy;
     startLabel = s.downloadingFile || t("topologyRemoteDownloading");
   } else if (isWarming) {
-    // "into VRAM" is a lie on a CPU cell — it loads into RAM. The full isCpuCell
-    // is derived further down (it needs the live GPU list), so the two cases
-    // that matter while WARMING are read straight off the cell config here.
-    const _wcfg = s.slotConfig || {};
-    const _warmCpu = String(_wcfg.N_GPU_LAYERS ?? "").trim() === "0"
-      || String(_wcfg.RUNNER || "").toLowerCase() === "moonshine";
-    const _warmKey = _warmCpu ? "topologyRemoteWarmingRam" : "topologyRemoteWarming";
-    startInner = `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t(_warmKey))}</span>${_prevErrChip(s)}`;
+    // "into VRAM" is a lie on a CPU cell — it loads into RAM: the words are ModelLoad.label's, read off the cell's config. While
+    // its scout measures the reading (2.43), the line says how far, how fast and how long (ModelLoad), over a bar at the share;
+    // the live patch moves both (topology-render.js).
+    startInner = `${_mslSpin(false)}${_loadBar(s)}<span class="msl-text" data-live-load>${escapeHtml(ModelLoad.words(s, "warming"))}</span>${_prevErrChip(s)}`;
     statusRow = _msl("", startInner);
   } else if (isBroken) {
     // The diagnosis is the cell's own health body, a string.
@@ -1003,8 +1037,8 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     // its scout) says WHERE a long start currently is — vLLM downloads/compiles
     // for minutes and a bare spinner reads as a hang. Log-derived, so shown
     // as-is (same policy as error details).
-    const note = s.status?.progressNote ? ` · ${s.status.progressNote}` : "";
-    startInner = `${_mslSpin(false)}<span class="msl-text">${escapeHtml((phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting")) + note)}</span>${_prevErrChip(s)}`;
+    // A process that already reads its model (Strata's engine before its port listens) says how far, as a warming one does.
+    startInner = `${_mslSpin(false)}${_loadBar(s)}<span class="msl-text" data-live-load>${escapeHtml(ModelLoad.words(s, phase))}</span>${_prevErrChip(s)}`;
     statusRow = _msl("", startInner);
   }
   const healthCls = running ? "running" : (isBroken ? "error" : (isStopped ? "" : "loading"));
@@ -1061,7 +1095,7 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const trainedChip = (_isTokenCell && !_isSpeechCell && Number(s.ctxTrained) > 0)
     ? mbadge("trained", `🎓 ${escapeHtml(formatCtxTokens(Number(s.ctxTrained)))}`, t("trainedCtxChipTitle"))
     : "";
-  const _slotCtx = _scfg[cellContextField(_runner)];
+  const _slotCtx = _scfg[runnerContextField(_runner)];
   const slotCtxChip = (_isTokenCell && !_isSpeechCell && !s.ctxMax && _slotCtx)
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_slotCtx)))}`) : "";
   const _benchKey = s.model ? (_modelBenchKey(s.model) || "") : "";
@@ -1208,11 +1242,21 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
   // Strata has no CPU mode at all: its engine streams experts to a card.
   const runnerDefaultsGpu = usesLlamaConfig(_runner) || _runner === "vllm" || _runner === "whisper"
-    || _runner === "transcribe" || !!runnerRegistry().find((r) => r.id === _runner)?.gpuOnly;
+    || _runner === "transcribe" || _runner === "seamless" || !!runnerRegistry().find((r) => r.id === _runner)?.gpuOnly;
+  // A runner that runs on one card says which while it stands, as a running cell does (⚡ GPU0): its pin, else card 0, where the
+  // start lands (placement.js CardPin; 2026-10-27, "the 3090 seems chosen but is not shown"). seamless takes CUDA whenever it sees
+  // a card (cells/seamless_server.py), so it is no "auto" either.
+  const oneCardPin = runnerRegistry().find((r) => r.id === _runner)?.oneCard ? CardPin.card(_scfg.ENV) : "";
   const runnerCpuOnly = _runner === "moonshine";
   const isCpuCell = !engineRunner && ((running && !devGpuTxt && !cfgSaysGpu)
     || (!running && (cfgSaysCpu || runnerCpuOnly) && !isReserved)
     || (running && runnerCpuOnly));
+  // A runner that takes its card's free memory (Strata) is expected to hold what the bench lays it at (CellFit "free"): its card's free
+  // room less its reserve, while the card has its floor — the bench and the badges say one figure.
+  const _runnerRow = runnerRegistry().find((r) => r.id === _runner) || {};
+  const takesFree = !engineRunner && !isCpuCell && !!_runnerRow.vramPlan?.takesFree;
+  const freePlace = takesFree
+    ? CellFit.of(CellFit.facts({ how: "free", config: _scfg, defaults: state.config || {}, row: _runnerRow })).place(node) : null;
   // The two badges of the memory it holds (cell-memory.js): the RAM and the video memory, each measured, expected, none or not told. An engine
   // cell says what its engine says: the card's share, and what is left of the total in RAM.
   const engineVram = Number.isFinite(Number(engineModel?.vramBytes)) && engineModel?.vramBytes != null ? Number(engineModel.vramBytes) : null;
@@ -1220,20 +1264,23 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const memory = engineRunner
     ? CellMemory.of({ live: engineLive, reserved: isReserved, gpuKnown: engineVram !== null, vramBytes: engineVram, heldTitle: t("cellEngineMemTitle", { engine: engineName }),
                       ramBytes: engineVram !== null && engineTotal !== null ? Math.max(0, engineTotal - engineVram) : null })
-    : CellMemory.of({ live: running || isWarming || isBroken, reserved: isReserved, cpu: isCpuCell, gpuKnown: (node.gpus || []).length > 0,
-                      ramBytes: s.ramBytes, vramBytes: _vramMib * 2 ** 20, split: _vramSplit, plannedGb: plannedVramGb, fileBytes: Number(s.modelSizeBytes) || 0 });
+    : CellMemory.of({ live: CellMemory.holds(phase), reserved: isReserved, cpu: isCpuCell, gpuKnown: (node.gpus || []).length > 0,
+                      ramBytes: s.ramBytes, vramBytes: _vramMib * 2 ** 20, split: _vramSplit, plannedGb: plannedVramGb, fileBytes: Number(s.modelSizeBytes) || 0,
+                      takesFree, freeBytes: freePlace?.verdict === "free" ? freePlace.needGb * 2 ** 30 : null });
   const memBadge = memory.html();
   // Where an engine computes is the engine's to say: its cell names the engine
   // (the runner chip) and the memory it holds, not a device of its own.
-  const deviceChip = engineRunner ? "" : (running && devGpuTxt)
-    ? mbadge("gpu", `⚡ ${escapeHtml(devGpuTxt)}`)
+  // Where the cell computes, said once: the card's chip and the window's line of where the model is placed.
+  const device = engineRunner ? null : (running && devGpuTxt)
+    ? { kind: "gpu", icon: "⚡", word: devGpuTxt, tip: "" }
     : (isCpuCell
-        ? mbadge("cpu", "🧮 CPU", t("topologyCpuCellsHint"))
+        ? { kind: "cpu", icon: "🧮", word: "CPU", tip: t("topologyCpuCellsHint") }
         : ((!running && !isReserved)
             ? ((cfgSaysGpu || runnerDefaultsGpu)
-                ? mbadge("gpu", "⚡ GPU", t("topologyDeviceCfgGpuHint"))
-                : mbadge("dev", "⚙ auto", t("topologyDeviceAutoHint")))
-            : ""));
+                ? { kind: "gpu", icon: "⚡", word: oneCardPin ? `GPU${oneCardPin}` : "GPU", tip: t("topologyDeviceCfgGpuHint") }
+                : { kind: "dev", icon: "⚙", word: "auto", tip: t("topologyDeviceAutoHint") })
+            : null));
+  const deviceChip = device ? mbadge(device.kind, `${device.icon} ${escapeHtml(device.word)}`, device.tip) : "";
   // The model as the engine names it, verbatim — "google/gemma-4-e4b", not a
   // file name parsed out of it; what it is from the engine's report.
   const engineBlock = engineRunner ? `
@@ -1362,7 +1409,9 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // The card's own controls count a live cell's stop too, not only a slot's.
   const isCtlStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
   const isCellBusy = isCtlStopping || !!pendingCellAction;
-  const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" aria-label="${escapeHtml(t("nodeConfigure"))}: ${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-start="${escapeHtml(node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+  // What opens the cell's form, once — the lifecycle's ⚙ adds its own hook and words; the window's buttons, theirs.
+  const cfgCore = `data-node-cell-start="${escapeHtml(node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+  const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" aria-label="${escapeHtml(t("nodeConfigure"))}: ${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${cfgCore}`;
 
   // ✕ delete — active only when reserved / stopped / error
   const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
@@ -1426,15 +1475,31 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
          ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${stopAttrs}` : "disabled"}
          title="${escapeHtml(stopTitle)}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
 
+  // 🎙 Talk — the voice window over a running cell whose runner talks (voice-talk.js): what it can do is its
+  // runner's to say; a cell that hears says so on its /props (`modalities.audio`), and not said is not yes.
+  const talkBtn = new TalkCell({ hostId: cellHostId, port, name: shownName, runner: cellRunner,
+                                 hears: s.modalities ? s.modalities.audio : null }).buttonHtml(running);
+  // 📞 Live — a talk both ways at once over the cell's own WebSocket (voice-live.js), for a runner that says it talks live.
+  const liveBtn = new LiveCell({ hostId: cellHostId, port, name: shownName, runner: cellRunner }).buttonHtml(running);
+  // 🌐 Page — the page the cell serves itself, at the https address its config names (cell-page.js), for a runner
+  // that says it serves one.
+  const pageBtn = new PageCell({ hostId: cellHostId, port, runner: cellRunner, config: _scfg }).buttonHtml(running);
+
   // ↑ autostart — a scout keeps the cell's start and runs it when its machine
   // boots (2.4+; the server says whether it can, bootSupported). Three looks:
   // ok = enabled, off = disabled but CLICKABLE (it's a toggle — muted here read
-  // as dead chrome), muted = genuinely unavailable (an older scout, or busy).
+  // as dead chrome), muted = genuinely unavailable (an older scout, or busy). A cell that failed to start counts as stopped here, as for
+  // every other control: its autostart would bring it back at the next boot, and there was no way to take that off (2026-11-01).
   const bootSupported = !!s.bootSupported;
-  const canBoot = bootSupported && (phase === "stopped" || running) && !isDeleting && !isCellBusy;
+  const canBoot = bootSupported && (phase === "stopped" || running || isError) && !isDeleting && !isCellBusy;
+  // The toggle's attributes and words, once: the card's ↥ and the window's "⋯" item are the same switch.
+  const bootAttrs = canBoot
+    ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"`
+    : "";
+  const bootTitle = bootSupported ? (s.bootEnabled ? t("tnBootDisable") : t("tnBootEnable")) : t("tnBootUnsupported");
   const bootBtn = `<button class="node-action-btn${bootSupported && s.bootEnabled ? " ok" : (canBoot ? " off" : " muted")}" type="button"
-      ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}
-      title="${escapeHtml(bootSupported ? (s.bootEnabled ? t("tnBootDisable") : t("tnBootEnable")) : t("tnBootUnsupported"))}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
+      ${bootAttrs || "disabled"}
+      title="${escapeHtml(bootTitle)}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
 
   // The cable's handle. Exactly one element may carry it: cables and drops
   // find it by querySelector and read its position, and a copy inside a
@@ -1464,14 +1529,46 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
             ${brokenText ? `<span class="llama-err-raw">${escapeHtml(brokenText)}</span>` : ""}
           </span>
         </div>` : "";
-  const cardHtml = (anchor, { inWindow = false } = {}) => `
+  // The cell's own note and its model's (written on /models), under the card's body and in the window's overview: one place.
+  const notesHtml = (() => {
+    const note = (topology?.cellNotes || {})[slotKey];
+    // The comment on the cell's model, one for all its quants (written on /models), stands under the cell's own note. The same words on
+    // both are said once, as the cell's own.
+    const model = (topology?.cellModelNotes || {})[slotKey];
+    return (note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "")
+      + (model && model !== note
+        ? `<div class="node-server-note model" data-t="cell-model-note" data-t-id="${escapeHtml(slotKey)}"`
+          + ` title="${escapeHtml(t("cellModelNoteTip"))}&#10;&#10;${escapeHtml(model)}">📖 ${escapeHtml(model)}</div>` : "");
+  })();
+  // Where the cell's model is in the caravan's own pages — the models page on its folder, our HF page on its repository (the
+  // owner, 2026-10-26: "a link to the model in our storage, and to our page on HF"), by its path in the library as its runner's
+  // model field names it (LibraryPath). Only a runner whose model is picked from the library has one: whisper's is a size name,
+  // a voice clone's an engine, vLLM's an id or a folder — a link made of those would be a guess. An engine's cell, a command and
+  // a port with no model have none.
+  // The same path names the repository the machine's page writes on the cell's card (the owner, 2026-10-27: "on the cells
+  // themselves, in small print, ISTA-DASLab and Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF"): one reading for the link and the words.
+  const linkRow = runnerRegistry().find((r) => r.id === _runner);
+  const libraryRef = engineRunner || isCmdCell || isReserved || !(usesLlamaConfig(_runner) || linkRow?.sharedPicker === "source") ? null
+    : new LibraryPath(_scfg[linkRow?.modelField || "MODEL_FILE"]);
+  const modelLinks = libraryRef ? libraryRef.links() : {};
+  // A running cell the controller cannot reach (and the firewall line that lets it), on the card and in the window alike.
+  const unreachableHtml = running && s.reachable === false ? (() => {
+        const fw = s.firewall || {};
+        const isBlocked = fw.state === "blocked";
+        const ufwCmd = isBlocked ? CellReach.controllerRule(topology?.server?.ip, topology?.cellPortRange) : "";
+        return `<div class="topology-remote-unreachable">
+          <span>${escapeHtml(t("topologyRemoteUnreachable"))}</span>
+          ${ufwCmd ? `<code class="firewall-cmd" title="Run on ${escapeHtml(node.name || node.id)}">${escapeHtml(ufwCmd)}</code>` : ""}
+        </div>`;
+      })() : "";
+  const cardHtml = (anchor) => `
     <article class="node-server ${cardCls}"
              data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
              ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
       ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
       ${anchor}
       <div class="node-ctrl-row">
-        ${playBtn}${stopBtn}${bootBtn}${delBtn}
+        ${playBtn}${stopBtn}${bootBtn}${talkBtn}${liveBtn}${pageBtn}${delBtn}
       </div>
       ${lifecycleBar}
       ${bodyBlock
@@ -1479,20 +1576,9 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
             ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
             : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
         : progressPanel}
-      ${(() => {
-        const note = (topology?.cellNotes || {})[slotKey];
-        return note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "";
-      })()}
-      ${inWindow ? "" : errorBlockHtml}
-      ${running && s.reachable === false ? (() => {
-        const fw = s.firewall || {};
-        const isBlocked = fw.state === "blocked";
-        const ufwCmd = isBlocked ? `sudo ufw allow ${port}` : "";
-        return `<div class="topology-remote-unreachable">
-          <span>${escapeHtml(t("topologyRemoteUnreachable"))}</span>
-          ${ufwCmd ? `<code class="firewall-cmd" title="Run on ${escapeHtml(node.name || node.id)}">${escapeHtml(ufwCmd)}</code>` : ""}
-        </div>`;
-      })() : ""}
+      ${notesHtml}
+      ${errorBlockHtml}
+      ${unreachableHtml}
     </article>`;
   // The start said in the folded line: the copy under the name, or the card's own words while the cell loads. A cell that is being
   // stopped, deleted or has failed says that its own way (the line's spinner, its red) and has no strip.
@@ -1515,13 +1601,70 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     crashed: !!crash,
     unreachable: running && s.reachable === false,
   };
+  // The machine's page folds every cell whatever the board's density says: its cells are on the map and the bench, its list draws no
+  // line (machine.css), and the panel opens each one's window — a cell in trouble's too, whose window says the trouble (its band, its
+  // log, its overview's alerts) and whose panel says it on the page (MachinePick.panel: crashed, unreachable). Until 1.3.653 a cell in
+  // trouble stayed a full card there, with no window at all: a Strata cell the scout's watchdog brought back after a crash ran with
+  // no way to its Talk tab (2026-10-26). On the board trouble still does not fold away.
+  const foldMode = !fold ? "full" : picks ? "line" : CARD_FOLD.mode("cells", slotKey, CardFold.cellFoldable(settle));
+  // The machine's page shows every cell on its map or its bench and chooses one there (machine-head.js): what it draws and what its
+  // panel acts with — the cell's name, its window, its start and stop, what it does, the repository its model comes from, what it
+  // weighs and how its runner lays it — as this card has them, said once. The size is the one the card's memory badge expects (its runner's measured figure, else its
+  // files); the way it is laid, its runner's (CellFit): a CPU cell in RAM, llama.cpp over its cards — by the cell window's own plan
+  // when the library knows its model (its weights, its cache and its buffers), else by its files — vLLM by its share of each card
+  // it takes (the form's rule, read off the stored config), Strata on its card's free room, any other runner on its one card; an
+  // engine's cell where its engine puts it, which nobody here can say.
+  // The window the cell is set to (served while it runs, the config's while parked) and the most its model was trained for: the
+  // line, the window's tile and the bench of the machine's page say them alike (card-rows.js CellContext). Token cells only, as on
+  // the card — a speech cell's window is a length of audio.
+  const ctxSet = Number(s.ctxMax || _slotCtx) || 0;
+  const ctxTrained = Number(s.ctxTrained) || 0;
+  const ctxFacts = _isTokenCell && !_isSpeechCell ? { set: ctxSet, max: ctxTrained } : null;
+  if (picks) {
+    const heldRef = libraryRef || (vllmArt && _runner === "vllm" ? new LibraryPath(vllmArt.path) : null);
+    const expected = memory.gpu?.kind === "expected" ? memory.gpu : memory.ram?.kind === "expected" ? memory.ram : null;
+    // What a working cell holds is what a plan to move it must find room for, where no plan of its own says more: gigaam read "place
+    // not known" on the rack with 0.6 GB measured on its card (2026-11-01).
+    const held = memory.gpu?.kind === "held" ? memory.gpu : memory.ram?.kind === "held" ? memory.ram : null;
+    // A checkpoint is a folder: the parked cell's file size (s.modelSizeBytes) knows only a file, the library's row knows the folder.
+    const vllmWeightsGb = (Number(s.modelSizeBytes) || 0) / 2 ** 30 || Number(vllmArt?.sizeGb) || 0;
+    const vllmAt = (config) => VllmPlacement.from(config, node.gpus || [], vllmWeightsGb, vllmArt || {});
+    const vllm = !engineRunner && !isCpuCell && _runner === "vllm" ? vllmAt(_scfg) : null;
+    const how = engineRunner ? "" : isCpuCell ? "ram" : usesLlamaConfig(_runner) ? "spread" : vllm ? "asks"
+      : takesFree ? "free" : "card";
+    picks.set(String(port), {
+      host: cellHostId,
+      key: slotKey, name: isReserved ? t("topologyReservedCellLabel") : shownName, window: foldMode !== "full",
+      group: MachineMap.groupOf(MachineMap.phase(s)), stop: canStop ? stopAttrs : "", stopTitle,
+      launch: canPlay ? launchAttrs : "", playTitle, reason: isError ? errorBlockTitle(s) : "",
+      crashed: crash ? Number(crash.count) : 0, unreachable: !!settle.unreachable,
+      jobs: cellJobs(_runner, s.cellMeta, _scfg), runner: engineRunner ? engineName : (runnerLabel(isCmdCell ? "custom" : _runner) || [])[1] || "",
+      ctx: ctxFacts, repo: libraryRef ? libraryRef.hfRepo() : "",
+      // The model it runs and the owner's mark on it (topology.modelRatings, one for all its quants): its row in the list of models says them.
+      // A vLLM cell names its checkpoint by a path of its machine: the library's row it found (vllmArt) says which model that is.
+      model: heldRef ? heldRef.model() : "",
+      quant: heldRef ? heldRef.quant() : "",
+      listed: heldRef ? heldRef.listed() : "",
+      rating: heldRef ? ModelRating.of(topology?.modelRatings, heldRef.model()) : "",
+      fit: CellFit.facts({ how, bytes: expected ? expected.bytes : held ? held.bytes : null, planned: plannedVramGb > 0 && !isCpuCell, measured: !!held, config: _scfg,
+                           defaults: state.config || {}, row: _runnerRow, vllm,
+                           mode: new SplitMode(_scfg.SPLIT_MODE).value === "tensor" ? "tensor" : "layer",
+                           models: !engineRunner && usesLlamaConfig(_runner) ? modelsByPath() : null,
+                           family: engineRunner ? "" : usesLlamaConfig(_runner) ? "llama" : _runner === "vllm" ? "vllm" : "pinned",
+                           caps: runnerDeviceCaps(_runner), onCard: _runnerRow.vramPlan?.takesFree ? "free" : "card",
+                           asksFor: vllm ? (fields) => { const at = vllmAt({ ..._scfg, ...fields });
+                             return { asks: CellFit.asksOf(at), over: at.weightsOver, ridesGb: at.ridesGb, offloadNeededGb: at.offloadNeededGb, weightsGb: at.weightsGb / at.tp }; } : null }),
+    });
+  }
   // The machine's eye hides what is not running. The cell being worked on
   // stays: one just reserved, and the one whose window is open. A hidden cell
   // leaves a mark, not nothing: a cable looks for its handle, and must learn
   // the cell was put away, not lost (cables.js).
   // The machine's chips hide the cells another launcher runs, on the same
   // terms. The mark says which rule hid the cell: the eye counts only its own.
-  const kept = isNewReserved || CARD_FOLD.openKey === slotKey;
+  // The machine's own page hides none: its map and its list of models show every cell,
+  // and each needs its window in the page (variant В, 1.3.634).
+  const kept = isNewReserved || CARD_FOLD.openKey === slotKey || !!picks;
   const hiddenBy = !fold || kept ? ""
     : (only && only !== (engineRunner ? engineRunner.id : "caravan")) ? "launcher"
       : (CARD_FOLD.hidesIdle(node.id) && CardFold.cellIdle(settle)) ? "idle" : "";
@@ -1529,11 +1672,12 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     return `<span hidden data-cell-hidden="${escapeHtml(slotKey)}" data-cell-hidden-port="${escapeHtml(String(port))}"`
       + ` data-cell-hidden-by="${hiddenBy}"></span>`;
   }
-  const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellFoldable(settle)) : "full";
   if (foldMode === "full") return cardHtml(anchorHtml);
   const failedLine = CardFold.cellFailed(settle);
   // The line breathes while the cell answers a request, and a speed it only holds is the last one: one rule (cell-speed.js), also for the live patch.
   const speed = new CellSpeed(s, running);
+  // Why the switch is what it is, once: the line's switch and the window's main button say it alike.
+  const switchWhy = settle.motion === "stop" ? t("nodeStoppingTitle") : settle.motion === "start" ? t("topologyRemoteStarting") : running ? stopTitle : playTitle;
   const row = new CellRow({
     key: slotKey, port, name: shownName, title: s.model ? (s.modelPath || s.model) : shownName,
     // A broken cell's process is alive: its switch is ON (flipping it stops it), as red as the line.
@@ -1541,24 +1685,149 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     failed: failedLine, reason: failedLine ? (isError ? errorBlockTitle(s) : brokenText) : "",
     cpu: isCpuCell, engine: engineRunner ? engineRunner.id : "", chip: memBadge || deviceChip,
     launch: canPlay ? launchAttrs : "",
-    stop: canStop ? stopAttrs : "", why: settle.motion === "stop" ? t("nodeStoppingTitle") : settle.motion === "start" ? t("topologyRemoteStarting") : running ? stopTitle : playTitle,
+    stop: canStop ? stopAttrs : "", why: switchWhy,
     motion: settle.motion,
     warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
     tps: speed.words(formatTps), held: speed.held, tpsHint: speed.hint(),
     busy: speed.working, anchor: anchorHtml, strip: startStrip,
+    ctx: ctxFacts,
   });
-  // A click on the line opens the card as a window over the board. The window
-  // is titled with the line's own name, and the machine's address is named
-  // only when the report carries one — ":22007" alone would read as an address.
-  // A cell in an engine names where its requests go: the engine's loopback
-  // port, which only this cell's port leads to.
+  // A click on the line opens the cell's window over the board (cell-window.js — variant Г, the owner's choice of
+  // 2026-10-24). It is drawn from the facts above, the ones the full card draws: the band's button and the "⋯" items carry
+  // the card's own attributes, and the lane binds them where it binds the card's. The window is titled with the line's own
+  // name, and the machine's address is named only when the report carries one — ":22007" alone would read as an address.
+  // A cell in an engine names where its requests go: the engine's loopback port, which only this cell's port leads to.
   const enginePort = engineRunner ? String(_scfg.ENGINE_PORT || "").trim() : "";
+  const isLlamaCfg = !engineRunner && !isCmdCell && usesLlamaConfig(_runner);
+  // A failed start in words, once: the band's second line and the log's entry.
+  const failure = isError ? classifyLlamaError(s.lastError, s.crash?.tail) : null;
+  const winState = isDeleting ? "deleting"
+    : (isStopping || isCtlStopping || phase === "stopping") ? "stopping"
+      : isBroken ? "broken" : isError ? "failed" : isReserved ? "reserved" : isDownloading ? "downloading"
+        : isWarming ? "warming" : running ? "running" : phase === "stopped" ? "stopped" : "starting";
+  // The band's second line: what the cell does now. A start, a copy, a warm-up, a stop and a broken engine say it in the
+  // card's own status line (its live bar and words included); a running cell says whether it answers, by the line's rule.
+  const winSub = winState === "running" ? `<span data-live-cwband>${escapeHtml(CellWindow.speedWords(speed, formatTps))}</span>`
+    : winState === "stopped" ? escapeHtml(t("cwSubStopped"))
+      : winState === "reserved" ? escapeHtml(t("cwSubReserved"))
+        : winState === "failed" ? escapeHtml(failure.friendly)
+          : statusRow;
+  const jobIds = cellJobs(_runner, s.cellMeta, _scfg);
+  const jobWords = jobIds.map((job) => (JOB_LABELS[job] ? t(JOB_LABELS[job]) : "")).filter(Boolean);
+  const winFacts = [
+    ...jobWords,
+    engineRunner ? engineName : (runnerLabel(isCmdCell ? "custom" : _runner) || [])[1] || "",
+    engineRunner ? String(engineModel?.quant || "") : isVllmCell ? vllmFmt : (_isTokenCell ? String(parsed.quant || "") : ""),
+    engineRunner ? String(engineModel?.params || "") : String(parsed.size || ""),
+    _tgtLang ? `→ ${_tgtLang}` : "",
+    Number(s.modelSizeBytes) > 0 ? `${(Number(s.modelSizeBytes) / 2 ** 30).toFixed(1)} GB` : "",
+  ];
+  const winPlace = [
+    isLlamaCfg && _scfg.SPLIT_MODE ? new SplitMode(_scfg.SPLIT_MODE).label() : "",
+    device ? device.word : "",
+    bootSupported ? t("cwAutostartWord", { state: t(s.bootEnabled ? "cwOn" : "cwOff") }) : "",
+    s.schedule?.enabled ? `⏱ ${s.schedule.start}–${s.schedule.stop}` : "",
+  ];
+  // The overview's four figures: speed, window, and what the cell holds — each says "—" with the reason when it is not known. A port
+  // with no model has none of them: its overview says so in words instead of a row of dashes. Only a cell that generates tokens says a
+  // speed — an embedding server returns vectors and a transcriber text from sound, neither says one; another cell gets the tile when a
+  // speed did come. "No request measured yet" under them would be said for ever (an embedding cell on the live board, 2026-10-25).
+  const memWords = { held: "cwMemHeld", expected: "cwMemExpected", none: "cwMemNone", unknown: "cwMemUnknown", idle: "cwMemIdle" };
+  const speedTile = !isReserved && ((_isTokenCell && !_isSpeechCell && !jobIds.includes("embed")) || speed.speed > 0);
+  const winTiles = [
+    !speedTile ? null : { id: "speed", label: t("cwTileSpeed"), value: speed.words(formatTps), live: "data-live-cwtps",
+      sub: CellWindow.speedSub(speed, s.promptTps, formatTps), liveSub: "data-live-cwtpssub" },
+    _isSpeechCell
+      ? (_audioMs > 0 ? { id: "window", label: t("cwTileAudio"), value: `${Math.round(_audioMs / 1000)} s`, sub: t("cwAudioSub") } : null)
+      : (_isTokenCell && (ctxSet || ctxTrained)
+        ? { id: "context", label: t("cwTileContext"), sub: t("cwContextSub"),
+            value: `${ctxSet ? formatCtxTokens(ctxSet) : "—"} / ${ctxTrained ? formatCtxTokens(ctxTrained) : "—"}` } : null),
+    memory.reserved ? null : { id: "gpu", label: t("cwTileGpu"), value: CellMemory.figure(memory.gpu), sub: t(memWords[memory.gpu.kind]) },
+    memory.reserved ? null : { id: "ram", label: t("cwTileRam"), value: CellMemory.figure(memory.ram), sub: t(memWords[memory.ram.kind]) },
+  ].filter(Boolean);
+  const cardOf = (i) => (node.gpus || []).find((g) => Number(g.index) === Number(i)) || null;
+  const winCards = running ? _gpuList.map((g) => {
+    const card = cardOf(g.i);
+    const total = card ? Number(card.memoryTotalMiB || 0) / 1024 : 0;
+    return { name: `GPU${g.i}${card?.name ? ` · ${shortGpuName(card.name)}` : ""}`, figure: g.mib ? `${(g.mib / 1024).toFixed(1)} GB` : "",
+             sub: total ? t("cwOfTotal", { total: total.toFixed(1) }) : "" };
+  }) : [];
+  const flagWord = (v) => (String(v ?? "").trim() === "" ? "" : t(String(v).trim() === "0" ? "cwOff" : "cwOn"));
+  const kvWhere = String(_scfg.KV_OFFLOAD ?? "").trim();
+  const placeRows = isLlamaCfg ? [
+    { k: t("splitMode"), v: _scfg.SPLIT_MODE ? new SplitMode(_scfg.SPLIT_MODE).label() : "" },
+    { k: t("cwRowDevice"), v: _scfg.DEVICE || "" },
+    { k: t("cwRowLayers"), v: _scfg.N_GPU_LAYERS || "" },
+    { k: t("cwRowFit"), v: flagWord(_scfg.FIT) },
+    { k: t("cwRowFitTarget"), v: _scfg.FIT_TARGET || "" },
+    { k: t("cwRowTensorSplit"), v: _scfg.TENSOR_SPLIT || "" },
+    { k: t("placeKv"), v: kvWhere === "0" ? t("placeKvRam") : kvWhere === "1" ? t("placeKvCards") : "" },
+    { k: t("cwRowCpuMoe"), v: _scfg.N_CPU_MOE || (String(_scfg.CPU_MOE ?? "").trim() === "1" ? t("cwAllExperts") : "") },
+  ] : [];
+  const settingsRows = isLlamaCfg ? [
+    { k: t("cwRowContext"), v: _scfg.CTX_SIZE || "" },
+    { k: t("cwRowSlots"), v: _scfg.PARALLEL || "" },
+    { k: t("cwRowCache"), v: _scfg.CACHE_TYPE_K || _scfg.CACHE_TYPE_V
+      ? `K ${_scfg.CACHE_TYPE_K || t("cwDefault")} · V ${_scfg.CACHE_TYPE_V || t("cwDefault")}` : "" },
+    { k: t("cwRowThreads"), v: _scfg.THREADS || "" },
+    { k: t("cwRowBatch"), v: _scfg.BATCH_SIZE || _scfg.UBATCH_SIZE ? `${_scfg.BATCH_SIZE || t("cwDefault")} / ${_scfg.UBATCH_SIZE || t("cwDefault")}` : "" },
+    { k: t("cwRowAlias"), v: _scfg.ALIAS || "" },
+  ] : [];
+  // What the cell has reported going wrong, newest first: the start that failed, the engine that broke, the attempt the
+  // scout's watchdog retried, the crashes since the last start by hand. Nothing reported is said so, not drawn as calm.
+  const prevErr = s.status?.lastError || null;
+  const winLog = [
+    failure ? { tone: "bad", title: t("cwLogFailed"), detail: failure.friendly, hint: failure.hint || "", raw: String(s.lastError || "") } : null,
+    isBroken ? { tone: "bad", title: t("cwStateBroken"), detail: "", raw: brokenText } : null,
+    prevErr ? { tone: "bad", title: t("cellPrevAttempt"), detail: t(PREV_ERROR_WORDS[prevErr.kind] || "cellErrCrash"),
+                raw: String(prevErr.tail || prevErr.detail || "") } : null,
+    crash ? { tone: "bad", title: t("cellCrashedChip", { count: String(crash.count) }),
+              detail: t("cwCrashDetail", { at: String(crash.at || "?"), reason: String(crash.reason || "?") }), raw: String(crash.tail || "") } : null,
+  ].filter(Boolean);
+  const detailAttrs = `data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}"`;
+  // A chat cell is asked in text from the Talk tab (cell-chat.js): its runner answers text-chat and its job is a chat. llama.cpp's
+  // own page stands beside it while the cell runs, unless its config turned the page off.
+  const talkSpec = runnerRegistry().find((r) => r.id === cellRunner)?.talk || null;
+  const chatHost = s.clientIp || node.ip || "";
+  const chatPage = running && chatHost && ["llama-server", "prism"].includes(cellRunner) && String(_scfg.ENABLE_WEBUI ?? "").trim() !== "0"
+    && CellReach.everyone(s.firewall) ? `http://${chatHost}:${port}/` : "";
+  // A llama.cpp cell's settings are edited in its window while they may be changed (cell-settings.js): the fields in the
+  // Settings tab, the map in the Memory tab, what is not applied at the foot. A port with no model has none yet: its model is
+  // picked first, in the dialog. A cell whose process serves keeps the settings it started with until it restarts — the
+  // dialog's own rule (memory.js cellHolds) — and the foot says so.
+  const editsHere = isLlamaCfg && canConfigure && !isReserved;
+  const cellSettings = { llama: isLlamaCfg, editable: canConfigure && !isReserved };
   const cellWindow = new CellWindow({
     key: slotKey, name: row.shownName(), port, address: (s.clientIp || node.ip) ? addr : "",
     via: enginePort ? `127.0.0.1:${enginePort}` : "",
     viaTitle: enginePort ? t("cellWindowViaTitle", { engine: engineName, port: String(port) }) : "",
-    engine: engineRunner ? engineRunner.id : "", card: cardHtml("", { inWindow: true }),
-    notice: failedLine ? (errorBlockHtml || brokenBlockHtml) : "",
+    engine: engineRunner ? engineRunner.id : "", tab: CARD_FOLD.windowTab(slotKey),
+    facts: winFacts, place: winPlace, state: winState, sub: winSub,
+    actions: { start: canPlay ? launchAttrs : "", stop: canStop ? stopAttrs : "", configure: canConfigure ? cfgCore : "", why: switchWhy },
+    menu: { boot: { attrs: bootAttrs, on: !!s.bootEnabled, supported: bootSupported, title: bootTitle },
+            port: portAttrs, detail: detailAttrs,
+            del: canDelete ? `data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "",
+            delTitle: canDelete ? t("nodeRemoveCell") : t("nodeCannotRemoveActive") },
+    overview: { notice: isError ? errorBlockHtml : isBroken ? brokenBlockHtml : "", tiles: winTiles,
+                alerts: `${diskNewerChip}${staleModelChip}${staleSrcChip}${libraryChip}${crashChip}${schedChip}`,
+                notes: notesHtml, links: modelLinks, slots: running ? topologyRuntimePanelHtml(topologyServerGroup(s)) : "", extra: unreachableHtml,
+                empty: isReserved ? t("cwOverviewNoModel") : "" },
+    memory: { badges: `${memBadge}${deviceChip}`, cards: winCards, rows: placeRows, configure: canConfigure ? cfgCore : "",
+              place: CELL_SETTINGS.placeHtml(slotKey, cellSettings) },
+    settings: { rows: settingsRows, configure: canConfigure ? cfgCore : "", port: portAttrs, detail: detailAttrs,
+                editor: CELL_SETTINGS.html(slotKey, cellSettings) },
+    foot: editsHere ? CELL_SETTINGS.footHtml(slotKey, { running: running || isWarming }) : "", footSlot: editsHere,
+    running: running || isWarming,
+    log: winLog, talk: `${talkBtn}${liveBtn}${pageBtn}`,
+    // The server's own log, read from its machine (cell-log.js): not for a port with no model, nor for a cell in an engine,
+    // whose model's log is the engine's.
+    logTail: isReserved || engineRunner ? "" : CELL_LOG.html(slotKey, { live: running }),
+    chat: CellChat.offered(talkSpec, jobIds)
+      // The talk is held with the cell's model (cell-chat.js heldWith): a cell in an engine names it only in its config — its
+      // record's model and path are empty, and its talk outlived the cell on the port (live check, 2026-10-26).
+      ? CELL_CHAT.html(slotKey, { running, port, carried: talkSpec.turns, page: chatPage, format: formatTps,
+                                  model: s.modelPath || s.model || engineModelName || "" })
+      : "",
   });
   return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line: row.html(), card: cellWindow.html(),
                         open: CARD_FOLD.openKey === slotKey }).html();
@@ -1596,8 +1865,8 @@ export function openNodeServerDetail(nodeId, port) {
   const nsdCtxChip = !_hasCtx ? ""
     : s.ctxMax
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
-    : (_scfg[cellContextField(_runnerId)]
-        ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg[cellContextField(_runnerId)])))}`) : "");
+    : (_scfg[runnerContextField(_runnerId)]
+        ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg[runnerContextField(_runnerId)])))}`) : "");
   const addr = `${s.clientIp || node.ip || ""}:${s.port}`;
   const gpuLines = (s.gpuIndexes || []).map((i) => {
     const mib = (s.gpuMem || {})[String(i)];
@@ -1745,7 +2014,9 @@ export function openNodeServerDetail(nodeId, port) {
         </div>
         <div class="nsd-body">
           ${row("Status", `${topologyStatusPill(running ? "running" : (phase === "error" ? "failed" : phase))} ${firewallBadge(fw)} ${statusGpuBadges || (running ? `<span class="node-gpu-badge node-cpu-badge" title="${escapeHtml(t("topologyCpuCellsHint"))}">CPU</span>` : "")}`)}
-          ${row("Address", `<a href="http://${escapeHtml(addr)}" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>`)}
+          ${row("Address", CellReach.everyone(fw)
+            ? `<a href="http://${escapeHtml(addr)}" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>`
+            : `<code class="nsd-addr" title="${escapeHtml(t("cellAddrControllerOnly"))}">${escapeHtml(addr)}</code>`)}
           ${isCmd
             ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
             : _runnerRow && _runnerRow.modelField && !isLlama
@@ -1776,6 +2047,13 @@ export function openNodeServerDetail(nodeId, port) {
               placeholder="${escapeHtml(t("cellNotePlaceholder"))}">${escapeHtml((topology?.cellNotes || {})[`${node.id}:${s.port}`] || "")}</textarea>
             <button class="nsd-note-save" type="button">${escapeHtml(t("cellNoteSave"))}</button>
           </div>
+          ${(() => {
+            const model = (topology?.cellModelNotes || {})[`${node.id}:${s.port}`];
+            return model ? `<div class="nsd-cfg-section nsd-model-note" data-t="cell-model-note-full">
+            <div class="nsd-cfg-head" title="${escapeHtml(t("cellModelNoteTip"))}">📖 ${escapeHtml(t("cellModelNoteHead"))}</div>
+            <div class="nsd-model-note-text">${escapeHtml(model)}</div>
+          </div>` : "";
+          })()}
         </div>
       </div>
     </div>`;
@@ -1783,7 +2061,10 @@ export function openNodeServerDetail(nodeId, port) {
   tmp.innerHTML = html;
   const overlay = tmp.firstElementChild;
   document.body.appendChild(overlay);
-  const close = () => overlay.remove();
+  // Escape closes it as its ✕ does: it stands over the cell's window, which leaves Escape to it (card-fold.js).
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+  document.addEventListener("keydown", onKey);
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   overlay.querySelector("#nodeServerDetailClose")?.addEventListener("click", close);
   overlay.querySelectorAll("[data-copy]").forEach((b) => {
@@ -1973,6 +2254,37 @@ export function machinesLaneHtml() {
   }).join("");
 }
 
+/** The head of a machine's page (machine-head.js) with what only this module knows: who holds a card besides the cells, how long a
+ *  silent machine has been silent, whether a cell is being reserved here. One place for both its drawings — the page's, with its
+ *  side column (`side`, machineSideHtml), and the live patch's (topology-render.js), which keeps the column as drawn. */
+export function machineHeadOf(n, { side = "" } = {}) {
+  // A plan whose cell started, stopped or left since it was laid means nothing any more.
+  if (MACHINE_PLAN.on && !MACHINE_PLAN.validFor(n, (s) => MachineMap.phase(s))) MACHINE_PLAN.clear();
+  return new MachineHead(n, {
+    owners: gpuOutsideOwners, age: hostAgeText, reserving: _reservingCells.has(String(n.id)),
+    addTitle: t("caravanAddTitle", { port: String(nextTopologyCellPort()) }), oldScout: scoutOldChipHtml(n),
+    cells: MACHINE_PICK.cells, chosen: MACHINE_PICK.port, side, plan: MACHINE_PLAN,
+    library: { rows: state.models, artifacts: state.artifacts, ratings: topology?.modelRatings },
+  });
+}
+
+/** What stands at the right of a machine's map on its own page (machine-head.js MachineSide, 1.3.636), drawn here as the board's
+ *  card draws it: the caravan's strip and the engines' groups — each engine's strip and the models it holds that no cell serves —
+ *  the model cache's line, how many incidents the caravan's ports had in the last day (not known while the monitor has not said),
+ *  the machine's charts, and `stats`, the controller machine's own server stats with their switch. */
+export function machineSideHtml(n, servers, stats = "") {
+  const monitor = ui.latestSystemMonitor;
+  return new MachineSide({
+    warnings: nodeDriverWarningsHtml(n),
+    engines: `<div class="node-launchers"><div class="node-launcher-group">${nodeCaravanStripHtml(n)}</div>${nodeEngineGroupsHtml(n, servers)}</div>`,
+    disk: ModelDisk.of(n).html(),
+    incidents: monitor ? topologyIncidentItems(systemSamples(monitor) || []).length : null,
+    activity: nodeTelemetryRowsHtml(n, { cards: false }),
+    stats,
+    machine: n.name || n.id,
+  }).html();
+}
+
 export function nodesLaneHtml(only = null) {
   if (!topology) return "";
   // Every machine with a scout, GPU or not. A GPU-less host used to be left to
@@ -1984,6 +2296,10 @@ export function nodesLaneHtml(only = null) {
   const nodes = (topology.nodes || []).filter((n) => only === null || String(n.id) === String(only));
   if (only !== null && !nodes.length) return machineMissingHtml(only);
 
+  // A machine's own page (the owner's choice of 2026-10-25: variant А with the memory map of В) leads with its head — the
+  // passport, the band and where its memory goes (machine-head.js) — in place of the card's header and its compute column; the
+  // charts of its activity stay on the right until their tab comes.
+  const machinePage = only !== null;
   const sections = nodes.map((n) => {
     // Power-cycle this host. Some faults are not fixable in software — a host
     // drops a RAM stick on some boots and comes back with half its memory, which
@@ -2005,10 +2321,12 @@ export function nodesLaneHtml(only = null) {
     // (2026-09-27, the operator's move); its power stays here.
     const verChip = `<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
     const servers = (n.servers || []);
-    const collapsed = _collapsedNodes.has(n.id);
+    // A page of one machine has nothing to fold it away for.
+    const collapsed = !machinePage && _collapsedNodes.has(n.id);
     // When collapsed, keep a left-edge rail of cable anchors (one per server)
     // so proxy cables stay attached.
     let bodyHtml;
+    let machineSide = "";
     if (collapsed) {
       const rail = servers.map((s) => {
         const phase = s.phase || (s.status && s.status.phase) || "running";
@@ -2021,10 +2339,14 @@ export function nodesLaneHtml(only = null) {
     } else {
       const startingCard = nodeStartingCardHtml(n);
       const filter = nodeCellFilter(n, servers);
-      const launchers = nodeLaunchersHtml(n, servers);
+      const launchers = machinePage ? "" : nodeLaunchersHtml(n, servers);
+      // A machine's page has the map of its memory over the list (machine-head.js): its builder hears what each card says of its
+      // cell — its name, its window, its stop — for the panel of the cell chosen on the map.
+      const picks = machinePage ? new Map() : null;
       const serversHtml = servers.length
-        ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: filter.chosen })).join("")
+        ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: machinePage ? "" : filter.chosen, picks })).join("")
         : "";
+      if (picks) MACHINE_PICK.know(picks);
       // The machine this controller runs on carries its Server stats (CPU,
       // RAM, network, disk, processes — the controller's own monitor, mounted,
       // not rebuilt) under a "Servers" toggle.
@@ -2043,11 +2365,23 @@ export function nodesLaneHtml(only = null) {
       // operator's ask): the caravan, the engines and their shelves above,
       // the machine's cells — their chips and their lines — below.
       const divider = `<div class="node-cells-divider" role="separator"><span>${escapeHtml(t("cellsDividerLabel"))}</span></div>`;
-      const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${divider}${filter.html()}${eye}</div>`;
-      bodyHtml = `<div class="node-body">
+      if (machinePage) {
+        // The machine's own page (variant В): its map and its bench in its head, and at their right the column of its engines,
+        // its model disk, the incidents and its activity (machineSideHtml, 1.3.636) — the controller machine's server stats
+        // there too, under their switch. Its list of cells keeps only their windows — the lines are not drawn (machine.css), a cell
+        // in trouble's neither (1.3.653) — and no title, chips, eye or engines of its own.
+        const statsSwitch = statsHere
+          ? `<button class="node-subtitle node-subtitle-toggle" type="button" data-ctrl-stats-toggle aria-expanded="${statsOpen ? "true" : "false"}">`
+            + `${escapeHtml(t("topologyNodeServerCharts"))} <span class="node-subtitle-caret">${statsOpen ? "▾" : "▸"}</span></button>` : "";
+        machineSide = machineSideHtml(n, servers, `${statsSwitch}${serverStatsSlot}`);
+        bodyHtml = `<div class="node-body machine-cells"><div class="node-servers">${serversHtml}${startingCard}</div></div>`;
+      } else {
+        const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${divider}${filter.html()}${eye}</div>`;
+        bodyHtml = `<div class="node-body">
           <div class="node-servers">${serversHead}${serversHtml}${startingCard}${serverStatsSlot}</div>
           ${nodeComputeHtml(n)}
         </div>`;
+      }
     }
     // A machine card is a real grouping of controls that belong together, and
     // nothing said so: a screen reader user walked into two dozen buttons with
@@ -2064,6 +2398,15 @@ export function nodesLaneHtml(only = null) {
     // A machine's place in the operator's order (server-order.js) — Routing's Servers panel reads
     // it — and the controls that move it lead its head.
     const orderKey = ServerOrder.key("node", n.id);
+    if (machinePage) {
+      const head = machineHeadOf(n, { side: machineSide });
+      return `
+      <section class="node-card machine-page ${n.online ? "online" : "offline"}" data-node-id="${escapeHtml(n.id)}"
+               role="group" aria-label="${escapeHtml(_groupName)}">
+        ${head.html()}
+        ${bodyHtml}
+      </section>`;
+    }
     return `
       <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}"${SERVER_ORDER.attrs(orderKey)}
                role="group" aria-label="${escapeHtml(_groupName)}">

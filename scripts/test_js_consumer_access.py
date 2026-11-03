@@ -22,7 +22,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 # The module's own neighbours (dialogs, the board's render) and the heavy modules the
 # i18n chain would pull in through form.js (the canvas wires a MutationObserver at import).
@@ -70,22 +70,21 @@ PINS = [
     ("line_without_a_key",
      '',
      '(() => { const [d] = desk(); const h = d.lineHtml(st.topology.proxies[2]); return [h.includes(en.consumerNoKey), h.includes(\'data-t-state="none"\'),'
-     ' h.includes(\'class="cv-in-port-num">:23009<\'), h.includes(\'data-cv-port-key="23009"\'), h.includes(">" + en.consumerGiveKey + "<"), h.includes("🔑")]; })()',
-     '[true,true,true,true,true,false]',
-     "без ключа: «нет ключа», номер порта и «Выдать ключ»; negative: значка ключа нет"),
+     ' h.includes(\'class="cv-in-port-num">:23009<\'), h.includes("<button"), h.includes("🔑")]; })()',
+     '[true,true,true,false,false]',
+     "без ключа: «нет ключа» и номер порта; negative: ни значка ключа, ни кнопки: своего порта и выдачи ключа ему больше нет"),
     ("line_entry_only",
      '',
      '(() => { const [d] = desk(); const h = d.lineHtml(st.topology.proxies[0]); return [h.includes("🔑 …a1b2"), h.includes(\'data-t-state="entry"\'), h.includes(">" + en.consumerEntryOnly + "<"),'
-     ' h.includes(\'data-cv-port-reopen="23001"\'), h.includes(fill(en.consumerReopenTitle, { port: "23001" })), h.includes("data-cv-port-close"), h.includes("cv-in-port-num")]; })()',
-     '[true,true,true,true,true,false,false]',
-     "порт закрыт: последние 4 знака ключа и «только вход», ↺ — открыть снова; negative: ни «Закрыть порт», ни номера порта"),
-    ("line_key_and_open_port",
+     ' h.includes("<button"), h.includes("cv-in-port-num")]; })()',
+     '[true,true,true,false,false]',
+     "последние 4 знака ключа и «только вход»; negative: ни кнопок порта, ни его номера"),
+    ("line_of_an_old_open_flag_says_the_same",
      '',
      '(() => { const [d] = desk(); const open = d.lineHtml(st.topology.proxies[1]);'
-     ' return [open.includes("🔑 …9f3c"), open.includes(">" + fill(en.consumerPortOpen, { port: "8022" }) + "<"), open.includes(\'data-cv-port-close="8022"\'),'
-     ' open.includes(\'data-t-state="open"\'), open.includes("data-cv-port-key")]; })()',
-     '[true,true,true,true,false]',
-     "ключ был и раньше, порт открыт: «порт :8022 открыт» и «Закрыть порт»; negative: «Выдать ключ» не предлагается"),
+     ' return [open.includes("🔑 …9f3c"), open.includes(">" + en.consumerEntryOnly + "<"), open.includes(\'data-t-state="entry"\'), open.includes("<button"), open.includes("8022")]; })()',
+     '[true,true,true,false,false]',
+     "ключ есть, а в файле порт ещё числится открытым: строка та же, «только вход», порта никто не слушает; negative: номера порта и кнопок нет"),
     ("seen_today_another_day_never",
      '',
      '(() => { const [d] = desk(); const today = d.seenHtml(NOW / 1000 - 600); const before = d.seenHtml(Date.UTC(2026, 9, 5, 9, 30) / 1000);'
@@ -136,25 +135,6 @@ PINS = [
      ' return [ra, la.calls.length, rb, lb.calls.length, lb.notes, lb.applied.length, rc, lc.asks.length + lc.calls.length]; })()',
      '[null,0,null,1,["port 23999 is already the fleet\'s"],0,null,0]',
      "negative: «отмена» — запроса нет; отказ контроллера (есть клиенты входа) — его слова, доска не перечитывается; вход и так выключен — ни окна, ни запроса"),
-    ("give_a_key_asks_then_shows_it",
-     '',
-     'await (async () => { const [d, log] = desk({ res: { ok: true, port: 23009, key: "lcv1_" + "c".repeat(48), entryUrl: "https://caravan-api.example/v1", topology: { marker: 1 } } });'
-     ' const r = await d.giveKey("23009");'
-     ' return [log.asks[0][0] === fill(en.consumerGiveKeyText, { name: "social-media-viewer port", port: "23009", address: "https://caravan-api.example/v1" }) && log.asks[0][1].danger, log.calls,'
-     ' log.applied, log.asks[1][0] === fill(en.consumerKeyGivenText, { name: "social-media-viewer port", key: "lcv1_" + "c".repeat(48), address: "https://caravan-api.example/v1" }),'
-     ' log.asks[1][1].confirmLabel === en.consumerCopyKey, log.copied, log.notes, !!r]; })()',
-     '[true,[["/api/agent-proxies/route-key",{"port":23009}]],[{"marker":1}],true,true,["lcv1_cccccccccccccccccccccccccccccccccccccccccccccccc"],["Key copied"],true]',
-     "«Выдать ключ»: вопрос говорит, что порт закроется сразу и куда теперь ходить; ключ делает контроллер; окно показывает ключ и адрес, копирует по слову"),
-    ("give_a_key_says_no_and_fails_safe",
-     '',
-     'await (async () => { const [a, la] = desk({ answers: [false] }); const ra = await a.giveKey("23009");'
-     ' const [b, lb] = desk({ fail: true }); const rb = await b.giveKey("23009");'
-     ' const [c, lc] = desk({ answers: [true, false], res: { key: "lcv1_x", entryUrl: "https://caravan-api.example/v1" } }); await c.giveKey("23009");'
-     ' st.setTopology({ ...st.topology, entry: { url: "", port: null } }); const [e, le] = desk(); const re = await e.giveKey("23009");'
-     ' return [ra, la.calls.length, rb, lb.notes, lb.asks.length, lc.copied, re, le.asks.length + le.calls.length, le.notes[0] === en.entryNeedsSetupFirst, le.prompts.length]; })()',
-     '[null,0,null,["controller is down"],1,[],null,0,true,1]',
-     "negative: «отмена» — ничего не шлёт; отказ — тост с причиной, второго окна нет; «Готово» — ключ не копируется; "
-     "вход выключен — сначала спрашивается вход (раньше — тупик «вход выключен»); его отменили — ни вопроса о ключе, ни запроса"),
     ("no_key_is_red_only_without_a_door",
      '',
      '(() => { const [d] = desk(); const p = st.topology.proxies[2]; const states = [true, null, false].map((reach) => { st.setTopology({ ...st.topology, portsReachable: reach });'
@@ -184,45 +164,18 @@ PINS = [
      ' return [ra, la.calls.length, lb.calls[0], lb.notes, rc, lc.calls.length, lc.notes]; })()',
      '[null,0,["/api/agent-proxy-entry",{"port":0,"publicUrl":""}],["The entry is off"],null,1,["port 23999 is already the fleet\'s"]]',
      "negative: «отмена» на порту — запроса нет; пустой порт — вход выключается, и так и сказано; отказ контроллера — его слова, топология не запрашивается"),
-    ("give_a_key_goes_on_after_the_entry_is_set",
-     '',
-     'await (async () => { st.setTopology({ ...st.topology, entry: { url: "", port: null } });'
-     ' const top = { ...TOPO(), entry: { url: "https://caravan-api.example/v1", port: 23999 } };'
-     ' const [d, log] = desk({ adopt: true, top, prompts: ["https://caravan-api.example/v1", "23999"], answers: [false], res: { ok: true, port: 23999, publicUrl: "https://caravan-api.example/v1" } });'
-     ' const r = await d.giveKey("23009"); reset();'
-     ' return [log.notes[0] === en.entryNeedsSetupFirst, log.prompts.length, log.asks.length, log.asks[0][0] === fill(en.consumerGiveKeyText, { name: "social-media-viewer port", port: "23009", address: "https://caravan-api.example/v1" }), r]; })()',
-     '[true,2,1,true,null]',
-     "вход настроен из «Выдать ключ» — тот же нажим продолжается вопросом о ключе с новым адресом входа (ответ «нет» — ключа нет)"),
     ("suggested_address_is_the_boards_name_with_api",
      '',
      '["caravan.example.org", "board.example.org", "10.0.30.20", "localhost", "", "[::1]"].map((h) => m.ConsumerAccess.suggestedAddress(h))',
      '["https://caravan-api.example.org/v1","https://board-api.example.org/v1","","","",""]',
      "подсказка адреса входа — имя доски с -api (два имени владельца: доска и вход); negative: IP, имя без точки, пусто — подсказки нет"),
-    ("close_port_names_the_entry",
+    ("copy_the_entry",
      '',
-     'await (async () => { const [d, log] = desk(); await d.closePort("8022");'
-     ' return [log.asks[0][0] === fill(en.consumerCloseText, { name: "promie-ui", port: "8022", address: "https://caravan-api.example/v1" }),'
-     ' log.asks[0][1].danger, log.calls, log.applied, log.notes]; })()',
-     '[true,true,[["/api/agent-proxies/route-policy",{"port":8022,"portClosed":true}],["/api/topology"]],[{"marker":"fresh"}],["Port :8022 closed — the entry only"]]',
-     "«Закрыть порт»: вопрос называет адрес, куда агент должен уже ходить; запрос — закрыть; доска перечитана"),
-    ("close_port_says_no_and_fails_safe",
-     '',
-     'await (async () => { const [a, la] = desk({ answers: [false] }); const ra = await a.closePort("8022"); const [b, lb] = desk({ fail: true }); const rb = await b.closePort("8022");'
-     ' return [ra, la.calls.length, rb, lb.notes, lb.applied.length]; })()',
-     '[null,0,null,["controller is down"],0]',
-     "negative: «отмена» — порт не трогается; отказ контроллера (вход выключен, нет ключа) — тост с его словами"),
-    ("reopen_and_copy_the_entry",
-     '',
-     'await (async () => { const [d, log] = desk(); await d.reopenPort("23001"); const copied = await d.copyEntry();'
+     'await (async () => { const [d, log] = desk(); const copied = await d.copyEntry();'
      ' st.setTopology({ ...st.topology, entry: { url: "", port: null } }); const none = await d.copyEntry();'
      ' return [log.asks.length, log.calls[0], log.notes, log.copied, copied, none]; })()',
-     '[0,["/api/agent-proxies/route-policy",{"port":23001,"portClosed":false}],["Port :23001 is open again","Address copied"],["https://caravan-api.example/v1"],true,false]',
-     "↺ открывает порт без вопроса (это путь назад); адрес входа копируется; negative: вход выключен — копировать нечего"),
-    ("name_from_the_label",
-     '',
-     '(() => { const [d] = desk(); return [d.name("23001"), d.name("8022"), d.name("23999")]; })()',
-     '["hermes","promie-ui",":23999"]',
-     "имя потребителя — из подписи порта без primary/fallback; negative: неизвестный порт — сам номер, а не пустота"),
+     '[0,null,["Address copied"],["https://caravan-api.example/v1"],true,false]',
+     "адрес входа копируется без вопроса; negative: вход выключен — копировать нечего"),
 ]
 
 
@@ -256,9 +209,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

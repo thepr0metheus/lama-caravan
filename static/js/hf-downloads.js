@@ -66,14 +66,19 @@ export class HfDownloads {
     this.jobsOpen = false;
   }
 
+  // The folder a repository's files land in: the model the library calls it, and the key of what is kept on a model.
+  static modelOf(repoId) {
+    return repoId.split("/").pop();
+  }
+
   static destDir(repoId, file) {
     const author = repoId.includes("/") ? repoId.split("/")[0] : "unknown";
-    return `${repoId.split("/").pop()}/${author}/${file.quant || "default"}`;
+    return `${HfDownloads.modelOf(repoId)}/${author}/${file.quant || "default"}`;
   }
 
   static checkpointDir(repoId, format) {
     const author = repoId.includes("/") ? repoId.split("/")[0] : "unknown";
-    return `${repoId.split("/").pop()}/${author}/${format}`;
+    return `${HfDownloads.modelOf(repoId)}/${author}/${format}`;
   }
 
   // Where one file of a checkpoint lands: its folder in the repository kept under the
@@ -110,6 +115,21 @@ export class HfDownloads {
     picked.delete(path);
     if (!picked.size) this.selection.delete(repoId);
     this.changed();
+  }
+
+  // Lets the picked files of one repository that `unwanted` names leave the selection, without announcing it: the caller repaints.
+  // True when any went. A file we came to have since it was ticked (a job landed it, a verify found it the same) is such a file.
+  unpickWhere(repoId, unwanted) {
+    const picked = this.selection.get(repoId);
+    if (!picked) return false;
+    let dropped = false;
+    for (const [path, file] of [...picked]) {
+      if (!unwanted(file)) continue;
+      picked.delete(path);
+      dropped = true;
+    }
+    if (!picked.size) this.selection.delete(repoId);
+    return dropped;
   }
 
   clear() {
@@ -366,6 +386,27 @@ export class HfDownloads {
     return this.openAccessPage(this.jobs.find((j) => j.uid === uid));
   }
 
+  // Deletes what a stopped download left on the disk, after the window that says how much (the owner, 2026-10-28: "not only stop
+  // them, but delete the files not downloaded"). Stopping keeps the bytes for Resume, so this is the other way out of that row.
+  async discard(destDir, name) {
+    const row = this.interrupted.find((r) => r.destDir === destDir && r.current_file === name);
+    if (!row) return;
+    const body = hfT("dlDiscardBody", { name, size: HfFormat.bytes(row.total_bytes_done || 0) });
+    if (!(await this.confirm(hfT("dlDiscardTitle"), body, hfT("deleteWord"), true))) return;
+    let answer;
+    try {
+      answer = await this.postJson("/api/hf/download/discard", { destDir, name });
+    } catch (e) {
+      answer = { ok: false, error: String((e && e.message) || e) };
+    }
+    if (!answer || !answer.ok) {
+      this.toast(hfT("deleteFailed", { err: (answer && answer.error) || "" }));
+      return;
+    }
+    this.interrupted = this.interrupted.filter((r) => r !== row);
+    this.changed();
+  }
+
   async resume(destDir, name) {
     const row = this.interrupted.find((r) => r.destDir === destDir && r.current_file === name);
     let answer;
@@ -596,10 +637,11 @@ export class HfDownloads {
       const resume = row.resumable
         ? `<button type="button" class="hfp-btn" data-act="resume" data-dest="${escapeHtml(row.destDir || "")}" data-name="${escapeHtml(name)}" data-t="hf-download-resume" data-t-id="${escapeHtml(name)}">${escapeHtml(hfT("dlResume"))}</button>`
         : "";
+      const discard = `<button type="button" class="hfp-btn" data-act="discard" data-dest="${escapeHtml(row.destDir || "")}" data-name="${escapeHtml(name)}" data-t="hf-download-discard" data-t-id="${escapeHtml(name)}">${escapeHtml(hfT("deleteWord"))}</button>`;
       rows.push(`<div class="hfp-job is-interrupted" data-t="hf-download-interrupted" data-t-id="${escapeHtml(name)}">`
         + `<div class="hfp-job-main"><div class="hfp-job-title">${escapeHtml(row.title || "")} · ${escapeHtml(name)}</div>`
         + `<span class="hfp-bar is-stalled"><i style="width:${pct}%"></i></span>`
-        + `<div class="hfp-job-label hfp-warn">${escapeHtml(hfT(row.resumable ? "dlInterrupted" : "dlInterruptedNoManifest", { size }))}</div></div>${resume}</div>`);
+        + `<div class="hfp-job-label hfp-warn">${escapeHtml(hfT(row.resumable ? "dlInterrupted" : "dlInterruptedNoManifest", { size }))}</div></div>${resume}${discard}</div>`);
     }
     return `<div class="hfp-jobs" data-t="hf-downloads">${rows.join("")}</div>`;
   }

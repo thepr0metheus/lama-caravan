@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, node_args  # noqa: E402
 
 _fail = []
 
@@ -107,7 +107,7 @@ def main():
     probe = ROOT / "scripts" / ".probe_boot_guard.tmp.mjs"
     probe.write_text(PROBE, encoding="utf-8")
     try:
-        proc = subprocess.run([node, str(probe)], capture_output=True, text=True, cwd=ROOT, env={"PAGE": str(ROOT / "static" / "index.html"), "PATH": "/usr/bin:/bin"}, timeout=60)
+        proc = subprocess.run(node_args(node, probe), capture_output=True, text=True, cwd=ROOT, env={"PAGE": str(ROOT / "static" / "index.html"), "PATH": "/usr/bin:/bin"}, timeout=60)
     finally:
         probe.unlink(missing_ok=True)
     if proc.returncode != 0:

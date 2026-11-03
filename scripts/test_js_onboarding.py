@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ""
 
@@ -56,7 +56,12 @@ globalThis.getComputedStyle = (el) => ({ visibility: el.visibility || "visible" 
 document.createElement = (tag) => { const e = mkEl({ tag }); if (tag === "div") { const parts = {}; for (const c of [".ob-spot", ".ob-card", ".ob-close", ".ob-title", ".ob-body", ".ob-back", ".ob-next", ".ob-count"]) parts[c] = mkEl({ cls: c }); e.q = parts; } globalThis.__created.push(e); return e; };
 globalThis.__created = [];
 globalThis.__anchors = {}; document.querySelector = (sel) => (Object.prototype.hasOwnProperty.call(globalThis.__anchors, sel) ? globalThis.__anchors[sel] : null);
-globalThis.__all = []; document.querySelectorAll = (sel) => (sel === "[data-ob-tour]" ? globalThis.__all : []);
+globalThis.__all = []; globalThis.__many = {};
+// The engine takes the first visible of all an anchor matches (several alike, or a selector list): one anchor answers [itself],
+// `__many` gives a selector several elements.
+document.querySelectorAll = (sel) => (sel === "[data-ob-tour]" ? globalThis.__all
+  : Object.prototype.hasOwnProperty.call(globalThis.__many, sel) ? globalThis.__many[sel]
+  : Object.prototype.hasOwnProperty.call(globalThis.__anchors, sel) && globalThis.__anchors[sel] ? [globalThis.__anchors[sel]] : []);
 const docListeners = {}; document.addEventListener = (t, fn) => { (docListeners[t] ||= []).push(fn); }; document.removeEventListener = (t, fn) => { const l = docListeners[t] || []; const i = l.indexOf(fn); if (i >= 0) l.splice(i, 1); };
 const winListeners = {}; globalThis.addEventListener = (t, fn) => { (winListeners[t] ||= []).push(fn); }; globalThis.removeEventListener = (t, fn) => { const l = winListeners[t] || []; const i = l.indexOf(fn); if (i >= 0) l.splice(i, 1); };
 document.body = { appended: [], appendChild(e) { this.appended.push(e); } };
@@ -66,7 +71,7 @@ const LABELS = { back: "Назад", next: "Далее", done: "Готово", s
 const root = () => globalThis.__created.filter((e) => e.tag === "div" && e.className === "ob-root").at(-1);
 const part = (sel) => root().q[sel];
 let stopped = []; const tours = [];
-const reset = () => { for (const t of tours.splice(0)) { try { t.stop(); } catch {} } stopped = []; timers.length = 0; now = 0; localStorage.clear(); globalThis.__created.length = 0; globalThis.__anchors = { "#a": mkEl(), "#b": mkEl() }; globalThis.__all = []; document.body.appended.length = 0; for (const k of Object.keys(docListeners)) delete docListeners[k]; for (const k of Object.keys(winListeners)) delete winListeners[k]; };
+const reset = () => { for (const t of tours.splice(0)) { try { t.stop(); } catch {} } stopped = []; timers.length = 0; now = 0; localStorage.clear(); globalThis.__created.length = 0; globalThis.__anchors = { "#a": mkEl(), "#b": mkEl() }; globalThis.__all = []; globalThis.__many = {}; document.body.appended.length = 0; for (const k of Object.keys(docListeners)) delete docListeners[k]; for (const k of Object.keys(winListeners)) delete winListeners[k]; };
 reset();
 const tourOf = (steps = STEPS()) => { const t = m.createTour({ steps: () => steps, labels: () => LABELS, onStop: (f) => stopped.push(f) }); tours.push(t); return t; };
 const out = {};
@@ -84,6 +89,24 @@ PINS = [
      '["2/3","1/3",false,[false],1,true]', "стрелки листают; Escape останавливает с finished=false, гасит событие и снимает корень"),
     ("stop_unhooks_listeners", '', '(() => { const t = tourOf(); t.start(); const before = [docListeners.keydown.length, winListeners.resize.length, winListeners.scroll.length]; t.stop(); return [...before, docListeners.keydown.length, winListeners.resize.length, winListeners.scroll.length]; })()', '[1,1,1,0,0,0]', "стоп снимает слушатели клавиш, resize и scroll"),
     ("second_tour_replaces_first", '', '(() => { stopped = []; const t1 = tourOf(); t1.start(); const s0 = [...stopped]; const t2 = tourOf(); t2.start(); return [t1.active(), t2.active(), s0, [...stopped]]; })()', '[false,true,[],[false]]', "второй тур останавливает первый (не стопка), первому — finished=false"),
+    ("first_visible_of_several_matches",
+     'const hid = mkEl({ hiddenAncestor: true }); hid.rect = { left: 10, top: 10, width: 50, height: 20 }; const shown = mkEl(); shown.rect = { left: 300, top: 200, width: 50, height: 20 }; globalThis.__many["[data-t=\\"pick\\"]"] = [hid, shown];',
+     '(() => { const t = tourOf([{ anchor: \'[data-t="pick"]\', title: "P" }]); t.start(); return [t.active(), part(".ob-spot").style.left, part(".ob-spot").style.top]; })()',
+     '[true,"294px","194px"]',
+     "якорь, под которым несколько элементов (панель на каждую ячейку, список селекторов), — первый видимый, а не первый; "
+     "negative: скрытый первым не роняет шаг (2026-10-27: на странице машины и в форме ячейки шаги пропадали так)"),
+    ("card_beside_a_target_as_tall_as_the_window",
+     '',
+     '(() => { const t = tourOf([{ anchor: "#a", title: "A" }]); t.start(); const at = (rect) => { globalThis.__anchors["#a"].rect = rect; winListeners.resize[0](); return [part(".ob-card").style.left, part(".ob-card").style.top]; };'
+     ' return [at({ left: 20, top: 10, width: 300, height: 780 }), at({ left: 640, top: 10, width: 340, height: 780 }), at({ left: 0, top: 0, width: 1000, height: 800 })]; })()',
+     '[["340px","16px"],["260px","16px"],["320px","604px"]]',
+     "цель высотой с окно (колонка, раздел страницы): ни под, ни над — карточка сбоку, справа, а нет места — слева, у верха цели; "
+     "negative: цель во всё окно — карточка внизу, как прежде"),
+    ("spot_kept_inside_the_window",
+     'globalThis.__anchors["#a"].rect = { left: 990, top: -20, width: 46, height: 128 };',
+     '(() => { const t = tourOf([{ anchor: "#a", title: "A" }]); t.start(); const s = part(".ob-spot").style; return [s.left, s.top, s.width, s.height]; })()',
+     '["984px","2px","14px","112px"]',
+     "кольцо вокруг цели у края окна (вкладки мониторов) не выходит за окно: обрезано по краям"),
     ("card_positioned_below_then_flipped", '', '(() => { const t = tourOf(); t.start(); const below = [part(".ob-spot").style.left, part(".ob-spot").style.top, part(".ob-card").style.top, part(".ob-card").style.width]; globalThis.__anchors["#a"].rect = { left: 100, top: 700, width: 50, height: 20 }; winListeners.resize[0](); return [...below, part(".ob-card").style.top]; })()', '["94px","94px","140px","360px","500px"]',
      "пятно вокруг якоря с отступом 6; карточка под ним; когда снизу не помещается — над ним (700-180-14)"),
     ("center_step_positions_middle", '', '(() => { const t = tourOf([{ center: true, title: "C" }]); t.start(); return [part(".ob-spot").classList.has("ob-spot-center"), part(".ob-spot").style.left, part(".ob-card").style.left, part(".ob-card").style.top]; })()', '[true,"500px","320px","310px"]', "центрированный шаг: пятно в центре, карточка посередине"),
@@ -137,9 +160,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

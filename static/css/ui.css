@@ -1,0 +1,641 @@
+/* The caravan's one visual language (step 0 of the screens' redesign, the owner's choice of 2026-10-25: variant А with
+   the memory map of В). Every screen is built from these parts — the button, the switch, the badge, the status band, the
+   row, the meter, the tabs and the window frame — drawn by static/js/ui-parts.js. A colour, a font size or a radius a
+   part needs is a token here: the rules below take none of their own (scripts/check_ui_tokens.py). The tokens build on
+   the theme's own (base.css), so a theme recolours the parts with the rest of the page. Shown all at once, in every
+   state, by docs/ui-parts.html. */
+:root {
+  /* Surfaces, from the theme. */
+  --ui-ground: var(--bg);
+  --ui-surface: var(--panel);
+  --ui-raised: color-mix(in srgb, var(--panel) 94%, var(--text));
+  --ui-well: var(--field);
+  --ui-line: var(--line);
+  --ui-line-strong: color-mix(in srgb, var(--line) 82%, var(--text));
+  /* Words. */
+  --ui-text: var(--text);
+  --ui-text-dim: color-mix(in srgb, var(--text) 74%, var(--muted));
+  --ui-muted: var(--muted);
+  /* What a thing does now: works, is on its way, holds nothing, failed. One more — the action: buttons and choices only. */
+  --ui-good: var(--good);
+  --ui-busy: var(--yellow);
+  --ui-idle: var(--muted);
+  --ui-bad: var(--bad);
+  --ui-act: var(--accent);
+  --ui-act-strong: var(--accent-strong);
+  /* A thing the owner marked as liked — a cell's star (1.3.680): a mark of its own, not the colour of a state. */
+  /* A meter's other processes (hatched) and the cells that hold memory in it, one colour each. */
+  --ui-hatch: repeating-linear-gradient(135deg, color-mix(in srgb, var(--line) 86%, var(--text)) 0 4px, var(--field) 4px 8px);
+  --ui-series-1: #4da392;
+  --ui-series-2: #6f8fcf;
+  --ui-series-3: #d9a54a;
+  --ui-series-4: #b28be0;
+  --ui-series-5: #e08aa6;
+  --ui-series-6: #8fc46a;
+  /* The words written on a block of a series' colour (a cell's block on a lane of the memory map): dark on every theme, the
+     colours being the same on every theme. */
+  --ui-on-series: #0f1416;
+  /* What pops over the page — a menu — and the shadow it casts. */
+  --ui-shadow-pop: 0 18px 40px rgba(0, 0, 0, 0.5);
+  /* Type: 28 a page's name, 21 a window's, 20 a figure, 16 a section and a status, 14 a row, 13 the body, 12 the facts,
+     11 the labels. */
+  --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --ui-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --ui-fs-page: 28px;
+  --ui-fs-window: 21px;
+  --ui-fs-figure: 20px;
+  --ui-fs-section: 16px;
+  --ui-fs-row: 14px;
+  --ui-fs-body: 13px;
+  --ui-fs-fact: 12px;
+  --ui-fs-label: 11px;
+  /* Space, radii and the three heights of a button. */
+  --ui-s1: 4px;
+  --ui-s2: 8px;
+  --ui-s3: 12px;
+  --ui-s4: 16px;
+  --ui-s5: 24px;
+  --ui-r1: 7px;
+  --ui-r2: 9px;
+  --ui-r3: 12px;
+  --ui-r4: 14px;
+  --ui-h-main: 40px;
+  --ui-h-plain: 36px;
+  --ui-h-quiet: 32px;
+}
+
+/* ── the button ─────────────────────────────────────────────────────────────────────────────────────────
+   Four looks: main (one to an area), plain, quiet, danger (in a "⋯" menu, and asking first); main and danger together are
+   the band's Stop, and an icon alone is square. Every height is set here: the board's buttons carry a 34px minimum
+   (cards.css). */
+.ui-btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ui-s2);
+  height: var(--ui-h-plain);
+  min-height: 0;
+  padding: 0 14px;
+  border-radius: var(--ui-r2);
+  border: 1px solid var(--ui-line-strong);
+  background: transparent;
+  color: var(--ui-text);
+  font: 600 var(--ui-fs-body)/1 var(--ui-font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-btn:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.ui-btn:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+.ui-btn[disabled] { opacity: .45; cursor: default; }
+.ui-btn--main {
+  height: var(--ui-h-main);
+  padding: 0 18px;
+  border-radius: var(--ui-r3);
+  border-color: color-mix(in srgb, var(--ui-act) 60%, var(--ui-line));
+  background: color-mix(in srgb, var(--ui-act) 26%, var(--ui-surface));
+  font-weight: 650;
+}
+.ui-btn--main:hover { background: color-mix(in srgb, var(--ui-act) 34%, var(--ui-surface)); }
+.ui-btn--quiet {
+  height: var(--ui-h-quiet);
+  padding: 0 10px;
+  border-color: transparent;
+  color: var(--ui-text-dim);
+}
+.ui-btn--danger {
+  border-color: color-mix(in srgb, var(--ui-bad) 45%, var(--ui-line));
+  background: color-mix(in srgb, var(--ui-bad) 10%, transparent);
+  color: color-mix(in srgb, var(--ui-bad) 72%, var(--ui-text));
+}
+.ui-btn--danger:hover { background: color-mix(in srgb, var(--ui-bad) 16%, transparent); }
+.ui-btn--icon { width: var(--ui-h-plain); padding: 0; }
+.ui-btn svg { flex: none; }
+
+/* The on/off of a cell or an engine: a button that says its state (role="switch", aria-checked); busy while on its way. */
+.ui-switch {
+  box-sizing: border-box;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 40px;
+  height: 22px;
+  min-height: 0;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-line) 76%, var(--ui-text));
+  cursor: pointer;
+}
+.ui-switch::after { content: ""; width: 18px; height: 18px; border-radius: 50%; background: var(--ui-text); }
+.ui-switch[aria-checked="true"] { justify-content: flex-end; background: color-mix(in srgb, var(--ui-act) 78%, var(--ui-surface)); }
+.ui-switch.is-busy { justify-content: flex-end; background: color-mix(in srgb, var(--ui-busy) 62%, var(--ui-surface)); }
+.ui-switch:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+.ui-switch[disabled] { opacity: .45; cursor: default; }
+
+/* A segmented choice (one of a few) and a filter pill (on or off). */
+.ui-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--ui-r2);
+  border: 1px solid var(--ui-line);
+  background: var(--ui-well);
+}
+.ui-seg-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--ui-r1);
+  background: transparent;
+  color: var(--ui-text-dim);
+  font: 600 var(--ui-fs-fact)/1 var(--ui-font);
+  cursor: pointer;
+}
+.ui-seg-opt[aria-pressed="true"] { background: color-mix(in srgb, var(--ui-text) 12%, var(--ui-surface)); color: var(--ui-text); }
+.ui-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  min-height: 0;
+  padding: 0 11px;
+  border-radius: 999px;
+  border: 1px solid var(--ui-line);
+  background: transparent;
+  color: var(--ui-text-dim);
+  font: 600 var(--ui-fs-fact)/1 var(--ui-font);
+  cursor: pointer;
+}
+.ui-pill[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--ui-act) 60%, var(--ui-line));
+  background: color-mix(in srgb, var(--ui-act) 16%, transparent);
+  color: var(--ui-text);
+}
+.ui-count { color: var(--ui-muted); font-variant-numeric: tabular-nums; }
+.ui-seg-opt:focus-visible, .ui-pill:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+
+/* ── the badge ── an exception worth a word: autostart, an old server, a start that will not fit. The normal gets none. */
+.ui-badge {
+  --ui-tone: var(--ui-idle);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-s1);
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--ui-r1);
+  background: color-mix(in srgb, var(--ui-tone) 15%, transparent);
+  color: color-mix(in srgb, var(--ui-tone) 62%, var(--ui-text));
+  font: 600 var(--ui-fs-label)/1 var(--ui-font);
+  white-space: nowrap;
+}
+.ui-badge--good { --ui-tone: var(--ui-good); }
+.ui-badge--busy { --ui-tone: var(--ui-busy); }
+.ui-badge--bad { --ui-tone: var(--ui-bad); }
+.ui-badge--act { --ui-tone: var(--ui-act); }
+
+/* ── the status band ── what the object does now, in one line under its name, and its one main button. */
+.ui-band {
+  --ui-tone: var(--ui-idle);
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s3);
+  flex-wrap: wrap;
+  padding: 12px 14px 12px 16px;
+  border-radius: var(--ui-r3);
+  border: 1px solid color-mix(in srgb, var(--ui-tone) 32%, var(--ui-line));
+  background: color-mix(in srgb, var(--ui-tone) 8%, var(--ui-surface));
+}
+.ui-band--good { --ui-tone: var(--ui-good); }
+.ui-band--busy { --ui-tone: var(--ui-busy); }
+.ui-band--bad { --ui-tone: var(--ui-bad); }
+.ui-band-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ui-tone);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-tone) 20%, transparent);
+}
+.ui-band-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: var(--ui-s1); }
+.ui-band-title { font: 650 var(--ui-fs-section)/1.2 var(--ui-font); color: color-mix(in srgb, var(--ui-tone) 48%, var(--ui-text)); }
+.ui-band-sub { font: 500 var(--ui-fs-fact)/1.45 var(--ui-font); color: var(--ui-text-dim); overflow-wrap: anywhere; }
+/* The band said in the line of a page's head (variant В of a machine's page): the dot and the words, no frame of its own. */
+.ui-band--inline { padding: 0; border: 0; background: transparent; gap: var(--ui-s2); flex-wrap: nowrap; }
+.ui-band--inline .ui-band-text { flex: none; min-width: 0; flex-direction: row; align-items: baseline; gap: var(--ui-s2); }
+.ui-band--inline .ui-band-title { font-size: var(--ui-fs-row); }
+
+/* ── the row ── of any list: its state, its name over one line of facts, its figure on the right, an exception, a tail. */
+.ui-list { border-radius: var(--ui-r3); border: 1px solid var(--ui-line); overflow: hidden; }
+.ui-row {
+  display: grid;
+  grid-template-columns: var(--ui-row-cols, 48px minmax(0, 1fr) minmax(120px, auto) minmax(0, auto));
+  align-items: center;
+  gap: var(--ui-s3);
+  min-height: 52px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--ui-line);
+}
+.ui-row:first-child { border-top: 0; }
+.ui-row--live { background: color-mix(in srgb, var(--ui-good) 6%, transparent); }
+.ui-row-state { display: flex; align-items: center; min-width: 0; }
+.ui-row-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-text);
+  text-align: left;
+  font: inherit;
+}
+button.ui-row-name { cursor: pointer; }
+button.ui-row-name:hover .ui-row-title { text-decoration: underline; text-decoration-color: var(--ui-act); text-underline-offset: 3px; }
+button.ui-row-name:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+.ui-row-title { font: 600 var(--ui-fs-row)/1.25 var(--ui-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-row-facts { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-row-figure { display: flex; flex-direction: column; gap: 3px; min-width: 0; text-align: right; }
+.ui-row-value { font: 500 var(--ui-fs-fact)/1.3 var(--ui-mono); color: var(--ui-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui-row-note { font: 500 var(--ui-fs-fact)/1.3 var(--ui-font); color: var(--ui-muted); }
+.ui-row-note--busy { color: color-mix(in srgb, var(--ui-busy) 72%, var(--ui-text)); }
+.ui-row-note--bad { color: color-mix(in srgb, var(--ui-bad) 72%, var(--ui-text)); }
+.ui-row-tail { display: flex; justify-content: flex-end; gap: var(--ui-s2); min-width: 0; }
+
+/* ── the meter ── how full a card, the RAM or a disk is, and who holds it: a colour per cell, hatching for the other
+   processes, dashes for an estimate ("this is where it would go"). No bar while its total is not known. */
+.ui-tile {
+  min-width: 0;
+  padding: 14px 14px 12px;
+  border-radius: var(--ui-r3);
+  border: 1px solid var(--ui-line);
+  background: var(--ui-surface);
+}
+.ui-meter { min-width: 0; display: flex; flex-direction: column; gap: var(--ui-s2); }
+.ui-meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--ui-s2); }
+.ui-meter-label { font: 600 var(--ui-fs-label)/1.2 var(--ui-font); letter-spacing: .04em; text-transform: uppercase; color: var(--ui-muted); }
+.ui-meter-side { font: 500 var(--ui-fs-fact)/1.2 var(--ui-font); color: var(--ui-muted); text-align: right; }
+.ui-meter-figure { display: flex; align-items: baseline; gap: 6px; }
+.ui-meter-value { font: 650 var(--ui-fs-figure)/1.1 var(--ui-mono); color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.ui-meter-unit { font: 500 var(--ui-fs-fact)/1.2 var(--ui-font); color: var(--ui-muted); }
+.ui-meter-bar { display: flex; height: 8px; border-radius: 999px; background: var(--ui-well); overflow: hidden; }
+.ui-meter-seg { display: block; flex: none; height: 100%; background: var(--ui-series-1); }
+.ui-meter-seg--s2 { background: var(--ui-series-2); }
+.ui-meter-seg--s3 { background: var(--ui-series-3); }
+.ui-meter-seg--s4 { background: var(--ui-series-4); }
+.ui-meter-seg--s5 { background: var(--ui-series-5); }
+.ui-meter-seg--s6 { background: var(--ui-series-6); }
+.ui-meter-seg--other { background: var(--ui-hatch); }
+.ui-meter-seg--estimate {
+  box-sizing: border-box;
+  border: 2px dashed var(--ui-act);
+  background: color-mix(in srgb, var(--ui-act) 14%, transparent);
+}
+/* The cache and buffers of an estimate: the same dashes, paler, so the model's weights read apart from what its context takes. */
+.ui-meter-seg--estimate-cache {
+  box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--ui-act) 55%, transparent);
+  background: color-mix(in srgb, var(--ui-act) 5%, transparent);
+}
+.ui-meter-foot { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+
+/* ── the lane ── a card or the RAM as one wide bar of its holders (variant В of a machine's page): a cell's block in its colour
+   with its name and figure inside, a button that chooses it, ringed while chosen; the other processes hatched, an estimate
+   dashed; how much is free at the right of its head. */
+.ui-lane { min-width: 0; display: flex; flex-direction: column; gap: var(--ui-s2); }
+.ui-lane-head { display: flex; align-items: baseline; gap: var(--ui-s2); flex-wrap: wrap; }
+.ui-lane-label { font: 650 var(--ui-fs-body)/1.2 var(--ui-font); color: var(--ui-text); }
+.ui-lane-side { font: 500 var(--ui-fs-fact)/1.2 var(--ui-font); color: var(--ui-muted); }
+.ui-lane-free { margin-left: auto; font: 500 var(--ui-fs-fact)/1.2 var(--ui-mono); color: var(--ui-text-dim); font-variant-numeric: tabular-nums; }
+.ui-lane-bar { display: flex; height: 58px; border-radius: var(--ui-r3); border: 1px solid var(--ui-line); background: var(--ui-well); overflow: hidden; }
+.ui-lane-blk {
+  box-sizing: border-box;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-right: 2px solid var(--ui-well);
+  border-radius: 0;
+  background: var(--ui-series-1);
+  color: var(--ui-on-series);
+  text-align: left;
+  overflow: hidden;
+  font: inherit;
+}
+.ui-lane-blk--s2 { background: var(--ui-series-2); }
+.ui-lane-blk--s3 { background: var(--ui-series-3); }
+.ui-lane-blk--s4 { background: var(--ui-series-4); }
+.ui-lane-blk--s5 { background: var(--ui-series-5); }
+.ui-lane-blk--s6 { background: var(--ui-series-6); }
+.ui-lane-blk--other { background: var(--ui-hatch); color: var(--ui-text-dim); }
+.ui-lane-blk--estimate { border: 2px dashed var(--ui-act); background: color-mix(in srgb, var(--ui-act) 12%, transparent); color: var(--ui-act-strong); }
+.ui-lane-blk--estimate-cache {
+  border: 2px dashed color-mix(in srgb, var(--ui-act) 55%, transparent);
+  background: color-mix(in srgb, var(--ui-act) 5%, transparent);
+  color: var(--ui-text-dim);
+}
+.ui-lane-blk strong { font: 700 var(--ui-fs-fact)/1.15 var(--ui-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-lane-blk span { font: 600 var(--ui-fs-label)/1.1 var(--ui-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.ui-lane-blk { cursor: pointer; }
+button.ui-lane-blk:hover { filter: brightness(1.08); }
+button.ui-lane-blk:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: -2px; }
+.ui-lane-blk.is-on { box-shadow: inset 0 0 0 2px var(--ui-text); }
+.ui-lane-foot { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+/* A lane on a rack (machine-head.js MachineRack, the owner's choice Д1, 2026-11-02): one thin row — its name, how much is free, its bar on
+   the rack's one scale, and the lines that sew one cell's pieces together. A row of a set height keeps the bar's middle at --lane-mid,
+   where a cell's line meets its piece. --lane-who and --lane-room are the rack's own columns (machine.css). */
+.ui-lane-c { --lane-c: var(--ui-series-1); }
+.ui-lane-c--s2 { --lane-c: var(--ui-series-2); }
+.ui-lane-c--s3 { --lane-c: var(--ui-series-3); }
+.ui-lane-c--s4 { --lane-c: var(--ui-series-4); }
+.ui-lane-c--s5 { --lane-c: var(--ui-series-5); }
+.ui-lane-c--s6 { --lane-c: var(--ui-series-6); }
+.ui-lane-c--estimate, .ui-lane-c--estimate-cache { --lane-c: var(--ui-act); }
+.ui-lane-c--other { --lane-c: var(--ui-muted); }
+.ui-lane--rack {
+  --lane-height: 26px;
+  --lane-gap: 5px;
+  --lane-mid: calc(var(--lane-height) / 2);
+  display: grid;
+  grid-template-columns: var(--lane-who, 222px) var(--lane-room, 80px) minmax(0, 1fr) calc(10px + var(--lane-slots) * 6px) var(--lane-metrics, 390px);
+  grid-template-rows: var(--lane-height) auto;
+  gap: 0;
+}
+/* A device's own figures at the end of its row: its load, its memory and its power, each a value and a little chart; the heads over them
+   stand in the same grid. A press on one opens the machine's chart of it. */
+.ui-lane-heads { display: grid; grid-template-columns: var(--lane-who, 222px) var(--lane-room, 80px) minmax(0, 1fr) calc(10px + var(--lane-slots) * 6px) var(--lane-metrics, 390px); height: 15px; }
+.ui-lane-heads > .ui-lane-metrics { grid-column: 5; height: 15px; font: 650 var(--ui-fs-label)/15px var(--ui-font); letter-spacing: .05em; color: var(--ui-muted); white-space: nowrap; }
+.ui-lane--rack > .ui-lane-metrics { grid-column: 5; grid-row: 1; }
+.ui-lane-metrics { display: grid; grid-template-columns: 104px 148px 118px; column-gap: 10px; align-items: center; min-width: 0; }
+.ui-lane-metric { display: flex; align-items: center; gap: var(--ui-s1); min-width: 0; font: 500 var(--ui-fs-fact)/1.2 var(--ui-mono); font-variant-numeric: tabular-nums; }
+.ui-lane-heads .ui-lane-metric { display: block; font: inherit; text-align: left; }
+.ui-lane-metric[data-machine-chart] { cursor: pointer; }
+.ui-lane-metric[data-machine-chart]:hover .ui-lane-metric-val { color: var(--ui-act-strong); }
+.ui-lane-metric-val { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--ui-text); text-align: right; white-space: nowrap; }
+.ui-lane-metric-spark { flex: none; display: inline-flex; align-items: center; width: 60px; height: 16px; }
+.ui-lane-metric-spark svg { display: block; width: 60px; height: 14px; }
+.ui-lane--rack > .ui-lane-head { grid-column: 1; grid-row: 1; align-items: center; flex-wrap: nowrap; min-width: 0; overflow: hidden; white-space: nowrap; }
+.ui-lane--rack .ui-lane-label { flex: none; }
+.ui-lane--rack .ui-lane-side { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui-lane--rack > .ui-lane-free { grid-column: 2; grid-row: 1; align-self: center; margin-left: 0; padding-right: var(--ui-s2); text-align: right; white-space: nowrap; }
+.ui-lane--rack > .ui-lane-foot { grid-column: 1 / 4; grid-row: 2; }
+.ui-lane-line { grid-column: 3; grid-row: 1; position: relative; min-width: 0; }
+.ui-lane--rack .ui-lane-bar { width: var(--lane-bar); height: 100%; box-sizing: border-box; border-radius: var(--ui-r2); }
+.ui-lane--rack .ui-lane-blk { position: relative; z-index: 2; flex-direction: row; align-items: center; gap: var(--ui-s1); padding: 0 var(--ui-s1); }
+.ui-lane--rack .ui-lane-blk strong, .ui-lane--rack .ui-lane-blk span { font-size: var(--ui-fs-label); }
+/* A planned piece ends under its handle: its figure keeps clear of it. */
+.ui-lane--rack .ui-lane-blk--estimate-cache, .ui-lane--rack .ui-lane-blk--estimate:last-child { padding-right: var(--ui-s2); }
+.ui-lane-lead {
+  position: absolute;
+  z-index: 1;
+  top: calc(50% - 1px + var(--lane-slot) * 3px);
+  left: calc(var(--lane-bar) * var(--lane-from) / 100);
+  right: calc(-5px - var(--lane-slot) * 6px);
+  border-top: 2px solid var(--lane-c);
+  pointer-events: none;
+}
+.ui-lane-lead.ui-lane-c--estimate { border-top-style: dashed; }
+.ui-lane-spine { grid-column: 4; grid-row: 1 / -1; position: relative; min-width: 0; pointer-events: none; }
+.ui-lane-link {
+  position: absolute;
+  left: calc(4px + var(--lane-slot) * 6px);
+  top: var(--lane-mid);
+  bottom: 100%;
+  border-left: 2px solid var(--lane-c);
+}
+.ui-lane-link.ui-lane-c--estimate { border-left-style: dashed; }
+.ui-lane-link.is-up { top: 0; bottom: auto; height: var(--lane-mid); }
+.ui-lane-link.is-down { bottom: calc(-1 * var(--lane-gap)); height: auto; }
+.ui-lane-link.is-here::after {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lane-c);
+}
+.ui-lane-link.is-up.is-here::after { top: calc(var(--lane-mid) - 4px); }
+/* Of all the lines only what is planned, chosen or under the pointer: the colours and the list say the rest. */
+.ui-lane-link:not(.ui-lane-c--estimate, .is-shown, .is-lit), .ui-lane-lead:not(.ui-lane-c--estimate, .is-shown, .is-lit) { display: none; }
+/* A handle: how much of the planned model lies on this device. Filled where it holds a piece, hollow where it can be given one. */
+.ui-lane-grip {
+  position: absolute;
+  z-index: 3;
+  top: calc(50% - 8px);
+  left: calc(var(--lane-bar) * var(--lane-grip) / 100 - 8px);
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 2px solid var(--ui-well);
+  border-radius: 50%;
+  background: var(--ui-well);
+  box-shadow: 0 0 0 2px var(--ui-act);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ui-lane-grip.is-on { background: var(--ui-text); }
+.ui-lane-grip:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+/* The list beside the lanes: every holder once, largest first, what is planned on top of them. */
+.ui-legend { display: flex; flex-direction: column; min-width: 0; }
+.ui-legend-row {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) 46px 92px 34px;
+  align-items: center;
+  gap: 0 var(--ui-s2);
+  width: 100%;
+  min-height: 0;
+  height: 20px;
+  margin: 0;
+  padding: 0 var(--ui-s1);
+  border: 0;
+  border-radius: var(--ui-r1);
+  background: none;
+  color: var(--ui-text);
+  font: 500 var(--ui-fs-fact)/1.35 var(--ui-font);
+  text-align: left;
+  white-space: nowrap;
+}
+button.ui-legend-row { cursor: pointer; }
+button.ui-legend-row:hover { background: color-mix(in srgb, var(--lane-c) 14%, transparent); }
+button.ui-legend-row:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: -2px; }
+.ui-legend-row.is-on { background: color-mix(in srgb, var(--lane-c) 22%, transparent); }
+.ui-legend-row.ui-lane-c--estimate {
+  height: 24px;
+  margin-bottom: var(--ui-s1);
+  border: 1px dashed var(--lane-c);
+  background: color-mix(in srgb, var(--lane-c) 10%, transparent);
+}
+.ui-lane-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--lane-c); }
+.ui-lane-c--estimate > .ui-lane-dot { box-sizing: border-box; border: 1.5px dashed var(--lane-c); background: none; }
+.ui-lane-c--other > .ui-lane-dot { background: var(--ui-hatch); }
+.ui-legend-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 650; }
+.ui-lane-c--other > .ui-legend-name { font-weight: 500; color: var(--ui-muted); }
+.ui-legend-figure { text-align: right; font: 500 var(--ui-fs-fact)/1.35 var(--ui-mono); color: var(--ui-text-dim); font-variant-numeric: tabular-nums; }
+.ui-legend-where { overflow: hidden; text-overflow: ellipsis; color: var(--ui-muted); }
+.ui-legend-speed { text-align: right; font: 500 var(--ui-fs-fact)/1.35 var(--ui-mono); color: var(--ui-good); font-variant-numeric: tabular-nums; }
+.ui-legend-row.ui-legend-heads { height: 15px; font: 650 var(--ui-fs-label)/15px var(--ui-font); letter-spacing: .05em; color: var(--ui-muted); }
+.ui-legend-heads .ui-legend-figure, .ui-legend-heads .ui-legend-speed { font: inherit; color: inherit; }
+.ui-legend-empty { margin: 0; padding: var(--ui-s1); font: 500 var(--ui-fs-fact)/1.35 var(--ui-font); color: var(--ui-muted); }
+/* A pointer on a holder, in the list or on a block: its pieces and its line stay, the rest step back (MachinePick.light). */
+.is-lighting .ui-lane-blk:not(.is-lit), .is-lighting .ui-legend-row:not(.is-lit) { opacity: .35; }
+/* Narrower, the little charts go, the figures stay; the list goes under the lanes (machine.css); too narrow for a row, the bar under its
+   name and the figures under the bar, on no lines. */
+@container rack (max-width: 1180px) {
+  .ui-lane--rack, .ui-lane-heads { --lane-metrics: 214px; }
+  .ui-lane-metrics { grid-template-columns: 44px 84px 62px; column-gap: var(--ui-s2); }
+  .ui-lane-metric-spark { display: none; }
+}
+@container rack (max-width: 620px) {
+  .ui-lane-heads { display: none; }
+  .ui-lane--rack { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto var(--lane-height) auto auto; row-gap: var(--ui-s1); }
+  .ui-lane--rack > .ui-lane-head { grid-column: 1; grid-row: 1; }
+  .ui-lane--rack > .ui-lane-free { grid-column: 2; grid-row: 1; padding-right: 0; }
+  .ui-lane-line { grid-column: 1 / -1; grid-row: 2; }
+  .ui-lane--rack > .ui-lane-foot { grid-column: 1 / -1; grid-row: 3; }
+  .ui-lane--rack > .ui-lane-metrics { grid-column: 1 / -1; grid-row: 4; }
+  .ui-lane-spine, .ui-lane-lead { display: none; }
+}
+
+/* ── the tabs ── of a window or a page section. */
+.ui-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--ui-line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ui-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-s2);
+  height: 40px;
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  font: 600 var(--ui-fs-body)/1 var(--ui-font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ui-tab:hover { color: var(--ui-text); }
+.ui-tab[aria-selected="true"] { color: var(--ui-text); border-bottom-color: var(--ui-act); }
+.ui-tab:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: -2px; }
+.ui-tab-count {
+  padding: 3px 6px;
+  border-radius: var(--ui-r1);
+  background: color-mix(in srgb, var(--ui-text) 7%, transparent);
+  color: var(--ui-muted);
+  font: 600 var(--ui-fs-label)/1 var(--ui-font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── the window frame ── the passport (name, facts, address, tools), the band, the tabs, the body and the foot that says
+   what is not applied. A machine's page, a cell's window, an engine and the new cell's steps are this frame. */
+.ui-win {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: var(--ui-r4);
+  border: 1px solid var(--ui-line-strong);
+  background: var(--ui-surface);
+  overflow: hidden;
+}
+.ui-win-head { display: flex; align-items: flex-start; gap: var(--ui-s2); padding: 16px 20px 0; }
+.ui-win-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ui-win-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.ui-win-title { font: 700 var(--ui-fs-window)/1.2 var(--ui-font); letter-spacing: -.01em; color: var(--ui-text); overflow-wrap: anywhere; }
+.ui-win-facts { font: 500 var(--ui-fs-body)/1.35 var(--ui-font); color: var(--ui-muted); }
+.ui-win-band { padding: 12px 20px 0; }
+.ui-win-tabs { margin-top: 8px; }
+.ui-win-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 18px; display: flex; flex-direction: column; gap: 14px; }
+.ui-win-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-s3);
+  flex-wrap: wrap;
+  padding: 10px 20px 12px;
+  border-top: 1px solid var(--ui-line);
+  background: color-mix(in srgb, var(--ui-act) 7%, var(--ui-surface));
+}
+.ui-win-foot:empty { display: none; }
+/* A page's own head is the same frame without a window around it: a page has no edge to draw, and its name is its heading. */
+.ui-win--page { border: 0; border-radius: 0; background: transparent; overflow: visible; }
+.ui-win--page .ui-win-head { padding: 0; }
+.ui-win--page .ui-win-title { margin: 0; font-size: var(--ui-fs-page); }
+.ui-win--page .ui-win-band { padding: 14px 0 0; }
+.ui-win--page .ui-win-body { padding: 16px 0 0; overflow: visible; }
+
+/* ── the menu ───────────────────────────────────────────────────────────────────────────────────────────
+   "⋯" opens what is rare and what cannot be undone; the list pops over the page, under its button. */
+.ui-menu { position: relative; display: inline-flex; }
+.ui-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--ui-s1));
+  z-index: 30;
+  min-width: 240px;
+  padding: 6px;
+  border-radius: var(--ui-r3);
+  border: 1px solid var(--ui-line-strong);
+  background: var(--ui-raised);
+  box-shadow: var(--ui-shadow-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ui-menu-list[hidden] { display: none; }
+.ui-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ui-r1);
+  background: transparent;
+  color: var(--ui-text);
+  font: 500 var(--ui-fs-body)/1.2 var(--ui-font);
+  text-align: left;
+  cursor: pointer;
+}
+.ui-menu-item:hover, .ui-menu-item:focus-visible { background: color-mix(in srgb, var(--ui-text) 8%, transparent); }
+.ui-menu-item:focus-visible { outline: 2px solid var(--ui-act); outline-offset: -2px; }
+.ui-menu-item--danger { color: color-mix(in srgb, var(--ui-bad) 72%, var(--ui-text)); }
+.ui-menu-item[disabled] { opacity: .5; cursor: default; }
+.ui-menu-sep { height: 1px; margin: 4px 6px; background: var(--ui-line); }
+.ui-addr {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--ui-r1);
+  border: 1px solid var(--ui-line);
+  background: var(--ui-well);
+  color: var(--ui-text);
+  font: 550 var(--ui-fs-fact)/1 var(--ui-mono);
+}
+.ui-label { font: 600 var(--ui-fs-label)/1.2 var(--ui-font); letter-spacing: .04em; text-transform: uppercase; color: var(--ui-muted); }

@@ -50,7 +50,7 @@ class Library:
     commented out is no setting."""
 
     SHARE = "/volume1/lama-caravan-models"
-    FOLDER = "/data/models"     # the controller's models folder in the container (caravan/admin/paths.py)
+    FOLDER = "/data/models"     # the controller's models folder in the container (rust/crates/admin/src/paths.rs)
     GROUP = "65542"             # lama_caravan_nas on the NAS
     NEEDED = (
         ("library mount", r"^[ \t]+volumes:[ \t]*\n(?:[ \t]+-[^\n]*\n)*?[ \t]+-[ \t]*\"?" + re.escape(SHARE)

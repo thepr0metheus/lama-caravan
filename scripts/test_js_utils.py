@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ""
 
@@ -60,6 +60,10 @@ PINS = [
     ("api_blob_body_untouched", 'globalThis.__fetchReply["/x"] = { ok: true };', 'await (async () => { const b = new Blob(["z"]); await m.api("/x", { method: "POST", body: b }); return rawCalls()[0].body === b; })()', 'true', "Blob — провод понимает сам, не сериализуется"),
     ("api_error_message_from_body_or_status", '', 'await (async () => { globalThis.__fetchReply["/x"] = { __status: 500, error: "disk full" }; let a = ""; try { await m.api("/x"); } catch (e) { a = e.message; } globalThis.__fetchReply["/x"] = { __status: 503 }; let b = ""; try { await m.api("/x"); } catch (e) { b = e.message; } return [a, b]; })()', '["disk full",""]',
      "отказ: текст из тела, иначе statusText — а он пуст у Response без текста (и у браузера под HTTP/2): отказ без error в теле показывается пустой строкой (as-is)"),
+    ("api_says_a_gateway_page_as_what_it_is", '',
+     'await (async () => { const real = globalThis.fetch; const page = (status, statusText) => async () => new Response("<!DOCTYPE html><html><body>504 Gateway Time-out</body></html>", { status, statusText }); const said = async () => { try { await m.api("/api/cell-talk"); return "no throw"; } catch (e) { return [e.message, e.status, e.data]; } }; globalThis.fetch = page(504, "Gateway Time-out"); const a = await said(); globalThis.fetch = page(200, ""); const b = await said(); globalThis.fetch = real; return [a, b]; })()',
+     '[["504 Gateway Time-out: not the caravan\'s answer — a gateway between this page and the controller answered instead, maybe because it stopped waiting",504,null],["200: not the caravan\'s answer — a gateway between this page and the controller answered instead, maybe because it stopped waiting",200,null]]',
+     "страница шлюза вместо ответа каравана — так и сказано, с кодом; не «Unexpected token '<'» (окно разговора с ячейкой, 2026-11-03); negative: та же страница с кодом 200 — тоже не данные"),
     ("api_error_carries_status_and_answer", 'globalThis.__fetchReply["/x"] = { __status: 409, error: "changed", stale: true, topology: { a: 1 } };',
      'await (async () => { try { await m.api("/x", { method: "POST", body: "{}" }); return "no throw"; } catch (e) { return [e.message, e.status, e.data.stale, e.data.topology.a]; } })()',
      '["changed",409,true,1]',
@@ -168,9 +172,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

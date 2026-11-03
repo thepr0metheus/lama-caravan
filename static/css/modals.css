@@ -2152,3 +2152,89 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
   max-height: 260px; overflow: auto; background: var(--panel-2, #0d1117); border: 1px solid var(--line);
   border-radius: 6px; padding: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-all;
 }
+
+/* The voice window (voice-talk.js TalkWindow): a talk with a running cell, over a dimmed board. Its own element of
+   the page — the board repaints its cards every few seconds, and the talk must outlive a repaint. */
+.talk-overlay { position: fixed; inset: 0; z-index: 950; }
+.talk-backdrop { position: absolute; inset: 0; background: rgba(3, 6, 8, 0.55); }
+.talk-window {
+  position: absolute; left: 50%; top: calc(50% + 30px); transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;
+  width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 124px); overflow: hidden;
+  padding: 14px 16px 16px; border-radius: 12px; background: var(--panel); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.talk-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.talk-name { min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.talk-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+/* Sized here in full: the board's buttons carry a 34px minimum height (cards.css). */
+.talk-close {
+  margin-left: auto; flex-shrink: 0; align-self: center; box-sizing: border-box; width: 28px; height: 28px; min-height: 0;
+  padding: 0; border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
+}
+.talk-close:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.talk-modes { display: flex; flex-wrap: wrap; gap: 6px; }
+.talk-mode {
+  min-height: 0; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: transparent;
+  color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+}
+.talk-mode[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.talk-mode-one { font-size: 12px; color: var(--muted); }
+.talk-settings { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.talk-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.talk-field select { width: auto; min-width: 120px; font: inherit; background: var(--field); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+.talk-memory { margin: 0; color: var(--muted); }
+.talk-system > summary { cursor: pointer; color: var(--muted); }
+.talk-system textarea, .talk-input textarea {
+  box-sizing: border-box; width: 100%; font: inherit; font-size: 12.5px; color: var(--text); background: var(--field);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; resize: vertical;
+}
+.talk-turns { display: flex; flex-direction: column; gap: 8px; min-height: 80px; overflow-y: auto; padding-right: 2px; }
+.talk-empty { margin: 8px 0; color: var(--muted); font-size: 12.5px; }
+.talk-turn { display: flex; flex-direction: column; gap: 4px; max-width: 88%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); }
+.talk-turn.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.talk-turn.assistant { align-self: flex-start; background: var(--field); }
+.talk-who { display: flex; gap: 8px; font-size: 11px; color: var(--muted); }
+.talk-len { font-variant-numeric: tabular-nums; }
+.talk-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-text.muted { color: var(--muted); }
+/* Sized, not stretched: a turn is as wide as its words, and a player of 100% of a short turn has no room for its bar. */
+.talk-turn audio { width: 280px; max-width: 100%; height: 32px; }
+.talk-error { font-size: 12px; color: var(--bad); white-space: pre-wrap; overflow-wrap: anywhere; }
+.talk-timing { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.talk-notice { margin: 0; font-size: 12.5px; color: var(--bad); }
+.talk-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.talk-input textarea { flex: 1 1 100%; }
+.talk-go {
+  min-height: 34px; padding: 6px 14px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--text); background: color-mix(in srgb, var(--accent) 18%, transparent); border: 1px solid var(--accent);
+}
+.talk-go.recording { background: color-mix(in srgb, var(--bad) 20%, transparent); border-color: var(--bad); }
+.talk-go:disabled { opacity: .6; cursor: default; }
+.talk-rec { font-size: 12px; color: var(--bad); font-variant-numeric: tabular-nums; }
+.talk-clear { margin-left: auto; min-height: 0; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+/* The live window (voice-live.js LiveWindow): the voice window's frame, a status line under the talk and a hint. */
+.live-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.live-status { margin: 0; font-size: 12.5px; color: var(--text); }
+.live-status.failed { color: var(--bad); }
+.talk-clear:disabled { opacity: .5; cursor: default; }
+.talk-voices { margin: 0; color: var(--muted); }
+/* The voice of a sample (a cell that keeps voices): the sample, its words, the operator's word for it, a name to keep it under. */
+.talk-sample { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; font-size: 12px; }
+.talk-sample-title { font-size: 12px; }
+.talk-sample-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.talk-sample audio { width: 220px; max-width: 100%; height: 32px; }
+.talk-field.talk-wide { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.talk-sample textarea, .talk-sample input[type="text"] {
+  box-sizing: border-box; font: inherit; font-size: 12.5px; color: var(--text); background: var(--field);
+  border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+}
+.talk-sample textarea { width: 100%; resize: vertical; }
+.talk-sample input[type="text"] { width: 180px; max-width: 100%; }
+.talk-sample input[type="text"]:invalid { border-color: var(--bad); }
+.talk-consent { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; }
+.talk-close:focus-visible, .talk-mode:focus-visible, .talk-go:focus-visible, .talk-clear:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) {
+  .talk-go.recording { animation: talk-pulse 1.2s ease-in-out infinite; }
+}
+@keyframes talk-pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 25%, transparent); } }

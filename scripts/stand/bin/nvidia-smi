@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""The stand's nvidia-smi (scripts/stand/fake_smi.py); first on the PATH of the stand's scout, nowhere else."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fake_smi import main  # noqa: E402
+
+main()

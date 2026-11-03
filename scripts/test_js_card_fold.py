@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 _fail = []
 
@@ -337,6 +337,108 @@ out.window = (() => {
   r.closeNothing = new FoldPeek(mk(), {}).closeWindow(null);
   return r;
 })();
+// ── the window's own controls: its tabs, its "⋯", its address (cell-window.js) ──
+out.windowParts = await (async () => {
+  const f = mk(); const p = new FoldPeek(f, {});
+  const r = { before: f.windowTab("h1:22020") };
+  const fakeEl = (dataset = {}, { classes = [], attrs = {}, hidden = false, text = "" } = {}) => {
+    const set = new Set(classes);
+    return { dataset, hidden, attrs: { ...attrs }, textContent: text, set,
+      classList: { toggle: (c, on) => (on ? set.add(c) : set.delete(c)), contains: (c) => set.has(c), add: (c) => set.add(c), remove: (c) => set.delete(c) },
+      setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k]; } };
+  };
+  const tabO = fakeEl({ cellWindowTab: "overview" }, { classes: ["cw-tab", "on"], attrs: { role: "tab", "aria-selected": "true" } });
+  const tabL = fakeEl({ cellWindowTab: "log" }, { classes: ["cw-tab"], attrs: { role: "tab", "aria-selected": "false" } });
+  const bandLog = fakeEl({ cellWindowTab: "log" });
+  const panO = fakeEl({ cellWindowPanel: "overview" });
+  const panL = fakeEl({ cellWindowPanel: "log" }, { hidden: true });
+  const menu = fakeEl({}, { hidden: true });
+  const more = fakeEl({ cellWindowMore: "h1:22020" }, { attrs: { "aria-expanded": "false" } });
+  const firstItem = { focused: 0, focus() { this.focused += 1; } };
+  menu.querySelector = (sel) => (sel === "button:not([disabled])" ? firstItem : null);
+  const copied = fakeEl({}, { text: "10.0.0.5:22020" });
+  const win = fakeEl({ tId: "h1:22020" });
+  win.querySelectorAll = (sel) => (sel === '[role="tab"][data-cell-window-tab]' ? [tabO, tabL] : sel === "[data-cell-window-panel]" ? [panO, panL] : []);
+  win.querySelector = (sel) => ({ ".cwh-menu": menu, "[data-cell-window-more]": more, "[data-cell-window-copied]": copied }[sel] || null);
+  const target = (map) => ({ closest: (sel) => (sel === ".cell-window" ? win : map[sel] || null) });
+  let prevented = 0;
+  const ev = (map) => ({ target: target(map), preventDefault: () => { prevented += 1; } });
+  const look = () => [tabO.set.has("on"), tabO.attrs["aria-selected"], tabL.set.has("on"), tabL.attrs["aria-selected"], panO.hidden, panL.hidden];
+  // a tab: shown without a repaint, and remembered for the next one
+  p.onClick(ev({ "[data-cell-window-tab]": tabL }));
+  r.tab = [f.windowTab("h1:22020"), look(), prevented];
+  // the band's "Log" is a way to the tab, not a tab: the tabs light by the tab they lead to
+  p.onClick(ev({ "[data-cell-window-tab]": tabO }));
+  p.onClick(ev({ "[data-cell-window-tab]": bandLog }));
+  r.bandLog = [f.windowTab("h1:22020"), look(), bandLog.set.size];
+  // the "⋯" opens, with the keyboard on its first item; again — shuts
+  p.onClick(ev({ "[data-cell-window-more]": more }));
+  r.menuOpen = [menu.hidden, more.attrs["aria-expanded"], firstItem.focused];
+  p.onClick(ev({ "[data-cell-window-more]": more }));
+  r.menuShut = [menu.hidden, more.attrs["aria-expanded"]];
+  // any other click in the window shuts the open menu, and is not taken from the item's own handler
+  p.onClick(ev({ "[data-cell-window-more]": more }));
+  const plain = { target: target({}), preventDefault: () => { prevented += 1; } };
+  const before = prevented;
+  p.onClick(plain);
+  r.itemClick = [menu.hidden, more.attrs["aria-expanded"], prevented - before];
+  // a tab chosen while the menu is open shuts the menu as well
+  p.onClick(ev({ "[data-cell-window-more]": more }));
+  p.onClick(ev({ "[data-cell-window-tab]": tabO }));
+  r.tabShutsMenu = [menu.hidden, more.attrs["aria-expanded"], f.windowTab("h1:22020")];
+  // the address: "copied" where it is written, for a moment — and back; a copy that did not land says so
+  const timers = []; const keepTimer = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; };
+  try {
+    const ok = await p.copy(win, "10.0.0.5:22020", async () => true);
+    r.copied = [ok, copied.textContent];
+    timers.splice(0).forEach((fn) => fn());
+    r.copiedBack = copied.textContent;
+    const bad = await p.copy(win, "10.0.0.5:22020", async () => false);
+    r.copyFailed = [bad, copied.textContent];
+    timers.splice(0).forEach((fn) => fn());
+  } finally {
+    globalThis.setTimeout = keepTimer;
+  }
+  // Escape: the open menu shuts first, the window stays; the next Escape closes the window
+  const keepDoc = globalThis.document;
+  const slotSet = new Set(["open"]);
+  const slot = { classList: { remove: (c) => slotSet.delete(c) } };
+  globalThis.document = { querySelector: (sel) => (sel === ".fold-slot.open > .cell-window" ? win : null),
+                          querySelectorAll: (sel) => (sel === ".fold-slot.open" && slotSet.has("open") ? [slot] : []) };
+  try {
+    f.openKey = "h1:22020";
+    p.onClick(ev({ "[data-cell-window-more]": more }));
+    p.onKey({ key: "Escape" });
+    r.escapeMenu = [menu.hidden, f.openKey, [...slotSet]];
+    p.onKey({ key: "Escape" });
+    r.escapeWindow = [f.openKey, [...slotSet]];
+  } finally {
+    globalThis.document = keepDoc;
+  }
+  // A dialog over the window takes Escape: the window stays; once the dialog is gone, Escape closes the window
+  const keepDoc2 = globalThis.document;
+  const set2 = new Set(["open"]);
+  const slot2 = { classList: { remove: (c) => set2.delete(c) } };
+  let layers = [{ hidden: false }];
+  globalThis.document = { querySelector: (sel) => (sel === ".fold-slot.open > .cell-window" ? win : null),
+                          querySelectorAll: (sel) => (sel === FoldPeek.LAYERS ? layers : sel === ".fold-slot.open" && set2.has("open") ? [slot2] : []) };
+  try {
+    f.openKey = "h1:22020";
+    p.onKey({ key: "Escape" });
+    r.escapeUnderDialog = [f.openKey, [...set2]];
+    layers = [{ hidden: true }, { hidden: false, getClientRects: () => [] }];
+    p.onKey({ key: "Escape" });
+    r.escapeDialogGone = [f.openKey, [...set2]];
+  } finally {
+    globalThis.document = keepDoc2;
+  }
+  r.layers = FoldPeek.LAYERS;
+  // a click outside any window is not the window's
+  r.outside = p.onWindowClick({ preventDefault: () => {} }, { closest: () => null });
+  r.words = [en.cwCopied, en.cwCopyFailed];
+  return r;
+})();
 const btnOf = (lane) => ({ dataset: { boardDensity: lane }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, title: "", textContent: "" });
 out.words = {
   compact: en.densityCompactTitle, full: en.densityFullTitle,
@@ -355,6 +457,34 @@ out.words = {
   })(),
 };
 out.delay = FoldPeek.DELAY_MS;
+// ── the window opened from outside its line: the panel of a cell chosen on the machine's map (machine-head.js, 1.3.632) ──
+out.openFrom = (() => {
+  const f = mk(); const p = new FoldPeek(f, {});
+  const classes = new Set();
+  let focusedButton = 0, focusedLine = 0;
+  const doc = {
+    querySelector: (sel) => (sel === '.fold-slot[data-fold-key="h1:22020"]' ? slot
+      : sel === '.fold-slot[data-fold-key="h1:22020"] > .fold-row' ? { focus: () => { focusedLine += 1; } } : null),
+    querySelectorAll: (sel) => (sel === ".fold-slot.open" && classes.has("open") ? [slot] : []),
+  };
+  const slot = { dataset: { foldKey: "h1:22020", foldLane: "cells" }, ownerDocument: doc,
+                 classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c), contains: (c) => classes.has(c) },
+                 querySelector: (sel) => (sel === "button[data-cell-window-close]" ? { focus: () => {} } : null) };
+  const button = { dataset: { cellWindowOpen: "h1:22020" }, isConnected: true, focus: () => { focusedButton += 1; } };
+  let prevented = 0;
+  p.onClick({ target: { ownerDocument: doc, closest: (sel) => (sel === "[data-cell-window-open]" ? button : null) }, preventDefault: () => { prevented += 1; } });
+  const opened = [f.openKey, [...classes], prevented];
+  const keep = globalThis.document;
+  globalThis.document = doc;
+  try { p.onKey({ key: "Escape" }); } finally { globalThis.document = keep; }
+  const back = [f.openKey, focusedButton, focusedLine];
+  const missing = p.openFrom(button, "h1:9", doc);
+  // the button gone from the page — the board was drawn again: Escape goes to the line
+  p.openFrom({ ...button, isConnected: false }, "h1:22020", doc);
+  globalThis.document = doc;
+  try { p.onKey({ key: "Escape" }); } finally { globalThis.document = keep; }
+  return { opened, back, missing, gone: [focusedButton, focusedLine], returnTo: p.returnTo };
+})();
 console.log(JSON.stringify(out));
 """
 
@@ -365,11 +495,9 @@ if node is None:
 probe = ROOT / "scripts" / ".probe_card_fold.tmp.mjs"
 probe.write_text(PROBE, encoding="utf-8")
 try:
-    hook = (f"data:text/javascript,import {{ register }} from 'node:module'; "
-            f"register('file://{ROOT}/scripts/_js_harness.mjs');")
     env = {"JS_ROOT": str(ROOT / "static" / "js"), "PATH": "/usr/bin:/bin",
            "JS_STUBS": "command-preview,favorites,llama-edit,form,remote-cells,cloud,topology-render,polling"}
-    proc = subprocess.run([node, "--import", hook, str(probe)], capture_output=True, text=True,
+    proc = subprocess.run(probe_args(node, ROOT / "scripts" / "_js_harness.mjs", probe), capture_output=True, text=True,
                           cwd=ROOT, env=env, timeout=60)
 finally:
     probe.unlink(missing_ok=True)
@@ -559,6 +687,41 @@ check(wn["escape"] == ["", [], 1], "Escape закрывает окно и воз
 check(wn["busy"] == "", "пока тянут канат, окно не открывается")
 check(wn["oneAtATime"] == ["controller:2", [], ["open"]], "открыл второе — первое закрылось: окно одно")
 check(wn["closeNothing"] == "", "закрыть, когда ничего не открыто, — пусто, без исключения")
+of = got["openFrom"]
+check(of["opened"] == ["h1:22020", ["open"], 1],
+      "«Окно ячейки» на панели карты (1.3.632) открывает окно своей ячейки — по ключу её слота, без перерисовки")
+check(of["back"] == ["", 1, 0], "Escape закрывает окно и возвращает клавиатуру на эту кнопку, а не на строку списка")
+check(of["missing"] is False, "negative: слота с таким ключом в странице нет — открывать нечего, ничего не открыто")
+check(of["gone"] == [1, 1] and of["returnTo"] is None,
+      "negative: кнопки в странице больше нет (доску нарисовали заново) — клавиатура уходит на строку ячейки; память о кнопке снята")
+
+print("окно ячейки — вкладки, «⋯», адрес:")
+wp = got["windowParts"]
+check(wp["before"] == "", "до выбора вкладки нет: окно откроется на обзоре")
+check(wp["tab"] == ["log", [False, "false", True, "true", True, False], 1],
+      "клик по вкладке: она светится и выбрана, её панель видна, прежняя скрыта — без перерисовки доски; выбор запомнен для следующей")
+check(wp["bandLog"] == ["log", [False, "false", True, "true", True, False], 0],
+      "«Журнал» на полосе ведёт во вкладку: светится сама вкладка, а кнопка полосы классов не получает")
+check(wp["menuOpen"] == [False, "true", 1], "«⋯» открывает меню, aria-expanded, клавиатура — на первом пункте")
+check(wp["menuShut"] == [True, "false"], "второй щелчок по «⋯» меню закрывает")
+check(wp["itemClick"] == [True, "false", 0],
+      "любой другой щелчок в окне закрывает открытое меню и не гасит действие пункта (его обработчик своё сделает)")
+check(wp["tabShutsMenu"] == [True, "false", "overview"],
+      "negative: вкладка, выбранная при открытом меню, закрывает и меню — оно не висит над другой панелью")
+check(wp["copied"] == [True, wp["words"][0]] and wp["copiedBack"] == "10.0.0.5:22020",
+      "адрес скопирован — на его месте ненадолго «Copied», потом снова адрес")
+check(wp["copyFailed"] == [False, wp["words"][1]],
+      "negative: буфер обмена отказал — так и сказано («Not copied»), а не «скопировано»")
+check(wp["escapeMenu"] == [True, "h1:22020", ["open"]], "Escape сначала закрывает меню — окно остаётся открытым")
+check(wp["escapeWindow"] == ["", []], "следующий Escape закрывает окно")
+check(wp["escapeUnderDialog"] == ["h1:22020", ["open"]],
+      "defect-history (1.3.626): над окном открыт диалог (вопрос «Применить», команда запуска, редактор, окно разговора) — "
+      "Escape его, окно под ним остаётся; раньше окно закрывалось, а команда запуска оставалась висеть над доской")
+check(wp["escapeDialogGone"] == ["", []],
+      "negative: диалога нет — спрятанный (hidden) или не нарисованный (без прямоугольников) не в счёт — Escape закрывает окно")
+check(all(x in wp["layers"] for x in [".modal-overlay", ".topology-llama-edit-overlay", ".talk-overlay"]),
+      "над окном считаются: окна-диалоги страницы, редактор ячейки и окно разговора")
+check(wp["outside"] is False, "negative: щелчок вне окна — не его дело")
 
 print("подписи переключателя:")
 w = got["words"]

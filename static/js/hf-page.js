@@ -13,10 +13,12 @@
 // mouseup swallows the click, and background loads replace rows all the time.
 import { autoStartOnce, createTour, initTourButtons } from "./onboarding.js";
 import { escapeHtml, markPageState } from "./utils.js";
+import { HeaderMachines } from "./header-machines.js";
 import { HfBench } from "./hf-bench.js";
 import { CAPABILITIES, HfCatalog, SIZE_BUCKETS, SORT_KEYS } from "./hf-catalog.js";
 import { HfDownloads } from "./hf-downloads.js";
 import { HfRepoView } from "./hf-repo-view.js";
+import { ModelRating } from "./model-rating.js";
 import { HF_LANGS, HfFormat, LANG_KEY, hfT, hfText } from "./hf-text.js";
 
 //: Repositories whose file lists load at once in the background.
@@ -108,6 +110,7 @@ export class HfPage {
     this.holding = false;
     this.listPending = false;
     this.painted = new Map();
+    this.ratings = {};
   }
 
   // ── requests ──────────────────────────────────────────────────────────────
@@ -131,11 +134,16 @@ export class HfPage {
       tokenBtn: $("hfTokenBtn"), tokenStatus: $("hfTokenStatus"), tokenPop: $("hfTokenPop"), tokenText: $("hfTokenText"),
       tokenInput: $("hfTokenInput"), tokenSave: $("hfTokenSaveBtn"), tokenEdit: $("hfTokenEditBtn"), tokenClear: $("hfTokenClearBtn"),
       tabs: $("hfTabs"), tabResults: $("hfTabResults"), tabFavs: $("hfTabFavs"), listHead: $("hfListHead"), list: $("hfList"),
-      repo: $("hfRepo"), dock: $("hfDock"), frontier: $("hfFrontier"), diskBadge: $("hfDiskBadge"), onDisk: $("hfOnDiskBtn"),
+      repo: $("hfRepo"), dock: $("hfDock"), frontier: $("hfFrontier"), diskBadge: $("hfDiskBadge"),
+      pages: $("headerPages"), models: $("headerModelsLink"), routing: $("headerRoutingLink"), machines: $("headerMachinesBtn"),
     };
     this.staticText();
     this.bind();
     this.headerChrome();
+    new HeaderMachines({ doc: this.doc, get: (url) => this.getJson(url), words: hfT }).bind();
+    // The owner's marks on the models already in the library (the owner, 2026-10-28: "and I would see these marks at /models and /hf").
+    // A reading that fails leaves no marks: a repository with none says nothing either way.
+    this.getJson("/api/model-notes").then((answer) => { this.ratings = (answer && answer.ratings) || {}; this.renderAll(); }).catch(() => {});
     this.renderAll();
     const initial = [this.loadToken(), this.loadFavorites(), this.downloads.restore()];
     this.downloads.follow();
@@ -180,10 +188,15 @@ export class HfPage {
     e.tokenSave.textContent = hfT("tokenSave");
     e.tokenEdit.textContent = hfT("tokenEdit");
     e.tokenClear.textContent = hfT("tokenClear");
-    if (e.onDisk) {
-      e.onDisk.title = hfT("onDiskTitle");
-      const label = e.onDisk.querySelector ? e.onDisk.querySelector("[data-label]") : null;
-      if (label) label.textContent = hfT("onDisk");
+    // The bar's pages (scripts/gen_header.py, BAR_PAGES): this page does not load the shared dictionary, so its own table
+    // names them — with the shared words, which test_header_model_pages.py keeps the same.
+    if (e.pages) e.pages.setAttribute("aria-label", hfT("headerPagesLabel"));
+    for (const [el, title, word] of [[e.models, "onDiskTitle", "modelsLink"], [e.routing, "headerRoutingTitle", "topologyRouterTitle"],
+      [e.machines, "headerMachinesTitle", "topologyMachinesSection"]]) {
+      if (!el) continue;
+      el.title = hfT(title);
+      const label = el.querySelector ? el.querySelector(".topbar-page-label") : null;
+      if (label) label.textContent = hfT(word);
     }
   }
 
@@ -363,6 +376,15 @@ export class HfPage {
     this.downloads.toggle(this.activeId, files, box.checked);
   }
 
+  // The selection holds only what can still be downloaded, and the repository on show keeps it so at every repaint: a box on a file
+  // we have is shut and sends nothing, and one that came some other way, or a file we came to have since it was ticked (a job landed
+  // it, a verify found it the same), leaves the selection here. True when something left.
+  pruneSelection(id) {
+    const facts = this.catalog.repo(id);
+    const verified = this.stateFor(id).verified;
+    return this.downloads.unpickWhere(id, (file) => !!HfRepoView.haveIt(facts, file, verified));
+  }
+
   onDockClick(ev) {
     const target = ev.target.closest("[data-act]");
     if (!target) return;
@@ -383,6 +405,7 @@ export class HfPage {
       case "job-dismiss": d.dismiss(target.dataset.uid); break;
       case "job-open-page": d.openPageOf(target.dataset.uid); break;
       case "resume": d.resume(target.dataset.dest, target.dataset.name); break;
+      case "discard": d.discard(target.dataset.dest, target.dataset.name); break;
       default: break;
     }
   }
@@ -934,7 +957,7 @@ export class HfPage {
       + (facts.format ? `<span class="hfp-badge is-fmt">${escapeHtml(facts.format)}</span>` : "")
       + `<span class="hfp-icons">${caps}</span>`
       + `<button type="button" class="hfp-star${fav ? " is-on" : ""}" data-act="star" data-t="hf-star" data-t-id="${escapeHtml(facts.id)}" aria-pressed="${fav}" title="${escapeHtml(hfT(fav ? "favRemove" : "favAdd"))}" aria-label="${escapeHtml(hfT(fav ? "favRemove" : "favAdd"))}">${fav ? "★" : "☆"}</button></div>`
-      + `<div class="hfp-row-bot"><span class="hfp-meta">${meta.join(`<span class="hfp-dot">·</span>`)}</span><span class="grow"></span>${local}${library}${this.bench.rowHtml(facts.id)}</div>`
+      + `<div class="hfp-row-bot"><span class="hfp-meta">${meta.join(`<span class="hfp-dot">·</span>`)}</span><span class="grow"></span>${ModelRating.markHtml(ModelRating.of(this.ratings, HfDownloads.modelOf(facts.id)), hfT)}${local}${library}${this.bench.rowHtml(facts.id)}</div>`
       + `</div>`;
   }
 
@@ -970,6 +993,7 @@ export class HfPage {
 
   renderRepo() {
     const facts = this.activeId ? this.catalog.repo(this.activeId) : null;
+    if (facts && this.pruneSelection(facts.id)) this.renderDock();
     const state = facts ? { ...this.stateFor(facts.id), picks: this.downloads.picks(facts.id) } : {};
     this.paint(this.el.repo, this.view.html(facts, state));
   }

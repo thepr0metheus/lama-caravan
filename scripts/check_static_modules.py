@@ -19,10 +19,11 @@ Run: python3 scripts/check_static_modules.py
 """
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+from _node import find_node, node_args
 
 ROOT = Path(__file__).resolve().parent.parent
 JS_DIRS = ("static/js", "static/js/i18n")
@@ -30,7 +31,7 @@ MIN_FILES = 20
 
 
 def main():
-    node = shutil.which("node")
+    node = find_node()
     if not node:
         print("static modules FAILED:\n  - node не найден — разобрать модули нечем, "
               "а «не проверено» не то же самое, что «в порядке»")
@@ -59,7 +60,7 @@ process.stdout.write(JSON.stringify(bad));
     # meaning it "checked" zero files and would have failed with confusion
     # instead of an answer.
     env = dict(os.environ, CARAVAN_JS_FILES=json.dumps([str(p) for p in files]))
-    proc = subprocess.run([node, "--experimental-vm-modules", "-e", script],
+    proc = subprocess.run(node_args(node, "--experimental-vm-modules", "-e", script),
                           capture_output=True, text=True, env=env)
     if proc.returncode != 0:
         print("static modules FAILED:\n  - node не смог выполнить разбор: "

@@ -1,0 +1,13 @@
+[package]
+name = "wire"
+description = "HTTP/1.1 on a socket: it knows nothing of the caravan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+httparse.workspace = true
+
+[lints]
+workspace = true

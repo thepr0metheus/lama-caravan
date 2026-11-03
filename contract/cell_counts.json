@@ -1,0 +1,103 @@
+{
+ "why": "A request count as a scout says it, and what it is: TokenRates::count and CellSpeed.count (static/js/cell-speed.js). `js` is the value in the browser's words; `said` the same value in JSON, where JSON has it. A whole number from 0 is a count (2.0 is 2); nothing else is, and nothing else is a 0 or a 1.",
+ "cases": [
+  {
+   "js": "2",
+   "count": 2,
+   "said": 2
+  },
+  {
+   "js": "0",
+   "count": 0,
+   "said": 0
+  },
+  {
+   "js": "100",
+   "count": 100,
+   "said": 100
+  },
+  {
+   "js": "2.0",
+   "count": 2,
+   "said": 2.0
+  },
+  {
+   "js": "0.0",
+   "count": 0,
+   "said": 0.0
+  },
+  {
+   "js": "1.5",
+   "count": null,
+   "said": 1.5
+  },
+  {
+   "js": "-1",
+   "count": null,
+   "said": -1
+  },
+  {
+   "js": "-0.5",
+   "count": null,
+   "said": -0.5
+  },
+  {
+   "js": "\"2\"",
+   "count": null,
+   "said": "2"
+  },
+  {
+   "js": "\"\"",
+   "count": null,
+   "said": ""
+  },
+  {
+   "js": "true",
+   "count": null,
+   "said": true
+  },
+  {
+   "js": "false",
+   "count": null,
+   "said": false
+  },
+  {
+   "js": "null",
+   "count": null,
+   "said": null
+  },
+  {
+   "js": "undefined",
+   "count": null
+  },
+  {
+   "js": "NaN",
+   "count": null
+  },
+  {
+   "js": "Infinity",
+   "count": null
+  },
+  {
+   "js": "-Infinity",
+   "count": null
+  },
+  {
+   "js": "[]",
+   "count": null,
+   "said": []
+  },
+  {
+   "js": "[2]",
+   "count": null,
+   "said": [
+    2
+   ]
+  },
+  {
+   "js": "({})",
+   "count": null,
+   "said": {}
+  }
+ ]
+}

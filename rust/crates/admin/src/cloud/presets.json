@@ -1,0 +1,162 @@
+{
+  "openai-subscription": {
+    "name": "OpenAI (ChatGPT Plus subscription)",
+    "baseUrl": "https://chatgpt.com/backend-api",
+    "model": "gpt-5.4-mini",
+    "testPath": null,
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "oauth"
+    ],
+    "accountType": "openai-subscription",
+    "oauth": {
+      "tokenUrl": "https://auth.openai.com/oauth/token",
+      "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
+      "revokeUrl": "https://auth.openai.com/oauth/revoke"
+    },
+    "deviceLogin": {
+      "userCodeUrl": "https://auth.openai.com/api/accounts/deviceauth/usercode",
+      "pollUrl": "https://auth.openai.com/api/accounts/deviceauth/token",
+      "verifyUrl": "https://auth.openai.com/codex/device",
+      "redirectUri": "https://auth.openai.com/deviceauth/callback"
+    }
+  },
+  "openai": {
+    "name": "OpenAI (API Credits)",
+    "baseUrl": "https://api.openai.com/v1",
+    "model": "gpt-4o-mini",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ],
+    "accountType": "openai-api"
+  },
+  "ollama": {
+    "name": "Ollama",
+    "baseUrl": "https://ollama.com/v1",
+    "model": "llama3.3",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "anthropic": {
+    "name": "Anthropic",
+    "baseUrl": "https://api.anthropic.com/v1",
+    "model": "claude-sonnet-4-6",
+    "testPath": "/models",
+    "authHeader": "x-api-key",
+    "authPrefix": "",
+    "extraHeaders": {
+      "anthropic-version": "2023-06-01"
+    },
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "deepseek": {
+    "name": "DeepSeek",
+    "baseUrl": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "kimi-code": {
+    "name": "Kimi Code",
+    "baseUrl": "https://api.kimi.ai/coding/v1",
+    "model": "k3",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "glm-coding": {
+    "name": "GLM Coding Plan",
+    "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+    "model": "glm-5.3",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "minimax-plan": {
+    "name": "MiniMax M Plan",
+    "baseUrl": "https://api.minimax.io/v1",
+    "model": "MiniMax-M3.1-Flash",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "qwen-token": {
+    "name": "Qwen Token Plan",
+    "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen3.7-plus",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "opencode-go": {
+    "name": "OpenCode Go",
+    "baseUrl": "https://opencode.ai/inference/go/openai/v1",
+    "model": "deepseek-v4.1-flash",
+    "testPath": "/models",
+    "modelsUrl": "https://opencode.ai/inference/go/v1/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "openrouter": {
+    "name": "OpenRouter",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "model": "openai/gpt-4o-mini",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  },
+  "custom": {
+    "name": "Custom (OpenAI-compatible)",
+    "baseUrl": "",
+    "model": "",
+    "testPath": "/models",
+    "authHeader": "Authorization",
+    "authPrefix": "Bearer ",
+    "extraHeaders": {},
+    "authModes": [
+      "apiKey"
+    ]
+  }
+}

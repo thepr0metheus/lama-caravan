@@ -6,6 +6,7 @@
   <title>Main board — Lama Caravan</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4">
   <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/ui.css">
   <link rel="stylesheet" href="/css/cables.css">
   <link rel="stylesheet" href="/css/columns.css">
   <link rel="stylesheet" href="/css/topology-board.css">
@@ -19,6 +20,8 @@
   <link rel="stylesheet" href="/css/hf.css">
   <link rel="stylesheet" href="/css/onboarding.css">
   <link rel="stylesheet" href="/css/river.css">
+  <link rel="stylesheet" href="/css/machine.css">
+  <link rel="stylesheet" href="/css/add-model.css">
 </head>
 <body data-t-page="board" data-t-state="loading" aria-busy="true">
   <script>
@@ -271,6 +274,15 @@
     </div>
     <h1 class="page-title" data-t="header-page-title" data-i18n="boardPageName">Main board</h1>
     <div class="actions">
+      <nav id="headerPages" class="topbar-pages" data-t="header-pages" data-i18n-aria="headerPagesLabel" aria-label="Pages">
+        <a id="headerModelsLink" class="topbar-page" href="/models" data-t="header-models" data-title-i18n="modelsPageSub"><span aria-hidden="true">📦</span> <span class="topbar-page-label" data-i18n="topologyModelsLabel">Models</span></a>
+        <a id="headerHfLink" class="topbar-page" href="/hf" data-t="header-hf" data-title-i18n="hfBrowserTitle"><span aria-hidden="true">🤗</span> <span class="topbar-page-label">Hugging Face</span></a>
+        <a id="headerRoutingLink" class="topbar-page" href="/routing" data-t="header-routing" data-title-i18n="headerRoutingTitle"><span aria-hidden="true">🔀</span> <span class="topbar-page-label" data-i18n="topologyRouterTitle">Routing</span></a>
+        <div class="topbar-machines" id="headerMachines" data-t="header-machines">
+          <button id="headerMachinesBtn" class="topbar-page" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-machines-open" data-title-i18n="headerMachinesTitle"><span aria-hidden="true">🖥</span> <span class="topbar-page-label" data-i18n="topologyMachinesSection">Machines</span><span class="lang-caret" aria-hidden="true">▾</span></button>
+          <div id="headerMachinesMenu" class="topbar-machines-menu" role="menu" hidden data-t="header-machines-menu"></div>
+        </div>
+      </nav>
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
         <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
           <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
@@ -330,18 +342,8 @@
             <div class="board-col-title"><h2 class="title-with-tip"><span id="boardMachinesHead" data-i18n="topologyMachinesSection">Machines</span><span id="topologyMachinesTip"></span></h2></div>
             <div class="board-col-body board-scroll">
             <div class="topology-lane-head machines-head">
-              <!-- The caravan's two model pages (the owner, 2026-10-12: "the way into them is lost"; 2026-10-14: "two wide
-                   buttons, in the Machines group, a row of their own over the scouts' buttons"): the models in its folder,
-                   and Hugging Face to download more. A model belongs to the caravan, not to a machine. They stood on each
-                   machine's caravan strip, then in this head among the tools, then under Routing's card. A machine's own
-                   window has them on its caravan strip and hides this row. They open in this tab (the owner,
-                   2026-10-17: "new screens open in a new tab, remove that"); the way back is the header's "← Main board". -->
-              <div class="board-pages" data-t="board-pages">
-                <a id="boardModelsLink" class="icon-action prominent board-page-link" href="/models"
-                   data-t="board-models-open" data-title-i18n="modelsPageSub"><span aria-hidden="true">📦</span> <span data-i18n="topologyModelsLabel">Models</span></a>
-                <a id="boardHfLink" class="icon-action prominent board-page-link" href="/hf"
-                   data-t="board-hf-open" data-title-i18n="hfBrowserTitle"><span aria-hidden="true">🤗</span> <span>Hugging Face</span></a>
-              </div>
+              <!-- The caravan's two model pages stood here as a row of wide buttons; since 2026-10-24 they are in the
+                   header of every page (scripts/gen_header.py, BAR_PAGES). -->
               <div class="topology-head-actions">
                 <!-- The section's main action, wide, and the scan beside it (the owner, 2026-10-11).
                      They open the box under the head (scout-add.js). -->
@@ -370,6 +372,14 @@
                  seconds, and an address typed into them would be wiped mid-word. Closed until
                  one of the two buttons above opens it. -->
             <div id="scoutAdd" class="scout-add" data-t="board-scout-add" data-t-state="idle" data-survives-render hidden>
+              <div class="scout-install" data-scout-install data-t="scout-install" data-t-state="idle">
+                <div class="scout-install-hint" data-i18n="scoutInstallHint">Run this on the new machine, under the user the scout will run as. It prints an address: enter it below.</div>
+                <div class="scout-add-row">
+                  <code class="scout-install-command" data-scout-install-command data-t="scout-install-command" hidden></code>
+                  <button type="button" class="scout-install-copy" data-scout-install-copy data-t="scout-install-copy" data-i18n="scoutInstallCopy" hidden>Copy</button>
+                </div>
+                <div class="scout-install-note" data-scout-install-note data-t="scout-install-note" role="status" aria-live="polite"></div>
+              </div>
               <div class="scout-add-row">
                 <input class="scout-add-address" type="text" data-scout-add-address data-t="scout-add-address"
                        autocomplete="off" spellcheck="false" data-i18n-placeholder="scoutAddAddressPh"
@@ -492,7 +502,7 @@
             <!-- Model first, then the runner that launches it (llama-server /
                  custom now; vLLM next). Tabs render from state.runners. -->
             <div id="tr-computeTarget" class="compute-target compute-target-top"></div>
-            <div id="tr-offloadPlan" class="offload-plan"></div>
+            <div id="tr-placementMap" class="placement-box"></div>
             <div class="field model-file-field">
               <div class="label-row"><label for="tr-MODEL_FILE">MODEL_FILE</label></div>
               <select id="tr-MODEL_FILE" name="MODEL_FILE" data-t="cell-remote-model"></select>
@@ -511,8 +521,10 @@
               <p class="ct-help" data-fieldhelp-text="MODEL_NAME">The name clients and pools call this model by at the machine's entry (its scout). Empty: the alias, else the model file's name. Applies at the cell's next start.</p>
             </div>
             <!-- The scout's behaviour, not a flag of any engine: for every runner (1.3.512 moved it out of
-                 the llama fields — a Strata or transcribe cell keeps or drops its model by it too). -->
-            <div class="cache-toggle-row" data-t="cell-remote-cache">
+                 the llama fields — a transcribe cell keeps or drops its model by it too). A runner that keeps its models
+                 in a folder of its own (the registry's workFolder: Strata) keeps them by that folder's limit, and the words
+                 below the switch take its place (llama-edit.js; the owner, 2026-11-03). -->
+            <div class="cache-toggle-row" id="tr-cacheRow" data-t="cell-remote-cache">
               <input type="checkbox" id="tr-cacheModels" checked>
               <label for="tr-cacheModels" class="cache-toggle-label" style="cursor:pointer">
                 <strong data-i18n="cacheModelsTitle">Cache model on host disk</strong>
@@ -520,18 +532,16 @@
                 <em data-i18n="cacheModelsOff">Off: download it at every start and delete it at every stop — every start writes the whole model to the disk again.</em>
               </label>
             </div>
+            <p class="ct-help" id="tr-cacheByFolder" data-t="cell-remote-cache-folder" data-i18n="cacheModelsFolder" style="display:none">Strata keeps its models in its own folder and they stay after a stop, up to that folder's limit: the machine's page, Model disk → Strata files.</p>
             <div class="field command-cell-fields" id="tr-commandFields" style="display:none">
-              <div class="label-row"><label for="tr-CMD_PRESET">Preset</label></div>
-              <div class="cmd-preset-chips" id="tr-CMD_PRESET_CHIPS"></div>
-              <select id="tr-CMD_PRESET" class="cmd-preset" hidden></select>
-              <div class="label-row" style="margin-top:10px"><label for="tr-COMMAND">COMMAND</label></div>
-              <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%" data-t="cell-remote-command">
+              <div class="label-row"><label for="tr-COMMAND">COMMAND</label></div>
+              <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/my_server.sh $PORT" style="width:100%" data-t="cell-remote-command">
               <p class="field-note" data-i18n="cmdPortNote">$PORT is exported to the cell's reserved port; the command is exec'd. Don't prefix with exec — it's added.</p>
               <select id="tr-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
               <div class="cmd-two-col">
                 <div>
                   <div class="label-row"><label for="tr-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-                  <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%" data-t="cell-remote-workdir">
+                  <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/my_server — cd before exec" style="width:100%" data-t="cell-remote-workdir">
                 </div>
                 <div>
                   <div class="label-row"><label class="cmd-health-lbl" for="tr-HEALTH_TOGGLE"><input type="checkbox" id="tr-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
@@ -549,7 +559,7 @@
               <input id="tr-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%" data-t="cell-remote-vllm-model">
               <p class="field-note" data-i18n="vllmPanelNote">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
               <div class="label-row" style="margin-top:8px"><label for="tr-MAX_MODEL_LEN">MAX_MODEL_LEN</label></div>
-              <input id="tr-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%" data-t="cell-remote-max-model-len">
+              <input id="tr-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" style="width:100%" data-t="cell-remote-max-model-len">
               <div class="label-row" style="margin-top:8px"><label for="tr-GPU_MEMORY_UTILIZATION">GPU_MEMORY_UTILIZATION</label></div>
               <input id="tr-GPU_MEMORY_UTILIZATION" name="GPU_MEMORY_UTILIZATION" type="text" placeholder="0.90" style="width:100%">
               <div class="label-row" style="margin-top:8px"><label for="tr-QUANTIZATION">QUANTIZATION</label></div>
@@ -574,6 +584,8 @@
               <input id="tr-KV_CACHE_DTYPE" name="KV_CACHE_DTYPE" type="text" placeholder="fp8 — empty or auto = the model's" style="width:100%" data-t="cell-remote-kv-cache-dtype">
               <div class="label-row" style="margin-top:8px"><label for="tr-REASONING_PARSER">REASONING_PARSER</label></div>
               <input id="tr-REASONING_PARSER" name="REASONING_PARSER" type="text" placeholder="qwen3 — empty = no flag" style="width:100%" data-t="cell-remote-reasoning-parser">
+              <div class="label-row" style="margin-top:8px"><label for="tr-CPU_OFFLOAD_GB">CPU_OFFLOAD_GB</label></div>
+              <input id="tr-CPU_OFFLOAD_GB" name="CPU_OFFLOAD_GB" type="number" min="0" step="0.5" placeholder="12 — GiB per card; empty = all on the card" style="width:100%" data-t="cell-remote-cpu-offload-gb">
               <div class="label-row" style="margin-top:8px"><label class="cmd-health-lbl" for="tr-TRUST_REMOTE_CODE"><input type="checkbox" id="tr-TRUST_REMOTE_CODE" name="TRUST_REMOTE_CODE" data-t="cell-remote-trust-remote-code"> TRUST_REMOTE_CODE</label></div>
             </div>
             <!-- ENV of the two runners whose command the operator can shape: a custom command, and vLLM
@@ -590,7 +602,7 @@
                    (monitor.css, .topo-edit-form .field p) — as a <p> it was never seen (1.3.512). -->
               <div class="field-note strata-draft" id="tr-strataDraft" data-t="cell-remote-strata-draft"></div>
               <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_CONTEXT">STRATA_CONTEXT</label></div>
-              <input id="tr-STRATA_CONTEXT" name="STRATA_CONTEXT" type="number" min="1024" step="1024" placeholder="131072" style="width:100%" data-t="cell-remote-strata-context">
+              <input id="tr-STRATA_CONTEXT" name="STRATA_CONTEXT" type="number" min="1024" step="1024" style="width:100%" data-t="cell-remote-strata-context">
               <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_KV">STRATA_KV</label></div>
               <select id="tr-STRATA_KV" name="STRATA_KV" style="width:100%" data-t="cell-remote-strata-kv">
                 <option value="int8" selected>int8</option>
@@ -615,6 +627,27 @@
               <input id="tr-GR00T_EMBODIMENT" name="GR00T_EMBODIMENT" placeholder="OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT" style="width:100%" data-t="cell-remote-gr00t-embodiment">
               <div class="label-row" style="margin-top:8px"><label for="tr-GR00T_DENOISING_STEPS">GR00T_DENOISING_STEPS</label></div>
               <input id="tr-GR00T_DENOISING_STEPS" name="GR00T_DENOISING_STEPS" type="number" min="1" max="64" step="1" placeholder="4" style="width:100%" data-t="cell-remote-gr00t-steps">
+            </div>
+            <!-- The voice-clone runner's one setting: the engine. Its options are the runner's `engines` in their order
+                 (rust/crates/admin/src/domain/runner/engines.rs), the licence of
+                 each engine's weights in its label: a dropdown is where the choice is made. -->
+            <div class="field voice-clone-cell-fields" id="tr-voiceCloneFields" style="display:none" data-t="cell-remote-voice-clone-fields">
+              <div class="label-row" style="margin-top:8px"><label for="tr-TTS_ENGINE">TTS_ENGINE</label></div>
+              <select id="tr-TTS_ENGINE" name="TTS_ENGINE" style="width:100%" data-t="cell-remote-tts-engine">
+                <option value="xtts" selected>xtts · XTTS-v2 · 17 languages, ru among them · non-commercial</option>
+                <option value="cosyvoice">cosyvoice · CosyVoice2 · zh en ja ko · Apache-2.0</option>
+                <option value="f5">f5 · F5-TTS · en zh · non-commercial weights</option>
+              </select>
+              <!-- A div, not a <p>: the editor hides every <p> inside a field (monitor.css). -->
+              <div class="field-note" data-i18n="voiceClonePanelNote">The engine installs itself at the cell's first start: 10–20 minutes and several GB. A voice kept on this machine is spoken by every voice-clone cell here.</div>
+            </div>
+            <!-- The page a cell serves itself (its runner's registry row says `page`: PersonaPlex's), and where it is
+                 reached over https. Shown for such a runner alone (llama-edit.js); the save checks the form. -->
+            <div class="field page-cell-fields" id="tr-pageFields" style="display:none" data-t="cell-remote-page-fields">
+              <div class="label-row" style="margin-top:8px"><label for="tr-PAGE_URL">PAGE_URL</label></div>
+              <input id="tr-PAGE_URL" name="PAGE_URL" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://personaplex.example.org" style="width:100%" data-t="cell-remote-page-url">
+              <!-- A div, not a <p>: the editor hides every <p> inside a field (monitor.css). -->
+              <div class="field-note" data-i18n="pagePanelNote">The cell answers plain http in the LAN, and a microphone needs a secure page. Give the page a name of its own on the reverse proxy in front of the cell — https, with WebSocket passed on to the cell's port — and write it here: the card's 🌐 opens it.</div>
             </div>
             <div class="field whisper-cell-fields" id="tr-whisperFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-WHISPER_MODEL">WHISPER_MODEL</label></div>

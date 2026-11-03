@@ -23,7 +23,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin.config_builder import CONFIG_FIELDS  # noqa: E402
+from _rust_source import RustSource  # noqa: E402
+
+CONFIG_FIELDS = RustSource.words("admin/src/config/fields.rs", "ALL")
 
 # Fields deliberately rendered outside the tabbed area. Each is still findable
 # by the search (it indexes any field with a live input, wherever it sits) and
@@ -56,8 +58,11 @@ NO_TAB = {
     "MAX_NUM_SEQS": "vLLM runner panel",
     "KV_CACHE_DTYPE": "vLLM runner panel",
     "REASONING_PARSER": "vLLM runner panel",
+    "CPU_OFFLOAD_GB": "vLLM runner panel",
     "WHISPER_MODEL": "whisper runner panel",
     "MOONSHINE_MODEL": "moonshine runner panel",
+    "TTS_ENGINE": "voice-clone runner panel",
+    "PAGE_URL": "page runner panel — of every runner whose server serves a page of its own",
     "SEAMLESS_TGT_LANG": "seamless runner panel",
     "TRANSLATE_MODEL": "translate runner panel",
     "TRANSLATE_SRC_LANG": "translate runner panel",
@@ -116,7 +121,7 @@ EDIT_JS = ROOT / "static/js/llama-edit.js"
 # Panels the editor populates from the saved config, by field id. Anything a
 # runner renders must sit inside one of them or it never gets its saved value.
 PANEL_IDS = ["commandFields", "vllmFields", "envFields", "whisperFields", "moonshineFields",
-             "seamlessFields", "translateFields", "strataFields", "gr00tFields"]
+             "seamlessFields", "translateFields", "strataFields", "gr00tFields", "voiceCloneFields", "pageFields"]
 
 
 def check_runner_panel_fields():
@@ -143,6 +148,15 @@ def check_runner_panel_fields():
     loader_panels = set(re.findall(r'"([a-zA-Z]+Fields)"', m_loader.group(1))) if m_loader else set()
     if not loader_panels:
         errors.append("could not find the runner-panel loader array in llama-edit.js")
+
+    # A panel named here must be in the markup. Renamed there, it is walked by nobody — the loader finds no element and
+    # its runner's tab shows nothing — and the check of the fields below read them as inside the panel before it, so
+    # the guard stayed green (found by a mutant, 2026-10-22).
+    present = set(re.findall(r'id="tr-([a-zA-Z0-9]+)"', html))
+    for panel in PANEL_IDS:
+        if panel not in present:
+            errors.append(f'panel {panel} is in PANEL_IDS, but no id="tr-{panel}" is in index.html — its fields are '
+                          f"walked by nobody, and its runner's tab shows nothing")
 
     for panel in re.findall(r'id="tr-([a-zA-Z]+Fields)"', html):
         if panel in ("llamaFields", "dynamicFields"):

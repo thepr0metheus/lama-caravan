@@ -1,115 +1,117 @@
 # Operations
 
 Day-2 runbook for a production deployment. Assumes the layout from
-[architecture.md](architecture.md): repo at `~/lama-caravan`,
-`systemd --user` units, venv at `.venv` (stdlib only — the venv exists just to
-pin the interpreter).
+[architecture.md](architecture.md): a controller in a container, its release as files
+beside the image, its state in one data folder, and a scout on each machine with
+hardware to share. A controller outside a container differs only in what keeps it
+running. Paths below are under the data folder (`CARAVAN_DATA_DIR`) unless they say
+otherwise.
 
 ## Services
 
-| Unit (systemd --user on the controller) | Runs | Notes |
+| Process | Runs | Notes |
 |---|---|---|
-| `lama-caravan.service` | `.venv/bin/python app.py` (`:7990` by default) | Admin UI + API. Restart after Python changes. |
-| `lama-caravan-proxies.service` | `.venv/bin/python agent-proxies.py` | The entry for keys and the proxy ports of agents of the older kind. Restart after Python changes; route/config edits do NOT need a restart (2 s mtime watcher). |
-| `llamacpp-current.service` | `~/llama.cpp/start-server.sh` (`:8080`) | Legacy single managed server. |
+| `caravan-admin` | the container's main process (`:7990` by default) | Admin UI + API. Its words go to `docker logs`. |
+| `caravan-proxy` | a child of `caravan-admin`, no unit of its own | The entry for keys. Route/config edits do NOT need a restart: it looks at the files' stamps on each request. Its words go to `logs/rust-proxy.log`. |
+| `caravan-scout` | `caravan-scout.service` (systemd --user) on each machine with a scout | Runs that machine's cells. |
+| `llamacpp-current.service` | `~/llama.cpp/start-server.sh` (`:8080`), on an older machine | Legacy single managed server. |
 
 ```sh
-systemctl --user status lama-caravan.service lama-caravan-proxies.service
-journalctl --user -u lama-caravan.service -n 50 --no-pager
-journalctl --user -u lama-caravan-proxies.service -n 50 --no-pager
+docker logs --tail 50 <container>
+tail -n 50 <data>/logs/rust-proxy.log
+curl -s http://127.0.0.1:<admin port>/healthz                   # names the commit that runs
+
+# on a machine with a scout
+systemctl --user status caravan-scout.service
+journalctl --user -u caravan-scout.service -n 50 --no-pager
 ```
 
-Firewall, once per machine: `sudo ufw allow 23001:23999/tcp` lets the proxy
-range in. The caravan never touches the firewall itself.
+Firewall, once per machine: the entry's port must be let in, unless a reverse proxy on
+the same machine is the way in. `sudo ufw allow 23001:23999/tcp` lets the proxy range in,
+the entry's default port among it. The controller never touches the firewall itself.
 
-Boot-time autostart needs linger (`loginctl enable-linger $USER`). Do not
-also keep a crontab `@reboot` launcher — two launchers fight for port 7990.
+Boot-time autostart: the container's restart policy, and on a machine with a scout
+linger, which the scout's installer enables.
 
 ## Deploy
 
-One command wraps the whole flow — refuse-if-dirty, push, pull on the
-controller, byte-compile, restart the admin (and the proxy only when the code it
-runs changed — see the restart rules), then verify `/health` serves the exact
-version+commit that were shipped and the proxy runs what it should (mismatch =
-non-zero exit):
+A release is one folder: the two programs, the board's files, the cell servers, `VERSION`
+and the scout the controller hands out, each from one commit. The image is the system
+alone. A new version needs no password and no new image.
+
+1. Build the programs from the merged commit, in the image CI checks with (a program
+   built on Debian's older release runs on the newer one, not the other way round).
+2. Bring the files into a folder of their own, `rust-bin/releases/<commit>/`, which the
+   container sees read-only, each checked against what was built.
+3. Move the link `rust-bin/current`, last. Moving the link is the delivery.
+4. Wait until `/healthz` names that commit.
+
+The home deployment does all four with one command, `python3 deploy/nas/release_ship.py`
+(it names its machines, and `deploy/nas/` stays out of the public mirror). The running
+release and the two before it stay; the older go.
+
+Then a machine's scout takes that release from its ⋯ menu on the board, **Update the
+scout**. Cells outlive the restart. A copy of a model and a build do not, so a machine in
+the middle of one refuses and nothing changes. A new machine takes it with the command of
+＋ Add scout.
+
+What restarts what:
+
+- The controller sees the link move (it looks every 5 s), ends once no request runs on the
+  proxy, the old or the new, ten minutes at the most, and the container's restart policy
+  starts the new one. The board is gone for a few seconds.
+- A new file of the proxy is started beside the running one, within half a second. The old
+  one lets the port go and answers what it has, and the controller's wait above counts it
+  too: a release cuts a stream only past the ten minutes.
+- The proxy is respawned when it dies, within half a second. A move of the entry to
+  another port replaces it at once: the requests it holds are cut.
+- The image changes only with the system under the programs. Then it is built again and the
+  container started anew, which takes the host's password and ends what runs.
+- `static/` needs no restart of its own: every file is read from the release per request
+  and sent with `ETag` + `Cache-Control: no-cache`, so browsers revalidate on reload.
+- The data folder is runtime state, never deployed.
+
+Post-deploy smoke, with no session (only the public routes answer):
 
 ```sh
-CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
-# CARAVAN_DEPLOY_PATH overrides the checkout (default ~/projects/lama-caravan)
-# --no-restart for static-only changes
-```
-
-The same steps by hand (source moves through git only; no scp except explicit
-emergency recovery):
-
-```sh
-# locally
-git commit … && git checkout main && git merge --no-ff <branch> && git push
-
-# on the controller
-cd ~/lama-caravan && git pull --ff-only
-.venv/bin/python -m py_compile app.py agent-proxies.py $(find caravan -name '*.py')
-.venv/bin/python scripts/test_queue_node.py           # ALL PASS expected
-systemctl --user restart lama-caravan.service lama-caravan-proxies.service
-```
-
-Restart rules:
-
-- The admin restarts on every deploy: the board is gone for a second, and no
-  agent's traffic goes through it.
-- The proxy restarts only when `agent-proxies.py`, `caravan/proxy/` or
-  `caravan/common/` changed since the commit the proxy RUNS. The proxy writes
-  that commit and its pid into its state file when it starts
-  (`caravan/proxy/started.py`); the deploy reads them and decides with
-  `scripts/proxy_restart.py`, which prints why either way. A dead proxy, a
-  missing record or one left by another pid restarts it.
-  `scripts/check_proxy_sources.py` fails when the proxy imports a module outside
-  that list. By hand, restart `lama-caravan-proxies.service` only on the same
-  condition — every restart drops the agents' open connections.
-- `static/` only → **no restart**: `send_file` reads from disk per request and
-  sends `ETag` + `Cache-Control: no-cache`, so browsers revalidate on reload.
-- `var/`, config JSONs → runtime state, never deployed via git.
-
-Post-deploy smoke:
-
-```sh
-for p in /board /api/state /api/topology /api/models /js/main.js /css/base.css /routing /hf; do   # / answers 302 -> /board
-  printf '%-16s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:7990$p)"
-done
-curl -s -o /dev/null -w '%{http_code}\n' localhost:<entry port>/v1/models   # the entry: 401 without a key is the healthy answer
+curl -s localhost:7990/healthz                                                  # the commit just shipped
+curl -s -o /dev/null -w '%{http_code}\n' localhost:7990/openapi.json             # 200
+curl -s -o /dev/null -w '%{http_code}\n' localhost:<entry port>/v1/models        # the entry: 401 without a key is the healthy answer
 ```
 
 ## Rollback
 
 ```sh
-git log --oneline -10                  # find the last good commit / tag
-git reset --hard <commit-or-tag>
-systemctl --user restart lama-caravan.service lama-caravan-proxies.service
+python3 deploy/nas/release_ship.py --back     # the link to the release before this one
 ```
 
+By hand: point the link `current` at another folder of `releases/`. The controller restarts
+onto it once no request runs. There is no way back to the Python controller: it left the
+repository on 2026-11-02 (its last commit is `4c53bc92`).
+
 On-disk state files are kept forward/backward compatible, so rolling code
-back does not normally require touching `agent-proxies.json` /
-`agent-proxy-state.json`.
+back does not normally require touching `config/agent-proxies.json` /
+`state/agent-proxy-state.json`.
 
 ## Backups & recovery
 
 | What | Where | Created |
 |---|---|---|
-| Router (Routing) config | `agent-proxies.json.bak-graph-<stamp>` (repo root, gitignored) | automatically on **every** admin write of `agent-proxies.json` |
-| Launch configs per node | `var/server-backups/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json` | UI snapshots (controller + clients; survive the client host) |
-| Every setting, before a settings import | `var/settings-backups/<YYYYMMDD-HHMMSS-micros>-before-import.json` (`/data/settings-backups/` in the container) | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 in a 0700 directory — importing that copy undoes the import. One file per import, never written over: two imports in one second keep both |
+| Router (Routing) config | `config/agent-proxies.json.bak-graph-<stamp>` | automatically on an admin write of `agent-proxies.json` while the file still holds graph nodes; the newest 20 stay |
+| Launch configs per node | `server-backups/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json` | UI snapshots (survive the machine) |
+| Every setting, before a settings import | `settings-backups/<YYYYMMDD-HHMMSS-micros>-before-import.json` | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 — importing that copy undoes the import. One file per import, never written over: two imports in one second keep both |
 
 Restore a broken router config:
 
 ```sh
-ls -t agent-proxies.json.bak-graph-* | head -3
-cp agent-proxies.json.bak-graph-<stamp> agent-proxies.json   # proxy picks it up in ~2 s
+ls -t config/agent-proxies.json.bak-graph-* | head -3
+cp config/agent-proxies.json.bak-graph-<stamp> config/agent-proxies.json   # the next request goes by it
 ```
 
-The bak-graph files accumulate (one per write); prune with
-`ls -t agent-proxies.json.bak-graph-* | tail -n +200 | xargs rm` when needed.
-
 ## Local development (macOS or any host)
+
+A whole caravan on one laptop, with stand-ins for the cards and the engines:
+[stand.md](stand.md).
 
 ### Moving the admin port
 
@@ -129,63 +131,69 @@ controller and reconnects by itself:
 2. Re-point every scout while the controller is still on the old port —
    `POST http://<client>:8092/api/controller-url` with `{"url", "token"}`. It
    rewrites config.json and applies live; no restart, no ssh.
-3. Change `Environment=LLAMACPP_ADMIN_PORT=` in the unit, `daemon-reload`,
-   restart. Heartbeats resume within one interval.
+3. Change `LLAMACPP_ADMIN_PORT` in the container's environment and start it anew.
+   Heartbeats resume within one interval.
 4. Verify each client's `lastSeen` on the board before touching anything else.
 5. Sweep the leftovers: bookmarks, and any
    `config.json.bak-*` that would resurrect the old address on a restore.
 
-Run the admin against scratch state so you don't touch `~/.local/state` or
-spam autobackups into the working tree:
+Run the controller alone against scratch state, from a release folder ([the README's
+quick start](../README.md#quick-start) makes one):
 
 ```sh
-export LLAMACPP_ADMIN_PORT=7991
-export LLAMA_ADMIN_STATE=/tmp/caravan-dev/admin.json
-export AGENT_PROXY_CONFIG_FILE=/tmp/caravan-dev/agent-proxies.json   # cp the real one for data
-export AGENT_PROXY_STATE_FILE=/tmp/caravan-dev/proxy-state.json
-export TOKEN_HISTORY_FILE=/tmp/caravan-dev/token-history.json
-export CLOUD_PROVIDERS_FILE=/tmp/caravan-dev/cloud-providers.json
-export LLAMA_MONITOR_HISTORY=/tmp/caravan-dev/monitor-history.json
-export LLAMA_INCIDENT_LOG=/tmp/caravan-dev/incidents.jsonl
-python3 app.py
+CARAVAN_ROOT=<release> CARAVAN_DATA_DIR=/tmp/caravan-dev LLAMACPP_ADMIN_PORT=7991 <release>/caravan-admin
 ```
 
-Hardware probes (`nvidia-smi`, `systemctl`) degrade gracefully — `run()`
-never raises, so the server works on a laptop with empty panels. The monitor
-sampler also runs on macOS: memory comes from `vm_stat`/`sysctl`, processes
-from `ps -r`; per-core CPU% stays 0 (no `/proc`), loadavg is real.
+`CARAVAN_DATA_DIR` rebases every mutable default (state/, config/, logs/, secrets/,
+models/, server-backups/, settings-backups/) under one directory, and the proxy does not
+start without it; a variable of its own (`AGENT_PROXY_CONFIG_FILE`, `LLAMA_ADMIN_STATE` …,
+`rust/crates/admin/src/paths.rs`) still wins for one file.
 
-Shorthand for the same isolation: `CARAVAN_DATA_DIR=/tmp/caravan-dev python3
-app.py` rebases every mutable default (state/, config/, logs/, secrets/,
-models/, server-backups/, settings-backups/) under one directory; the individual
-env vars above still win when set.
+Hardware probes (`nvidia-smi`, `systemctl`) degrade gracefully — a tool that does not
+run is an answer, never a crash — so the server works on a laptop with empty panels. The
+monitor sampler also runs on macOS: memory comes from `vm_stat`/`sysctl`; per-core CPU%
+stays 0 (no `/proc`), loadavg is real.
 
 Quick checks while developing:
 
 ```sh
-python3 -m py_compile app.py agent-proxies.py $(find caravan -name '*.py')
-python3 scripts/test_queue_node.py
+(cd rust && cargo test --locked --workspace)
+(cd rust && cargo clippy --locked --workspace --all-targets -- -D warnings)
+python3 scripts/check_rust_contract.py
 node --check <(cat static/js/<module>.js)        # ES-module syntax (or copy to .mjs)
 ```
 
-## Docker (controller-only)
+## Controller in a container
 
-**Evaluation / GPU-less-controller mode — native systemd stays the primary
-deployment.** Neither runs cells: they run on machines with a scout.
-`docker compose up -d --build` runs the admin + proxy in one container (see
-the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
+Neither a container nor a bare machine runs cells: they run on machines with a scout. The
+image is the system under the programs and nothing of them: `debian:bookworm-slim`, its
+updates, `tzdata` and `ca-certificates`, no Python.
+
+```dockerfile
+ENV CARAVAN_CONTAINER=1 CARAVAN_DATA_DIR=/data CARAVAN_ROOT=/app/bin/current
+VOLUME /data
+HEALTHCHECK CMD ["/app/bin/current/caravan-admin", "--health"]
+CMD ["/app/bin/current/caravan-admin"]
+```
+
+The release's folder is mounted read-only at `/app/bin` (`current` in it is the link), the
+data at `/data`, and the restart policy is `unless-stopped`: a new release relies on it.
+The `Dockerfile` at the root of the tree is the other way: it builds the programs, the board's
+files, the cell servers and the scout into one image, and `docker-compose.yml` runs it read-only with
+no capabilities and its two ports published. A new version is then a new build, `docker compose up -d --build`.
+What changes inside (`CARAVAN_CONTAINER=1`):
 
 - Two settings are required, and the container refuses to start without
   them (exit code 2, the reason on stderr): `TZ`, the controller's time zone —
   every schedule runs by it, and a container would otherwise run in UTC
   silently — and `LLAMA_TOPOLOGY_SERVER_IP`, the address agents and scouts
-  reach it at. `docker-compose.yml` asks for both; the image carries the zone
-  data (`tzdata`).
+  reach it at. The image carries the zone data (`tzdata`).
 - Behind a reverse proxy, with the controller listening on loopback only (a NAS),
   `LLAMA_TOPOLOGY_SERVER_URL` names the controller as the fleet reaches it, e.g.
   `https://caravan.example.org`: "Add scout" hands every scout that name instead
   of the address and port, which answer nobody else there. The scout's machine must
-  trust the certificate (on the home network, visumap `lan-root-ca`).
+  trust the certificate. `LLAMACPP_ADMIN_HOST` and `AGENT_PROXY_HOST` are `127.0.0.1` then,
+  and the reverse proxy leads one name to the board and one to the entry.
 - To find the scouts of the network without typing addresses, press 🔍 Find on the Add
   scout row: it scans the networks typed there (`10.0.30.0/24`; empty — the
   controller's own /24) for caravan-scout on its port and lists each one: free (with
@@ -194,14 +202,22 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
   machine does; a scout's machine must let the port in through its firewall.
 - A locked-down container runs as is: `security_opt: [no-new-privileges:true]`,
   `cap_drop: [ALL]`, `read_only: true` with `tmpfs: [/tmp]`. The controller writes only
-  under `/data`, each file through a temp file beside it (`caravan/common/fsio.py`), and
-  binds ports above 1024, so it needs no capability. The NAS compose runs it so: then a
+  under `/data`, each file through a temp file beside it (`rust/crates/files/src/atomic.rs`),
+  and binds ports above 1024, so it needs no capability. Then a
   setuid program inside (`su`, `passwd`, `mount`) gives no rights, and nothing can be
-  planted outside `/data`.
-- No systemd: the proxy is a **supervised child** of the admin
-  (`caravan/admin/proxy_supervisor.py`) — respawned by a watchdog on crash,
-  respawned in place when a routes/cabling save asks for a restart. Its output
-  goes to `/data/logs/proxy.log`; `docker logs` carries the admin.
+  planted outside `/data`. To check it:
+  `docker inspect --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.SecurityOpt}} {{.HostConfig.CapDrop}}' <container>`
+  prints `true [no-new-privileges:true] [ALL]`.
+- The data folder must be one this user can write. A folder with a Synology ACL
+  (`ls -ld` shows `+`) lets its owner write over ssh and refuses a container, which runs as
+  that uid without its groups: the start stops and says so
+  (`rust/crates/admin/src/data_tree.rs`), and `chmod 755` on the host cures it. A models share
+  with an ACL of its own is mounted at `/data/models`, with its group added by `group_add`. A
+  scout takes a model from the controller (`GET /api/models/download`), never from the share.
+- The proxy is the controller's child, as everywhere
+  (`rust/crates/admin/src/proxies/service.rs`) — respawned by a watchdog on a crash,
+  replaced when its file changes. Its output goes to `/data/logs/rust-proxy.log`;
+  `docker logs` carries the controller.
 - The legacy single-server unit and "Repair user service" are disabled with
   a clear 400 — models run on caravan-scout hosts (attach the Docker host
   itself with scout if it has the GPU).
@@ -223,19 +239,23 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
   file), and the scores cache (`logs/aa-scores-cache.json`);
   the System modal shows synthetic service chips (`lama-caravan (container)`,
   `agent-proxies (child)`) and hides systemd diagnostics.
-- The version chip reads `CARAVAN_GIT_HEAD` (baked at build) because the
-  image ships without `.git`.
-- The image carries the cell servers (`cells/`): the controller hands them to
+- The version chip reads the commit `git archive` wrote into the release's `VERSION`:
+  a release has no `.git`.
+- A release carries the cell servers (`cells/`): the controller hands them to
   the scouts (`/api/cell-assets`). `scripts/check_image_contents.py` keeps every
-  folder the running code reads in the image's COPY list.
+  folder the running code reads in the release's list.
+- Never start a second controller on a copy of this data: the same fleet token would let
+  two controllers command the same scouts, and the same OAuth tokens would refresh each
+  other out.
 
 ## One entry with keys: the OpenAI API for clients
 
 Clients reach the caravan the way they reach OpenAI or any company's model gateway:
-one address and a key each (visumap `caravan-single-entry`). A client's key calls one
-pool — the one a cable in Routing leads it to (since 1.3.486) — and every request of
-the key goes there, whatever `model` it names. The client sees the pool by its name and
-never the providers, accounts or cells behind it.
+one address and a key each (visumap `caravan-single-entry`). A client's key reaches every
+pool and every model that runs, but what is blocked for it (since 1.3.675): `GET /v1/models`
+lists them by name, and a request's `model` picks one, as on OpenAI ("What a client sees"
+below). The client sees a pool or a model by its name and never the providers, accounts or
+cells behind it.
 
 1. Open the entry on a free port: on the board, "Set up the entry" at the top of the
    clients column asks the public address, then the port; by API —
@@ -251,24 +271,47 @@ never the providers, accounts or cells behind it.
    the key once; copy them. Afterwards the card shows the key's last four characters;
    "New key" replaces a lost key (the old one stops working at once). By API:
    `POST /api/consumers/create {"name": "Hermes"}`, `POST /api/consumers/key {"port": …}`.
-4. Give the client its models: in Routing (`/routing`), make a set (＋ New set) and drag
-   from the dot at its foot onto each pool it should offer — a chat pool, a speech pool, an
-   embeddings pool; then drag from the dot on the client's card onto the set. Until then its
-   requests are refused (404 `model_not_found`). A click on a cable takes it away. By API:
-   `POST /api/sets/create {"name": "Chat"}`, `POST /api/sets/add-pool {"id": "<set id>", "pool": "<pool id>"}`,
-   `POST /api/consumers/set {"port": …, "set": "<set id>"}`; `"set": ""` takes the cable away.
+4. The client sees every pool and every model that runs at once (the owner, 2026-10-27:
+   "everything, at once"). To keep something from it, "＋ Block" on its card in Routing
+   (`/routing`) opens what can be blocked: an account or a machine whole, a model, a pool —
+   each tick is saved at once, and a request for what is blocked is refused (403
+   `model_not_allowed`). By API: `POST /api/consumers/deny {"port": …, "deny": ["pool:<id>",
+   "model:<place>", "account:<id>", "host:<hostId>"]}` — the list replaces the one it had, and
+   `[]` blocks nothing.
 5. Configure the client as for OpenAI: base URL `https://caravan-api.<your domain>/v1`,
-   API key — its key, model — a pool's name of its set as the board shows it. For example:
+   API key — its key, model — a pool's or a model's name as `/v1/models` lists it. For example:
 
    ```python
    from openai import OpenAI
    client = OpenAI(base_url="https://caravan-api.example.org/v1", api_key="lcv1_…")
-   print([m.id for m in client.models.list()])          # the pools of this key's set
+   print([m.id for m in client.models.list()])          # the pools, then the models that run
    client.chat.completions.create(model="Standart", messages=[{"role": "user", "content": "hi"}])
    ```
 
    The home network's HTTPS needs the home root certificate on the client's machine
    (visumap `lan-root-ca`); for Python, `SSL_CERT_FILE`, for Node, `NODE_EXTRA_CA_CERTS`.
+
+**Open WebUI is already there** (since 1.3.667; the owner, 2026-10-27). The caravan makes it itself
+at its first start — and opens the entry on port 23999 for it when the entry is off: a client named
+"Open WebUI", first in the clients column, under it a line and then the other clients. It sees what
+every client sees: every pool, then every model that runs — each machine model with a running copy and
+each model added to an account that can be called. One model in two places (two
+accounts, two machines) is two models, with the place in brackets: `gpt-6-luna (chatgpt-subscription)`.
+A model that stops leaves its list; asked for all the same, it answers 503 "is not running now". To
+connect it: in Open WebUI, Admin Panel → Settings → Connections → OpenAI API → ＋, the entry's address
+and the key "Give a key" on its card shows once; voice and document search take the same address and
+key. It cannot be deleted and the entry stays on while it is there.
+
+**opencode is there too** (since 1.3.673; the owner, 2026-10-27: "let it work the same way"): a second
+built-in client, made the same way and standing after Open WebUI. It sees what every client sees — the
+pools first, a pool whose rows go on to the next model when one is out among them. opencode does not read
+the entry's model list: its models are written in its own config. Its card
+gives the key once — in opencode: `/connect` → Other → `caravan` → the key — and "Copy opencode.json":
+the provider `caravan` at the entry's address with every model the caravan knows that chats (a stopped one
+answers 503 "is not running now"), each pool named with the models it tries in turn; put it in
+`~/.config/opencode/opencode.json` and restart opencode, and copy it again when a new model appears. A
+client made for opencode before is moved in from its card (`{"port": …, "kind": "opencode"}`): it keeps its
+key and what is blocked for it.
 
 A pool is listed by its name; two pools cannot share a name (the board refuses it). A
 request without `stream` gets one JSON answer, with `stream: true` a stream of chunks,
@@ -278,19 +321,22 @@ whatever the provider behind the pool does. What a client is told:
 |---|---|---|
 | 401 | `invalid_api_key` (or none, without a key) | no key, a key no client has, a key two clients share |
 | 400 | — | the body is not a JSON object (or a form, where OpenAI's API takes a file); the body cannot be read as the request says it is sent — its length or its chunks ("The request body cannot be read: …", 1.3.505) |
-| 404 | `model_not_found` | the key has no pool yet (no cable); `GET /v1/models/<id>` of another name |
+| 403 | `model_not_allowed` | the pool or the model is blocked for this client in Routing |
+| 403 | — | the key of a route of the old kind (below) |
+| 404 | `model_not_found` | a name the caravan does not have; a key with nothing to call (nothing runs, or everything is blocked for it); `GET /v1/models/<id>` of another name |
 | 404 | — | a path the entry does not serve: `Invalid URL (POST /v1/files)` |
 | 429 | `rate_limit_exceeded` | every step of the pool is held by its limit; `Retry-After` says until when, and past 60 s `x-should-retry: false` stops the OpenAI client's own retries |
-| 503 | `model_unavailable` | the pool has no step that can serve now for another reason (no sign-in, no step) |
+| 503 | `model_unavailable` | the pool has no step that can serve now for another reason (no sign-in, no step); a model the caravan knows that does not run now ("is not running now") |
 | 502 | `upstream_auth`, `upstream_error` | the provider refused the caravan's sign-in, or failed; the client's key is fine |
+| 503 | — | the caravan cannot read its settings now, with `Retry-After` |
 
 The journal keeps the full reason of each refusal under the client's name.
 
 ### Routing: clients, pools, models
 
-Routing (`/routing`) is four columns joined by cables: the clients of the entry, their sets of
-models ("ID sets"), the pools ("ID (Pools)"), and the models — the subscriptions with their models and the machines with their
-cells. Under them a strip says the details of the card the pointer is on or a click pinned (and is
+Routing (`/routing`) is three columns: the clients of the entry, the pools ("ID (Pools)") with
+«Напрямую» on their top — the models clients call straight now —, and the models — the subscriptions with their models and the
+machines with their cells. The cables show for a card pinned by a click, for a cable being drawn and while requests run. Under them a strip says the details of the card the pointer is on or a click pinned (and is
 hidden while there is none): see [docs/pools.md](pools.md#in-routing).
 
 1. "＋ New pool" makes an empty pool; its name stands in the field, chosen: type the
@@ -303,37 +349,37 @@ hidden while there is none): see [docs/pools.md](pools.md#in-routing).
    unavailable (a cell that is off or missing, a busy cell while a later row is free) or
    fails before the first byte (a connect error, a 5xx). A stream that has started is
    never switched, and a client's own error (4xx) is not tried again elsewhere.
-4. Drag from a client's dot onto a set, and from the set's "＋ model" row onto the pool.
 
 A subscription model's ▲ stop and ▼ switch levels stand on the model — in its strip, on the account's two
 bars — and hold in every pool that names it: ▲ keeps that share of the window back, ▼ sends requests
-to the next rows first from that share on. A click on any cable cuts it after one
+to the next rows first from that share on. A click on a row's cable cuts it after one
 question; ✕ on a row removes the row, ✕ on a pool deletes the pool.
 
-### A client and its set
+### What a client sees
 
-A client has one set, or none while no cable reaches it (the owner, 2026-10-12: "only one
-cable goes on from a client", and a set between it and the pools). The set's pools are the
-client's models: `GET /v1/models` lists them, a request's `model` picks one, a name the set
-has not is 404 and a request with no model is 400, as OpenAI answers them. One set may serve
-several clients. No router decides for a client: a pool's rows do — a subscription's model or
-a cell, in their order — and `route-policy` with `routerId` is refused for it. A client cabled
-to one pool (1.3.486–1.3.496) is cabled to a set of that pool once at start, shared by the
-clients of that pool, and the controller says so in its log (`entry: clients cabled to sets: …`);
-a client made before 1.3.486 first gets the first pool it might call (`entry: clients cabled to
-one pool: …`).
+A client sees every pool and every model that runs, but what is blocked for it (1.3.675; the owner,
+2026-10-27: "every client we make has every model and every pool … on a client we set which models or
+pools it may not have"). `GET /v1/models` lists the pools by name, then the models that run, each by its
+own name — a name in two places is two models, with the place in brackets — and a request's `model`
+picks one; a model under a pool's name is the pool's. A name the caravan does not have is 404 and a
+request with no model is 400, as OpenAI answers them; a model it knows that does not run is 503, and
+what is blocked for the client is 403 `model_not_allowed`. A model blocked for a client that one of its
+pools calls is still reached through the pool: the pool works whole. No router decides for a client: a
+pool's rows do — a subscription's model or a cell, in their order — and `route-policy` with `routerId` is
+refused for it. At the move to this form, once at the controller's start, every client dropped its set (or
+the pool or pools of the older forms) and starts with nothing blocked; the log says what each had (`entry:
+every client sees every model now, the sets are gone — …`), and Routing shows it once in a window, which
+offers to delete the pools that became twins of their model.
 
 ### Agents of the old kind
 
-An agent with a port of its own (made before 1.3.466 in Routing) can reach the
-entry with its port's key; its request then goes through its port's router graph, as
-before, and its `model` chooses nothing. To move one: in Routing's clients panel,
-"Give a key" on its row (the key is made and the port closes in the same step), then
-set the agent's base URL to the entry and its API key to the key. An agent whose port
-had a key already shows "Close port" instead; ↺ reopens a closed port (it still demands
-the key). By API: `POST /api/agent-proxies/route-key {"port": …}` and
-`POST /api/agent-proxies/route-policy {"port": …, "portClosed": true}` — both refused
-while the entry is off.
+An agent with a port of its own (made before 1.3.466 in Routing) has its record on the
+board and no way in. Since 2026-11-02 (the owner: its own ports go) the proxy listens on
+the entry alone, the entry answers such a route's key 403 (`entry:not-a-consumer` in the
+journal), and a reopening of a closed port (`route-policy` with `portClosed: false`) answers 410. To bring one back: ＋ in the clients column makes a client
+with a key of its own; set the agent's base URL to the entry and its API key to that key,
+and delete the old route (`POST /api/agent-proxies/route-delete {"port": …}`). A client that
+cannot send a key cannot connect.
 
 ## Request-log diagnostics (API)
 
@@ -362,7 +408,7 @@ several, comma-separated: `finished,blocked` is every request that ended, refusa
 `port` (the route's number — a port of the older kind, or a client of the entry's record, which never listens), `route`
 (case-insensitive substring of the route label), `client` (exact IP),
 `errors=1` (only rows carrying an error), `slim=1` (drops the per-row
-`active`/`queue`/`policy` fleet snapshots; the request's own `item` is kept),
+`queue`/`policy` fleet snapshots, and `active` from rows written before 2026-11-02 — newer rows do not carry it; the request's own `item` is kept),
 `summary=1` (no rows — per-port counters of terminal events instead:
 `{"8117": {port, route, total, errors, byKind: {client_disconnected: 1, …}}}`;
 combines with the other filters), `since=60` (minutes — only rows newer than
@@ -378,36 +424,16 @@ Reading a `finished` row:
   wait + prompt processing before the first token;
 - `item.errorKind` — `client_disconnected` means the **agent** dropped the
   connection (its own timeout) while waiting; the upstream itself was fine.
-  Example: the classic `[Errno 32] Broken pipe` with `firstByteMs ≈ 33000` is
+  Example: this kind with `firstByteMs ≈ 33000` is
   an agent with a ~30 s client timeout that did not survive the queue.
 - `item.latency` (since 1.3.437) — where the time went, in milliseconds:
-  `prepMs` the caravan's own work before the upstream (without the queue),
+  `prepMs` the time before the upstream (a machine's model's queue is in it),
   `connectMs` opening the upstream connection (`0` when a kept provider
   connection was taken, `connReused: true`), `headersMs` / `firstChunkMs` the
   upstream's answer from the request sent, `cpuMs` the processor time of the
   request. The route window's Details tab shows medians and the 90th
   percentile per port; `GET /api/agent-proxy-latency?port=<port>&range=24h`
   answers the same as JSON.
-
-### Load test of the proxy
-
-`scripts/bench_proxy.py` measures what a machine's processor carries before
-the caravan moves onto it: a fake provider, the real proxy in a process of its
-own, and N parallel token streams through it and straight to the provider.
-Nothing of the running caravan is touched — everything lives in a temporary
-directory on free ports.
-
-```sh
-python3 scripts/bench_proxy.py --kind subscription --streams 1,8,32 --requests 32 --events 200 --gap-ms 10
-```
-
-Per level of parallel streams it prints the stream's time straight and
-through the proxy (the difference is what the proxy adds), the first event,
-the journal's `prepMs` and `cpuMs`, the proxy process's processor time per
-request and the kept connections taken. `--kind subscription` translates a
-Responses stream (the subscription's path, the heaviest), `openai` relays a
-chat-completions stream as it is, `cell` goes to a local server without a
-pool. CI runs `--quick`.
 
 The proxy notices a vanished client at every phase and cancels the work: in
 the admission queue (keep-alive write fails), and after admission via a 2 s
@@ -419,29 +445,27 @@ seconds, up to ~20 s on huge prompts).
 
 ## Known quirks
 
-- **`BrokenPipeError` in the admin journal** — a browser/agent dropped a
-  polling request mid-response. Pre-existing noise (hundreds/day), harmless.
-- **Route edits look "stuck"** — check the proxy journal: the listener watcher
-  logs every rebind; a malformed `agent-proxies.json` keeps the last good
-  config in memory.
+- **Every request answers 503 "cannot read its settings"** — `config/agent-proxies.json`
+  or the cloud file does not read. There is no last good config in memory: the proxy reads
+  what the file says, and the journal says `entry:settings-unreadable`. Restore the file
+  (above).
 - **A scout's cell crashed** — its card says why: 💥 with the reason, and on
   hover the last 8 lines of the crashed run's log (scout 2.6+, keys scrubbed
   by the scout); while the scout's watchdog brings it back, the ⚠ "previous
   attempt" says the same as for a cell of the controller. The whole log is on
   that machine: `<modelsBasePath>/llama-server.<port>.log`
   (`command-cell.<port>.log` for command cells), earlier runs kept aside.
-- **Ghost proxy processes** — if ports stay bound after a unit stop, look for
-  an orphaned `python agent-proxies.py` (historic gotcha: a manually started
-  copy fighting the unit) and kill it before restarting the service.
+- **The entry does not answer and `logs/rust-proxy.log` says `cannot bind`** — something
+  else holds the entry's port. A new proxy waits 15 s for the port and then ends, and the
+  watchdog starts another. Find who holds it, or move the entry on the board.
 - **Whisper/command cells** show `downloading N% / loading` in the cell UI —
   that is the health endpoint reporting model download progress, not a hang.
 - **UFW**: the proxy range is opened ONCE, by the operator, with one rule —
-  `sudo ufw allow 23001:23999/tcp` (the range is `PROXY_PORTS`,
+  `sudo ufw allow 23001:23999/tcp` (the range is `proxy_ports`,
   `CARAVAN_PROXY_BASE_PORT` + `CARAVAN_PROXY_PORT_SPAN`). The caravan never runs
   ufw (`scripts/check_firewall_untouched.py`): it hands out ports only inside
-  the range and refuses a new port outside it. An old port outside it (8022)
-  keeps its own rule; delete that rule by hand when the port goes. A route on
-  an unopened port answers locally but not from the LAN.
+  the range and refuses a new port outside it. An entry on an unopened port answers
+  locally but not from the LAN.
 
 
 ## Публичное зеркало
@@ -470,12 +494,8 @@ seconds, up to ~20 s on huge prompts).
 настроек тянутся, когда уже что-то сломано, и забытый пароль не должен утаскивать
 за собой остальное.
 
-Каравану для этого нужен пакет `cryptography`, а проект намеренно живёт на одной
-стандартной библиотеке. Поэтому возможность **объявляется**: где пакета нет,
-поле пароля не показывается, и панель говорит почему. Включить:
-
-    .venv/bin/pip install cryptography
-    systemctl --user restart lama-caravan.service
+Запирает сам караван: scrypt и AES-256-GCM (`rust/crates/net/src/sealed.rs`), ставить
+ничего не надо, и поле пароля есть всегда.
 
 Без пароля файл ведёт себя как раньше. С паролем и без него при загрузке
 учётные данные пропускаются с явным сообщением — не молча.
@@ -483,20 +503,13 @@ seconds, up to ~20 s on huge prompts).
 
 ### Инструменты переписывания
 
-`scripts/capture_golden.py` снимает поведение (34 эталона, 120 флагов,
-135/135 полей конфига), `scripts/test_golden.py` сверяет с ним — он первый в
-`deploy.sh` и главный тест на всё переписывание.
+Сверка программ: `scripts/test_rust_conformance.py` (прокси),
+`scripts/test_rust_admin_conformance.py` (контроллер), `scripts/test_rust_scout_conformance.py`
+(скаут). Каждая задаёт программе вопросы и сравнивает ответ с тем, что записано в
+`tests/frozen/`. Ответ поменяли намеренно — тот же скрипт с `--write`, и разницу покажет diff
+файла в merge request. Командные строки ячеек держат голдены: `tests/golden/`,
+`rust/crates/admin/tests/golden.rs`.
 
-`scripts/diff_behaviour.py` гоняет старую и новую реализацию рядом на тех же
-33 фикстурах:
-
-    scripts/diff_behaviour.py --old caravan.admin.runners:effective_command \
-                              --new caravan.domain.runner:command_for
-
-Падение одной из сторон показывается как расхождение (`ok → raised`), а не как
-поломка прогона: реализация, которая бросает там, где прежняя отвечала, изменила
-поведение ровно так же, как та, что вернула другое.
-
-`docs/why.md` хранит правила, выведенные из инцидентов; `check_why_refs.py`
+`docs/why.md` хранит правила, выведенные из инцидентов; `scripts/check_why_refs.py`
 следит, чтобы ссылки на код разрешались, — при переезде он и скажет, какое
 правило вот-вот осиротеет.

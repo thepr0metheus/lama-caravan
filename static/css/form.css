@@ -176,7 +176,6 @@
 .compute-split-btn:hover { background: rgba(255, 255, 255, 0.07); }
 .compute-split-btn.on { color: #e6edf3; background: color-mix(in srgb, #34d399 14%, transparent); box-shadow: inset 0 -2px 0 #34d399; }
 .compute-split-exp { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #e3b341; }
-.compute-split-hint { margin: 6px 0 0; font-size: 11px; line-height: 1.45; color: var(--muted, #8b93a1); }
 .compute-split-warn { margin: 6px 0 0; font-size: 11px; line-height: 1.45; color: #e3b341; }
 
 .compute-gpu-dd { position: relative; margin-top: 7px; }
@@ -462,8 +461,13 @@ button.cmd-dirty::after {
   border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
 }
 
+/* Over every layer: a toast without one was drawn under an open dialog (z 30, 70, blurred) and under a cell's window (its
+   lane's layer), and the word of a refusal — why Apply did nothing — was read dimmed, or not read. It takes no clicks: faded
+   out, it keeps its last words and its box, which would stand over the buttons in the corner it covers. */
 #toast {
   position: fixed;
+  z-index: 1000;
+  pointer-events: none;
   right: 20px;
   bottom: 20px;
   max-width: 420px;
@@ -790,6 +794,61 @@ button.cmd-dirty::after {
 
 .modal-meta .dlg-choices-label {
   flex-basis: 100%;
+}
+
+/* A dialog's boxes (dialogs.js, appConfirmFields): each under its label across the meta grid — a cache's folder and its limit, asked
+   with the question that turns it on. */
+.modal-meta .dlg-fields {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dlg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dlg-field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.dlg-field-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dlg-field-box input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: 500 13px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dlg-field-box input[type="number"] {
+  flex: 0 0 8em;
+}
+
+.dlg-field-box input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dlg-field-suffix {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* A long list of choices (a new cell's model in an engine): one per row, and
@@ -1164,26 +1223,7 @@ button.cmd-dirty::after {
   background: color-mix(in srgb, var(--muted, #888) 22%, transparent);
   color: var(--muted, #aaa); cursor: help; }
 
-/* ── Custom command tab: preset chips, device tiles, health switch ────────── */
-.cmd-preset-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-
-.cmd-preset-chip {
-  padding: 5px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  border: 1px dashed color-mix(in srgb, var(--muted,#888) 35%, transparent);
-  background: transparent;
-  color: var(--muted,#888);
-  cursor: pointer;
-  transition: color .12s, border-color .12s, background .12s;
-}
-.cmd-preset-chip:hover {
-  color: var(--accent,#6ea8fe);
-  border-color: color-mix(in srgb, var(--accent,#6ea8fe) 55%, transparent);
-  border-style: solid;
-  background: color-mix(in srgb, var(--accent,#6ea8fe) 8%, transparent);
-}
-
+/* ── Custom command tab: device tiles, health switch ─────────────────────── */
 .cmd-command-input { font-family: ui-monospace, Menlo, monospace; }
 
 .cmd-two-col {
@@ -1197,22 +1237,164 @@ button.cmd-dirty::after {
 .cmd-health-lbl { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
 .cmd-health-toggle { accent-color: var(--ok,#3fb950); width: 15px; height: 15px; cursor: pointer; }
 
-/* ── Weights placement: where the layers go when the model outgrows the card ──
-   Deliberately the same tiles as the compute target above it, because it is the
-   same kind of decision one step finer: that one picks the device, this one
-   picks how much of the model the device holds. The bar carries the answer —
-   proportion, not layer counts, is what the operator is actually choosing. */
-.offload-plan { margin-top: 10px; }
-.offload-plan .compute-card.warn.active { border-color: var(--warn, #d29922); }
-.plan-slider { width: 100%; margin: 10px 0 4px; accent-color: var(--ok, #3fb950); }
-.plan-bar {
-  display: flex; height: 8px; border-radius: 4px; overflow: hidden;
-  background: var(--line, #30363d); margin-top: 6px;
+/* ── Where the model lives (placement.js): the model as one bar cut by device, then a lane per card and one for RAM ──
+   Each lane is as long as its device: what other processes hold is hatched, the model's weights solid, its KV cache a lighter
+   shade of the same colour, the buffers dashed in amber, the free rest the track itself. A card's limit is a handle on its
+   lane, over the part the model may have; the map follows the drag at once. The verdict wears the house's four colours. */
+.placement-box { margin-top: 12px; }
+.placement {
+  --lane-gpu0: var(--accent, #4da392);
+  --lane-gpu1: color-mix(in srgb, var(--accent, #4da392) 55%, #8b7cf6);
+  --lane-gpu2: color-mix(in srgb, var(--accent, #4da392) 40%, #e4ad53);
+  --lane-gpu3: color-mix(in srgb, var(--accent, #4da392) 40%, #f472b6);
+  --lane-ram: var(--fallback, #60a5fa);
+  border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 12px; padding: 12px 14px 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012));
 }
-.plan-bar-vram { background: var(--ok, #3fb950); }
-.plan-bar-ram  { background: #4593ff; }
-.plan-readout { margin-top: 6px; font-size: 12px; color: var(--muted); }
-.plan-readout.bad { color: var(--bad, #f85149); }
+.place-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.place-head .compute-label { margin: 0; }
+.place-legend { display: inline-flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.place-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: -6px; vertical-align: -1px; }
+/* Each card's lane has its own colour, so the swatches carry the first two: a weights swatch in one card's colour alone read as
+   "weights are green" on a lane drawn in blue. */
+.place-legend i.weights { background: linear-gradient(90deg, var(--lane-gpu0) 50%, var(--lane-gpu1) 50%); }
+.place-legend i.kv { background: linear-gradient(90deg, color-mix(in srgb, var(--lane-gpu0) 50%, #ffffff) 50%,
+  color-mix(in srgb, var(--lane-gpu1) 50%, #ffffff) 50%); }
+.place-legend i.buffers { background: repeating-linear-gradient(90deg, var(--priority, #e4ad53) 0 3px, transparent 3px 5px); }
+.place-legend i.others { background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.32) 0 2px, rgba(255, 255, 255, 0.08) 2px 4px); }
+.place-how { margin: 6px 0 10px; font-size: 11.5px; line-height: 1.5; color: var(--muted); max-width: 72ch; }
+/* What holds the plan from llama.cpp's fitting: a warning line, the field named as code, the way out on the right. The text keeps the
+   page's colour — a whole sentence in yellow read as shouting (the owner, 2026-10-24: "not pretty"). */
+.place-held { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--yellow, #d4b520) 30%, transparent); background: color-mix(in srgb, var(--yellow, #d4b520) 7%, transparent); }
+.place-held-icon { flex: none; color: var(--yellow, #d4b520); font-size: 14px; line-height: 1; }
+.place-held-text { flex: 1 1 280px; margin: 0; font-size: 12px; line-height: 1.5; color: var(--text); }
+.place-held-text code { font-size: 11px; padding: 1px 5px; border-radius: 4px; color: var(--yellow, #d4b520);
+  background: color-mix(in srgb, var(--yellow, #d4b520) 12%, transparent); }
+/* The map's buttons are small: the page's `button` rule (cards.css) gives every button 34px and a field's padding. */
+.place-fit { flex: none; min-height: 0; margin: 0; font: inherit; font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 999px;
+  cursor: pointer; white-space: nowrap; color: var(--text); border: 1px solid color-mix(in srgb, var(--yellow, #d4b520) 60%, transparent);
+  background: color-mix(in srgb, var(--yellow, #d4b520) 16%, transparent); }
+
+.place-sum { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; margin-bottom: 12px; }
+.place-sum-label { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.place-sum-bar { display: flex; height: 26px; border-radius: 8px; overflow: hidden; background: rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+.place-sum-seg { min-width: 0; font-size: 11px; color: #08110f; transition: width 0.18s ease; }
+.place-sum-seg + .place-sum-seg { box-shadow: inset 1px 0 0 rgba(0, 0, 0, 0.35); }
+.place-sum-seg.gpu0 { background: var(--lane-gpu0); }
+.place-sum-seg.gpu1 { background: var(--lane-gpu1); }
+.place-sum-seg.gpu2 { background: var(--lane-gpu2); }
+.place-sum-seg.gpu3 { background: var(--lane-gpu3); }
+.place-sum-seg.ram { background: var(--lane-ram); }
+
+.place-lanes { display: grid; gap: 12px; }
+.place-lane { --lane: var(--lane-gpu0); display: grid; gap: 5px; }
+.place-lane.gpu1 { --lane: var(--lane-gpu1); }
+.place-lane.gpu2 { --lane: var(--lane-gpu2); }
+.place-lane.gpu3 { --lane: var(--lane-gpu3); }
+.place-lane.ram { --lane: var(--lane-ram); padding-top: 10px; border-top: 1px dashed rgba(255, 255, 255, 0.09); }
+.place-lane-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; }
+.place-lane-name { font-weight: 600; color: var(--text); }
+.place-lane-model { font-weight: 400; color: var(--muted); }
+.place-lane-size { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.place-track { position: relative; height: 24px; border-radius: 7px; background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.place-segs { position: absolute; inset: 0; display: flex; border-radius: 7px; overflow: hidden; }
+.place-seg { height: 100%; font-size: 10.5px; transition: width 0.15s ease; }
+/* A part's words (PlacementPanel.wordsHtml): what it is, then how much. They stand on the part's one line — the zero-wide ::before
+   is that line, the part's whole height — and a word that does not fit wraps below it, out of sight: a narrow part says only what it
+   is, a narrower one says nothing. No width is guessed: the browser measures each word in its own language. */
+.place-seg, .place-sum-seg { display: flex; flex-wrap: wrap; align-content: flex-start; align-items: center; justify-content: center;
+  overflow: hidden; white-space: nowrap; line-height: 1.2; }
+.place-seg::before, .place-sum-seg::before { content: ""; width: 0; height: 100%; }
+.place-word { flex: none; padding: 0 3px; }
+.place-word:first-of-type { font-weight: 700; }
+.place-seg.weights, .place-seg.kv { color: #08110f; }
+.place-seg.buffers { color: #241805; text-shadow: 0 0 3px color-mix(in srgb, var(--priority, #e4ad53) 90%, #ffffff); }
+.place-seg.others { color: var(--muted); }
+.place-seg.others { background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.20) 0 3px, rgba(255, 255, 255, 0.05) 3px 7px); }
+.place-seg.weights { background: linear-gradient(180deg, color-mix(in srgb, var(--lane) 88%, #ffffff), var(--lane)); }
+.place-seg.kv { background: linear-gradient(180deg, color-mix(in srgb, var(--lane) 45%, #ffffff), color-mix(in srgb, var(--lane) 60%, #ffffff)); }
+.place-seg.buffers { background: repeating-linear-gradient(90deg, var(--priority, #e4ad53) 0 4px, color-mix(in srgb, var(--priority, #e4ad53) 45%, transparent) 4px 7px); }
+/* What llama.cpp keeps free right of the handle: the margin --fit-target names. */
+.place-keep { position: absolute; top: 0; right: 0; height: 100%; border-radius: 0 7px 7px 0; pointer-events: none;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 5px); border-left: 1px dashed rgba(255, 255, 255, 0.35); }
+.place-keep[style="width:0.00%"] { display: none; }
+/* What does not fit a device, past its end: the lane is drawn that much longer, and the excess hatched red from the device's
+   edge (PlacementPanel.span). */
+.place-past { position: absolute; top: 0; bottom: 0; right: 0; pointer-events: none; border-left: 2px solid var(--bad, #ff8585);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad, #ff8585) 60%, transparent) 0 4px, color-mix(in srgb, var(--bad, #ff8585) 14%, transparent) 4px 8px); }
+.place-lane.bad .place-track, .place-track.bad { box-shadow: inset 0 0 0 1px var(--bad, #ff8585), 0 0 0 3px color-mix(in srgb, var(--bad, #ff8585) 18%, transparent); }
+
+/* The handle: a range input laid over the part of the lane the model may have, its track invisible, its thumb a tall grip. */
+/* The handle is a range input laid over the lane: it must stay see-through. The cell window styles every input as a field —
+   `input, select` (cards.css: a border, 42px) and `.topo-edit-form input:not([type="checkbox"])` (monitor.css: the field's
+   background, 34px) — and the second outweighs a single class: on the live board the handle covered the lane with an opaque
+   field and hid what the card holds (2026-10-24). Hence the longer selector, and the border, shadow and height said here. */
+.placement .place-track input.place-handle[type="range"] { position: absolute; top: -7px; height: calc(100% + 14px); min-height: 0;
+  margin: 0; padding: 0; background: transparent; border: 0; border-radius: 0; box-shadow: none;
+  -webkit-appearance: none; appearance: none; cursor: ew-resize; touch-action: none; }
+.place-handle::-webkit-slider-runnable-track { height: 100%; background: transparent; }
+.place-handle::-moz-range-track { height: 100%; background: transparent; }
+.place-handle::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 38px; border-radius: 6px;
+  background: linear-gradient(180deg, #ffffff, #cfd8dc); border: 2px solid var(--bg, #11171a);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 1px color-mix(in srgb, var(--lane) 70%, transparent); }
+.place-handle::-moz-range-thumb { width: 12px; height: 38px; border-radius: 6px; background: linear-gradient(180deg, #ffffff, #cfd8dc);
+  border: 2px solid var(--bg, #11171a); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55); }
+.place-handle:focus-visible { outline: none; }
+.place-handle:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--accent-strong, #68b9aa), 0 2px 8px rgba(0, 0, 0, 0.55); }
+.place-handle:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--accent-strong, #68b9aa); }
+
+.place-lane-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; font-size: 11.5px;
+  color: var(--muted); font-variant-numeric: tabular-nums; }
+.place-limit { display: inline-flex; align-items: center; gap: 6px; }
+.place-limit-gb { color: var(--text); font-weight: 600; min-width: 5.2em; }
+.place-quick { display: inline-flex; gap: 4px; }
+.place-quick button { min-height: 0; font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 999px; cursor: pointer; color: var(--text);
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.14); }
+.place-lane-text { text-align: right; }
+.place-cores { min-height: 0; margin-left: 8px; font: inherit; font-size: 11px; padding: 3px 10px; border-radius: 999px; cursor: pointer; color: var(--yellow, #d4b520);
+  background: color-mix(in srgb, var(--yellow, #d4b520) 10%, transparent); border: 1px solid color-mix(in srgb, var(--yellow, #d4b520) 45%, transparent); }
+
+.place-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px 14px; flex-wrap: wrap; margin-top: 12px; }
+.place-kv { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.place-kv-label { white-space: nowrap; }
+.place-kv-btn { min-height: 0; font: inherit; font-size: 11.5px; padding: 5px 12px; cursor: pointer; color: #cdd3db; background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.14); }
+.place-kv-btn:first-of-type { border-radius: 8px 0 0 8px; }
+.place-kv-btn:last-of-type { border-radius: 0 8px 8px 0; border-left: 0; }
+.place-kv-btn.on { color: var(--text); background: color-mix(in srgb, var(--accent, #4da392) 16%, transparent); box-shadow: inset 0 -2px 0 var(--accent, #4da392); }
+.place-verdict { margin: 0; }
+.place-pill { display: inline-block; padding: 6px 11px; border-radius: 9px; font-size: 12px; line-height: 1.4; }
+.place-pill.fits { color: var(--good, #69d090); background: color-mix(in srgb, var(--good, #69d090) 12%, transparent); }
+.place-pill.spill, .place-pill.kvRam { color: var(--yellow, #d4b520); background: color-mix(in srgb, var(--yellow, #d4b520) 12%, transparent); }
+.place-pill.over, .place-pill.ramShort { color: var(--bad, #ff8585); background: color-mix(in srgb, var(--bad, #ff8585) 12%, transparent); }
+.place-pill.unknown { color: var(--muted); background: rgba(255, 255, 255, 0.05); }
+.place-flags { margin: 10px 0 0; font-size: 11px; color: var(--muted); }
+.place-flags code { font-size: 11px; color: var(--code-text, #d7e4e8); background: var(--code-bg, #0b1114); padding: 2px 7px; border-radius: 5px; }
+
+@media (hover: hover) {
+  .place-quick button:hover { background: rgba(255, 255, 255, 0.09); }
+  .place-fit:hover { border-color: var(--yellow, #d4b520); background: color-mix(in srgb, var(--yellow, #d4b520) 28%, transparent); }
+  .place-cores:hover { background: color-mix(in srgb, var(--yellow, #d4b520) 22%, transparent); }
+  .place-kv-btn:not(.on):hover { background: rgba(255, 255, 255, 0.07); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .place-seg, .place-sum-seg { transition: none; }
+}
+
+/* The split modes in three lines, and side by side under one fold. */
+.compute-split-about { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); }
+.compute-split-about p, .compute-split-cmp p { margin: 0 0 4px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.compute-split-about p:last-child, .compute-split-cmp p:last-child { margin-bottom: 0; }
+.compute-split-what { color: var(--text) !important; }
+.compute-split-plus b { color: var(--good, #69d090); margin-right: 3px; }
+.compute-split-minus b { color: var(--bad, #ff8585); margin-right: 3px; }
+.compute-split-compare { margin-top: 6px; font-size: 11.5px; }
+.compute-split-compare summary { cursor: pointer; color: var(--accent-strong, #68b9aa); width: fit-content; }
+.compute-split-cmp { margin-top: 8px; padding-left: 10px; border-left: 2px solid rgba(255, 255, 255, 0.1); }
+.compute-split-cmp > b { display: block; margin-bottom: 3px; font-size: 12px; color: var(--text); }
 /* The settings file that carries accounts and keys says so where it is made. */
 .settings-warn { color: var(--warn, #d29922); font-size: 12px; margin: 6px 0 0; }
 .settings-file-list { margin: 4px 0; padding-left: 18px; font-size: 12px; }

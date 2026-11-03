@@ -11,16 +11,12 @@ functions. The rule is checked the way it was written: by reading the code, not
 the docstrings.
 
 Rules.
-1. Python. `cells/*_server.py` (and any `*_server.py` under caravan/) holds a
-   class based on `CellServer`; the "abstract" members of the base are those
+1. Python. `cells/*_server.py` holds a class based on `CellServer`; the "abstract" members of the base are those
    whose body is `raise NotImplementedError`, and the subclass must define each
    of them (a method, a property or a class attribute — or an intermediate
    parent in the same file). A forgotten member is a cell that dies on its first
    request, not at start-up.
-2. Python. In caravan/domain/runner.py every `*Runner` class except the base
-   inherits Runner; every REGISTRY element is a call of such a class; every such
-   class (except the UnknownRunner stand-in) is in REGISTRY.
-3. JS. static/js modules outside the FUNCTION_MODULES whitelist are class
+2. JS. static/js modules outside the FUNCTION_MODULES whitelist are class
    modules: at least one `class`, and no top-level function longer than
    FACE_LINES lines (a face is a one-liner delegating to a class). The whitelist
    holds the modules left as functions, each with a REASON: a phase-7 snapshot
@@ -44,7 +40,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CELL_BASE = ROOT / "cells" / "cell_base.py"
-RUNNER_MODULE = ROOT / "caravan" / "domain" / "runner.py"
 JS_DIR = ROOT / "static" / "js"
 FACE_LINES = 3
 
@@ -144,7 +139,7 @@ def check_cells():
     if not required:
         problems.append("CellServer: ни одного члена с `raise NotImplementedError` — контракт пуст")
         return
-    servers = sorted(list(ROOT.glob("cells/*_server.py")) + list(ROOT.glob("caravan/**/*_server.py")))
+    servers = sorted(ROOT.glob("cells/*_server.py"))
     if not servers:
         problems.append("ни одного *_server.py — охранять нечего")
     for path in servers:
@@ -173,43 +168,6 @@ def check_cells():
                 problems.append(f"{rel}: {cls.name} не определяет {', '.join(missing)} — "
                                 f"ячейка упадёт на первом запросе, а не при старте")
     return required, [s.relative_to(ROOT).as_posix() for s in servers]
-
-
-def check_runners():
-    if not RUNNER_MODULE.exists():
-        problems.append("caravan/domain/runner.py не найден")
-        return 0
-    tree = ast.parse(RUNNER_MODULE.read_text(encoding="utf-8"))
-    classes = _class_defs(tree)
-    if "Runner" not in classes:
-        problems.append("runner.py: базового класса Runner нет")
-        return 0
-    runners = {n: c for n, c in classes.items() if n.endswith("Runner") and n != "Runner"}
-    for name, cls in runners.items():
-        bases = _base_names(cls)
-        if not any(b == "Runner" or b in runners for b in bases):
-            problems.append(f"runner.py: {name} не наследует Runner (базы: {bases or 'нет'})")
-    registry = None
-    for n in tree.body:
-        if isinstance(n, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "REGISTRY" for t in n.targets):
-            registry = n.value
-    if registry is None or not isinstance(registry, (ast.Tuple, ast.List)):
-        problems.append("runner.py: REGISTRY не найден или не кортеж")
-        return len(runners)
-    listed = []
-    for el in registry.elts:
-        if isinstance(el, ast.Call) and isinstance(el.func, ast.Name):
-            listed.append(el.func.id)
-            if el.func.id not in runners:
-                problems.append(f"runner.py: в REGISTRY стоит {el.func.id}, а это не класс *Runner из этого файла")
-        else:
-            problems.append("runner.py: элемент REGISTRY — не вызов класса раннера")
-    for name in runners:
-        if name == "UnknownRunner":
-            continue
-        if name not in listed:
-            problems.append(f"runner.py: {name} объявлен, но в REGISTRY его нет — конфиг с таким RUNNER получит UnknownRunner")
-    return len(runners)
 
 
 _FN_RE = re.compile(r"^(?:export )?(?:async )?function\s+(\w+)\s*\(|^(?:export )?const\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*=>\s*\{|^(?:export )?const\s+(\w+)\s*=\s*(?:async\s+)?function")
@@ -307,7 +265,6 @@ def check_js():
 
 def main():
     cells = check_cells() or ([], [])
-    n_runners = check_runners()
     n_js = check_js()
     if problems:
         print("oop contract: FAILED")
@@ -315,7 +272,7 @@ def main():
             print(f"  - {p}")
         return 1
     print(f"oop contract: OK — {len(cells[1])} серверов ячеек с членами {', '.join(cells[0])}; "
-          f"{n_runners} раннеров в реестре; {n_js} классовых JS-модулей, {len(FUNCTION_MODULES)} в белом списке")
+          f"{n_js} классовых JS-модулей, {len(FUNCTION_MODULES)} в белом списке")
     return 0
 
 

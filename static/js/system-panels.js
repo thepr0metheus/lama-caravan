@@ -237,7 +237,7 @@ export function renderSecurity(sec) {
 }
 
 // The Controller card: what this host runs (admin/proxy services, cells),
-// app git, python and models-disk headroom.
+// app git and models-disk headroom.
 export function renderControllerInfo(info) {
   const el = $("controllerInfo");
   if (!el || !info) return;
@@ -253,7 +253,6 @@ export function renderControllerInfo(info) {
   }
   const git = info.projectGit || {};
   chips.push(`<div class="llama-chip ${git.dirtyCount ? "warn" : "good"}"><span>${t("ctrlAppGit")}</span><strong>${escapeHtml(git.baked ? t("gitBaked") : (git.branch || "n/a"))}${git.head ? " @ " + escapeHtml(git.head) : ""}${git.dirtyCount ? ` +${git.dirtyCount}` : ""}</strong></div>`);
-  chips.push(`<div class="llama-chip"><span>Python</span><strong>${escapeHtml(info.python || "n/a")}</strong></div>`);
   const disk = info.disk || {};
   if (disk.error) {
     chips.push(`<div class="llama-chip warn"><span>${t("ctrlDisk")}</span><strong>${escapeHtml(disk.path || "")}: ${escapeHtml(disk.error)}</strong></div>`);

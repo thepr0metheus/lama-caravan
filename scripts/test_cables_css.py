@@ -28,7 +28,8 @@ positive and a negative pin:
     cannot be seen or clicked — they are hard to see anyway, and when I want to let the selection go I sometimes hit them"): a pinned path of the
     Routing (`.pb.path-alone`, set by pool-board.js `lightPath`) shows only its own cables — a cable that is not on it is `display: none`, because
     the wide twin of a cable is found by `pointer-events: stroke`, which `opacity` and `visibility` do not take away, and a click on a cable cuts
-    it; pointing at a card, without a pin, still only dims them;
+    it; a pin on a card that is gone only dims them, and pointing at a card, without a pin, leaves them as they are (1.3.676,
+    scripts/test_path_dim_css.py);
   - both pages link the two stylesheets, after base.css.
 
 Run: python3 scripts/test_cables_css.py
@@ -94,9 +95,10 @@ class CablesCss:
         if declared(others, ".pb.path-alone .pb-cables g:not(.on-path)").get("display") != "none":
             bad.append("a pinned path of Routing leaves the cables that are not on it drawn: .pb.path-alone .pb-cables g:not(.on-path) needs display: none "
                        "(opacity or visibility would leave the cable's wide twin under the pointer: `pointer-events: stroke` ignores both, and a click on a cable cuts it)")
-        for sel in (".pb.tracing .pb-cables g:not(.on-path)", ".pb.tracing .pb-cables g:not(.on-path) .pb-cable", ".pb.traced .pb-cables g:not(.on-path)"):
+        for sel in (".pb.tracing .pb-cables g:not(.on-path)", ".pb.tracing .pb-cables g:not(.on-path) .pb-cable", ".pb.traced .pb-cables g:not(.on-path)",
+                    ".pb.tracing.traced .pb-cables g:not(.on-path)", ".pb.tracing.traced .pb-cables g:not(.on-path) .pb-cable"):
             if declared(others, sel).get("display") == "none":
-                bad.append(f"{sel} hides the cables that are not on the path: only a pinned path does (pointing at a card only dims them)")
+                bad.append(f"{sel} hides the cables that are not on the path: only a pinned path with a card on the board does (`path-alone`)")
         # nobody else sizes a dot (a handle's hover target, `::before` with an inset, is no dot: it has no width or height of its own)
         for sel, decl in CssRules.rules(others):
             sized = {"width", "height"} | ({"border-radius"} if "::" not in sel else set())
@@ -212,7 +214,7 @@ GOOD_OTHERS = """.topology-handle::before { content: ""; position: absolute; ins
 .pb-dot.open { border-style: dashed; }
 .topology-handle.primary { border-color: var(--accent); }
 .pb-cables .pb-cable.live { stroke: var(--accent); }
-.pb.tracing .pb-cables g:not(.on-path) .pb-cable { opacity: .14; }
+.pb.tracing.traced .pb-cables g:not(.on-path) .pb-cable { opacity: .14; }
 .pb.path-alone .pb-cables g:not(.on-path) { display: none; }
 .topology-cable.fallback { stroke: blue; }"""
 GOOD_PAGE = '<link rel="stylesheet" href="/css/base.css">\n<link rel="stylesheet" href="/css/cables.css">\n<link rel="stylesheet" href="/css/columns.css">'
@@ -259,10 +261,10 @@ def test_the_rule():
           "negative: the other cables made clear — their wide twins are still found by the pointer — named")
     check(named("", "", "leaves the cables that are not on it drawn", others=GOOD_OTHERS.replace(".pb.path-alone .pb-cables g:not(.on-path) { display: none; }", ".pb.path-alone .pb-cables g:not(.on-path) { visibility: hidden; }")),
           "negative: the other cables hidden by visibility — `pointer-events: stroke` finds them still — named")
-    check(named("", "", "only a pinned path does", others=GOOD_OTHERS + "\n.pb.tracing .pb-cables g:not(.on-path) { display: none; }"),
+    check(named("", "", "only a pinned path with a card on the board does", others=GOOD_OTHERS + "\n.pb.tracing .pb-cables g:not(.on-path) { display: none; }"),
           "negative: pointing at a card hides the other cables too (they would flicker as the pointer goes over the board) — named")
-    check(named("", "", "only a pinned path does", others=GOOD_OTHERS.replace(".pb.tracing .pb-cables g:not(.on-path) .pb-cable { opacity: .14; }", ".pb.tracing .pb-cables g:not(.on-path) .pb-cable { display: none; }")),
-          "negative: pointing at a card takes the line of the other cables away — named")
+    check(named("", "", "only a pinned path with a card on the board does", others=GOOD_OTHERS.replace(".pb.tracing.traced .pb-cables g:not(.on-path) .pb-cable { opacity: .14; }", ".pb.tracing.traced .pb-cables g:not(.on-path) .pb-cable { display: none; }")),
+          "negative: a pin on a card that is gone takes the line of the other cables away (it only dims them, and keeps them) — named")
     check(named("animation-timing-function: linear, ease-in;", "animation-timing-function: linear, ease-out;", "not mirrors"), "negative: the drops go down and come up by the same easing — a cable that carries again would have them jump — named")
     check(named("animation-timing-function: linear, ease-out;", "animation-timing-function: linear, ease-in;", "not mirrors"), "negative: the drops come up by the easing that goes down — named")
     check(named("animation-fill-mode: none, forwards;", "animation-fill-mode: none;", "come back at the end"), "negative: the drops that went down come back at the end — named")

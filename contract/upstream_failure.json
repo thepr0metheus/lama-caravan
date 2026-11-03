@@ -1,0 +1,23 @@
+{
+  "summary": [
+    {"status": 500, "body": "{\"error\":{\"message\":\" boom \",\"code\":\"oops\"}}", "reason": "boom", "kind": "oops"},
+    {"status": 500, "body": "{\"error\":{\"message\":\"boom\",\"type\":\"server_error\"}}", "reason": "boom", "kind": "server_error"},
+    {"status": 500, "body": "{\"error\":\"plain\"}", "reason": "plain", "kind": "http_500"},
+    {"status": 503, "body": "{\"detail\":\"edge\",\"code\":\"x_circuit_open\"}", "reason": "edge", "kind": "x_circuit_open"},
+    {"status": 503, "body": "{\"message\":\"m\"}", "reason": "m", "kind": "http_503"},
+    {"status": 502, "body": "  <html>\n bad   gateway </html> ", "reason": "<html> bad gateway </html>", "kind": "http_502"},
+    {"status": 502, "body": "", "reason": "", "kind": "http_502"},
+    {"status": 502, "body": "{broken", "reason": "{broken", "kind": "http_502"},
+    {"status": 400, "body": "[1,2]", "reason": "[1,2]", "kind": "http_400"},
+    {"status": 400, "body": "{\"error\":{\"message\":\"\",\"code\":123}}", "reason": "{\"error\":{\"message\":\"\",\"code\":123}}", "kind": "123"}
+  ],
+  "is_dead_status": [[200, false], [204, false], [400, false], [401, true], [402, true], [403, true], [404, true], [405, false], [408, true], [409, false], [413, false], [422, false], [429, true], [500, true], [501, false], [502, true], [503, true], [504, true]],
+  "code": [
+    {"body": "{\"error\":{\"code\":\"model_missing\"}}", "code": "model_missing"},
+    {"body": " {\"error\":{\"code\":400}} ", "code": 400},
+    {"body": "{\"error\":\"plain\"}", "code": null},
+    {"body": "{\"code\":\"top\"}", "code": null},
+    {"body": "not json", "code": null},
+    {"body": "", "code": null}
+  ]
+}

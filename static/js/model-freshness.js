@@ -1,6 +1,6 @@
 // Our copy of a file against the one on Hugging Face.
 //
-// A twin of caravan/common/model_freshness.py — one rule, three readers: the
+// The browser's copy of rust/crates/admin/src/common/freshness.rs — one rule, three readers: the
 // repository row on /hf, the on-disk models page, and the scheduled watcher.
 // There used to be one answer — "a file with this name exists" — and the row
 // set a ✓, printing the size and date of the file ON HF NEXT TO IT. The

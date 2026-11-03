@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAMA CARAVAN — sign in</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center;
+         justify-content: center; background: #0e1116; color: #e6e6ea;
+         font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .card { width: 100%; max-width: 380px; background: #171a22;
+          border: 1px solid #2a2e3b; border-radius: 14px; padding: 24px 28px 26px; }
+  .card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  h1 { font-size: 19px; margin: 0 0 2px; }
+  .sub { color: #8b8b96; font-size: 12.5px; margin: 0 0 16px; }
+  label { display: block; font-size: 12px; color: #9aa3b2; margin: 12px 0 4px;
+          text-transform: uppercase; letter-spacing: .05em; }
+  input, select { width: 100%; background: #0e1116; color: #e6e6ea;
+          border: 1px solid #2a2e3b; border-radius: 8px; padding: 10px 12px;
+          font-size: 14px; }
+  select.lang { width: auto; padding: 6px 8px; font-size: 12px; }
+  input:focus, select:focus { outline: none; border-color: #4a7dbd; }
+  button.primary { width: 100%; margin-top: 18px; background: #2e6bb0; color: #fff;
+           border: 0; border-radius: 8px; padding: 11px; font-size: 14px;
+           font-weight: 600; cursor: pointer; }
+  button.primary:hover { background: #3a7cc4; }
+  .err { color: #ec7063; font-size: 13px; margin: 10px 0 0; min-height: 18px; }
+  .note { color: #8b8b96; font-size: 12.5px; margin-top: 10px; }
+  .token { display: block; background: #0e1116; border: 1px solid #2a2e3b;
+           border-radius: 8px; padding: 9px 11px; margin: 8px 0; font-size: 12.5px;
+           word-break: break-all; user-select: all; }
+  .hidden { display: none; }
+</style>
+</head>
+<body data-t-page="<!--PAGE-->">
+  <div class="card">
+    <div class="card-top">
+      <div>
+        <h1>&#129433; LAMA CARAVAN</h1>
+        <p class="sub" data-i18n="sub">Sign in to the fleet controller</p>
+      </div>
+      <select class="lang" id="lang" aria-label="Language" data-i18n-aria="langLabel" data-t="login-lang"></select>
+    </div>
+
+    <!--FORM-->
+  </div>
+<script>
+(function () {
+  var LANGS = [["en","☕ English"],["zh","🐼 中文"],["es","🥘 Español"],["de","🥨 Deutsch"],["ru","🪆 Русский"],["ar","🕌 العربية"]];
+  var M = {
+    en:{langLabel:"Interface language",sub:"Sign in to the fleet controller",subSetup:"Create the first account",user:"Username",pass:"Password",signin:"Sign in",passNew:"Password (min 8 chars)",passRepeat:"Repeat password",create:"Create account & enable sign-in",setupNote:"No account exists yet. Until you create one, this controller answers nothing but this page. There is no default admin/admin on purpose.",mismatch:"passwords do not match",failed:"login failed",badCredentials:"Invalid username or password",tooManyAttempts:"Too many attempts — try again in a minute"},
+    ru:{langLabel:"Язык интерфейса",sub:"Вход в контроллер флота",subSetup:"Создайте первую учётную запись",user:"Логин",pass:"Пароль",signin:"Войти",passNew:"Пароль (мин. 8 символов)",passRepeat:"Повторите пароль",create:"Создать аккаунт и включить вход",setupNote:"Учётных записей ещё нет. Пока вы не создадите первую, контроллер отвечает только этой страницей. Учётной записи admin/admin по умолчанию нет намеренно.",mismatch:"пароли не совпадают",failed:"вход не выполнен",badCredentials:"Неверное имя пользователя или пароль",tooManyAttempts:"Слишком много попыток — повторите через минуту"},
+    zh:{langLabel:"界面语言",sub:"登录车队控制器",subSetup:"创建第一个账户",user:"用户名",pass:"密码",signin:"登录",passNew:"密码（至少 8 个字符）",passRepeat:"重复密码",create:"创建账户并启用登录",setupNote:"目前还没有任何账户。在你创建账户之前，此控制器只会返回这个页面，不响应其他任何请求。有意不设默认 admin/admin。",mismatch:"两次密码不一致",failed:"登录失败",badCredentials:"用户名或密码错误",tooManyAttempts:"尝试次数过多，请在一分钟后重试"},
+    es:{langLabel:"Idioma de la interfaz",sub:"Inicia sesión en el controlador de la flota",subSetup:"Crea la primera cuenta",user:"Usuario",pass:"Contraseña",signin:"Entrar",passNew:"Contraseña (mín. 8 caracteres)",passRepeat:"Repite la contraseña",create:"Crear cuenta y activar el acceso",setupNote:"Aún no existe ninguna cuenta. Hasta que crees una, este controlador solo responde con esta página. No existe admin/admin por defecto, a propósito.",mismatch:"las contraseñas no coinciden",failed:"no se pudo iniciar sesión",badCredentials:"Usuario o contraseña incorrectos",tooManyAttempts:"Demasiados intentos: vuelve a intentarlo en un minuto"},
+    ar:{langLabel:"لغة الواجهة",sub:"تسجيل الدخول إلى وحدة التحكم بالأسطول",subSetup:"إنشاء الحساب الأول",user:"اسم المستخدم",pass:"كلمة المرور",signin:"تسجيل الدخول",passNew:"كلمة المرور (8 أحرف على الأقل)",passRepeat:"أعد كلمة المرور",create:"إنشاء حساب وتفعيل الدخول",setupNote:"لا يوجد أي حساب بعد. إلى أن تنشئ حساباً، لا تردّ وحدة التحكم هذه إلا بهذه الصفحة. لا يوجد admin/admin افتراضي عمداً.",mismatch:"كلمتا المرور غير متطابقتين",failed:"فشل تسجيل الدخول",badCredentials:"اسم المستخدم أو كلمة المرور غير صحيحة",tooManyAttempts:"محاولات كثيرة جدًا — حاول مرة أخرى بعد دقيقة"},
+    de:{langLabel:"Anzeigesprache",sub:"Anmeldung am Flotten-Controller",subSetup:"Erstes Konto erstellen",user:"Benutzername",pass:"Passwort",signin:"Anmelden",passNew:"Passwort (mind. 8 Zeichen)",passRepeat:"Passwort wiederholen",create:"Konto erstellen & Anmeldung aktivieren",setupNote:"Es gibt noch kein Konto. Solange noch keines erstellt wurde, antwortet dieser Controller nur mit dieser Seite. Ein Standard-admin/admin gibt es absichtlich nicht.",mismatch:"Passwörter stimmen nicht überein",failed:"Anmeldung fehlgeschlagen",badCredentials:"Benutzername oder Passwort ist falsch",tooManyAttempts:"Zu viele Versuche – bitte in einer Minute erneut versuchen"},
+  };
+  var sel = document.getElementById("lang");
+  LANGS.forEach(function (l) {
+    var o = document.createElement("option");
+    o.value = l[0]; o.textContent = l[1];
+    sel.appendChild(o);
+  });
+  var lang = localStorage.getItem("llamacppAdminLang") || "en";
+  if (!M[lang]) lang = "en";
+  sel.value = lang;
+  function T(k) { return (M[lang] && M[lang][k]) || M.en[k] || k; }
+  function apply() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll("[data-i18n]").forEach(function (el) { el.textContent = T(el.dataset.i18n); });
+    // An aria-label is the element's NAME for a screen reader, and it was the
+    // one string on this page that stayed English while the other twelve
+    // translated — so a Russian page announced its language selector as
+    // "Language". textContent cannot carry it: the <select> holds <option>s.
+    document.querySelectorAll("[data-i18n-aria]").forEach(function (el) { el.setAttribute("aria-label", T(el.dataset.i18nAria)); });
+    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+  }
+  sel.addEventListener("change", function () {
+    lang = sel.value;
+    localStorage.setItem("llamacppAdminLang", lang);
+    apply();
+  });
+  apply();
+
+  // Which form this page carries is decided by the server, so exactly one of
+  // the two handlers below has something to bind to. Both are guarded.
+  var loginForm = document.getElementById("loginForm");
+  if (loginForm) loginForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var e = document.getElementById("e");
+    e.textContent = "";
+    fetch("/api/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: document.getElementById("u").value.trim(),
+                             password: document.getElementById("p").value })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j, status: r.status }; }); })
+      .then(function (res) {
+        if (res.ok && res.j.ok) { window.location = "/board"; return; }
+        // Translate by STATUS, not by echoing the server's sentence. The
+        // endpoint answers in English only, so printing res.j.error meant a
+        // page running in Russian told you "invalid username or password" —
+        // the one string on this page that never followed the language.
+        // The server text is still the fallback for anything unforeseen: a
+        // sentence in the wrong language beats no explanation at all.
+        e.textContent = res.status === 401 ? T("badCredentials")
+                      : res.status === 429 ? T("tooManyAttempts")
+                      : (res.j.error || T("failed"));
+      }).catch(function (err) { e.textContent = String(err); });
+  });
+
+  var setupForm = document.getElementById("setupForm");
+  if (setupForm) setupForm.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var se = document.getElementById("se");
+    se.textContent = "";
+    var p1 = document.getElementById("sp").value, p2 = document.getElementById("sp2").value;
+    if (p1 !== p2) { se.textContent = T("mismatch"); return; }
+    fetch("/api/auth/setup", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: document.getElementById("su").value.trim(), password: p1 })
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        // Straight to the board: the account is made and its session set. The
+        // fleet token is the scouts' business — adding a scout from the board
+        // hands it over — so it waits in System → Security, not on this page.
+        if (res.ok && res.j.ok) { window.location = "/board"; }
+        else { se.textContent = res.j.error || T("failed"); }
+      }).catch(function (err) { se.textContent = String(err); });
+  });
+})();
+</script>
+</body>
+</html>

@@ -88,6 +88,16 @@ PINS = [
      '[[["a-Q8.gguf"],2,32],[["bartowski/gemma-4-12B-it-GGUF"],[]],[[],0,0],3,0,false,7]',
      "выбор: через репозитории; снятое уходит, репозиторий без файлов — из выбора; удаление чужого — ничего и без перерисовки; размер строкой суммируется числом; очистка сворачивает план"),
 
+    ("unpick_where_quietly", "",
+     r"""(() => { dl.toggle(A, [F("a-Q4.gguf", "Q4_K_M", 7 * GIB), F("a-Q8.gguf", "Q8_0", 12 * GIB)], true); dl.toggle(B, [F("b-Q4.gguf", "Q4_K_M", 20 * GIB)], true);
+        const base = changes; const none = dl.unpickWhere(A, (f) => f.name === "nothing.gguf"); const unknown = dl.unpickWhere("nobody/none", () => true);
+        const one = dl.unpickWhere(A, (f) => f.quant === "Q4_K_M"); const afterOne = [dl.picks(A), dl.picks(B)];
+        const rest = dl.unpickWhere(A, () => true); const emptied = [[...dl.selection.keys()], dl.count()];
+        return [none, unknown, one, afterOne, rest, emptied, changes - base]; })()""",
+     '[false,false,true,[["a-Q8.gguf"],["b-Q4.gguf"]],true,[["unsloth/Qwen3.6-35B-A3B-GGUF"],1],0]',
+     "выбор очищается по условию: ничего не подошло или репозитория нет — false; подошедшее уходит, остальное и чужие репозитории остаются; репозиторий без файлов уходит из выбора; "
+     "страница не оповещена (перерисовывает сама): onChange не вызывался"),
+
     ("plan_groups_and_overwrite", "",
      r"""(() => { dl.toggle(A, [F("a-Q4-00001-of-00002.gguf", "Q4_K_M", GIB), F("a-Q4-00002-of-00002.gguf", "Q4_K_M", GIB), F("mmproj-a.gguf", "", 100 * MIB)], true);
         dl.toggle(B, [F("b-Q8.gguf", "Q8_0", 2 * GIB)], true);
@@ -383,6 +393,22 @@ PINS = [
      '[["j1","j2","j3"],["j1","j3"]]',
      "✕ убирает только строку ошибки; идущее и готовое не трогает"),
 
+    ("discard_deletes_after_the_window", "",
+     r"""await (async () => { const rowA = { destDir: "gemma/bartowski/Q4_K_M", current_file: "a.gguf", total_bytes_done: GIB };
+        const rowB = { destDir: "other/x/Q8_0", current_file: "b.gguf" }; dl.interrupted = [rowA, rowB];
+        answers = [false]; await dl.discard(rowA.destDir, "a.gguf"); const declined = [posts.length, dl.interrupted.length, [...asked]];
+        const ask = () => { answers = [true]; return dl.discard(rowA.destDir, "a.gguf"); };
+        replies["/api/hf/download/discard"] = { ok: false, error: "a running download is writing this file" }; await ask(); const refused = [dl.interrupted.length, toasts.at(-1)];
+        replies["/api/hf/download/discard"] = new Error("offline"); await ask(); const down = [dl.interrupted.length, toasts.at(-1)];
+        const before = changes; replies["/api/hf/download/discard"] = { ok: true, freed: 5 }; await ask();
+        const done = [dl.interrupted.map((r) => r.current_file), changes - before, posts.at(-1)];
+        const asks = asked.length, sent = posts.length; await dl.discard("nowhere", "c.gguf");
+        return [declined, refused, down, done, [asked.length - asks, posts.length - sent]]; })()""",
+     '[[0,2,[["Delete the unfinished file?","a.gguf: 1.0 GB will be deleted. Downloading it again starts from zero.","Delete",true]]],'
+     '[2,"Failed to delete: a running download is writing this file"],[2,"Failed to delete: offline"],[["b.gguf"],1,["/api/hf/download/discard",{"destDir":"gemma/bartowski/Q4_K_M","name":"a.gguf"}]],[0,0]]',
+     "удалить недокачанное — только после окна, которое говорит, сколько уйдёт; ответ «да» уходит с папкой и именем, строка пропадает; "
+     "negative: «нет» — ничего не шлёт; отказ и сбой — тост, строка остаётся; строки нет — ни окна, ни запроса"),
+
     ("resume_turns_a_partial_into_a_job", "",
      r"""await (async () => { const rowA = { destDir: "gemma/bartowski/Q4_K_M", current_file: "a.gguf", repo: A, title: "t", resumable: true };
         const rowB = { destDir: "other/x/Q8_0", current_file: "b.gguf", repo: "", title: "Title B", resumable: true };
@@ -469,11 +495,12 @@ PINS = [
           r4.includes(">Done — files: 5<") && !r4.includes("<button"), r5.includes(">Cancelling…<") && r5.includes("width:100%") && !r5.includes("<button"),
           p1.includes('<div class="hfp-job-title">a/m · m-Q4.gguf</div>') && p1.includes('<span class="hfp-bar is-stalled"><i style="width:25%"></i></span>') && p1.includes('<div class="hfp-job-label hfp-warn">Interrupted — 1.0 GB / 4.0 GB downloaded</div>'),
           p1.includes('data-act="resume" data-dest="m/a/Q4_K_M" data-name="m-Q4.gguf" data-t="hf-download-resume" data-t-id="m-Q4.gguf">Resume</button>'),
-          p2.includes(">Interrupted — 300 MB on disk, source unknown<"), p2.includes("hf-download-resume"), dl.jobsButtonHtml(), dl.visible()]; })()""",
+          p2.includes(">Interrupted — 300 MB on disk, source unknown<"), p2.includes("hf-download-resume"), dl.jobsButtonHtml(), dl.visible(),
+          [p1, p2].map((p) => p.includes('data-act="discard" data-dest="') && p.includes('data-t="hf-download-discard"') && p.includes(">Delete</button>"))]; })()""",
      '[["<button type=\\"button\\" class=\\"hfp-btn is-warn\\" data-act=\\"jobs\\" data-t=\\"hf-downloads-toggle\\" aria-expanded=\\"false\\">⬇ Downloads · 2 interrupted ▾</button>",false],'
      '"<button type=\\"button\\" class=\\"hfp-btn is-warn\\" data-act=\\"jobs\\" data-t=\\"hf-downloads-toggle\\" aria-expanded=\\"true\\">⬇ Downloads · 3 running · 63% · 2 interrupted ▴</button>",'
      'true,true,true,true,true,false,true,true,true,true,true,false,'
-     '"<button type=\\"button\\" class=\\"hfp-btn\\" data-act=\\"jobs\\" data-t=\\"hf-downloads-toggle\\" aria-expanded=\\"true\\">⬇ Downloads · 3 running · 63% ▴</button>",true]',
+     '"<button type=\\"button\\" class=\\"hfp-btn\\" data-act=\\"jobs\\" data-t=\\"hf-downloads-toggle\\" aria-expanded=\\"true\\">⬇ Downloads · 3 running · 63% ▴</button>",true,[true,true]]',
      "задания: кнопка — сколько идёт и средний %, прерванные, янтарная при прерванных или ошибке; только прерванные — список закрыт; строки: «Отмена» у идущих (id или uid), ✕ у ошибки, пусто у готового и отменяемого; полоса не шире 100%; прерванные — «Продолжить» только при манифесте"),
 ]
 

@@ -1,0 +1,359 @@
+{
+ "lines": [
+  {
+   "name": "PersonaPlex: a library folder",
+   "runner": "personaplex",
+   "config": {
+    "MODEL_FILE": "personaplex-7b-v1/nvidia/SAFETENSORS"
+   },
+   "line": "bash $HOME/run_personaplex.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/personaplex-7b-v1/nvidia/SAFETENSORS"
+  },
+  {
+   "name": "LFM2.5-Audio: a library folder",
+   "runner": "lfm-audio",
+   "config": {
+    "MODEL_FILE": "LFM2.5-Audio-1.5B/LiquidAI/SAFETENSORS"
+   },
+   "line": "bash $HOME/run_lfm_audio.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/LFM2.5-Audio-1.5B/LiquidAI/SAFETENSORS"
+  },
+  {
+   "name": "Step-Audio 2: the recipe comes before the folder",
+   "runner": "step-audio2",
+   "config": {
+    "MODEL_FILE": "Step-Audio-2-mini/stepfun-ai/SAFETENSORS"
+   },
+   "line": "bash $HOME/run_vllm_omni.sh \"$PORT\" step-audio2 \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Step-Audio-2-mini/stepfun-ai/SAFETENSORS"
+  },
+  {
+   "name": "Qwen3-Omni: the same launcher, its own recipe",
+   "runner": "qwen3-omni",
+   "config": {
+    "MODEL_FILE": "Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit/cyankiwi/AWQ"
+   },
+   "line": "bash $HOME/run_vllm_omni.sh \"$PORT\" qwen3-omni \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit/cyankiwi/AWQ"
+  },
+  {
+   "name": "Qwen3-TTS: the same launcher, a third recipe",
+   "runner": "qwen3-tts",
+   "config": {
+    "MODEL_FILE": "Qwen3-TTS-12Hz-1.7B-Base/Qwen/BF16"
+   },
+   "line": "bash $HOME/run_vllm_omni.sh \"$PORT\" qwen3-tts \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Qwen3-TTS-12Hz-1.7B-Base/Qwen/BF16"
+  },
+  {
+   "name": "llama.cpp-omni: the model is picked by one file and launched by its folder",
+   "runner": "minicpm-omni",
+   "config": {
+    "MODEL_FILE": "MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf"
+   },
+   "line": "bash $HOME/run_minicpm_omni.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/MiniCPM-o-4_5-gguf/openbmb"
+  },
+  {
+   "name": "llama.cpp-omni: any other file of the model gives the same folder",
+   "runner": "minicpm-omni",
+   "config": {
+    "MODEL_FILE": "MiniCPM-o-4_5-gguf/openbmb/default/hifigan2.gguf"
+   },
+   "line": "bash $HOME/run_minicpm_omni.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/MiniCPM-o-4_5-gguf/openbmb"
+  },
+  {
+   "name": "an absolute folder: no root, no trailing slash",
+   "runner": "personaplex",
+   "config": {
+    "MODEL_FILE": "/srv/models/p/"
+   },
+   "line": "bash $HOME/run_personaplex.sh \"$PORT\" /srv/models/p"
+  },
+  {
+   "name": "an absolute folder with a space is quoted, not split",
+   "runner": "lfm-audio",
+   "config": {
+    "MODEL_FILE": "/srv/my models/l"
+   },
+   "line": "bash $HOME/run_lfm_audio.sh \"$PORT\" '/srv/my models/l'"
+  },
+  {
+   "name": "a relative folder with a quote in it is quoted",
+   "runner": "step-audio2",
+   "config": {
+    "MODEL_FILE": "a'b/c/d"
+   },
+   "line": "bash $HOME/run_vllm_omni.sh \"$PORT\" step-audio2 \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/'a'\"'\"'b/c/d'"
+  },
+  {
+   "name": "llama.cpp-omni: an absolute file",
+   "runner": "minicpm-omni",
+   "config": {
+    "MODEL_FILE": "/srv/m/MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf"
+   },
+   "line": "bash $HOME/run_minicpm_omni.sh \"$PORT\" /srv/m/MiniCPM-o-4_5-gguf/openbmb"
+  },
+  {
+   "name": "no engine named: the launcher's default, XTTS-v2",
+   "runner": "voice-clone",
+   "config": {},
+   "line": "bash $HOME/run_tts.sh \"$PORT\" xtts"
+  },
+  {
+   "name": "an empty engine is no engine",
+   "runner": "voice-clone",
+   "config": {
+    "TTS_ENGINE": "  "
+   },
+   "line": "bash $HOME/run_tts.sh \"$PORT\" xtts"
+  },
+  {
+   "name": "XTTS-v2",
+   "runner": "voice-clone",
+   "config": {
+    "TTS_ENGINE": "xtts"
+   },
+   "line": "bash $HOME/run_tts.sh \"$PORT\" xtts"
+  },
+  {
+   "name": "CosyVoice2, in any case",
+   "runner": "voice-clone",
+   "config": {
+    "TTS_ENGINE": "CosyVoice"
+   },
+   "line": "bash $HOME/run_tts.sh \"$PORT\" cosyvoice"
+  },
+  {
+   "name": "F5-TTS, spaces around it",
+   "runner": "voice-clone",
+   "config": {
+    "TTS_ENGINE": " f5 "
+   },
+   "line": "bash $HOME/run_tts.sh \"$PORT\" f5"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16",
+    "ALIAS": "gr00t-n1.7-3b"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name gr00t-n1.7-3b"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "Q/I/IQ2_XS/mtp-q2_0.gguf",
+    "ALIAS": "qwen3.8-flash-next-gsq-rco-iq2_xs"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --mtp \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/mtp-q2_0.gguf --kv int8 --draft-vocab cyrillic --name qwen3.8-flash-next-gsq-rco-iq2_xs"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.6-3B/nvidia/BF16",
+    "ALIAS": "gr00t-n1.6-3b"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.6-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name gr00t-n1.6-3b"
+  },
+  {
+   "runner": "seamless",
+   "config": {
+    "MODEL_FILE": "seamless-m4t-medium/facebook/BF16"
+   },
+   "line": "bash $HOME/run_seamless.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/seamless-m4t-medium/facebook/BF16 rus"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/J/Q4_0/Qwen3.8-Flash-Next-Q4_0-00001-of-00002.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "Q/J/Q4_0/mtp-q2_0.gguf",
+    "ALIAS": "qwen3.8-flash-next-q4_0"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/J/Q4_0/Qwen3.8-Flash-Next-Q4_0-00001-of-00002.gguf --mtp \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/J/Q4_0/mtp-q2_0.gguf --kv int8 --draft-vocab cyrillic --name qwen3.8-flash-next-q4_0"
+  },
+  {
+   "runner": "transcribe",
+   "config": {
+    "MODEL_FILE": "stt/gigaam-v3.gguf"
+   },
+   "line": "bash $HOME/run_transcribe.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/stt/gigaam-v3.gguf"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16",
+    "ALIAS": "gr00t-n1.7-3b",
+    "MODEL_NAME": "my-robot"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name my-robot"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "Q/I/IQ2_XS/mtp-q2_0.gguf",
+    "ALIAS": "qwen3.8-flash-next-gsq-rco-iq2_xs",
+    "MODEL_NAME": "my-strata"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --mtp \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/mtp-q2_0.gguf --kv int8 --draft-vocab cyrillic --name my-strata"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16",
+    "ALIAS": "robot-saved"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name robot-saved"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16",
+    "ALIAS": "gr00t-n1.7-3b",
+    "MODEL_NAME": "gr00t-n1.7-droid"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name gr00t-n1.7-droid"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16",
+    "ALIAS": "my-robot"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name my-robot"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "Q/I/IQ2_XS/mtp-q2_0.gguf",
+    "ALIAS": "my-strata"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --mtp \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/mtp-q2_0.gguf --kv int8 --draft-vocab cyrillic --name my-strata"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "Q/J/Q4_0/mtp-q2_0.gguf",
+    "ALIAS": "qwen3.8-flash-next-gsq-rco-iq2_xs"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --mtp \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/J/Q4_0/mtp-q2_0.gguf --kv int8 --draft-vocab cyrillic --name qwen3.8-flash-next-gsq-rco-iq2_xs"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16",
+    "ALIAS": "gr00t-n1.7-3b",
+    "MODEL_NAME": "my-named"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT --name my-named"
+  },
+  {
+   "runner": "seamless",
+   "config": {
+    "MODEL_FILE": "seamless-m4t-v2-large/facebook/BF16",
+    "SEAMLESS_TGT_LANG": "eng"
+   },
+   "line": "bash $HOME/run_seamless.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/seamless-m4t-v2-large/facebook/BF16 eng"
+  },
+  {
+   "runner": "translate",
+   "config": {
+    "TRANSLATE_MODEL": "facebook/nllb-200-distilled-1.3B",
+    "TRANSLATE_SRC_LANG": "fra_Latn",
+    "TRANSLATE_TGT_LANG": "deu_Latn"
+   },
+   "line": "env HUGGINGFACE_HUB_CACHE=\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\" bash $HOME/run_translate.sh \"$PORT\" facebook/nllb-200-distilled-1.3B fra_Latn deu_Latn"
+  },
+  {
+   "runner": "moonshine",
+   "config": {
+    "MOONSHINE_MODEL": "es"
+   },
+   "line": "bash $HOME/run_moonshine.sh \"$PORT\" es"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "Q/I/IQ2_XS/mtp-q2_0.gguf",
+    "STRATA_CONTEXT": "65536",
+    "STRATA_KV": "k8v4",
+    "STRATA_DRAFT_VOCAB": "en",
+    "STRATA_VRAM_RESERVE_MIB": "2048",
+    "MODEL_NAME": "qwen3.8-flash-next"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --mtp \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/mtp-q2_0.gguf --context 65536 --kv k8v4 --draft-vocab en --vram-reserve-mib 2048 --name qwen3.8-flash-next"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --kv int8 --draft-vocab cyrillic"
+  },
+  {
+   "runner": "strata",
+   "config": {
+    "MODEL_FILE": "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf"
+   },
+   "trained": 262144,
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf --context 262144 --kv int8 --draft-vocab cyrillic"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16/",
+    "GR00T_BACKBONE": "/srv/models/Cosmos-Reason2-2B/nvidia/BF16",
+    "GR00T_EMBODIMENT": "XDOF",
+    "GR00T_DENOISING_STEPS": "8",
+    "MODEL_NAME": "gr00t-n1.7"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone /srv/models/Cosmos-Reason2-2B/nvidia/BF16 --embodiment XDOF --denoising-steps 8 --name gr00t-n1.7"
+  },
+  {
+   "runner": "gr00t",
+   "config": {
+    "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16"
+   },
+   "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
+  }
+ ],
+ "refusals": [
+  {
+   "name": "no model",
+   "runner": "personaplex",
+   "config": {},
+   "refusal": "MODEL_FILE is required for a PersonaPlex cell"
+  },
+  {
+   "name": "no model, whitespace only",
+   "runner": "step-audio2",
+   "config": {
+    "MODEL_FILE": "   "
+   },
+   "refusal": "MODEL_FILE is required for a Step-Audio 2 cell"
+  },
+  {
+   "name": "llama.cpp-omni: a file with no model folder above it",
+   "runner": "minicpm-omni",
+   "config": {
+    "MODEL_FILE": "model.gguf"
+   },
+   "refusal": "must be a file of a library model laid out as <model>/<author>/<variant>/<file>"
+  },
+  {
+   "name": "llama.cpp-omni: a file one folder deep",
+   "runner": "minicpm-omni",
+   "config": {
+    "MODEL_FILE": "m/model.gguf"
+   },
+   "refusal": "must be a file of a library model laid out as <model>/<author>/<variant>/<file>"
+  },
+  {
+   "name": "llama.cpp-omni: an absolute file with nothing above it",
+   "runner": "minicpm-omni",
+   "config": {
+    "MODEL_FILE": "/model.gguf"
+   },
+   "refusal": "must be a file of a library model laid out as <model>/<author>/<variant>/<file>"
+  }
+ ]
+}

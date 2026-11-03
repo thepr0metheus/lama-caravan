@@ -1,54 +1,32 @@
 #!/usr/bin/env python3
 """The models directory is derived in one place.
 
-paths.py names the default (LLAMA_MODELS_DIR, else LLAMA_HOME/models, else the data
-volume's models/ in a container) and models_dir_from_config puts the saved config over
-it. A module that builds `LLAMA_HOME / "models"` itself holds a SECOND opinion about
-where the models are — the same place only while the config agrees with it. Two
-functions did: in a container GET /api/models listed nothing and GET /api/models/download
-answered 404 for every file the picker had just offered.
+paths.rs names the default (LLAMA_MODELS_DIR, else LLAMA_HOME/models, else the data volume's models/ in a container) and `App::models_dir_of` puts the saved config over it.
+A module that builds it from LLAMA_HOME itself holds a SECOND opinion about where the models are — the same place only while the config agrees with it. Two functions did:
+in a container GET /api/models listed nothing and GET /api/models/download answered 404 for every file the picker had just offered.
 """
-import ast
-from pathlib import Path
+import re
 import sys
+from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _rust_source import RustSource  # noqa: E402
 
 
 class ModelsDirSourceGuard:
-    OWNER = "caravan/admin/paths.py"
-
-    @staticmethod
-    def _is_home(node):
-        return "LLAMA_HOME" in ast.unparse(node)
-
-    @staticmethod
-    def _is_models(node):
-        return isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.strip("/") == "models"
-
-    def derives(self, node):
-        """Whether the node builds the models directory out of LLAMA_HOME: `LLAMA_HOME / "models"`,
-        `os.path.join(LLAMA_HOME, "models")`, or `f"{LLAMA_HOME}/models"`."""
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            return self._is_home(node.left) and self._is_models(node.right)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join":
-            return len(node.args) >= 2 and any(self._is_home(a) for a in node.args[:-1]) and self._is_models(node.args[-1])
-        if isinstance(node, ast.JoinedStr):
-            return self._is_home(node) and any(self._is_models(v) or (isinstance(v, ast.Constant) and "/models" in str(v.value))
-                                               for v in node.values)
-        return False
+    OWNER = "rust/crates/admin/src/paths.rs"
+    DERIVES = re.compile(r'llama_home[^;]*join\("models"\)|llama_home[^;]*/models')
 
     def check(self):
-        found = []
-        for path in sorted((ROOT / "caravan").rglob("*.py")):
-            rel = path.relative_to(ROOT).as_posix()
+        seen, found = False, []
+        for rel, lines in RustSource.files("admin/src"):
+            hits = [number for number, line in enumerate(lines, 1) if self.DERIVES.search(line)]
             if rel == self.OWNER:
-                continue
-            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if self.derives(node):
-                    found.append(f"{rel}:{node.lineno}")
-        return [f"the models directory is derived in {self.OWNER} and models_dir_from_config only; "
-                f"{', '.join(found)} builds it from LLAMA_HOME itself"] if found else []
+                seen = bool(hits)
+            else:
+                found += [f"{rel}:{number}" for number in hits]
+        errors = [f"the models directory is derived in {self.OWNER} and `models_dir_of` only; {', '.join(found)} builds it from llama_home itself"] if found else []
+        return errors + ([] if seen else [f"{self.OWNER} no longer derives it: this guard is looking at nothing"])
 
 
 if __name__ == "__main__":

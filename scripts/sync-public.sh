@@ -26,6 +26,8 @@ PRIV="${CARAVAN_PRIVATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 # (Project/caravan/lama-caravan/lama-caravan-github since 2026-10-04): found from
 # here, so a move of the folder does not leave the script pointing at the old place.
 PUB="${CARAVAN_PUBLIC:-$(cd "$PRIV/.." && pwd)/lama-caravan-github}"
+# Or under the folder above it, by the project's own name.
+[[ -n "${CARAVAN_PUBLIC:-}" || -d "$PUB/.git" ]] || PUB="$(cd "$PRIV/../.." && pwd)/lama-caravan"
 PUBLIC_REMOTE="${CARAVAN_PUBLIC_REMOTE:-git@github.com:thepr0metheus/lama-caravan.git}"
 IDENT_NAME="thepr0metheus"
 IDENT_MAIL="thepr0metheus@users.noreply.github.com"
@@ -51,10 +53,12 @@ DRY=0
 # private on 2026-09-05; the public reference for modules is docs/frontend.md.
 # docs/scout-split.md and docs/foreign-engines.md are working plans of the
 # same kind (2026-09-24, 2026-09-25).
+# docs/rust-rewrite.md and docs/tests-that-left.md are the working journals of the
+# move to Rust, of the same kind (2026-11-02); the public reference is docs/rust-code.md.
 # docs/business-requirements-caravan-scout.md is a draft for the owner to agree,
 # meant for the home wiki, not for the public project (2026-10-05). It ships
 # only when the owner says so.
-EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|docs/business-requirements-caravan-scout\.md|scripts/refactor/|tests/golden/|deploy/nas/)'
+EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|docs/business-requirements-caravan-scout\.md|docs/rust-rewrite\.md|docs/tests-that-left\.md|scripts/refactor/|tests/golden/|deploy/nas/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private
@@ -157,7 +161,7 @@ head1 "гварды и тесты на публичном дереве"
 ( cd "$PUB"
   python3 -m py_compile $(git ls-files '*.py') && echo "  py_compile ✓"
   for g in check_messages_i18n check_i18n_calls check_tour_i18n check_boot_guard \
-           check_field_homes check_runner_model_fields check_command_mirrors check_installer_assets check_cell_python_floor check_cell_self_capture check_cell_card_keys check_proxy_id_namespace \
+           check_field_homes check_runner_model_fields check_command_mirrors check_installer_assets check_cell_python_floor check_cell_self_capture check_proxy_id_namespace \
            check_cell_health_contract; do
       printf '  %-30s ' "$g"
       [[ -f "scripts/$g.py" ]] || { echo "✗ такого файла нет — список в sync-public.sh устарел"; exit 1; }
@@ -167,7 +171,7 @@ head1 "гварды и тесты на публичном дереве"
   python3 scripts/testability_names.py --check >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
   # A listed file that is gone is said as such: a bare ✗ read as a failing
   # test when test_slot_artifacts had left with its code (step 6.9).
-  for t in test_guards_fail test_cell_servers test_settings_bundle test_download_retry test_client_records test_queue_thresholds test_admin_store test_topology_store test_proxy_store test_auth_store test_cloud_store test_scout_errors test_query_flags; do
+  for t in test_guards_fail test_cell_servers; do
       printf '  %-30s ' "$t"
       [[ -f "scripts/$t.py" ]] || { echo "✗ такого файла нет — список в sync-public.sh устарел"; exit 1; }
       python3 "scripts/$t.py" >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
@@ -198,8 +202,8 @@ MSG="$(mktemp)"; trap 'rm -f "$LIST" "$SCAN" "$MSG"' EXIT
 # Russian ("rewrite before pushing") was left unrewritten in 27 commits and 19
 # tags on GitHub (2026-09-21…25); private subjects — merge requests are titled
 # in Russian — never go out either.
-VERSION_NOW="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$PRIV/caravan/__init__.py")"
-[[ -n "$VERSION_NOW" ]] || die "версия не прочитана из caravan/__init__.py"
+VERSION_NOW="$(sed -n 's/^pub const VERSION: &str = "\(.*\)";$/\1/p' "$PRIV/rust/crates/admin/src/lib.rs")"
+[[ -n "$VERSION_NOW" ]] || die "версия не прочитана из rust/crates/admin/src/lib.rs"
 echo "Sync from private: $VERSION_NOW" > "$MSG"
 python3 -c 'import re, sys; sys.exit(1 if re.search("[\u0400-\u04ff]", open(sys.argv[1], encoding="utf-8").read()) else 0)' "$MSG" \
     || die "в сообщении коммита кириллица — в паблик уходит только английский текст"

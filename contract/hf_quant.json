@@ -1,0 +1,153 @@
+{
+ "why": "the quant read off a file's name: HubMemory::quant_of labels every file of /api/hf/files and names the folder a download lands in, HfQuant.fromName reads the quant off a companion file's name. \"-00003-of-00006\" is no part of a quant: until 1.3.565 every Q… quant read it in, and each part of a split model was a row of its own on /hf and a folder of its own on disk.",
+ "cases": [
+  {
+   "name": "Model-Q4_K_M.gguf",
+   "quant": "Q4_K_M"
+  },
+  {
+   "name": "m-Q8_0.gguf",
+   "quant": "Q8_0"
+  },
+  {
+   "name": "m-UD-Q4_K_XL.gguf",
+   "quant": "Q4_K_XL"
+  },
+  {
+   "name": "m-IQ4_XS.gguf",
+   "quant": "IQ4_XS"
+  },
+  {
+   "name": "m-BF16.gguf",
+   "quant": "BF16"
+  },
+  {
+   "name": "m-f16.gguf",
+   "quant": "F16"
+  },
+  {
+   "name": "x-nvfp4.gguf",
+   "quant": "NVFP4"
+  },
+  {
+   "name": "m-MXFP4.gguf",
+   "quant": "MXFP4"
+  },
+  {
+   "name": "m-PQ2_0.gguf",
+   "quant": "PQ2_0"
+  },
+  {
+   "name": "m-PTQ1_0.gguf",
+   "quant": "PTQ1_0"
+  },
+  {
+   "name": "mmproj-BF16.gguf",
+   "quant": "BF16"
+  },
+  {
+   "name": "mtp-gemma-4-12B-it-Q8_0.gguf",
+   "quant": "Q8_0"
+  },
+  {
+   "name": "mtp-q2_0.gguf",
+   "quant": "Q2_0"
+  },
+  {
+   "name": "m-imatrix.gguf",
+   "quant": ""
+  },
+  {
+   "name": "mtp-gemma-4-31B-it.gguf",
+   "quant": ""
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-Q8_0-00001-of-00006.gguf",
+   "quant": "Q8_0"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-Q8_0-00003-of-00006.gguf",
+   "quant": "Q8_0"
+  },
+  {
+   "name": "Model-Q4_K_M-00001-of-00002.gguf",
+   "quant": "Q4_K_M"
+  },
+  {
+   "name": "Model-Q4_K_M-00002-of-00002.gguf",
+   "quant": "Q4_K_M"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00003.gguf",
+   "quant": "Q4_K_XL"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
+   "quant": "IQ4_XS"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-BF16-00001-of-00008.gguf",
+   "quant": "BF16"
+  },
+  {
+   "name": "m-Q6_K-00002-of-00005.gguf",
+   "quant": "Q6_K"
+  },
+  {
+   "name": "m-Q2_K_XL-00001-of-00002.gguf",
+   "quant": "Q2_K_XL"
+  },
+  {
+   "name": "m-Q5_K_S-00001-of-00002.GGUF",
+   "quant": "Q5_K_S"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
+   "quant": "Q2_0"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf",
+   "quant": "Q2_0"
+  },
+  {
+   "name": "Swift-Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
+   "quant": "Q2_0"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf",
+   "quant": "Q4_K_XL"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-UD-Q4_K_XL-00004-of-00004.gguf",
+   "quant": "Q4_K_XL"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf",
+   "quant": "IQ3_S"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00002-of-00002.gguf",
+   "quant": "IQ2_XS"
+  },
+  {
+   "name": "Qwen3.8-Flash-Next-GSQ-RCO-IQ1_M-00001-of-00002.gguf",
+   "quant": "IQ1_M"
+  },
+  {
+   "name": "mtp-Qwen3.8-Flash-Next-Q4_K_M.gguf",
+   "quant": "Q4_K_M"
+  },
+  {
+   "name": "mmproj-Qwen3.8-Flash-Next-BF16.gguf",
+   "quant": "BF16"
+  },
+  {
+   "name": "imatrix-swiftfn-v1mix.gguf",
+   "quant": ""
+  },
+  {
+   "name": "m-00001-of-00002.gguf",
+   "quant": ""
+  }
+ ]
+}

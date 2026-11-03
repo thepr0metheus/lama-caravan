@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("canvas,polling,topology-dnd,topology-render,topology-modals,topology-nodes,charts,cables,cloud,history,"
          "dialogs,favorites,config-locator,system-panels,onboarding,usage-stats,dialog-llamas,"
@@ -67,7 +67,7 @@ const ROUTER = (extra = {}) => ({ id: "router:default", name: "default", inputs:
   { id: "srv:22001", label: "Qwen3-Embedding-0.6B-f16.gguf ", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama", providerId: "" },
   { id: "cb:terra", label: "☁ gpt-5.6-terra", upstreamHost: "", upstreamPort: 0, upstreamType: "cloud", providerId: "gpt-5-6-terra" },
 ], rules: { default: "cb:terra", schedule: [], bySource: [] }, graph: { nodes: [], edges: [], inputs: {} }, ...extra });
-// A pool is one output, cb:<pool id> (caravan/admin/proxies_config.py, pool_output).
+// A pool is one output, cb:<pool id> (rust/crates/admin/src/proxies/config.rs, pool_output).
 const STEP = (id, accountId, model, extra = {}) => ({ id, accountId, model, enabled: true, switchAt: {}, ...extra });
 const CLOUD = (pool = {}) => ({ cloudAccounts: [{ id: "openai-subscription", type: "openai", name: "OpenAI (ChatGPT Plus)" }, { id: "or", type: "openrouter", name: "OpenRouter" }],
   pools: [{ id: "gpt-5-6-terra", name: "Terra", ports: [], steps: [STEP("s1", "openai-subscription", "gpt-5.6-terra"), STEP("s2", "or", "vendor/terra")], ...pool }] });
@@ -278,38 +278,52 @@ PINS = [
     # ── Routing's card on the main board (2026-10-12: the pools stand in Routing) ──
     ("card_counts_the_clients_and_the_pools",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ inputs: ["a", "b", "c"] })], proxies: ['
-     ' { id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }, { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", set: "", pool: "terra" },'
-     ' { id: "ctl:proxy:23003", port: 23003, kind: "consumer", label: "Zed", set: "cheap" },'
+     ' { id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", deny: [] }, { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", deny: ["pool:terra"] },'
+     ' { id: "ctl:proxy:23003", port: 23003, kind: "consumer", label: "Zed", deny: [] },'
      ' { id: "ctl:proxy:23050", port: 23050, label: "old agent" }] });',
-     '(h => [h.includes(`${en.topologyClientsSection} 2/3 · ${en.topologyLlamaServersSection} ${st.topology.pools.length}`),'
+     '(h => [h.includes(`${en.topologyClientsSection} 3 · ${en.topologyLlamaServersSection} ${st.topology.pools.length}`),'
      ' st.topology.pools.some((p) => h.includes(`data-t-id="${p.id}"`) || h.includes(String(p.name || p.id))), ["router-pool-name", "board-routing-pool", "router-outputs"].some((x) => h.includes(x)),'
-     ' h.includes(\'data-t="board-routing-card"\'), h.includes(`title="${en.rtTitleOpenRouting}"`), h.includes("data-topology-router-input"), h.includes("data-topology-router-output"), h.includes(" out ")])'
+     ' h.includes(\'data-t="board-routing-card"\'), h.includes(`title="${en.rtTitleOpenRouting}"`), h.includes("data-topology-router-input"), h.includes("data-topology-router-output"), h.includes(" out "),'
+     ' h.includes("/3")])'
      '(m.renderTopologyRouterCard(st.topology.routers[0]))',
-     '[true,false,false,true,true,true,true,false]',
-     "карточка Маршрутизации маленькая (владелец, 2026-10-13: «без перечисления всего внутри»): имя и две цифры — клиенты с набором из всех клиентов и число пулов; "
-     "щелчок открывает Маршрутизацию; вход для канатов клиентов и выход к машинам и провайдерам, которых ведут пулы (владелец, 2026-10-12); "
-     "negative: имён пулов на ней нет, ни чипов, ни списка; счётчиков графа (in · out) нет; старое поле pool клиента не считается (1.3.497)"),
+     '[true,false,false,true,true,true,true,false,false]',
+     "карточка Маршрутизации маленькая (владелец, 2026-10-13: «без перечисления всего внутри»): имя и две цифры — сколько клиентов (каждый идёт в "
+     "Маршрутизацию с 1.3.675: видит все пулы и модели, и тот, кому что-то запрещено) и сколько пулов; щелчок открывает Маршрутизацию; вход для канатов "
+     "клиентов и выход к машинам и провайдерам, которых ведут пулы (владелец, 2026-10-12); negative: имён пулов на ней нет, ни чипов, ни списка; "
+     "счётчиков графа (in · out) нет; агент старого вида — не клиент входа; дроби «с канатом из всех» больше нет — все с канатом"),
+    ("card_counts_the_builtin_client",
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: ['
+     ' { id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", deny: [] },'
+     ' { id: "ctl:proxy:23005", port: 23005, kind: "consumer", label: "Open WebUI", builtin: "open-webui", deny: [] },'
+     ' { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", deny: [] },'
+     ' { id: "ctl:proxy:23003", port: 23003, kind: "consumer", label: "openwebui", deny: [] }] });',
+     '(h => [h.includes(`${en.topologyClientsSection} 4 ·`), h.includes(`${en.topologyClientsSection} 2 ·`)])(m.renderTopologyRouterCard(st.topology.routers[0]))',
+     '[true,false]',
+     "встроенный Open WebUI считается, как любой клиент (живая доска 2026-10-27 писала «5/6» при всех шести с канатами — так было, пока счёт шёл по наборам); "
+     "negative: счёт не по наборам и не по полю builtin"),
     ("card_without_pools_says_zero",
      'st.setTopology({ ...st.topology, pools: [], routers: [ROUTER()] });',
      '(h => [h.includes(`${en.topologyLlamaServersSection} 0`), h.includes("router-output-row"), h.includes(en.rtNoPools), h.includes("router-pool-name")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[true,false,false,false]',
      "пулов нет — карточка так и говорит цифрой «0»; negative: ни строки «пулов нет», ни имён, ни пустого списка"),
     ("card_lights_with_a_client",
-     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" },'
-     ' { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", set: "" }] });'
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", deny: [] },'
+     ' { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", deny: ["pool:terra"] }, { id: "ctl:proxy:23050", port: 23050, label: "old agent" }] });'
      ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23001 }] });',
      '(() => { const lit = m.renderTopologyRouterCard(st.topology.routers[0]).includes("activity-active");'
-     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23002 }] }, 23002);'
-     ' return [lit, m.renderTopologyRouterCard(st.topology.routers[0]).includes("activity-active")]; })()',
-     '[true,false]',
-     "карточка горит, пока идёт запрос клиента с набором; negative: запрос клиента без набора её не зажигает — к ней его канат не ведёт"),
+     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23002 }] }, 23002); const bot = m.renderTopologyRouterCard(st.topology.routers[0]).includes("activity-active");'
+     ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23050 }] }, 23050);'
+     ' return [lit, bot, m.renderTopologyRouterCard(st.topology.routers[0]).includes("activity-active")]; })()',
+     '[true,true,false]',
+     "карточка горит, пока идёт запрос любого клиента входа (1.3.675: канат к ней у каждого, и у того, кому что-то запрещено); "
+     "negative: запрос агента старого вида, которого нет во входах Маршрутизации, её не зажигает"),
     ("card_is_red_while_a_clients_failure_is_in_the_window",
-     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999501, durationMs: 1000 }] });',
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", deny: [] }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999501, durationMs: 1000 }] });',
      '(h => [h.includes("activity-error"), h.includes("health-failed")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[true,true]',
      "карточка Маршрутизации красная, пока отказ клиента с набором (599 с назад) в окне монитора"),
     ("card_is_calm_after_the_alarm_is_over",
-     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", set: "main" }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999499, durationMs: 1000 }] });',
+     'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()], proxies: [{ id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", deny: [] }] }); st.ui.latestSystemMonitor = MON({ recent: [{ status: "500", startedAt: 1699999000, finishedAt: 1699999499, durationMs: 1000 }] });',
      '(h => [h.includes("activity-error"), h.includes("health-failed"), h.includes("activity-recent health-ok")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
      '[false,false,true]',
      "тот же отказ 601 с назад — карточка Маршрутизации не красная: activity-recent health-ok, как после любого старого запроса"),
@@ -514,11 +528,11 @@ PINS += [
      '["left:368px;top:372px","left:509px;top:359px"]',
      "узел правила стоит на месте с сервера; только бросок, чьё сохранение ещё не пришло, показан на месте броска, "
      "чтобы перерисовка в пути не дёрнула узел назад; третьего места нет"),
-    # 2026-10-12: a client of the entry feeds no router — its one cable leads to a set of models — so the
+    # 2026-10-12: a client of the entry feeds no router — it calls the pools and the models by their names — so the
     # Routing's list of ports that could feed it never names one.
     ("routing_lists_no_client_of_the_entry",
      'st.setTopology({ ...st.topology, routers: [ROUTER()], proxies: ['
-     ' { id: "skynet:proxy:23020", port: 23020, kind: "consumer", routerId: "", label: "Hermes", keyTail: "e676", set: "" },'
+     ' { id: "skynet:proxy:23020", port: 23020, kind: "consumer", routerId: "", label: "Hermes", keyTail: "e676", deny: [] },'
      ' { id: "ctl:proxy:23010", port: 23010, routerId: "", label: "alpha" }] });'
      ' st.ui.topologyRouterDetailId = "router:default";',
      '(() => { const h = m.renderTopologyRouterDetail(); const port = (h.split(\'data-router-attach="ctl:proxy:23010"\')[1] || "").split("</span></span>")[0];'
@@ -564,9 +578,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

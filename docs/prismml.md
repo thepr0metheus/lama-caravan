@@ -29,12 +29,7 @@ drivers. Windows is not currently a managed Prism runtime in the scout.
 The scout's optional config.json fields are `prismRuntimeDir`, `prismBackend`
 (`auto`, `cpu`, `cuda`, `vulkan`, `rocm`) and `prismServerBin` (an already installed
 Prism server with matching libraries beside it). The default installs on demand;
-no separate server service is needed. To install ahead of time on a scout host:
-
-```sh
-python3 -m caravan_scout.prism install
-python3 -m caravan_scout.prism
-```
+no separate server service is needed; there is no command to install it ahead of time.
 
 A Prism release can lag upstream flags. The scout checks the generated options
 against the selected binary's --help and names unsupported options before

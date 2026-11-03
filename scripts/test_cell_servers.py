@@ -58,7 +58,7 @@ PASS, FAIL = [], []
 
 # name → (argv after the port, path that does the work)
 # The work path matters: /health is the one endpoint everybody remembers to get
-# right. whisper and tts accept a POST on any path, so theirs is nominal.
+# right. whisper accepts a POST on any path, so its path is nominal.
 SERVERS = {
     "whisper_server.py":    (["tiny"], "/v1/audio/transcriptions"),
     "moonshine_server.py":  (["en"], "/v1/audio/transcriptions"),

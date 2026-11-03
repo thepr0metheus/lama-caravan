@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 _fail = []
 
@@ -34,7 +34,7 @@ PROBE = r"""
 import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
 const root = process.env.JS_ROOT;
-const { CellRow, AgentRow, FoldSlot, CellWindow, CellEye, CellFilter, EngineStrip, ShelfLine } = await import(pathToFileURL(root + "/card-rows.js").href);
+const { CellRow, AgentRow, FoldSlot, CellEye, CellFilter, EngineStrip, ShelfLine } = await import(pathToFileURL(root + "/card-rows.js").href);
 const en = (await import(pathToFileURL(root + "/i18n/en.js").href)).default;
 const A = '<span class="topology-handle server-input" data-topology-llama-input="1" data-llama-port="22002"></span>';
 const L = 'data-node-cell-launch="controller" data-node-cell-port="22002" data-node-cell-runner="llama-server"';
@@ -69,6 +69,14 @@ const cell = {
   escaped: new CellRow({ ...base, name: '"><b>x', title: '"><i>t' }).html(),
   titleDefault: (new CellRow({ ...base, state: "running" }).html().match(/ title="([^"]*)">/) || [])[1],
   warnWords: new CellRow({ ...base, warn: true }).html().includes(`title="${en.cellRowWarnTitle}"`),
+  // The window set / the most the model was trained for, as the line says it.
+  ctx: Object.fromEntries([["both", { set: 131072, max: 131072 }], ["over", { set: 262144, max: 131072 }], ["setOnly", { set: 32768 }],
+    ["maxOnly", { max: 40960 }], ["none", null], ["junk", { set: -5, max: "x" }]].map(([k, ctx]) => {
+    const h = new CellRow({ ...base, state: "parked", tps: "9 t/s", chip: "<C>", ctx }).html();
+    const m = h.match(/<span class="fr-ctx( over)?" data-t="cell-row-ctx" data-t-state="([a-z]+)" title="([^"]*)">([^<]*)<\/span>/);
+    return [k, m ? { over: !!m[1], state: m[2], title: m[3], text: m[4], order: h.indexOf("fr-tps") < h.indexOf("fr-ctx") && h.indexOf("fr-ctx") < h.indexOf("<C>") } : null];
+  })),
+  ctxWords: { set: en.cellRowCtxSet, max: en.cellRowCtxMax, over: en.cellRowCtxOver },
   // A failed cell (2026-10-17): the same thin line, red, with its word and its reason on hover; the switch still works.
   failed: facts(new CellRow({ ...base, state: "parked", failed: true, reason: "boom", launch: L, stop: S, why: "Start" }).html()),
   failedHtml: new CellRow({ ...base, state: "parked", failed: true, reason: 'a"><b>x', launch: L, why: "Start" }).html(),
@@ -155,18 +163,6 @@ const slot = {
   escaped: new FoldSlot({ key: '"><b>', lane: "cells", mode: "line" }).html(),
   pinWords: [en.foldPinTitle, en.foldUnpinTitle],
 };
-const win = new CellWindow({ key: "controller:22007", name: "gemma-4-12B-it", port: 22007, address: "10.0.0.5:22007", card }).html();
-const windows = {
-  full: win,
-  noAddress: new CellWindow({ key: "k", name: "n", port: 1, card }).html(),
-  escaped: new CellWindow({ key: '"><b>', name: "<i>x", port: '"1', address: "<u>", card }).html(),
-  empty: new CellWindow({}).html(),
-  notice: new CellWindow({ key: "k", name: "n", port: 1, card, notice: '<div class="llama-err-block">why</div>' }).html(),
-  engine: new CellWindow({ key: "h1:22031", name: "qwen3:8b", port: 22031, address: "10.0.0.5:22031", via: "127.0.0.1:11434",
-                           viaTitle: 'to "Ollama"', engine: "ollama", card }).html(),
-  engineOdd: new CellWindow({ key: "k", name: "n", port: 1, via: "<b>", engine: "a b", card }).html(),
-  closeWord: en.close, cellWord: en.a11yCell,
-};
 const eyes = {
   off: new CellEye({ hostId: "controller" }).html(),
   on: new CellEye({ hostId: "controller", on: true, hidden: 16 }).html(),
@@ -197,6 +193,8 @@ const strips = {
   notesOnly: new EngineStrip({ key: "k", label: "L", notes: "<N>" }).html(),
   buildAndLinks: new EngineStrip({ key: "h1:caravan", engine: "caravan", hook: "node-caravan", state: "ok", label: "Caravan",
     version: "llama.cpp", build: "<C>", links: "<K>" }).html(),
+  build: new EngineStrip({ key: "h1:caravan", engine: "caravan", hook: "node-caravan", state: "ok", label: "Caravan",
+    version: "llama.cpp", build: "<C>" }).html(),
 };
 const shelf = {
   full: new ShelfLine({ key: "h1:ollama:qwen2.5:0.5b", engine: "ollama", name: "qwen2.5:0.5b", remote: "<R>", job: "<J>",
@@ -205,7 +203,7 @@ const shelf = {
   noReserve: new ShelfLine({ key: "k", engine: "lmstudio", name: "m", why: "busy" }).html(),
   escaped: new ShelfLine({ key: '"><b>', engine: "a b", name: "<i>x", params: "<u>", why: '"w' }).html(),
 };
-console.log(JSON.stringify({ cell, agent, slot, windows, eyes, filters, strips, shelf }));
+console.log(JSON.stringify({ cell, agent, slot, eyes, filters, strips, shelf }));
 """
 
 node = find_node()
@@ -215,11 +213,9 @@ if node is None:
 probe = ROOT / "scripts" / ".probe_card_rows.tmp.mjs"
 probe.write_text(PROBE, encoding="utf-8")
 try:
-    hook = (f"data:text/javascript,import {{ register }} from 'node:module'; "
-            f"register('file://{ROOT}/scripts/_js_harness.mjs');")
     env = {"JS_ROOT": str(ROOT / "static" / "js"), "PATH": "/usr/bin:/bin",
            "JS_STUBS": "command-preview,favorites,llama-edit,form,remote-cells,cloud,topology-render,polling"}
-    proc = subprocess.run([node, "--import", hook, str(probe)], capture_output=True, text=True,
+    proc = subprocess.run(probe_args(node, ROOT / "scripts" / "_js_harness.mjs", probe), capture_output=True, text=True,
                           cwd=ROOT, env=env, timeout=60)
 finally:
     probe.unlink(missing_ok=True)
@@ -228,7 +224,7 @@ if proc.returncode != 0:
     print(proc.stderr.strip()[:900])
     sys.exit(1)
 got = json.loads(proc.stdout.strip().splitlines()[-1])
-c, a, s, w, e = got["cell"], got["agent"], got["slot"], got["windows"], got["eyes"]
+c, a, s, e = got["cell"], got["agent"], got["slot"], got["eyes"]
 
 print("строка ячейки:")
 check(c["parked"]["cls"] == "fold-row cell-row parked", "стоящая — класс parked, без cpu и busy")
@@ -302,6 +298,20 @@ check(c["titleDefault"] == "gemma-4-31B-it", "без переданной под
 check(c["shown"] == [c["reservedWords"], "gemma-4-31B-it", ""],
       "показанное имя — одно правило для строки и окна: у зарезервированной слово из en.js, у прочих имя как есть, пустое пустым")
 
+print("строка ячейки — контекст:")
+cx, cw = c["ctx"], c["ctxWords"]
+check(cx["both"] == {"over": False, "state": "both", "title": f"{cw['set'].replace('{n}', '131,072')} · {cw['max'].replace('{n}', '131,072')}",
+                     "text": "🪟 131k / 🎓 131k", "order": True},
+      "владелец, 2026-10-24: «писать, какой контекст установлен И какой максимально поддерживает модель» — 🪟 заданный / 🎓 наибольший, "
+      f"сразу за скоростью, перед фишкой памяти; числа целиком — в подсказке (получено {cx['both']})")
+check(cx["over"]["over"] is True and cx["over"]["state"] == "over" and cx["over"]["title"].endswith(cw["over"])
+      and cx["over"]["text"] == "🪟 262k / 🎓 131k",
+      "окно больше обучения — цветом предупреждения и словами: оно растянуто (YaRN)")
+check(cx["setOnly"]["text"] == "🪟 32.8k" and cx["setOnly"]["state"] == "set" and cx["maxOnly"]["text"] == "🎓 41k"
+      and cx["maxOnly"]["state"] == "max",
+      "известно одно — только оно: незнакомое число не выдумывается и не рисуется нулём")
+check(cx["none"] is None and cx["junk"] is None, "negative: ничего не известно (или мусор) — части нет вовсе")
+
 print("строка агента:")
 check(a["hook"] == ["agent-row", "agent:c1:hotel"], "у строки агента свой хук agent-row с ключом агента")
 check(a["routes"] == 2 and a["anchors"] == 2, "две ветки — две строки маршрута и ровно две ручки каната")
@@ -348,38 +358,6 @@ check('class="fold-slot clients-fold" data-fold-key="agent:c:a" data-fold-lane="
 check('class="fold-slot cells-fold"' in s["oddLane"] and 'data-fold-mode="line"' in s["oddMode"],
       "неизвестная лента — ячейки, неизвестный режим — line: без пустых классов")
 check('"><b>' not in s["escaped"] and "&quot;&gt;&lt;b&gt;" in s["escaped"], "ключ экранируется")
-
-print("окно ячейки (CellWindow):")
-check(w["full"].startswith('<div class="cell-window-backdrop" data-cell-window-close="1" aria-hidden="true"></div>'),
-      "первым — затемнение доски; клик по нему закрывает окно")
-check(f'<div class="cell-window" role="dialog" aria-modal="true" aria-label="{w["cellWord"]} :22007 gemma-4-12B-it" '
-      'data-t="cell-window" data-t-id="controller:22007">' in w["full"],
-      "окно — диалог с именем «Cell :порт имя» (a11yCell из en.js) и своим хуком")
-check('<strong class="cwh-name">gemma-4-12B-it</strong><span class="cwh-port">:22007</span><span class="cwh-addr">10.0.0.5:22007</span>' in w["full"],
-      "заголовок: имя, :порт, адрес машины")
-check(f'data-t="cell-window-close" data-t-id="controller:22007" title="{w["closeWord"]}" aria-label="{w["closeWord"]}">✕</button>' in w["full"],
-      "✕ со словом close из en.js и своим хуком")
-check(w["full"].endswith('</div><article class="node-server">card</article></div>'),
-      "под заголовком — сама карточка, как есть")
-check("cwh-addr" not in w["noAddress"], "negative: адрес не передан — его нет, а не пустой span")
-check("<i>x" not in w["escaped"] and "&lt;i&gt;x" in w["escaped"] and "<u>" not in w["escaped"] and '"><b>' not in w["escaped"],
-      "имя, адрес, ключ и порт экранируются")
-check('aria-label="Cell :"' in w["empty"] or 'aria-label="' + w["cellWord"] + ' :"' in w["empty"],
-      "пустое окно не падает — подпись без имени, как есть")
-check('<div class="cell-window engine-ollama" role="dialog"' in w["engine"]
-      and '<span class="cwh-addr">10.0.0.5:22031</span><span class="cwh-via" data-t="cell-window-via" '
-          'title="to &quot;Ollama&quot;">→ 127.0.0.1:11434</span>' in w["engine"],
-      "окно ячейки в движке — в цвет запускающего; после адреса машины — куда идут запросы (127.0.0.1 движка), "
-      "подсказка экранирована")
-check("cwh-via" not in w["full"] and '<div class="cell-window" role="dialog"' in w["full"],
-      "negative: ячейка каравана — ни строки движка, ни класса")
-check('<div class="cell-window" role="dialog"' in w["engineOdd"] and "→ &lt;b&gt;" in w["engineOdd"],
-      "negative: слово, не годное в имя класса, класса не даёт; адрес движка экранирован")
-
-check(w["notice"].index("llama-err-block") > w["notice"].index("cell-window-head") and w["notice"].index("llama-err-block") < w["notice"].index("<article"),
-      "окно упавшей: причина стоит после заголовка и ДО карточки — окно открывается на ней")
-check("llama-err-block" not in w["full"] and w["full"].endswith('</div><article class="node-server">card</article></div>'),
-      "negative: без причины окно прежнее — заголовок и сразу карточка")
 
 print("чипы машины (CellFilter):")
 fl = got["filters"]
@@ -434,11 +412,13 @@ check(st["caravan"] == '<div class="engine-strip engine-caravan" data-t="node-ca
       "строка каравана — та же строка: свой хук (node-caravan), без тумблера; negative: сказать нечего — второй строки нет")
 check('<div class="es-sub"><N></div>' in st["notesOnly"] and '<div class="es-sub">' not in st["bare"],
       "вторая строка — когда есть где слушает или что сказать; у пустой строки её нет")
-check(st["buildAndLinks"] == '<div class="engine-strip engine-caravan" data-t="node-caravan" data-t-id="h1:caravan" data-t-state="ok" '
+check(st["build"] == '<div class="engine-strip engine-caravan" data-t="node-caravan" data-t-id="h1:caravan" data-t-state="ok" '
       'title=""><div class="es-main"><strong class="es-name">Caravan</strong><span class="es-ver">llama.cpp</span><C>'
-      '<span class="es-fill"></span></div><div class="es-sub"><K></div></div>',
-      "строка каравана (2026-09-27): значок сборки — сразу за «llama.cpp», со своими кнопками; ссылки — второй строкой, "
-      "она есть и без «где слушает»")
+      '<span class="es-fill"></span></div></div>',
+      "строка каравана (2026-09-27): значок сборки — сразу за «llama.cpp», со своими кнопками; второй строки нет: "
+      "ссылки на страницы моделей ушли в шапку каждой страницы (2026-10-24)")
+check(st["buildAndLinks"] == st["build"],
+      "negative: строка больше не берёт ссылок — переданные «links» не рисуются (их дом — шапка)")
 
 print("модель без ячейки (ShelfLine):")
 sl = got["shelf"]

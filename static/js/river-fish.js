@@ -5,7 +5,9 @@
  * swim through the water only where they point. A fish cannot swim sideways: it turns first,
  * and its turn builds up and settles like a body's would.
  */
-import { M } from "./river-core.js";
+import { M, Rng } from "./river-core.js";
+import { MinnowArt, MinnowShape } from "./river-minnow.js";
+import { TroutArt, TroutShape } from "./river-trout.js";
 import { BROOK_SHADOW } from "./river-world.js";
 
 class Swimmer {
@@ -19,33 +21,34 @@ class Swimmer {
     this.phase = rng.range(0, M.TAU);
     this.fin = rng.range(0, M.TAU);
     this.depth = 0.5;
+    this.passing = null;           // the rock it is going round and on which hand ({ rock, turn }), kept while that rock is in its way
+    this.smooth = false;           // a node points half way between its two segments (the outline of the minnow and of the trout), not along the next one
     this.spine = Array.from({ length: segments + 1 }, () => ({ x, y, a: 0 }));
     this.widths = new Float32Array(segments + 1);
     this.inner = new Float32Array(segments + 1);
   }
-  /** Ground velocity toward a point, slowing inside `slow` px. */
+  /** Ground velocity toward a point, slowing inside `slow` px, and the point itself (`to`): the way ends there (see `steer`). */
   seek(x, y, speed, slow = this.len) {
     const dx = x - this.x, dy = y - this.y, d = Math.hypot(dx, dy) || 1;
     const v = slow > 0 ? Math.min(speed, speed * d / slow) : speed;
-    return { x: dx / d * v, y: dy / d * v };
+    return { x: dx / d * v, y: dy / d * v, to: { x, y } };
   }
-  /** Moves the fish: `want` is a ground velocity; `cap` (px/s), `turn` (rad/s), `accel` (1/s) limit it. */
+  /**
+   * Moves the fish: `want` is a ground velocity, with the point it leads to (`to`) when it leads somewhere; `cap` (px/s),
+   * `turn` (rad/s), `accel` (1/s) limit it.
+   */
   swim(dt, channel, want, cap, turn, accel, minDepth = 0.16) {
     const water = channel.sample(this.x, this.y);
     // a fish keeps low, in the slack water near the bed: it feels only part of the surface current
     const cx = water.vx * Swimmer.CURRENT_FELT, cy = water.vy * Swimmer.CURRENT_FELT;
-    for (const r of channel.rocks) {
-      const ahead = r.inside(this.x, this.y, this.len * 0.9);
-      if (ahead > 0) {
-        const dx = this.x - r.x, dy = this.y - r.y, d = Math.hypot(dx, dy) || 1;
-        want.x += dx / d * ahead * 3; want.y += dy / d * ahead * 3;
-      }
-    }
     // shallows are steered away from, not shoved out of
     if (water.depth < minDepth) {
       const g = channel.deeper(this.x, this.y), k = (minDepth - water.depth) * this.len * 8;
       want.x += g.x * k; want.y += g.y * k;
     }
+    // a rock in the way is gone round, not pushed against
+    const to = want.to || null;
+    want = this.steer(want, channel, cap);
     let sx = want.x - cx, sy = want.y - cy;
     let sp = Math.hypot(sx, sy);
     if (sp > cap) { sx *= cap / sp; sy *= cap / sp; sp = cap; }
@@ -62,6 +65,14 @@ class Swimmer {
     // through the water it moves along its body; what is left of its old way sideways dies fast,
     // since water presses hard on a flank. The current's share is laid on top.
     const hx = Math.cos(this.heading), hy = Math.sin(this.heading);
+    // it never swims at a stone faster than it could stop short of it in STOP seconds: a fish brakes with its fins. Short of the
+    // stone is outside its margin (ROCK_TOUCH, where stayInWater holds it) — unless where it goes is at the stone (a fly drifting
+    // by it): then it comes up to the stone itself, slowly, and can take the fly there.
+    const touch = this.len * Swimmer.ROCK_TOUCH, stone = this.rockAhead(channel, hx, hy, Infinity, touch);
+    if (stone) {
+      const upTo = to && stone.rock.inside(to.x, to.y, touch) > 0 ? touch : 0;
+      this.speed = Math.min(this.speed, Math.max(0, stone.enter + upTo) / Swimmer.STOP);
+    }
     const ux = this.vx - cx, uy = this.vy - cy;
     const side = M.approach(-ux * hy + uy * hx, 0, Swimmer.FLANK_DRAG, dt);
     this.vx = hx * this.speed - hy * side + cx;
@@ -69,12 +80,112 @@ class Swimmer {
     this.x += this.vx * dt; this.y += this.vy * dt;
     this.stayInWater(channel);
     this.depth = water.depth;
+    this.animate(dt);
+    this.buildSpine();
+  }
+  /**
+   * The ground velocity it wants, turned round the first rock in its way (the owner, 2026-10-20: "the fish run away but stop
+   * against a rock, instead of going round it as they come up to it"). It looks along the way it wants to go, as far as it
+   * would swim in `LOOK` seconds (never less than `LOOK_LEAST` of its length) and no further than where that way ends
+   * (`want.to`): a rock beyond its lie, its hiding place or a fly is not in its way. A rock whose outline, grown by `ROCK_ROOM`
+   * and by `TURN_LEAD` for its speed, crosses that line turns the want onto a line that grazes the grown outline (`pastRock`
+   * says on which side). The side, once taken, is kept while that rock is in the way: a fish that chose again every frame would
+   * wobble into it. The way turned past one rock is looked along once more, for another one. How much it wants is kept: a rock
+   * changes where a fish goes, not how hard. Until 1.3.603 a rock only pushed a fish straight away from its centre once it was
+   * within 0.9 of its length; head on, that push only braked, and a trout scared from below ran into the rock it holds behind
+   * every time.
+   */
+  steer(want, channel, cap) {
+    const speed = Math.hypot(want.x, want.y);
+    if (speed < 1e-9) { this.passing = null; return want; }
+    const going = Math.min(speed, cap), reach = Math.max(this.len * Swimmer.LOOK_LEAST, going * Swimmer.LOOK);
+    const room = this.len * Swimmer.ROCK_ROOM + going * Swimmer.TURN_LEAD;
+    let wx = want.x / speed, wy = want.y / speed, passed = null;
+    for (let look = 0; look < 2; look++) {          // rocks stand apart (Channel.placeRocks): a way turned past one meets at most one more
+      // the second look leaves out the rock just gone round: a way along its outline touches it, and a fresh choice of side there flips the fish round
+      const block = this.rockAhead(channel, wx, wy, reach, room, want.to || null, passed);
+      if (!block) { if (look === 0) this.passing = null; break; }
+      passed = block.rock;
+      const way = this.pastRock(block, channel, look === 0, wx, wy);
+      wx = way.x; wy = way.y;
+    }
+    return { x: wx * speed, y: wy * speed };
+  }
+  /**
+   * The first rock in the way of the line from the head along (ux, uy), or null: one whose outline, grown by `grow` px, the line
+   * enters within `reach` px. A line that leads to a place (`to`) ends there, and a rock beyond it is not in the way. A place in
+   * the water about a rock (inside its grown outline: a lie, a hiding place, a fly by the stone) is gone to straight, and that
+   * rock is in the way only when the line passes the stone itself (`ROCK_TOUCH` round it) before it gets there. `enter` is how
+   * far along the line it meets the outline: below 0 when the head is already inside it. `except` is a rock left out.
+   */
+  rockAhead(channel, ux, uy, reach, grow, to = null, except = null) {
+    const until = to ? Math.hypot(to.x - this.x, to.y - this.y) : Infinity, far = Math.min(reach, until);
+    let best = null;
+    for (const rock of channel.rocks) {
+      if (rock === except) continue;
+      const dx = rock.x - this.x, dy = rock.y - this.y, along = dx * ux + dy * uy;
+      if (along <= 0) continue;
+      const edge = rock.radiusAt(Math.atan2(-dy, -dx)), room = edge + grow, miss = Math.abs(dx * uy - dy * ux);
+      let enter;
+      if (to && rock.inside(to.x, to.y, grow) > 0) {
+        const stone = edge + this.len * Swimmer.ROCK_TOUCH;
+        if (miss >= stone || along + Math.sqrt(stone * stone - miss * miss) > until) continue;
+        enter = along - Math.sqrt(stone * stone - miss * miss);
+      } else {
+        if (miss >= room) continue;
+        enter = along - Math.sqrt(room * room - miss * miss);
+        if (enter > far) continue;
+      }
+      if (!best || enter < best.enter) best = { rock, dx, dy, edge, room, enter };
+    }
+    return best;
+  }
+  /**
+   * The way past a rock in the way of a fish going along (ux, uy): of the two lines from the head that graze its grown outline
+   * (inside it already, of the two ways along it), the side taken before while it is the same rock (`keep`), or else:
+   * - for a rock ahead along the stream, the one by its side toward the middle of the stream (`Channel.middleSide`; the owner,
+   *   2026-10-20: "not the side nearer the goal — a fish at the bank would go between the bank and the rock and get stuck").
+   *   A rock on the middle line is passed on the side the fish is on;
+   * - for a rock that lies more across the stream than along it from the fish, the one nearer the way it goes: both go by the
+   *   rock's side the fish is on, and the other leads round the far end of the rock, away from where it goes.
+   */
+  pastRock({ rock, dx, dy, edge, room }, channel, keep, ux, uy) {
+    const d = Math.hypot(dx, dy) || 1, at = Math.atan2(dy, dx), inside = d <= room;
+    // inside the grown outline the way goes along it, and within ROCK_ROOM of the stone out of it too, the more the nearer: straight
+    // along, the current set the nose of a fish that had come close a little into the stone, and the stone held it back (STOP)
+    const near = Math.min(1, Math.max(0, 1 - (d - edge) / (this.len * Swimmer.ROCK_ROOM)));
+    const spread = inside ? Math.PI / 2 + Math.asin(near) : Math.asin(room / d), graze = inside ? 0 : Math.sqrt(d * d - room * room);
+    let turn = keep && this.passing && this.passing.rock === rock ? this.passing.turn : 0;
+    if (!turn) {
+      const way = (t) => ({ x: Math.cos(at + t * spread), y: Math.sin(at + t * spread) });
+      if (Math.abs(channel.acrossOf({ x: dx, y: dy })) > d * Math.SQRT1_2) {
+        const a = way(1), b = way(-1);
+        turn = a.x * ux + a.y * uy >= b.x * ux + b.y * uy ? 1 : -1;
+      } else {
+        let side = channel.middleSide(rock.x, rock.y, rock.r * 0.25);
+        if (!side) side = Math.sign(channel.acrossOf({ x: -dx, y: -dy })) || 1;
+        // how far to that side of the rock each way goes by it: where it grazes the grown outline (or, inside it, where it heads)
+        const by = (t) => {
+          const u = way(t);
+          return side * (inside ? channel.acrossOf(u) : channel.acrossOf({ x: u.x * graze - dx, y: u.y * graze - dy }));
+        };
+        turn = by(1) >= by(-1) ? 1 : -1;
+      }
+      if (keep) this.passing = { rock, turn };
+    }
+    return { x: Math.cos(at + turn * spread), y: Math.sin(at + turn * spread) };
+  }
+  /** What the body does as the fish swims, as it did in the first version (the owner, 2026-10-19: "return the movements from the very first version"): the beat's phase and reach, the bend of a turn, the fins' rowing. */
+  animate(dt) {
     this.phase += dt * M.TAU * (1.4 + this.speed / this.len * 1.3);
     const wantAmp = 0.08 + Math.min(0.24, Math.abs(this.turnRate) * 0.05) + Math.min(0.14, this.speed / this.len * 0.03);
     this.amp = M.approach(this.amp, wantAmp, 5, dt);
     this.bend = M.approach(this.bend, M.clamp(-this.turnRate * 0.22, -0.9, 0.9), 7, dt);
     this.fin += dt * (2.2 + this.speed / this.len);
-    this.buildSpine();
+  }
+  /** The direction of the segment that ends at u (snout 0, tail 1) along the body, as the body bends: `back` is the way from the head to the tail when it is straight. */
+  angleAt(u, back) {
+    return back + this.amp * Math.pow(u, 1.5) * Math.sin(this.phase - u * 4.4) + this.bend * u;
   }
   /**
    * The last resort when steering was not enough: out of a rock, inside the banks, and inside the picture. The bank is
@@ -83,8 +194,20 @@ class Swimmer {
    * is lost. It may still go along the stream as far as the picture allows.
    */
   stayInWater(channel) {
-    for (const r of channel.rocks) r.pushOut(this, this.len * 0.12);
-    const margin = this.len * Swimmer.BANK_ROOM, hx = Math.cos(this.heading), hy = Math.sin(this.heading);
+    const hx = Math.cos(this.heading), hy = Math.sin(this.heading);
+    // a rock as a bank: no point of the body comes within ROCK_TOUCH of it, and the way into it is lost (until 1.3.603 only the
+    // snout was kept out, and a fish turning away from a rock swept its body across the stone)
+    for (const r of channel.rocks) {
+      for (const u of [0, 0.5, 1]) {
+        const px = this.x - hx * this.len * u, py = this.y - hy * this.len * u, deep = r.inside(px, py, this.len * Swimmer.ROCK_TOUCH);
+        if (deep <= 0) continue;
+        const ox = px - r.x, oy = py - r.y, od = Math.hypot(ox, oy) || 1, nx = ox / od, ny = oy / od;
+        this.x += nx * deep; this.y += ny * deep;
+        const v = this.vx * nx + this.vy * ny;
+        if (v < 0) { this.vx -= v * nx; this.vy -= v * ny; }
+      }
+    }
+    const margin = this.len * Swimmer.BANK_ROOM;
     let dn = 0;
     for (const u of [0, 0.5, 1]) {
       const move = channel.inward(this.x - hx * this.len * u, this.y - hy * this.len * u, margin);
@@ -105,46 +228,29 @@ class Swimmer {
     let x = this.x, y = this.y;
     sp[0].x = x; sp[0].y = y;
     for (let i = 1; i <= n; i++) {
-      const u = i / n;
-      const a = back + this.amp * Math.pow(u, 1.5) * Math.sin(this.phase - u * 4.4) + this.bend * u;
+      const a = this.angleAt(i / n, back);
       sp[i - 1].a = a;
       x += Math.cos(a) * seg; y += Math.sin(a) * seg;
       sp[i].x = x; sp[i].y = y; sp[i].a = a;
     }
+    // Down from the tail, so that the node before is still the angle of the segment it leaves by when this one takes the mean.
+    if (this.smooth) for (let i = n - 1; i >= 1; i--) sp[i].a = M.meanAngle(sp[i - 1].a, sp[i].a);
+  }
+  /** A point on the spine: u from snout (0) to tail (1). Its angle is the node's own, or, on a smooth body, the one half way between the two nodes it lies between. */
+  at(u) {
+    const sp = this.spine, n = sp.length - 1, f = M.clamp(u, 0, 1) * n, i = Math.min(n - 1, Math.floor(f)), t = f - i, a = sp[i], b = sp[i + 1];
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, a: this.smooth ? a.a + M.wrap(b.a - a.a) * t : a.a };
+  }
+  /** The half width of the body at u, read from `widths` (the drawing fills them in from its profile). */
+  halfAt(u) {
+    const n = this.widths.length - 1, f = M.clamp(u, 0, 1) * n, i = Math.min(n - 1, Math.floor(f));
+    return M.lerp(this.widths[i], this.widths[i + 1], f - i);
   }
   /** A point on the body: u from snout (0) to tail (1), v across from -1 to 1. */
   bodyPoint(u, v, profile) {
-    const sp = this.spine, n = sp.length - 1, f = M.clamp(u, 0, 1) * n, i = Math.min(n - 1, Math.floor(f)), t = f - i;
-    const a = sp[i], b = sp[i + 1];
-    const w = (profile[i] * (1 - t) + profile[i + 1] * t) * this.len;
-    return { x: a.x + (b.x - a.x) * t - Math.sin(a.a) * w * v, y: a.y + (b.y - a.y) * t + Math.cos(a.a) * w * v, a: a.a };
-  }
-  /** The tail fin is upright, so from above it is a narrow wedge that shows more as it beats. */
-  tailPath(ctx, k, dx = 0, dy = 0) {
-    const sp = this.spine, p = sp[sp.length - 1];
-    const a = p.a + Math.sin(this.phase - 4.9) * this.amp * 1.2;
-    const cx = Math.cos(a), cy = Math.sin(a), nx = -cy, ny = cx;
-    const reach = this.len * 0.17 * k, spread = this.len * (0.035 + 0.04 * Math.abs(Math.sin(this.phase - 4.9))) * k;
-    const x = p.x + dx, y = p.y + dy;
-    ctx.beginPath();
-    ctx.moveTo(x + nx * spread * 0.3, y + ny * spread * 0.3);
-    ctx.lineTo(x + cx * reach + nx * spread, y + cy * reach + ny * spread);
-    ctx.lineTo(x + cx * reach * 0.86, y + cy * reach * 0.86);
-    ctx.lineTo(x + cx * reach - nx * spread, y + cy * reach - ny * spread);
-    ctx.lineTo(x - nx * spread * 0.3, y - ny * spread * 0.3);
-    ctx.closePath();
-  }
-  /** A paired fin (pectoral or pelvic): a small translucent blade that rows slowly. */
-  pairedFins(ctx, profile, u, size, spreadAngle, colour) {
-    for (const side of [-1, 1]) {
-      const b = this.bodyPoint(u, side * 0.9, profile);
-      const a = b.a + side * (spreadAngle + 0.25 * Math.sin(this.fin + side));
-      const l = this.len * size;
-      ctx.beginPath();
-      ctx.ellipse(b.x + Math.cos(a) * l * 0.5, b.y + Math.sin(a) * l * 0.5, l * 0.5, l * 0.17, a, 0, M.TAU);
-      ctx.fillStyle = colour;
-      ctx.fill();
-    }
+    const n = this.spine.length - 1, f = M.clamp(u, 0, 1) * n, i = Math.min(n - 1, Math.floor(f)), t = f - i;
+    const p = this.at(u), w = (profile[i] * (1 - t) + profile[i + 1] * t) * this.len;
+    return { x: p.x - Math.sin(p.a) * w * v, y: p.y + Math.cos(p.a) * w * v, a: p.a };
   }
 }
 
@@ -158,28 +264,17 @@ Swimmer.AGILITY = Object.freeze({ gain: 2.4, pivot: 0.35 });
 Swimmer.FLANK_DRAG = 12;
 /** How far inside the water's edge every point of a fish's body stays, as a share of its length. */
 Swimmer.BANK_ROOM = 0.2;
-
-/* Half width along a trout, as a share of its length, snout → tail. */
-class TroutShape {
-  static profile() {
-  const n = 12, w = new Float32Array(n + 1);
-  for (let i = 0; i <= n; i++) {
-    const u = i / n;
-    let k;
-    if (u < 0.08) k = 0.62 + 0.3 * (u / 0.08);
-    else if (u < 0.3) k = 0.92 + 0.08 * Math.sin((u - 0.08) / 0.22 * Math.PI / 2);
-    else k = 1 - 0.78 * Math.pow((u - 0.3) / 0.7, 1.15);
-    w[i] = 0.085 * k;
-  }
-  return w;
-  }
-}
-const TROUT_PROFILE = TroutShape.profile();
-
-const TROUT_LOOK = Object.freeze({
-  flank: [172, 150, 86], back: [40, 42, 26], spot: [30, 28, 20], red: [176, 62, 42], halo: [214, 204, 168],
-  fin: 'rgba(138, 120, 70, 0.55)', tail: 'rgba(70, 66, 40, 0.8)',
-});
+/** How far ahead a fish looks for a rock in its way: as far as it would swim in this many seconds, and never less than LOOK_LEAST of its length. */
+Swimmer.LOOK = 0.7;
+Swimmer.LOOK_LEAST = 0.5;
+/** How much wider of a rock a fish passes for every px/s it wants to go, in seconds: the room its turn needs, so that it turns before it is there. */
+Swimmer.TURN_LEAD = 0.08;
+/** How wide of a rock's outline the way of a fish passes, as a share of its length: half its body, and water to turn in. */
+Swimmer.ROCK_ROOM = 0.25;
+/** How near a rock's outline a point of the body — snout, middle, tail — may come, as a share of its length. */
+Swimmer.ROCK_TOUCH = 0.12;
+/** How soon a fish can stop with its fins, in seconds: it never swims at a stone faster than it could stop short of it in this time. */
+Swimmer.STOP = 0.4;
 
 /*
  * What a trout does in each state: the ground velocity it wants, its limits (body lengths per
@@ -188,15 +283,22 @@ const TROUT_LOOK = Object.freeze({
 const TROUT_STATES = Object.freeze({
   hold: {
     cap: 2.2, turn: 1.3, accel: 2,
-    want(f, life) {
-      const t = life.time * 0.07;
-      const wx = life.noise.n2(f.seed, t) * f.len * 0.6, wy = life.noise.n2(f.seed + 40, t) * f.len * 0.6;
-      return f.seek(f.lie.x + wx, f.lie.y + wy, f.len * 1.2);
-    },
+    want(f, life) { return f.idle(life); },
     next(f, life) {
       const fly = life.flyFor(f);
-      if (fly) { fly.claimedBy = f; f.target = fly; return 'chase'; }
+      if (fly) { fly.claimedBy = f; f.target = fly; return 'notice'; }
       return f.stateTime > f.roamAfter ? 'roam' : null;
+    },
+  },
+  // A fly it has seen is thought over before the fish moves (the owner, 2026-10-19: "the moment the moth appears they swim after it; they used to think
+  // longer before they started to swim"). For `thinkFor` seconds it keeps its lie as in `hold`, its eyes on the fly. A fly that is gone by then is let go.
+  notice: {
+    cap: 2.2, turn: 1.3, accel: 2,
+    want(f, life) { return f.idle(life); },
+    next(f) {
+      const g = f.target;
+      if (!g || !g.alive || g.claimedBy !== f) return 'hold';
+      return f.stateTime >= f.thinkFor ? 'chase' : null;
     },
   },
   chase: {
@@ -222,8 +324,10 @@ const TROUT_STATES = Object.freeze({
     want(f) { return f.seek(f.lie.x, f.lie.y, f.len * 1.6); },
     next(f) { return Math.hypot(f.lie.x - f.x, f.lie.y - f.y) < f.len * 0.7 ? 'hold' : null; },
   },
+  // a startled trout turns at once, even from rest (a fish's escape: it bends and is off). Turning as slowly as it swims about
+  // (until 1.3.603: 4.5 rad/s, the common agility), it stood at the rock it holds behind while its way round was still ahead of it.
   flee: {
-    cap: 6, turn: 4.5, accel: 6,
+    cap: 6, turn: 6, accel: 6, agility: Object.freeze({ gain: 5, pivot: 0.9 }),
     want(f) { return { x: f.away.x * f.len * 9, y: f.away.y * f.len * 9 }; },
     next(f) { return f.stateTime > 0.9 ? 'hide' : null; },
   },
@@ -236,7 +340,8 @@ const TROUT_STATES = Object.freeze({
 
 export class Trout extends Swimmer {
   constructor(rng, lie, len) {
-    super(lie.x, lie.y, len, 12, rng);
+    super(lie.x, lie.y, len, TroutShape.SEGMENTS, rng);
+    this.smooth = true;
     this.rng = rng;
     this.lie = lie;
     this.seed = rng.range(0, 1000);
@@ -248,18 +353,31 @@ export class Trout extends Swimmer {
     this.hideAt = { x: lie.x, y: lie.y };
     this.hideFor = 4;
     this.mouthWas = null;   // where the tip of the snout stood before the last step: the way it went since is what takes a fly
-    this.spots = [];
-    for (let i = 0; i < 46; i++) {
-      const u = rng.range(0.08, 0.78), v = rng.range(-0.95, 0.95);
-      this.spots.push({ u, v, r: rng.range(0.008, 0.016), red: false });
-    }
-    for (let i = 0; i < 9; i++) this.spots.push({ u: rng.range(0.22, 0.68), v: rng.sign() * rng.range(0.74, 0.95), r: rng.range(0.012, 0.017), red: true });
+    // The first version made its 55 dots here. The draws are kept, and thrown away, so that every seed lays the brook out as it did: where each
+    // trout holds, and when it goes roaming (the owner, 2026-10-19: the behaviour of the first version, all of it).
+    for (let i = 0; i < Trout.DOT_DRAWS; i++) rng.next();
+    // What its drawing needs (river-trout.js): the skin's seed and the skin once it is painted (when the trout is first drawn: a page is needed
+    // for its canvas), how hard it swims, the fins' phase, the swing and the spread of the tail, the gills' breath, where the eyes look.
+    this.skinSeed = Math.floor(this.seed * 1000);
+    // How long it thinks over a fly it has seen comes from a stream of its own, so that the brook's stream keeps the order the first version drew it in.
+    this.thinkRng = new Rng(this.skinSeed + 202);
+    this.thinkFor = 0;
+    this.skin = null;
+    this.clock = 0; this.eff = 0; this.finPhase = 0; this.breath = 0.5; this.tailAng = 0; this.tailSpread = 0.05;
+    this.look = { x: Math.cos(this.heading), y: Math.sin(this.heading) };
+  }
+  /** The ground velocity of a trout idling at its lie: it drifts slowly about it, a little differently each time. */
+  idle(life) {
+    const t = life.time * 0.07;
+    const wx = life.noise.n2(this.seed, t) * this.len * 0.6, wy = life.noise.n2(this.seed + 40, t) * this.len * 0.6;
+    return this.seek(this.lie.x + wx, this.lie.y + wy, this.len * 1.2);
   }
   enter(state, life) {
     if (state === 'back' && this.target) { this.target = null; }
     if (state === 'roam') this.lie = life.freeLie(this) || this.lie;
     if (state === 'hide') { this.hideAt = life.shelterNear(this); this.hideFor = this.rng.range(3, 6); }
     if (state === 'hold') this.roamAfter = this.rng.range(50, 110);
+    if (state === 'notice') this.thinkFor = this.thinkRng.range(Trout.THINK.least, Trout.THINK.most);
     this.agility = TROUT_STATES[state].agility || Swimmer.AGILITY;
     this.state = state;
     this.stateTime = 0;
@@ -279,14 +397,43 @@ export class Trout extends Swimmer {
     this.mouthWas = this.mouth();
     this.swim(dt, life.channel, st.want(this, life), st.cap * this.len, st.turn, st.accel);
   }
+  /**
+   * The body of a swimming trout is the first version's (the owner, 2026-10-19: "return the movements from the very first version"): the
+   * beat's phase and reach, the bend of a turn and the fins' rowing are Swimmer's. What the drawing needs besides (river-trout.js) is read
+   * from them: how hard the fish swims (`eff`, 0 at rest and 1 at 1.4 lengths a second), the swing and the spread of the tail as the first
+   * version's tail had them, the gills' breath, and where the eyes look.
+   */
+  animate(dt) {
+    super.animate(dt);
+    const len = this.len;
+    this.clock += dt;
+    this.eff = M.clamp(this.speed / (len * 1.4), 0, 1);
+    this.finPhase = this.fin;
+    this.tailAng = Math.sin(this.phase - 4.9) * this.amp * 1.2;
+    this.tailSpread = 0.035 + 0.04 * Math.abs(Math.sin(this.phase - 4.9));
+    this.breath = 0.5 + 0.5 * Math.sin(this.clock * M.TAU * 1.15 + this.skinSeed);
+    // where the eyes look: at the fly while it thinks it over, and at the one it chases when it is near, else ahead
+    const fly = this.target, m = this.mouth();
+    let lx = Math.cos(this.heading), ly = Math.sin(this.heading);
+    if (fly && fly.alive && (this.state === 'notice' || Math.hypot(fly.x - m.x, fly.y - m.y) < len * 1.3)) {
+      const dx = fly.x - m.x, dy = fly.y - m.y, d = Math.hypot(dx, dy) || 1;
+      lx = dx / d; ly = dy / d;
+    }
+    this.look.x = M.approach(this.look.x, lx, 8, dt);
+    this.look.y = M.approach(this.look.y, ly, 8, dt);
+  }
+  buildSpine() {
+    super.buildSpine();
+    for (let i = 0; i < this.widths.length; i++) this.widths[i] = TroutShape.PROFILE[i] * this.len;
+  }
   /** The tip of the snout, where the painted nose ends (TopFishPainter): where a fly must come to be taken. */
   mouth() {
-    const reach = this.len * Trout.NOSE;
+    const reach = this.len * TroutShape.NOSE;
     return { x: this.x + Math.cos(this.heading) * reach, y: this.y + Math.sin(this.heading) * reach };
   }
   /** Where the head's first point must stand for the tip of the snout to stand at (x, y). */
   headFor(x, y) {
-    const reach = this.len * Trout.NOSE;
+    const reach = this.len * TroutShape.NOSE;
     return { x: x - Math.cos(this.heading) * reach, y: y - Math.sin(this.heading) * reach };
   }
   /**
@@ -294,6 +441,7 @@ export class Trout extends Swimmer {
    * only part of the current and the fly all of it, so a fly goes by the fish at the difference of the two, and a fish that
    * only points at the fly passes beside it: the line of sight swings faster than a fish can turn. `speed` is the fish's
    * way through the water at most; it shrinks with the distance (`EASE`), so that the fish can still turn when it is near.
+   * `to` is where the head goes to meet the fly: a fly drifting by a rock is taken there, not gone round with the rock.
    */
   meet(fly, channel, speed) {
     const water = channel.sample(this.x, this.y), cx = water.vx * Swimmer.CURRENT_FELT, cy = water.vy * Swimmer.CURRENT_FELT;
@@ -309,13 +457,13 @@ export class Trout extends Swimmer {
       t = [(-b - root) / (2 * a), (-b + root) / (2 * a)].filter((v) => v > 0).sort((p, q) => p - q)[0] || 0;
     }
     const ax = dx + rx * Math.min(t, 3), ay = dy + ry * Math.min(t, 3), far = Math.hypot(ax, ay) || 1;
-    return { x: cx + ax / far * speed, y: cy + ay / far * speed };
+    return { x: cx + ax / far * speed, y: cy + ay / far * speed, to: { x: this.x + ax, y: this.y + ay } };
   }
   /**
    * Whether the mouth took the fly at (x, y) in the step it has just made: the fly's centre lay within `GAPE` of the tip of
    * the snout somewhere along the way the tip went. A slow frame moves a fish far in one step, and it must not swim over a
-   * fly unseen. (The owner, 2026-10-14: "the fish eats the fly while the mouth is still far from it" — it was 0.42 of its
-   * length from the head's first point, 0.39 from the nose.)
+   * fly unseen. (The owner, 2026-10-14 and again 2026-10-19: "the fish eats the fly while the mouth is still far from it" — it
+   * was 0.42 of its length from the head's first point, 0.39 from the nose.)
    */
   takes(x, y) {
     const now = this.mouth(), was = this.mouthWas || now;
@@ -324,106 +472,49 @@ export class Trout extends Swimmer {
   /** Height above the bed (px) — it sets how far the shadow falls. */
   height(channel) { return channel.waterDepthPx(this.depth) * 0.55; }
   draw(ctx, painter) {
-    const len = this.len, n = this.spine.length - 1, look = TROUT_LOOK;
-    for (let i = 0; i <= n; i++) this.widths[i] = TROUT_PROFILE[i] * len;
-    this.tailPath(ctx, 1);
-    ctx.fillStyle = look.tail;
-    ctx.fill();
-    this.pairedFins(ctx, TROUT_PROFILE, 0.2, 0.15, 1.0, look.fin);
-    this.pairedFins(ctx, TROUT_PROFILE, 0.52, 0.09, 0.7, look.fin);
-    painter.outline(ctx, this.spine, this.widths, len * Trout.NOSE);
-    ctx.fillStyle = M.rgba(look.flank, 1);
-    ctx.fill();
-    for (const [k, a] of [[0.74, 0.35], [0.52, 0.45], [0.3, 0.6]]) {
-      for (let i = 0; i <= n; i++) this.inner[i] = this.widths[i] * k;
-      painter.outline(ctx, this.spine, this.inner, len * 0.02 * k);
-      ctx.fillStyle = M.rgba(look.back, a);
-      ctx.fill();
-    }
-    for (const s of this.spots) {
-      const p = this.bodyPoint(s.u, s.v, TROUT_PROFILE);
-      if (s.red) {
-        ctx.fillStyle = M.rgba(look.halo, 0.5);
-        ctx.beginPath(); ctx.arc(p.x, p.y, s.r * len * 1.6, 0, M.TAU); ctx.fill();
-        ctx.fillStyle = M.rgba(look.red, 0.9);
-      } else ctx.fillStyle = M.rgba(look.spot, 0.75);
-      ctx.beginPath(); ctx.arc(p.x, p.y, s.r * len, 0, M.TAU); ctx.fill();
-    }
-    ctx.strokeStyle = 'rgba(28, 26, 18, 0.55)';
-    ctx.lineWidth = Math.max(1, len * 0.012);
-    ctx.beginPath();
-    const d0 = this.bodyPoint(0.36, 0, TROUT_PROFILE), d1 = this.bodyPoint(0.52, 0, TROUT_PROFILE);
-    ctx.moveTo(d0.x, d0.y); ctx.lineTo(d1.x, d1.y); ctx.stroke();
-    for (const side of [-1, 1]) {
-      const e = this.bodyPoint(0.075, side * 0.72, TROUT_PROFILE);
-      ctx.fillStyle = '#17150e';
-      ctx.beginPath(); ctx.arc(e.x, e.y, len * 0.013, 0, M.TAU); ctx.fill();
-      ctx.fillStyle = 'rgba(255, 250, 220, 0.55)';
-      ctx.beginPath(); ctx.arc(e.x - len * 0.004, e.y - len * 0.004, len * 0.0045, 0, M.TAU); ctx.fill();
-    }
+    TroutArt.draw(ctx, this, painter);
   }
   drawShadow(ctx, painter, channel) {
     const h = this.height(channel), dx = BROOK_SHADOW.x * h, dy = BROOK_SHADOW.y * h;
     const n = this.spine.length - 1;
-    for (let i = 0; i <= n; i++) this.inner[i] = TROUT_PROFILE[i] * this.len * 1.1;
-    painter.outline(ctx, this.spine, this.inner, this.len * 0.03, dx, dy);
+    for (let i = 0; i <= n; i++) this.inner[i] = TroutShape.PROFILE[i] * this.len * 1.1;
+    painter.outline(ctx, this.spine, this.inner, this.len * TroutShape.NOSE, dx, dy);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
     ctx.fill();
-    this.tailPath(ctx, 1, dx, dy);
+    TroutArt.tailPath(ctx, this, dx, dy);
     ctx.fill();
   }
 }
 
-/** How far ahead of the head's first point the painted snout reaches, in body lengths: the `nose` of its outline. */
-Trout.NOSE = 0.03;
 /** How near a fly's centre must come to the tip of the snout to be taken, in body lengths: a mouth's width and a fly's. */
 Trout.GAPE = 0.08;
 /** How far the way through the water may grow with the distance to a fly (1/s): a trout slows as it comes up to a fly. */
 Trout.EASE = 8;
+/** How long a trout thinks over a fly it has seen before it moves, in seconds: each time, a draw between the two. */
+Trout.THINK = Object.freeze({ least: 0.8, most: 1.8 });
+/** How many random numbers the first version's 55 dots took (46 dots of three, 9 red ones of four): see the constructor. */
+Trout.DOT_DRAWS = 46 * 3 + 9 * 4;
 
-/* Colchic minnow: small, olive above, a row of dark blotches along each side. */
-class MinnowShape {
-  static profile() {
-  const n = 6, w = new Float32Array(n + 1);
-  for (let i = 0; i <= n; i++) { const u = i / n; w[i] = 0.1 * (u < 0.25 ? 0.65 + 0.35 * u / 0.25 : 1 - 0.75 * Math.pow((u - 0.25) / 0.75, 1.1)); }
-  return w;
-  }
-}
-const MINNOW_PROFILE = MinnowShape.profile();
-
+/*
+ * Colchic minnow: small, olive above and silver at the side, a band of uneven blotches along each side. What it does is here;
+ * how it is drawn is river-minnow.js (the owner, 2026-10-18: "the silver minnow").
+ */
 class Minnow extends Swimmer {
   constructor(x, y, len, rng) {
-    super(x, y, len, 6, rng);
+    super(x, y, len, MinnowShape.SEGMENTS, rng);
+    this.smooth = true;
     this.tone = rng.range(-12, 12);
+    this.pattern = MinnowArt.pattern(new Rng(Math.floor((this.tone + 12) * 1e6) + 1));   // a stream of its own: the brook's stays as the first version left it
     this.dart = 0;
     this.escape = null;
   }
   draw(ctx, painter) {
-    const len = this.len, n = this.spine.length - 1, t = this.tone;
-    for (let i = 0; i <= n; i++) this.widths[i] = MINNOW_PROFILE[i] * len;
-    this.tailPath(ctx, 1.1);
-    ctx.fillStyle = 'rgba(80, 76, 50, 0.7)';
-    ctx.fill();
-    painter.outline(ctx, this.spine, this.widths, len * 0.035);
-    ctx.fillStyle = `rgb(${150 + t}, ${142 + t}, ${98 + t})`;
-    ctx.fill();
-    for (let i = 0; i <= n; i++) this.inner[i] = this.widths[i] * 0.55;
-    painter.outline(ctx, this.spine, this.inner, len * 0.02);
-    ctx.fillStyle = 'rgba(60, 58, 36, 0.75)';
-    ctx.fill();
-    ctx.fillStyle = 'rgba(36, 32, 22, 0.6)';
-    for (let k = 0; k < 6; k++) {
-      const u = 0.3 + k * 0.1;
-      for (const side of [-1, 1]) {
-        const p = this.bodyPoint(u, side * 0.7, MINNOW_PROFILE);
-        ctx.beginPath(); ctx.arc(p.x, p.y, len * 0.022, 0, M.TAU); ctx.fill();
-      }
-    }
+    MinnowArt.draw(ctx, this, painter);
   }
   drawShadow(ctx, painter, channel) {
     const h = channel.waterDepthPx(this.depth) * 0.5, dx = BROOK_SHADOW.x * h, dy = BROOK_SHADOW.y * h;
     const n = this.spine.length - 1;
-    for (let i = 0; i <= n; i++) this.inner[i] = MINNOW_PROFILE[i] * this.len * 1.15;
+    for (let i = 0; i <= n; i++) this.inner[i] = MinnowShape.PROFILE[i] * this.len * 1.15;
     painter.outline(ctx, this.spine, this.inner, this.len * 0.035, dx, dy);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
     ctx.fill();
@@ -462,7 +553,8 @@ export class MinnowShoal {
         cx += o.x; cy += o.y; ax += o.vx; ay += o.vy;
         if (d < L * 1.3 && d > 0) { sx -= dx / d * (L * 1.3 - d); sy -= dy / d * (L * 1.3 - d); }
       }
-      const want = m.seek(this.home.x, this.home.y, L * 1.6, L * 6);
+      // the pull home is one of the shoal's pulls, and their sum leads nowhere in particular: no `to`, every rock along it counts
+      const pull = m.seek(this.home.x, this.home.y, L * 1.6, L * 6), want = { x: pull.x, y: pull.y };
       if (n) {
         want.x += (cx / n - m.x) * 0.5 + (ax / n) * 0.35 + sx * 3;
         want.y += (cy / n - m.y) * 0.5 + (ay / n) * 0.35 + sy * 3;

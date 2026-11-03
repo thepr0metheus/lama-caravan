@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, node_args  # noqa: E402
 
 PROBE = r"""
 import { pathToFileURL } from "node:url";
@@ -56,7 +56,7 @@ def main():
     probe = ROOT / "scripts" / ".probe_js_board_view.tmp.mjs"
     probe.write_text(PROBE)
     try:
-        run = subprocess.run([node, str(probe), str(ROOT / "static" / "js" / "board-view.js")],
+        run = subprocess.run(node_args(node, probe, ROOT / "static" / "js" / "board-view.js"),
                              capture_output=True, text=True, timeout=60)
     finally:
         probe.unlink(missing_ok=True)

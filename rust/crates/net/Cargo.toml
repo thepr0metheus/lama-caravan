@@ -1,0 +1,14 @@
+[package]
+name = "net"
+description = "Connections to what the caravan calls: plain or over TLS, and the ones kept open between requests."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+ring.workspace = true
+rustls.workspace = true
+
+[lints]
+workspace = true

@@ -6,9 +6,11 @@ import {
   formatCmdline,
   renderCommandPreview,
 } from "./command-preview.js";
-import { modelFields, numericFields, toggleFields } from "./constants.js";
+import { dirtyOptionalToggles, modelFields, numericFields, optionalToggleFields, toggleFields } from "./constants.js";
+import { AskedWindow } from "./asked-window.js";
 import {
   mcUpdateTrigger,
+  modelWindowFor,
   readConfigForm,
   renderModelInsight,
   renderModelSelects,
@@ -19,6 +21,7 @@ import {
 } from "./form.js";
 import { fieldHelp, t } from "./i18n.js";
 import { currentComputeMode, refreshAsidePanels, refreshComputeTarget } from "./memory.js";
+import { CardPin } from "./placement.js";
 import { _trCellPort, _trHostId, formOnControllerMachine } from "./remote-cells.js";
 import { state, topology, ui } from "./state.js";
 import { $, api, escapeHtml } from "./utils.js";
@@ -91,11 +94,58 @@ export async function setEditCurrentCommand(pfx, mode) {
   renderCommandPreview(pfx);
 }
 
+/**
+ * A field of a runner panel as the cell form opens on a cell: the cell's own value, or — where its config does not name
+ * the field — the field's own default as the page draws it, never what the cell opened before left in it. The loader
+ * passed over a field the config did not name, and a new cell (whose config names no panel field) opened on the last
+ * cell's GR00T backbone, Strata KV cache and Seamless language: the next Apply saved them as the new cell's.
+ *
+ * The default is the markup's, so each lives in one place (static/index.html): the option marked selected — whisper's
+ * large-v3, moonshine's en, the voice-clone engine's xtts, Strata's int8 — a box as drawn, an input's value attribute,
+ * which none has: its placeholder shows the launcher's own default.
+ */
+export class PanelField {
+  /** The words a box reads as ticked; anything else — "0", "", "no" — is not. The loop read any text as yes, and
+   *  TRUST_REMOTE_CODE saved as "0" opened ticked: the next Apply would have run the model's own code unasked. */
+  static TICKED = new Set(["1", "true", "yes", "on"]);
+
+  constructor(el) {
+    this.el = el;
+  }
+
+  /** The field as the cell saved it, or its default when the cell's config does not name it. */
+  load(config, key) {
+    if (!(key in config)) {
+      this.restore();
+      return;
+    }
+    if (this.el.type === "checkbox") this.el.checked = PanelField.TICKED.has(String(config[key] ?? "").trim().toLowerCase());
+    else this.el.value = config[key] ?? "";
+  }
+
+  /** The markup's own default: a box as drawn, the option marked selected (else the first), an input's value attribute. */
+  restore() {
+    const el = this.el;
+    if (el.type === "checkbox") el.checked = !!el.defaultChecked;
+    else if (el.tagName === "SELECT") el.value = ([...el.options].find((o) => o.defaultSelected) || el.options[0])?.value ?? "";
+    else el.value = el.defaultValue ?? "";
+  }
+}
+
 export function applyConfigToForm(config, pfx = "") {
   modelFields.forEach((field) => {
     const el = $(pfx + field);
     if (!el) return;
-    el.value = config[field] || "";
+    // A value the list does not offer yet (a checkpoint not offered on this machine): a select would take it as nothing at all, and the
+    // field would read as empty. It stays what the config says; the pickers mark it (drawModelPickers, `missing`).
+    const wanted = config[field] || "";
+    if (el.tagName === "SELECT" && wanted && el.options && ![...el.options].some((one) => one.value === wanted)) {
+      const kept = document.createElement("option");
+      kept.value = wanted;
+      kept.textContent = wanted;
+      el.appendChild(kept);
+    }
+    el.value = wanted;
     // Refresh the searchable-combobox label; setting .value alone leaves the
     // trigger showing whatever renderModelSelects computed (often the stale
     // state.config model), even though the value/command preview are correct.
@@ -108,6 +158,13 @@ export function applyConfigToForm(config, pfx = "") {
   toggleFields.forEach((field) => {
     const el = $(pfx + field);
     if (el) el.checked = toggleChecked(field, config);
+  });
+  // An optional toggle reads back as stated only while it is marked so (readConfigForm), and the marks were left from
+  // whatever the page touched last: a cell saved with KV_OFFLOAD "0" lost it at its next Apply from a page just loaded,
+  // and a toggle touched for one cell came stated into the next one opened. The config filling the form says which it states.
+  optionalToggleFields.forEach((field) => {
+    if (String(config[field] ?? "").trim() !== "") dirtyOptionalToggles.add(field);
+    else dirtyOptionalToggles.delete(field);
   });
   syncAllToggleLabels(pfx);
   // Sync synthetic SPEC_ENABLED checkbox from SPEC_TYPE value
@@ -137,32 +194,30 @@ export function applyConfigToForm(config, pfx = "") {
   const mnEl = $(pfx + "MODEL_NAME");
   if (mnEl) mnEl.value = config.MODEL_NAME || "";
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER"].forEach((k) => {
+   "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "CPU_OFFLOAD_GB"].forEach((k) => {
     const el = $(pfx + k);
     if (el) el.value = config[k] || "";
   });
-  // The cell's own, never the previous cell's left in the box: a config that does not say, says no.
-  const trustEl = $(pfx + "TRUST_REMOTE_CODE");
-  if (trustEl) trustEl.checked = ["1", "true", "yes", "on"].includes(String(config.TRUST_REMOTE_CODE ?? "").trim().toLowerCase());
-  const whEl = $(pfx + "WHISPER_MODEL");
-  if (whEl) whEl.value = config.WHISPER_MODEL || "large-v3";
-  const msEl = $(pfx + "MOONSHINE_MODEL");
-  if (msEl) msEl.value = config.MOONSHINE_MODEL || "en";
-  // Everything else inside a runner panel, keyed by the field's own id. This
-  // was a hand-written list and it went stale exactly as such lists do: the
-  // seamless and translate panels were never added, so a cell saved with
-  // SEAMLESS_TGT_LANG=eng opened showing the select's default "rus" — the form
-  // presenting its own default as the cell's setting, and Apply silently
-  // retargeting the cell. A new panel is now populated by existing.
+  // Every field inside a runner panel, keyed by the field's own id: the cell's value, or the field's own default when
+  // its config does not name it (PanelField) — TRUST_REMOTE_CODE's box, whisper's size and moonshine's language among
+  // them. This was a hand-written list and it went stale exactly as such lists do: the seamless and translate panels
+  // were never added, so a cell saved with SEAMLESS_TGT_LANG=eng opened showing the select's default "rus" — the form
+  // presenting its own default as the cell's setting, and Apply silently retargeting the cell. A new panel is now
+  // populated by existing.
   ["commandFields", "vllmFields", "envFields", "whisperFields", "moonshineFields",
-   "seamlessFields", "translateFields", "strataFields", "gr00tFields"].forEach((panel) => {
+   "seamlessFields", "translateFields", "strataFields", "gr00tFields", "voiceCloneFields", "pageFields"].forEach((panel) => {
     $(pfx + panel)?.querySelectorAll("input, select, textarea").forEach((el) => {
       const key = String(el.id || "").slice(pfx.length);
-      if (!key || !(key in config)) return;
-      if (el.type === "checkbox") el.checked = !!config[key];
-      else el.value = config[key] ?? "";
+      if (key) new PanelField(el).load(config, key);
     });
   });
+  // A voice-clone cell's engine as the launcher reads it: in its own case, and the launcher's default for an engine it
+  // does not know — a list matches its options exactly, and an engine saved as "F5" would open on none.
+  const ttsEl = $(pfx + "TTS_ENGINE");
+  if (ttsEl) ttsEl.value = voiceCloneEngine(config.TTS_ENGINE);
+  // The page's address as the cell saved it, without the spaces around it: the card links the trimmed address.
+  const pageEl = $(pfx + "PAGE_URL");
+  if (pageEl) pageEl.value = String(config.PAGE_URL ?? "").trim();
   // vLLM/whisper cells clear MODEL_FILE on save, and merging with the global
   // config would leak the main service's model into the picker. So the picker
   // ALWAYS shows the cell's own artifact (vLLM with a local path) or nothing
@@ -172,8 +227,9 @@ export function applyConfigToForm(config, pfx = "") {
     const vm = String(config.VLLM_MODEL || "").trim().replace(/\/+$/, "");
     const base = (state.paths?.modelsDir || "").replace(/\/+$/, "");
     let rel = "";
-    if (_rid === "vllm" && vm && base && vm.startsWith(base + "/")) {
-      const cand = vm.slice(base.length + 1);
+    if (_rid === "vllm" && vm) {
+      // A path of the controller's models, or the place in them as the form writes it on another machine.
+      const cand = base && vm.startsWith(base + "/") ? vm.slice(base.length + 1) : vm;
       if ((state.artifacts || []).some((a) => a.path === cand)) rel = cand;
     }
     if (_rid === "whisper") {
@@ -255,7 +311,7 @@ export function runnerFixedVramGb(runner) {
 }
 
 export function effectiveRunnerId(pfx) {
-  // Mirrors `runner_id` in caravan/domain/runner.py: same trim, same lower-case,
+  // Says what `runner_id` in rust/crates/admin/src/domain/runner/mod.rs says: same trim, same lower-case,
   // on both fields. It used to differ — RUNNER kept its case and CELL_KIND was
   // compared raw — so a config the SERVER runs as whisper was previewed here as
   // something else entirely, and " command " was drawn as a llama cell. The same
@@ -325,8 +381,9 @@ export function stKind(arch) {
 
 // Can this runner launch the currently selected artifact? "*" accepts anything —
 // vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
-// what sits in that field cannot disqualify them.
-function runnerAvailability(runner, pfx) {
+// what sits in that field cannot disqualify them. The runner tabs and the new-cell
+// wizard (add-model.js) ask the same question here.
+export function runnerAvailability(runner, pfx) {
   // A directory checkpoint (seamless) was offered only on the controller's own
   // machine: a scout could not download a folder. It can since scout 2.30 and
   // lama-caravan 1.3.509 (GET /api/models/folder), and with the controller on
@@ -394,14 +451,12 @@ function runnerHostGateHtml(pfx) {
 }
 
 // VLLM_MODEL derives from the model picker, so the raw field is noise while a
-// model is picked — show it only for the hand-typed HF-repo-id case (empty
-// picker), and always where the controller's paths don't apply (a machine that
-// does not read its models tree — formOnControllerMachine).
+// model is picked — show it only for the hand-typed HF-repo-id or path case
+// (empty picker).
 function syncVllmModelVisibility(pfx) {
   const el = $(pfx + "VLLM_MODEL");
   if (!el) return;
-  const picked = !!(($(pfx + "MODEL_FILE")?.value || "").trim());
-  const hide = picked && formOnControllerMachine(pfx);
+  const hide = !!(($(pfx + "MODEL_FILE")?.value || "").trim());
   el.style.display = hide ? "none" : "";
   const lbl = el.previousElementSibling;
   if (lbl?.classList?.contains("label-row")) lbl.style.display = hide ? "none" : "";
@@ -425,10 +480,10 @@ function markWhisperOptions(pfx) {
 // editor's CSS hides, so the tip is the only place its help is read.
 const _STATIC_TIP_FIELDS = ["MODEL_NAME", "COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
-  "DTYPE", "TENSOR_PARALLEL", "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "TRUST_REMOTE_CODE", "WHISPER_MODEL", "MOONSHINE_MODEL",
+  "DTYPE", "TENSOR_PARALLEL", "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "CPU_OFFLOAD_GB", "TRUST_REMOTE_CODE", "WHISPER_MODEL", "MOONSHINE_MODEL",
   "SEAMLESS_TGT_LANG", "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
   "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
-  "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS"];
+  "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS", "TTS_ENGINE", "PAGE_URL"];
 function injectStaticFieldTips(pfx) {
   _STATIC_TIP_FIELDS.forEach((f) => {
     const label = _cellKindOverlay(pfx)?.querySelector(`label[for="${pfx}${f}"]`);
@@ -553,9 +608,23 @@ export function applyCellKindUI(pfx) {
   if (seamlessFields) seamlessFields.style.display = isSeamless ? "" : "none";
   const strataFields = $(pfx + "strataFields");
   if (strataFields) strataFields.style.display = isStrata ? "" : "none";
+  // A runner that keeps its models in a folder of its own (the registry's workFolder: Strata) keeps them by that folder's limit,
+  // whatever the cell's switch says: the switch is not shown, and the words say where they are (the owner, 2026-11-03).
+  const keepsByFolder = !!_rmeta.workFolder;
+  const cacheRow = $(pfx + "cacheRow");
+  if (cacheRow) cacheRow.style.display = keepsByFolder ? "none" : "";
+  const cacheByFolder = $(pfx + "cacheByFolder");
+  if (cacheByFolder) cacheByFolder.style.display = keepsByFolder ? "" : "none";
   if (isStrata) syncStrataDraftNote(pfx);
   const gr00tFields = $(pfx + "gr00tFields");
   if (gr00tFields) gr00tFields.style.display = isGr00t ? "" : "none";
+  // The voice-clone runner's engine: its one setting, in its panel.
+  const voiceCloneFields = $(pfx + "voiceCloneFields");
+  if (voiceCloneFields) voiceCloneFields.style.display = runner === "voice-clone" ? "" : "none";
+  // Where the page a cell serves itself is reached over https: for a runner whose registry row says it serves one
+  // (`page`, PersonaPlex's), not for a list of ids.
+  const pageFields = $(pfx + "pageFields");
+  if (pageFields) pageFields.style.display = _rmeta.page?.field ? "" : "none";
   const translateFields = $(pfx + "translateFields");
   if (translateFields) translateFields.style.display = isTranslate ? "" : "none";
   // TRANSLATE_MODEL is now picked in the SHARED picker (a 🔄 row per NLLB
@@ -590,43 +659,67 @@ export function wireCellKindToggle(pfx) {
   overlay.querySelector(".runner-tabs")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-runner]");
     if (!btn || btn.disabled) return;
-    const rEl = $(pfx + "RUNNER");
-    if (rEl) rEl.value = btn.dataset.runner || "";
-    // Manual switch to whisper: aim the shared picker at the current size —
-    // the dedicated select is hidden everywhere.
-    if ((btn.dataset.runner || "") === "moonshine") {
-      const mEl = $(pfx + "MODEL_FILE");
-      const lang = ($(pfx + "MOONSHINE_MODEL")?.value || "").trim().toLowerCase() || "en";
-      const want = `moonshine/${lang}`;
-      if (mEl && mEl.value !== want) {
-        mEl.value = want;
-        if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
-      }
-      applyCellKindUI(pfx);
-      return;
-    }
-    if ((btn.dataset.runner || "") === "translate") {
-      const mEl = $(pfx + "MODEL_FILE");
-      const repo = ($(pfx + "TRANSLATE_MODEL")?.value || "").trim() || "facebook/nllb-200-distilled-600M";
-      const want = `translate/models--${repo.replace("/", "--")}`;
-      if (mEl && mEl.value !== want) {
-        mEl.value = want;
-        if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
-      }
-    }
-    if ((btn.dataset.runner || "") === "whisper") {
-      const mEl = $(pfx + "MODEL_FILE");
-      const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
-      const want = `whisper/models--Systran--faster-whisper-${size}`;
-      if (mEl && mEl.value !== want) {
-        mEl.value = want;
-        if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
-      }
+    chooseRunner(pfx, btn.dataset.runner || "");
+  });
+  wireModelRunnerFollow(pfx);
+  wireDeviceAndHealth(pfx);
+  overlay.dataset.cellKindWired = "1";
+}
+
+/** A runner chosen for form `pfx` — by its tab or by the new-cell wizard (add-model.js): the field set, the shared picker
+ *  aimed where the runner's own field keeps its model (moonshine's language, NLLB's checkpoint, whisper's size), and the
+ *  form drawn for the runner. */
+export function chooseRunner(pfx, runnerId) {
+  const runner = String(runnerId || "");
+  const rEl = $(pfx + "RUNNER");
+  if (rEl) rEl.value = runner;
+  // Manual switch to whisper: aim the shared picker at the current size —
+  // the dedicated select is hidden everywhere.
+  if (runner === "moonshine") {
+    const mEl = $(pfx + "MODEL_FILE");
+    const lang = ($(pfx + "MOONSHINE_MODEL")?.value || "").trim().toLowerCase() || "en";
+    const want = `moonshine/${lang}`;
+    if (mEl && mEl.value !== want) {
+      mEl.value = want;
+      if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
     }
     applyCellKindUI(pfx);
-  });
-  // Model switch can change which runners fit the artifact — and picking a
-  // safetensors artifact aims the vLLM runner at its local path.
+    return;
+  }
+  if (runner === "translate") {
+    const mEl = $(pfx + "MODEL_FILE");
+    const repo = ($(pfx + "TRANSLATE_MODEL")?.value || "").trim() || "facebook/nllb-200-distilled-600M";
+    const want = `translate/models--${repo.replace("/", "--")}`;
+    if (mEl && mEl.value !== want) {
+      mEl.value = want;
+      if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
+    }
+  }
+  if (runner === "whisper") {
+    const mEl = $(pfx + "MODEL_FILE");
+    const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
+    const want = `whisper/models--Systran--faster-whisper-${size}`;
+    if (mEl && mEl.value !== want) {
+      mEl.value = want;
+      if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
+    }
+  }
+  applyCellKindUI(pfx);
+}
+
+/** The runner a model is made for: the one whose registry row names the model's kind — or PrismML for its Bonsai quants —
+ *  else null. The form jumps to it when the runner it has cannot launch the model picked, and the new-cell wizard
+ *  (add-model.js) says it ahead of the pick: a runner that names this KIND wins over one that merely accepts anything —
+ *  picking GigaAM must land on transcribe.cpp, and "first available" would hand it to vLLM, which sits earlier and takes "*". */
+export function runnerNaming(model) {
+  const kind = artifactKind(model);
+  const prismModel = /PQ2_0|PTQ1_0/i.test(String(model || ""));
+  return runnerRegistry().find((r) => (prismModel ? r.id === "prism" : kind && (r.artifacts || []).includes(kind))) || null;
+}
+
+// Model switch can change which runners fit the artifact — and picking a
+// safetensors artifact aims the vLLM runner at its local path.
+function wireModelRunnerFollow(pfx) {
   $(pfx + "MODEL_FILE")?.addEventListener("change", () => {
     const model = $(pfx + "MODEL_FILE")?.value || "";
     // A downloaded whisper model picked from the shared picker: flip the
@@ -662,24 +755,19 @@ export function wireCellKindToggle(pfx) {
     // VLLM_MODEL is DERIVED from the picked model (folder for safetensors,
     // file path for gguf) — the field stays editable only for HF repo ids
     // with no local copy. An explicit pick always rewrites it, like ALIAS.
-    // Only where the target reads the controller's models tree: these are its
-    // paths, other machines don't have them (formOnControllerMachine).
+    // On the controller's own machine it is a path of its models tree. Anywhere else it is the place among
+    // those models: the scout brings the model, or shows it, and the line reads it from there.
     const vmEl = $(pfx + "VLLM_MODEL");
-    if (vmEl && model && formOnControllerMachine(pfx)) {
-      const base = (state.paths?.modelsDir || effectiveModelsDir(state.config) || "").replace(/\/+$/, "");
-      if (stRow) vmEl.value = base + "/" + stRow.path;
-      else if (model.toLowerCase().endsWith(".gguf")) vmEl.value = base + "/" + model;
+    if (vmEl && model) {
+      const base = formOnControllerMachine(pfx) ? (state.paths?.modelsDir || effectiveModelsDir(state.config) || "").replace(/\/+$/, "") : "";
+      const at = (rel) => (base ? `${base}/${rel}` : rel);
+      if (stRow) vmEl.value = at(stRow.path);
+      else if (model.toLowerCase().endsWith(".gguf")) vmEl.value = at(model);
     }
     const cur = runnerRegistry().find((r) => r.id === effectiveRunnerId(pfx));
     if (cur && !runnerAvailability(cur, pfx).ok) {
-      // The active runner can't launch this artifact — jump to one that can.
-      // A runner that names this KIND wins over one that merely accepts
-      // anything: picking GigaAM must land on transcribe.cpp, and "first
-      // available" would hand it to vLLM, which sits earlier and takes "*".
-      const kind = artifactKind($(pfx + "MODEL_FILE")?.value || "");
-      const prismModel = /PQ2_0|PTQ1_0/i.test($(pfx + "MODEL_FILE")?.value || "");
-      const named = runnerRegistry().find((r) => prismModel ? r.id === "prism"
-        : kind && (r.artifacts || []).includes(kind));
+      // The active runner can't launch this artifact — jump to the one made for it (runnerNaming), else the first that can.
+      const named = runnerNaming($(pfx + "MODEL_FILE")?.value || "");
       const fit = named || runnerRegistry().find((r) => runnerAvailability(r, pfx).ok);
       const rEl = $(pfx + "RUNNER");
       if (fit && rEl) rEl.value = fit.id;
@@ -692,9 +780,12 @@ export function wireCellKindToggle(pfx) {
       renderRunnerTabs(pfx);
     }
   });
-  // Command-tab conveniences: the preset dropdown. The live preview on edit is not wired field by field
-  // here: the form's own input/change listeners (remote-cells.js) draw every preview after every edit.
-  populateCommandPresets(pfx);
+}
+
+// The live preview on edit is not wired field by field here: the form's own input/change listeners
+// (remote-cells.js) draw every preview after every edit. The command tab has no presets since 1.3.611: whisper
+// and the TTS engines are runners of their own, and a server is a runner, not a preset (docs/adding-a-runner.md).
+function wireDeviceAndHealth(pfx) {
   // Device pin: the unified compute-target card above MODEL_FILE writes ENV for
   // command-path runners (see applyComputeMode → _applyDeviceToEnv). A hand-typed
   // ENV pin feeds back into the card so the two never disagree.
@@ -718,7 +809,6 @@ export function wireCellKindToggle(pfx) {
       if (healthTog.checked) healthPath.focus();
     });
   }
-  overlay.dataset.cellKindWired = "1";
 }
 
 // Device pin selector (command/whisper/vLLM cells) — pure sugar over ENV so
@@ -734,38 +824,13 @@ export function _envDeviceState(envStr, cmdStr) {
 }
 
 export function _applyDeviceToEnv(envStr, mode) {
+  if (mode === "cpu") return CardPin.offCards(envStr);
   const rows = String(envStr || "").split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
     .filter((r) => !/^(TTS_DEVICE|CUDA_VISIBLE_DEVICES)=/i.test(r));
-  if (mode === "cpu") rows.push("TTS_DEVICE=cpu", "CUDA_VISIBLE_DEVICES=");
   if (mode === "gpu") rows.push("TTS_DEVICE=cuda");
   return rows.join("\n");
 }
 
-export const COMMAND_PRESETS = [
-  { id: "", labelKey: "cmdPresetPlaceholder" },   // t() at render — module scope hits the i18n TDZ
-  // Standardized on faster-whisper (fastest on NVIDIA GPU). run_whisper.sh uses
-  // the ~/wsr venv and puts cuDNN/cuBLAS on LD_LIBRARY_PATH; the agent installer
-  // auto-provisions it, so this one preset works on every GPU host.
-  { id: "whisper", label: "whisper · faster-whisper (large-v3)",
-    COMMAND: "bash ~/run_whisper.sh $PORT large-v3", HEALTH_PATH: "/health" },
-  // Voice-clone TTS cells: one server file, the engine is picked per cell
-  // (scripts/install-tts.sh drops ~/run_tts.sh + ffmpeg; the engine venv and
-  // model self-install on first start — 10–20 min — unless pre-warmed with
-  // install-tts.sh --prewarm). POST /v1/audio/speech-clone: text+lang+ref wav.
-  //
-  // The licence is in the label because it differs per engine and it is the
-  // model's, not the code's: XTTS-v2 ships under the Coqui Public Model
-  // Licence, which forbids commercial use, and F5-TTS is MIT code over a base
-  // model trained on CC-BY-NC data. Someone picking an engine from a dropdown
-  // has no other moment to learn that — cells/tts_server.py says it too, but
-  // nobody reads a server file before clicking a preset.
-  { id: "tts-xtts", label: "tts · XTTS-v2 (voice clone) — non-commercial",
-    COMMAND: "bash ~/run_tts.sh $PORT xtts", HEALTH_PATH: "/health" },
-  { id: "tts-f5", label: "tts · F5-TTS (voice clone) — MIT code, NC base model",
-    COMMAND: "bash ~/run_tts.sh $PORT f5", HEALTH_PATH: "/health" },
-  { id: "tts-cosyvoice", label: "tts · CosyVoice2 (voice clone) — Apache-2.0",
-    COMMAND: "bash ~/run_tts.sh $PORT cosyvoice", HEALTH_PATH: "/health" },
-];
 
 // Command-tab field sync: the device now lives in the unified compute-target
 // card above MODEL_FILE (repaint it), and the health switch mirrors whether
@@ -780,40 +845,6 @@ export function syncCmdExtras(pfx) {
   }
 }
 
-export function populateCommandPresets(pfx) {
-  const sel = $(pfx + "CMD_PRESET");
-  if (!sel || sel.dataset.filled) return;
-  sel.innerHTML = COMMAND_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.labelKey ? t(p.labelKey) : p.label)}</option>`).join("");
-  sel.dataset.filled = "1";
-  const applyPreset = (p) => {
-    ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH"].forEach((k) => {
-      const el = $(pfx + k);
-      if (el) el.value = p[k] || "";
-    });
-    const devSel = $(pfx + "CELL_DEVICE");
-    if (devSel) devSel.value = _envDeviceState(p.ENV || "", p.COMMAND || "");
-    syncCmdExtras(pfx);
-    renderCommandCellPreview(pfx);
-  };
-  sel.addEventListener("change", () => {
-    const p = COMMAND_PRESETS.find((x) => x.id === sel.value);
-    sel.value = "";
-    if (p && p.id) applyPreset(p);
-  });
-  // Chips row — the visible face of the presets (the select stays for compat).
-  const chips = $(pfx + "CMD_PRESET_CHIPS");
-  if (chips && !chips.dataset.filled) {
-    chips.innerHTML = COMMAND_PRESETS.filter((p) => p.id)
-      .map((p) => `<button type="button" class="cmd-preset-chip" data-cmd-preset="${escapeHtml(p.id)}">${escapeHtml(p.label)}</button>`).join("");
-    chips.dataset.filled = "1";
-    chips.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-cmd-preset]");
-      if (!b) return;
-      const p = COMMAND_PRESETS.find((x) => x.id === b.dataset.cmdPreset);
-      if (p) applyPreset(p);
-    });
-  }
-}
 
 export function _commandCellSlot(pfx) {
   const port = pfx === "tr-" ? _trCellPort : "";
@@ -823,13 +854,15 @@ export function _commandCellSlot(pfx) {
     .find((s) => s.isSlot && String(s.port) === String(port) && String(s.clientId || "") === String(_trHostId)) || null;
 }
 
-// Mirror of build_vllm_command() in caravan/admin/runners.py — the backend
+// As the command of rust/crates/admin/src/domain/runner/vllm.rs — the backend
 // renders the real script; this only feeds the NEW COMMAND preview pane.
 export function buildVllmCommandPreview(pfx) {
   const v = (id) => ($(pfx + id)?.value || "").trim();
   const model = v("VLLM_MODEL");
-  const parts = ["$HOME/vllm-venv/bin/vllm", "serve", model || "…", "--host", "0.0.0.0", "--port", '"$PORT"'];
-  const served = v("ALIAS") || (model ? model.split("/").pop().toLowerCase() : "");
+  // A place among the controller's models is read from where the scout brought them, as the real line says.
+  const placed = (state.artifacts || []).some((a) => a.path === model.replace(/\/+$/, ""));
+  const parts = ["$HOME/vllm-venv/bin/vllm", "serve", placed ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${model}` : model || "…", "--host", "0.0.0.0", "--port", '"$PORT"'];
+  const served = v("MODEL_NAME") || v("ALIAS") || (model ? model.split("/").pop().toLowerCase() : "");
   if (served) parts.push("--served-model-name", served);
   if (v("MAX_MODEL_LEN")) parts.push("--max-model-len", v("MAX_MODEL_LEN"));
   if (v("GPU_MEMORY_UTILIZATION")) parts.push("--gpu-memory-utilization", v("GPU_MEMORY_UTILIZATION"));
@@ -844,11 +877,12 @@ export function buildVllmCommandPreview(pfx) {
   const kv = v("KV_CACHE_DTYPE").toLowerCase();
   if (kv && kv !== "auto") parts.push("--kv-cache-dtype", kv);
   if (v("REASONING_PARSER")) parts.push("--reasoning-parser", v("REASONING_PARSER"));
+  if (Number(v("CPU_OFFLOAD_GB")) > 0) parts.push("--cpu-offload-gb", v("CPU_OFFLOAD_GB"));
   if ($(pfx + "TRUST_REMOTE_CODE")?.checked) parts.push("--trust-remote-code");
   return parts.join(" ");
 }
 
-// The run_strata.sh line as StrataRunner.command (caravan/domain/runner.py)
+// The run_strata.sh line as StrataRunner.command (rust/crates/admin/src/domain/runner/mod.rs)
 // builds it — a mirror, pinned against the server's by test_js_llama_edit.py's
 // golden case: the server's line is the one that runs.
 export function buildStrataCommandPreview(pfx) {
@@ -857,8 +891,9 @@ export function buildStrataCommandPreview(pfx) {
     ? rel : `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${rel}`;
   const parts = ["bash", "$HOME/run_strata.sh", '"$PORT"', path(v("MODEL_FILE") || "…")];
   if (v("SPEC_DRAFT_MODEL_FILE")) parts.push("--mtp", path(v("SPEC_DRAFT_MODEL_FILE")));
-  parts.push("--context", v("STRATA_CONTEXT") || "131072", "--kv", (v("STRATA_KV") || "int8").toLowerCase(),
-             "--draft-vocab", (v("STRATA_DRAFT_VOCAB") || "cyrillic").toLowerCase());
+  const window = AskedWindow.of(v("STRATA_CONTEXT"), modelWindowFor(pfx));
+  if (window) parts.push("--context", String(window));
+  parts.push("--kv", (v("STRATA_KV") || "int8").toLowerCase(), "--draft-vocab", (v("STRATA_DRAFT_VOCAB") || "cyrillic").toLowerCase());
   if (/^\d+$/.test(v("STRATA_VRAM_RESERVE_MIB")) && Number(v("STRATA_VRAM_RESERVE_MIB")) > 0) {
     parts.push("--vram-reserve-mib", String(Number(v("STRATA_VRAM_RESERVE_MIB"))));
   }
@@ -867,7 +902,7 @@ export function buildStrataCommandPreview(pfx) {
   return parts.join(" ");
 }
 
-// The run_gr00t.sh line as Gr00tRunner.command (caravan/domain/runner.py) builds
+// The run_gr00t.sh line as Gr00tRunner.command (rust/crates/admin/src/domain/runner/mod.rs) builds
 // it — a mirror, pinned against the server's by test_js_llama_edit.py: the
 // server's line is the one that runs.
 export function buildGr00tCommandPreview(pfx) {
@@ -905,10 +940,16 @@ export function launcherModelFolder(row, model) {
   return folder;
 }
 
+// The engine a voice-clone cell runs: the one named, else the launcher's default — VoiceCloneRunner in
+// rust/crates/admin/src/domain/runner/engines.rs, held to it by one table of cases (contract/runner_lines.json, run by test_js_llama_edit.py).
+export function voiceCloneEngine(raw) {
+  return String(raw ?? "").trim().toLowerCase() || "xtts";
+}
+
 // The line of a runner that launches a library folder through a launcher of the caravan (the voice servers:
-// LauncherCellMixin in runner.py), from the registry row's own words — `launcher`, `launcherArgs`, `folderRule` — as
+// rust/crates/admin/src/domain/runner/engines.rs), from the registry row's own words — `launcher`, `launcherArgs`, `folderRule` — as
 // the server builds it. A mirror, pinned against the server's line over one table of cases
-// (scripts/test_launcher_runners.py, run by test_js_llama_edit.py): the server's line is the one that runs.
+// (contract/runner_lines.json, run by test_js_llama_edit.py): the server's line is the one that runs.
 export function buildLauncherCommandPreview(row, pfx) {
   const model = ($(pfx + "MODEL_FILE")?.value || "").trim();
   const folder = model ? launcherModelFolder(row, model) : "…";
@@ -916,6 +957,24 @@ export function buildLauncherCommandPreview(row, pfx) {
   const path = (rel) => (rel === "…" ? rel : ((rel.startsWith("/") || rel.startsWith("$"))
     ? shellQuote(rel) : `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${shellQuote(rel)}`));
   return ["bash", `$HOME/${row.launcher}`, '"$PORT"', ...(row.launcherArgs || ["{model}"]).map((a) => a.replace("{model}", path(folder)))].join(" ");
+}
+
+// The field a runner's window is typed into — vLLM's MAX_MODEL_LEN, Strata's STRATA_CONTEXT, CTX_SIZE for the rest — from the
+// server's runner classes. Read as CTX_SIZE, a vLLM or Strata card drew the window every config inherits.
+export function runnerContextField(runnerId) {
+  return runnerRegistry().find((r) => r.id === runnerId)?.contextField || "CTX_SIZE";
+}
+
+// The placeholder of the runner's window field says the most the model takes (modelWindowFor), whatever the field holds — the
+// owner, 2026-10-26. Strata's said 131072 (its figure for a 32 GB card, which an empty field asked for until that day) and
+// vLLM's "32768", a number of no model. CTX_SIZE has its own (updateCtxYarnHint), which also knows the window a running cell's
+// model card states.
+export function syncWindowPlaceholder(pfx) {
+  const name = runnerContextField(effectiveRunnerId(pfx));
+  const field = name === "CTX_SIZE" ? null : $(pfx + name);
+  if (!field) return;
+  const most = modelWindowFor(pfx);
+  field.placeholder = most ? String(most) : "";
 }
 
 // Which draft layer the Strata cell starts with: the picker fills
@@ -965,6 +1024,12 @@ export function _buildCommandExecPreview(pfx) {
     return [`export PORT=${port}`,
             "# first start provisions ~/moonshine-venv and fetches the model",
             `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`].join("\n");
+  }
+  if (runner === "voice-clone") {
+    const engine = voiceCloneEngine($(pfx + "TTS_ENGINE")?.value);
+    return [`export PORT=${port}`,
+            "# the first start makes ~/tts-<engine> and fetches the engine's weights (10–20 minutes)",
+            `exec bash $HOME/run_tts.sh "$PORT" ${engine}`].join("\n");
   }
   if (runner === "translate") {
     const model = ($(pfx + "TRANSLATE_MODEL")?.value || "").trim()
@@ -1173,6 +1238,7 @@ export function renderCellPreviews(pfx) {
   renderCommandPreview(pfx);
   const runner = effectiveRunnerId(pfx);
   if (runner === "strata") syncStrataDraftNote(pfx);
+  syncWindowPlaceholder(pfx);
   // A llama.cpp cell's line is the controller's: _buildCommandExecPreview builds
   // none for it, and the panel that would show it is hidden.
   if (!usesLlamaConfig(runner)) renderCommandCellPreview(pfx);

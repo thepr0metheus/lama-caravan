@@ -100,7 +100,7 @@ const mkEl = (id = "") => ({ id, className: "", dataset: {}, style: {}, attrs: {
 const node = (parent, data = {}) => { const n = mkEl(); n.parent = parent; n.dataset = { ...data }; return n; };
 const IDS = ["hfSearchForm", "hfSearchInput", "hfLimitSelect", "hfSearchBtn", "hfFilters", "hfSizeChips", "hfCapChips", "hfMaskInput", "hfSortSelect", "hfSortDir", "hfLoad", "hfLoadText", "hfLoadFill",
   "hfToken", "hfTokenBtn", "hfTokenStatus", "hfTokenPop", "hfTokenText", "hfTokenInput", "hfTokenSaveBtn", "hfTokenEditBtn", "hfTokenClearBtn", "hfTabs", "hfTabResults", "hfTabFavs",
-  "hfListHead", "hfList", "hfRepo", "hfDock", "hfFrontier", "hfDiskBadge", "hfOnDiskBtn", "projectGitBranch", "userChip", "userMenu", "userChipBtn", "userChipName", "userMenuLogout",
+  "hfListHead", "hfList", "hfRepo", "hfDock", "hfFrontier", "hfDiskBadge", "headerPages", "headerModelsLink", "headerRoutingLink", "headerMachinesBtn", "projectGitBranch", "userChip", "userMenu", "userChipBtn", "userChipName", "userMenuLogout",
   "langSelect", "langTrigger", "langMenu", "langTriggerEmoji", "langTriggerCode", "obBtnLabel"];
 // Parents and the hidden attribute as static/hf.html has them.
 const PARENTS = { hfTokenBtn: "hfToken", hfTokenPop: "hfToken", hfTokenStatus: "hfTokenBtn", hfTokenText: "hfTokenPop", hfTokenInput: "hfTokenPop", hfTokenSaveBtn: "hfTokenPop",
@@ -207,7 +207,8 @@ PINS = [
         return { paths: made.map(([m, p]) => `${m} ${p}`).sort(),
           text: [e.searchInput.placeholder, e.searchInput.attrs["aria-label"], e.limit.title, e.limit.attrs["aria-label"], e.searchBtn.textContent, e.sizeChips.attrs["aria-label"], e.capChips.attrs["aria-label"],
                  e.mask.placeholder, e.mask.attrs["aria-label"], e.sort.attrs["aria-label"], e.tokenInput.attrs["aria-label"], e.tokenSave.textContent, e.tokenEdit.textContent, e.tokenClear.textContent,
-                 e.onDisk.title, e.onDisk.kids["[data-label]"].textContent],
+                 e.models.title, e.models.kids[".topbar-page-label"].textContent, e.pages.attrs["aria-label"],
+                 e.routing.title, e.routing.kids[".topbar-page-label"].textContent, e.machines.title, e.machines.kids[".topbar-page-label"].textContent],
           sort: e.sort.innerHTML,
           ready: [b.dataset.tState, "tStateDetail" in b.dataset, b.attrs["aria-busy"], plHidden, e.searchInput.focused, intervals.map((i) => i[0])],
           tour: [tourCalls.map((c) => c[0]), tourCalls[0][1].title(), tourCalls[1][1], tourCalls[1][2](), doc.els.obBtnLabel.textContent],
@@ -218,9 +219,10 @@ PINS = [
           disk: [e.diskBadge.hidden, e.diskBadge.textContent, e.diskBadge.title, e.diskBadge.classList.contains("low")],
           dock: [e.dock.hidden, e.dock.innerHTML], frontier: [e.frontier.hidden, e.frontier.innerHTML] }; })()""",
      J({"paths": sorted(["GET /api/auth/me", f"GET {BENCH_G}", "GET /api/hf/download/jobs", "GET /api/hf/favorites", f"GET {FILES_G}", f"GET {LOCAL_G}",
-                         "GET /api/hf/reference-models", "GET /api/hf/token", "GET /api/models/disk", "GET /health"]),
+                         "GET /api/hf/reference-models", "GET /api/hf/token", "GET /api/model-notes", "GET /api/models/disk", "GET /health"]),
         "text": ["author/repo or search words…", "Search Hugging Face", "Number of results", "Number of results", "Search", "Model size", "Capabilities", "name contains…",
-                 "Filter by file name", "Sort order", "Hugging Face access token", "Save", "Change", "Clear", "Manage downloaded models", "on disk"],
+                 "Filter by file name", "Sort order", "Hugging Face access token", "Save", "Change", "Clear", "Manage downloaded models", "Models", "Pages",
+                 "Where requests go: clients, pools and models", "Routing", "The machines connected to the caravan", "Machines"],
         "sort": SORT,
         "ready": ["ready", False, "false", 1, 1, [60000]],
         "tour": [["init", "auto"], "How to use this page", "hf", True, "Tour"],
@@ -436,6 +438,40 @@ PINS = [
      J([[["g-Q4_K_M.gguf", "mmproj-g-bf16.gguf"], False, True, True], ["mmproj-g-bf16.gguf"], ["mmproj-g-bf16.gguf"], 1]),
      "галочка: выбирает файлы, которые называет (чужих имён нет в списке репозитория — не берёт), док появляется с размером, галочка отмечена; снятая — убирает; не галочка и без выбранного репозитория — ничего"),
 
+    ("box_takes_nothing_we_have", "",
+     r"""await (async () => { await boot({ [FILES_URL(G)]: FILES(), [LOCAL_URL(G)]: { ok: true, localNames: ["g-Q4_K_M.gguf", "g-Q8_0.gguf"],
+          localFiles: { "g-Q4_K_M.gguf": { size: 7 * GB, mtime: 1788790379 }, "g-Q8_0.gguf": { size: 12 * GB - 7, mtime: 1788790379 } } } });
+        const e = page.el; page.catalog.setResults(REPOS()); await page.select(G); await settle();
+        const box = (paths, checked) => { const n = node(e.repo, { act: "pick", paths: JSON.stringify(paths) }); n.checked = checked; return n; };
+        const html = e.repo.innerHTML, shut = (path) => new RegExp(`data-t-id="${path}"[^>]*disabled`).test(html);
+        await fire(box(["g-Q4_K_M.gguf", "g-Q8_0.gguf", "mmproj-g-bf16.gguf"], true), "change"); const ticked = page.downloads.picks(G);
+        await fire(box(["g-Q8_0.gguf"], false), "change");
+        return [ticked, page.downloads.picks(G), shut("g-Q4_K_M.gguf"), shut("g-Q8_0.gguf"), shut("mmproj-g-bf16.gguf")]; })()""",
+     J([["g-Q8_0.gguf", "mmproj-g-bf16.gguf"], ["mmproj-g-bf16.gguf"], True, False, False]),
+     "щелчок по файлам: Q4_K_M уже на диске такой же — не берётся, даже если пришло изменение (ящик на нём закрыт); Q8_0 на диске другого размера (⇪) и mmproj, которого нет, берутся; "
+     "снятие Q8_0 работает"),
+
+    ("selection_forgets_what_landed", "",
+     r"""await (async () => { await boot({ [FILES_URL(G)]: FILES(), [LOCAL_URL(G)]: { ok: true, localNames: [], localFiles: {} } });
+        const e = page.el; page.catalog.setResults(REPOS()); await page.select(G); await settle();
+        const box = (paths, checked) => { const n = node(e.repo, { act: "pick", paths: JSON.stringify(paths) }); n.checked = checked; return n; };
+        await fire(box(["g-Q4_K_M.gguf", "mmproj-g-bf16.gguf"], true), "change"); const before = [page.downloads.picks(G), e.dock.hidden];
+        replies[LOCAL_URL(G)] = { ok: true, localNames: ["g-Q4_K_M.gguf"], localFiles: { "g-Q4_K_M.gguf": { size: 7 * GB, mtime: 1788790379 } } };
+        await page.refreshLocal(G); await settle();
+        return [before, page.downloads.picks(G), page.downloads.count(), e.dock.hidden, e.repo.innerHTML.includes('data-t-id="g-Q4_K_M.gguf" disabled')]; })()""",
+     J([[["g-Q4_K_M.gguf", "mmproj-g-bf16.gguf"], False], ["mmproj-g-bf16.gguf"], 1, False, True]),
+     "выбор сам забывает то, что у нас появилось: Q4_K_M был отмечен, потом пришли сведения, что он на диске такой же — он ушёл из выбора, в доке остался один файл, а ящик закрыт"),
+
+    ("a_verify_that_says_same_closes_the_box", "",
+     r"""await (async () => { await boot({ [FILES_URL(G)]: FILES(), [LOCAL_URL(G)]: { ok: true, localNames: ["g-Q8_0.gguf"], localFiles: { "g-Q8_0.gguf": { size: 12 * GB - 7, mtime: 1788790379 } } } });
+        const e = page.el; page.catalog.setResults(REPOS()); await page.select(G); await settle();
+        const box = (paths, checked) => { const n = node(e.repo, { act: "pick", paths: JSON.stringify(paths) }); n.checked = checked; return n; };
+        await fire(box(["g-Q8_0.gguf"], true), "change"); const ticked = page.downloads.picks(G);
+        page.stateFor(G).verified = { "g-Q8_0.gguf": { state: "same" } }; page.renderRepo();
+        return [ticked, page.downloads.picks(G), e.dock.hidden, e.repo.innerHTML.includes('data-t-id="g-Q8_0.gguf" disabled')]; })()""",
+     J([["g-Q8_0.gguf"], [], True, True]),
+     "Q8_0 на диске другого размера (⇪) отмечен для скачивания; проверка по хэшу сказала «совпадает» — файл у нас такой же: он ушёл из выбора, док пуст, ящик закрыт"),
+
     ("page_follows_the_servers_downloads", "",
      r"""await (async () => { await boot();
         const armed = timers.map((t) => t.ms);
@@ -556,7 +592,7 @@ PINS = [
         await fire(node(null, {}), "click"); const menuClosed = [$("userMenu").hidden, $("userChipBtn").attrs["aria-expanded"]];
         const lang = [$("langTriggerEmoji").textContent, $("langTriggerCode").textContent, $("langTrigger").attrs["aria-label"], ($("langMenu").innerHTML.match(/class="lang-option/g) || []).length,
           $("langMenu").innerHTML.includes('<li class="lang-option selected" role="option" data-lang="ru" aria-selected="true"><span class="lang-emoji">🪆</span><span class="lang-name">Русский</span></li>'),
-          $("langMenu").innerHTML.includes('<li class="lang-option" role="option" data-lang="id" aria-selected="false"><span class="lang-emoji">🦎</span><span class="lang-name">Bahasa Indonesia</span></li>')];
+          $("langMenu").innerHTML.includes('<li class="lang-option" role="option" data-lang="de" aria-selected="false"><span class="lang-emoji">🥨</span><span class="lang-name">Deutsch</span></li>')];
         await fire($("langTrigger"), "click"); const langOpen = [$("langMenu").hidden, $("langTrigger").attrs["aria-expanded"]];
         const option = node($("langMenu"), { lang: "de" }); option.className = "lang-option"; await fire(node(option, {}), "click"); const picked = [localStorage.getItem("llamacppAdminLang"), reloads, $("langMenu").hidden];
         await fire(node(null, {}), "click"); const langClosed = $("langMenu").hidden;
@@ -564,9 +600,9 @@ PINS = [
         reset(); await boot({ "/api/auth/me": { enabled: true, authenticated: false } });
         return [version, user, menuOpen, menuClosed, lang, langOpen, picked, langClosed, loggedOut, doc.els.userChip.hidden]; })()""",
      J([["v1.3.350", "lama-caravan v1.3.350 @ abc1234"], [False, "operator · viewer"], [False, "true", True], [True, "false"],
-        ["🪆", "RU", "Язык интерфейса", 20, True, True], [False, "true"], ["de", 1, False], True,
+        ["🪆", "RU", "Язык интерфейса", 6, True, True], [False, "true"], ["de", 1, False], True,
         [[["POST", "/api/auth/logout", {}]], "/login"], True]),
-     "шапка: версия и коммит; пользователь с ролью, меню открывается и закрывается кликом снаружи; выход — POST и на /login; язык: двадцать вариантов, текущий выбран, выбор сохраняется для всего приложения и перезагружает страницу; без входа — чип скрыт"),
+     "шапка: версия и коммит; пользователь с ролью, меню открывается и закрывается кликом снаружи; выход — POST и на /login; язык: шесть вариантов, текущий выбран, выбор сохраняется для всего приложения и перезагружает страницу; без входа — чип скрыт"),
 
     ("frontier_panel", "",
      r"""await (async () => { await boot(); const e = page.el; const state = () => [page.frontierOpen, e.frontier.hidden, page.frontierFor];
@@ -600,12 +636,21 @@ PINS = [
         d.addJob({ jobId: "j9", state: "error", error: "x" }); await click({ act: "job-dismiss", uid: "dlj2" }); const dismissed = d.jobs.map((j) => j.jobId);
         globalThis.__fetchCalls.length = 0; replies["/api/hf/download/resume"] = { ok: false, error: "no manifest" };
         await click({ act: "resume", dest: "gemma-4-12B-it-GGUF/bartowski/Q4_K_M", name: "g-Q4_K_M.gguf" }); const resume = [calls(), doc.els.hfToast.textContent];
+        const toDelete = []; const realDiscard = d.discard; d.discard = (...a) => toDelete.push(a); await click({ act: "discard", dest: "m/a/Q4", name: "x.gguf" }); d.discard = realDiscard;
         globalThis.__fetchCalls.length = 0; await click({}); await click({ act: "unknown" });
-        return [details, removed, cleared, started, jobsClosed, cancel, dismissed, resume, calls().length]; })()""",
+        return [details, removed, cleared, started, jobsClosed, cancel, dismissed, resume, toDelete, calls().length]; })()""",
      J([[True, True, False], [0, True], 0, [["POST /api/hf/download", "GET /api/hf/download/status?job=j1"], True, 0, True], [False, False],
         [["POST", "/api/hf/download/cancel", {"jobId": "j1"}]], ["j1"],
-        [[["POST", "/api/hf/download/resume", {"destDir": "gemma-4-12B-it-GGUF/bartowski/Q4_K_M", "name": "g-Q4_K_M.gguf"}]], "no manifest"], 0]),
+        [[["POST", "/api/hf/download/resume", {"destDir": "gemma-4-12B-it-GGUF/bartowski/Q4_K_M", "name": "g-Q4_K_M.gguf"}]], "no manifest"], [["m/a/Q4", "x.gguf"]], 0]),
      "док: подробности, ✕ у файла (док прячется), очистка, «скачать» (задание в списке), свернуть/развернуть задания, отмена, ✕ у ошибки, «продолжить» — всё доходит до загрузок; клик мимо — ничего"),
+
+    ("a_repository_says_the_mark_of_its_model", "",
+     r"""await (async () => { replies["/api/model-notes"] = { ok: true, ratings: { "gemma-4-12B-it-GGUF": "dislike", other: "like" } }; await boot(); const of = (id, model) => page.rowHtml({ id, author: "x", model, has: () => false, countLabel: () => "1", libraryNames: [] });
+        const said = of(G, "gemma-4-12B-it-GGUF"), none = of("x/none-GGUF", "none-GGUF");
+        replies["/api/model-notes"] = new Error("down"); page.ratings = {}; await boot(); const after = page.ratings;
+        return [/data-t="model-rating" data-t-state="dislike"/.test(said), none.includes("model-rating"), after]; })()""",
+     J([True, False, {}]),
+     "/hf: строка репозитория показывает оценку модели той папки, куда он скачивается (владелец, 2026-10-28); negative: у другой модели значка нет, а непрочитанные оценки — это никаких значков, не падение"),
 
     ("dock_open_page_button_opens_the_hubs_page", "",
      r"""await (async () => { await boot(); const e = page.el; const d = page.downloads; const went = []; const opened = []; const real = globalThis.location.assign; const realOpen = globalThis.open;
@@ -631,16 +676,16 @@ PINS = [
                 tourCalls.find((c) => c[0] === "init")[1].title()]; })()""",
      J([[[None, True, "function"], ["#hfSearchForm", False, "undefined"], ["#hfFilters", False, "undefined"], ["#hfTabs", False, "undefined"],
          ["#hfList", False, "undefined"], ["#hfRepo", False, "undefined"], ["#hfDock", False, "undefined"]],
-        {"next": "Next →", "back": "← Back", "done": "Done", "skip": "Close"}, 1, "ob-langs", True, 20, True, [None, 0], ["ru", "Тур", 1], False, 2,
+        {"next": "Next →", "back": "← Back", "done": "Done", "skip": "Close"}, 1, "ob-langs", True, 6, True, [None, 0], ["ru", "Тур", 1], False, 2,
         "Как пользоваться этой страницей"]),
-     "тур: семь шагов, первый по центру с выбором языка (все двадцать, текущий отмечен); выбор сохраняется, переименовывает кнопку тура и перерисовывает шаг; клик мимо — ничего; автостарт ждёт, пока уйдёт лоадер"),
+     "тур: семь шагов, первый по центру с выбором языка (все шесть, текущий отмечен); выбор сохраняется, переименовывает кнопку тура и перерисовывает шаг; клик мимо — ничего; автостарт ждёт, пока уйдёт лоадер"),
 
     ("words_in_the_page_language", "",
      r"""await (async () => { localStorage.setItem("llamacppAdminLang", "ru"); await boot(); const e = page.el;
         return [e.searchInput.placeholder, e.searchInput.attrs["aria-label"], e.searchBtn.textContent, e.tokenSave.textContent, e.tokenEdit.textContent, e.tokenClear.textContent,
-                e.onDisk.kids["[data-label]"].textContent, e.sort.innerHTML.split("</option>")[0], e.tabResults.innerHTML, e.tabFavs.innerHTML,
+                e.models.kids[".topbar-page-label"].textContent, e.sort.innerHTML.split("</option>")[0], e.tabResults.innerHTML, e.tabFavs.innerHTML,
                 e.sizeChips.innerHTML.includes('aria-pressed="true">Все <em>0</em></button>'), e.list.innerHTML.includes("Search to browse"), e.tokenBtn.kids[".hfp-token-label"].textContent]; })()""",
-     J(["автор/репозиторий или слова для поиска…", "Поиск по Hugging Face", "Найти", "Сохранить", "Изменить", "Очистить", "на диске",
+     J(["автор/репозиторий или слова для поиска…", "Поиск по Hugging Face", "Найти", "Сохранить", "Изменить", "Очистить", "Модели",
         '<option value="downloads">Загрузки', "Результаты <em>0</em>", "★ Избранное <em>0</em>", True, False, "HF-токен"]),
      "язык страницы: подписи, кнопки, порядок, вкладки, чипы и подпись токена — по-русски, английского не остаётся"),
 ]

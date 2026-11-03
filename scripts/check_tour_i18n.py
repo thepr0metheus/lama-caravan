@@ -10,7 +10,11 @@ Sources of truth and the checks against them:
     with the nav labels and the same number of steps, anchored to the same
     elements, as `en`;
   - HF_LANGS in static/js/hf-text.js is an inline mirror of LANGS (the /hf page
-    stays independent of the big dictionary) — codes and order must match.
+    stays independent of the big dictionary) — codes and order must match;
+  - the sign-in page's list and its words in rust/crates/admin/src/web/page_shell.html are one more
+    mirror (it runs before any module loads): codes, order and labels must match,
+    and its table must hold exactly those languages. Its German emoji differed for
+    months, found when the list was cut to six on 2026-11-01.
 
 Stdlib-only, no JS runtime needed: the dictionaries are parsed by their fixed
 formatting (language blocks at a known indent, one string per line).
@@ -116,10 +120,23 @@ hf_langs = re.findall(r'\["(\w+)"', hf_langs_src.group(1))
 if hf_langs != LANGS:
     fail(f"HF_LANGS does not mirror LANGS:\n  LANGS    = {LANGS}\n  HF_LANGS = {hf_langs}")
 
+# ── The sign-in page: its own list and table, before any module loads ───────
+auth = read("rust/crates/admin/src/web/page_shell.html")
+login_src = re.search(r"var LANGS = \[(.*?)\];", auth)
+if not login_src:
+    sys.exit("check_tour_i18n: LANGS not found in rust/crates/admin/src/web/page_shell.html")
+login = re.findall(r'\["(\w+)","([^"]+)"\]', login_src.group(1))
+wanted = re.findall(r'code: "(\w+)", emoji: "([^"]+)", label: "([^"]+)"', langs_src.group(1))
+if login != [(code, f"{emoji} {label}") for code, emoji, label in wanted]:
+    fail(f"the sign-in page's LANGS does not mirror LANGS:\n  LANGS   = {wanted}\n  sign-in = {login}")
+login_words = re.findall(r"^    (\w+):\{langLabel:", auth, re.M)
+if sorted(login_words) != sorted(LANGS):
+    fail(f"the sign-in page's words hold {sorted(login_words)}, LANGS is {sorted(LANGS)}")
+
 if errors:
     print(f"check_tour_i18n: FAIL ({len(errors)} problems)")
     for e in errors:
         print(f"  - {e}")
     sys.exit(1)
 print(f"check_tour_i18n: OK — {len(LANGS)} languages × {len(en_keys)} tour keys, "
-      f"HF tour {en_steps} steps, HF_LANGS mirror intact")
+      f"HF tour {en_steps} steps, HF_LANGS and sign-in mirrors intact")

@@ -30,14 +30,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(ROOT))
-from _node import find_node, node_search_paths  # noqa: E402
-from caravan.common.context_window import window_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
+from _contract import Contract  # noqa: E402
 
 # The questions a Model card link can ask, from the rule that names them
-# (scripts/test_context_window.py pins the rule): the page's tooltip table
+# (rust/crates/admin/tests/contract.rs pins the rule): the page's tooltip table
 # must cover every one, so a new question without a tooltip turns a pin red.
-WINDOW_KINDS = sorted({kind for reaches in ("cloud", "llama", "engine", "")
-                       for kind, _path in window_paths(reaches, ["m"])})
+WINDOW_KINDS = Contract.table("controller")["windowKinds"]
 
 STUBS = ("topology-render,topology-nodes,topology-modals,cables,routers,charts,remote-cells,cloud,history,dialogs,"
          "llama-edit,form,favorites,config-locator,system-panels,onboarding,topology-dnd,canvas,"
@@ -2181,26 +2180,6 @@ PINS = [
      '(m.topologyAgentRouteRow({id:"c1"},{id:"a1"},"primary",null).match(new RegExp("data-bind-port=" + String.fromCharCode(34) + "([^" + String.fromCharCode(34) + "]*)")) || [])[1]',
      '""',
      'boundary: порта ещё нет — на провод уходит пустое, а не выдуманный ноль'),
-    ('neighbour_port_is_the_primary_plus_one',
-     'st.setTopology({proxies:[{id:"c1:23001",port:23001,label:"p"}],clients:[{id:"c1",agents:[{id:"a1"}]}],routers:[],assignments:{c1:{assignments:[{agentId:"a1",routes:[{role:"primary",proxyId:"skynet:proxy:23001",endpoint:"e"}]}]}}});',
-     'm.neighbourPortForFallback("c1","a1")',
-     '23002',
-     'сосед праймари: пара «нечётный — чётный» задумана, чтобы читаться глазами'),
-    ('neighbour_port_zero_when_taken',
-     'st.setTopology({proxies:[{id:"c1:23001",port:23001,label:"p"},{id:"c1:23002",port:23002,label:"q"}],clients:[{id:"c1",agents:[{id:"a1"}]}],routers:[],assignments:{c1:{assignments:[{agentId:"a1",routes:[{role:"primary",proxyId:"skynet:proxy:23001",endpoint:"e"}]}]}}});',
-     'm.neighbourPortForFallback("c1","a1")',
-     '0',
-     'negative: сосед занят — предлагать его нельзя, это чужой порт'),
-    ('neighbour_port_zero_without_primary',
-     'st.setTopology({proxies:[],clients:[{id:"c1",agents:[{id:"a1"}]}],routers:[],assignments:{c1:{assignments:[{agentId:"a1",routes:[]}]}}});',
-     'm.neighbourPortForFallback("c1","a1")',
-     '0',
-     'negative: праймари нет — соседа не существует, а не «ноль как порт»'),
-    ('neighbour_port_zero_for_unknown_agent',
-     'st.setTopology({proxies:[],clients:[],routers:[],assignments:{}});',
-     'm.neighbourPortForFallback("nobody","nothing")',
-     '0',
-     'boundary: агента нет вовсе — без исключения'),
     ('route_row_unbound_fallback_offers_binding',
      '',
      'm.topologyAgentRouteRow({id:"c1"},{id:"a1"},"fallback",null).includes("data-agent-bind")',
@@ -2572,7 +2551,7 @@ PINS = [
      '',
      'await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default; return [Object.keys(m.MODEL_CARD_LINK_TIPS).sort(), Object.values(m.MODEL_CARD_LINK_TIPS).map((k) => typeof en[k] === "string" && en[k].length > 0)]; })()',
      json.dumps([WINDOW_KINDS, [True] * len(WINDOW_KINDS)]),
-     'positive: у каждого вопроса, который называет правило окна (caravan/common/context_window.window_paths), есть подсказка, и её строка есть в en.js — новый вопрос без подсказки краснит этот пин'),
+     'positive: у каждого вопроса, который называет правило окна (contract/controller.json, windowKinds), есть подсказка, и её строка есть в en.js — новый вопрос без подсказки краснит этот пин'),
     ('route_detail_model_tab_parsed_values',
      'st.setTopology({proxies:[{id:"skynet:proxy:23002",port:23002,label:"typo"}],clients:[],routers:[],assignments:{}});',
      '(() => { const set = globalThis.__stubSetters["topology-dnd.topologyRouteDetail"]; set({ proxyId: "skynet:proxy:23002", port: 23002, tab: "model", modelCard: { state: "ok", data: { ok: true, status: 200, tookMs: 12, raw: "{}", entries: [{ id: "muse-glimmer-30b", window: 128000, windows: { context_length: 128000, max_model_len: 128000 }, servedWindow: 60160, trainedWindow: 131072, ownedBy: "llamacpp", aliases: ["muse"] }] } } }); const h = m.topologyRouteDetailHtml(); set(null); const rows = h.split(/class="mc-row"/).slice(1).map((r) => (r.match(/mc-key">([^<]*)<\\/span><span class="mc-val">([^<]*)/) || []).slice(1, 3)); return rows; })()',
@@ -3007,8 +2986,8 @@ PINS = [
     ("bind_menu_all_held_names_the_count",
      "",
      "(h => [[...h.matchAll(/data-bind-choice=\"([^\"]*)\"/g)].map((x) => x[1]), h.includes(\"＋ New port for this agent\"), (h.match(/data-t=\"agent-bind-taken\"[^>]*>([^<]*)</) || [])[1]])(m.bindMenuHtml({ hostId: \"c9\", agentId: \"z9\", role: \"primary\", proxies: [{id:\"skynet:proxy:23001\",port:23001,label:\"hotel primary\",holders:[{hostId:\"h1\",agentId:\"hotel\",role:\"primary\"}]},{id:\"skynet:proxy:23002\",port:23002,label:\"mine\",holders:[{hostId:\"c1\",agentId:\"a1\",role:\"fallback\"}]},{id:\"skynet:proxy:0\",port:0,label:\"junk\"}] }))",
-     "[[],true,\"Held by other agents: 2\"]",
-     "negative: всё занято чужими (как на доске 2026-09-23) — ни одной строки, ведущей в отказ; остаются «новый порт» и сноска с числом"),
+     "[[],false,\"Held by other agents: 2\"]",
+     "negative: всё занято чужими (как на доске 2026-09-23) — ни одной строки, ведущей в отказ, и нового порта не предлагается: своих портов нет; остаётся сноска с числом"),
     ("bind_menu_old_controller_offers_everything",
      "",
      "(h => [[...h.matchAll(/data-bind-choice=\"([^\"]*)\"/g)].map((x) => x[1]), h.includes(\"agent-bind-taken\")])(m.bindMenuHtml({ hostId: \"c1\", agentId: \"a1\", role: \"primary\", proxies: [{port:23001,label:\"a\"},{port:23002,label:\"b\"}] }))",
@@ -3025,41 +3004,6 @@ PINS = [
      "[false,true,false]",
      "positive: имя агента и подпись порта экранируются"),
     # ── after a new port: say only what happened ──
-    ("new_port_announced_when_the_address_is_copied",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; st.setTopology({ proxies: [{ id: \"skynet:proxy:23111\", port: 23111, endpoint: \"http://10.0.0.20:23111/v1\" }], portsReachable: true, entry: { url: \"\" }, clients: [], routers: [], assignments: {} }); try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return true; }, say: (x) => { said = x; } }); const key = Object.keys(en).find((k) => k.startsWith(\"taBindNewPort\") && en[k].replace(\"{port}\", \"23111\") === text) || null; return [asked, said === text, key]; } finally { location.hostname = was; } })()",
-     "[\"http://10.0.0.20:23111/v1\",true,\"taBindNewPortMade\"]",
-     "positive: в буфер уходит адрес порта от контроллера (строка порта), а не имя страницы: доска, открытая по имени чужой машины, отдавала её порт"),
-    ("new_port_announced_when_the_copy_failed",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; st.setTopology({ proxies: [{ id: \"skynet:proxy:23111\", port: 23111, endpoint: \"http://10.0.0.20:23111/v1\" }], portsReachable: true, entry: { url: \"\" }, clients: [], routers: [], assignments: {} }); try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return false; }, say: (x) => { said = x; } }); const key = Object.keys(en).find((k) => k.startsWith(\"taBindNewPort\") && en[k].replace(\"{port}\", \"23111\") === text) || null; return [asked, said === text, key]; } finally { location.hostname = was; } })()",
-     "[\"http://10.0.0.20:23111/v1\",true,\"taBindNewPortMadeNoCopy\"]",
-     "negative: копирование не удалось — сообщение так и говорит, а не уверяет, что в буфере адрес"),
-    ("new_port_without_a_door_says_to_give_a_key",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; st.setTopology({ proxies: [{ id: \"skynet:proxy:23111\", port: 23111, endpoint: \"\" }], portsReachable: false, entry: { url: \"https://caravan-api.example/v1\" }, clients: [], routers: [], assignments: {} }); try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return true; }, say: (x) => { said = x; } }); const key = Object.keys(en).find((k) => k.startsWith(\"taBindNewPort\") && en[k].replace(\"{port}\", \"23111\") === text) || null; return [asked, said === text, key]; } finally { location.hostname = was; } })()",
-     "[null,true,\"taBindNewPortNoDoor\"]",
-     "без двери у портов (NAS): адреса нет, в буфер ничего не уходит, сообщение велит выдать ключ в Маршрутизации (раньше копировался мёртвый http://NAS:порт)"),
-    ("new_port_without_a_door_and_an_entry_says_to_set_it_up",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; st.setTopology({ proxies: [{ id: \"skynet:proxy:23111\", port: 23111, endpoint: \"\" }], portsReachable: false, entry: { url: \"\" }, clients: [], routers: [], assignments: {} }); try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return true; }, say: (x) => { said = x; } }); const key = Object.keys(en).find((k) => k.startsWith(\"taBindNewPort\") && en[k].replace(\"{port}\", \"23111\") === text) || null; return [asked, said === text, key]; } finally { location.hostname = was; } })()",
-     "[null,true,\"taBindNewPortNoEntry\"]",
-     "без двери и без входа: сначала настроить вход в Маршрутизации, потом выдать ключ"),
-    ("new_port_unknown_row_copies_nothing",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} }); try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return true; }, say: (x) => { said = x; } }); const key = Object.keys(en).find((k) => k.startsWith(\"taBindNewPort\") && en[k].replace(\"{port}\", \"23111\") === text) || null; return [asked, said === text, key]; } finally { location.hostname = was; } })()",
-     "[null,true,\"taBindNewPortMadeNoCopy\"]",
-     "negative: строки порта ещё нет — адреса не знаю: ничего не копирую и не выдумываю адрес из имени страницы"),
-    ("new_port_no_address_while_the_proxy_is_silent",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; st.setTopology({ proxies: [{ id: \"skynet:proxy:23111\", port: 23111, endpoint: \"\" }], portsReachable: null, entry: { url: \"\" }, clients: [], routers: [], assignments: {} }); try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return true; }, say: (x) => { said = x; } }); const key = Object.keys(en).find((k) => k.startsWith(\"taBindNewPort\") && en[k].replace(\"{port}\", \"23111\") === text) || null; return [asked, said === text, key]; } finally { location.hostname = was; } })()",
-     "[null,true,\"taBindNewPortMadeNoCopy\"]",
-     "negative: адреса нет, а прокси молчит (дверь не известна) — «адрес не скопирован», а не «двери нет»"),
-    ("new_port_words_name_the_address_not_a_key",
-     "",
-     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; return [/address/i.test(en.taBindNewPortMade), /key/i.test(en.taBindNewPortMade), /could not/i.test(en.taBindNewPortMadeNoCopy), /key/i.test(en.taBindNewPortMadeNoCopy)]; })()",
-     "[true,false,true,false]",
-     "defect-history: сообщение говорило «the key copied» про ключ, которого у порта нет — теперь про адрес, и про ключ ни слова"),
     # ── step 6.9: the controller's own single server is no longer sampled ──
     ('gpu_correlated_active',
      'st.ui.latestSystemMonitor = { latest: { correlatedActivity: { gpu: { activeRequestCount: 2, activeClients: ["c1"], activeRoutes: ["sol", "luna"], utilPct: 40, memoryPct: 55 } } } };',
@@ -3234,32 +3178,37 @@ PINS = [
      '[1,1,0]',
      'positive: настоящая перекраска строки маршрута — строка инцидента есть на 599 и 600 с и пропадает на 601 с без нового запроса (её читает topologyActivityIncident, а не запись запроса)'),
     ('alarm_router_card_failure_of_a_cabled_client_inside_window',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"},{id:"c2",label:"Bot",port:23002,kind:"consumer",set:""},{id:"old",label:"Old",port:23003}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
      '(a=>[a.state,a.health])(m.topologyRouterActivity(st.topology.routers[0]))',
      '["error","failed"]',
-     'positive: карточка Маршрутизации на доске красная, пока отказ клиента с набором в окне'),
+     'positive: карточка Маршрутизации на доске красная, пока отказ клиента входа в окне'),
     ('alarm_router_card_failure_past_window_is_calm',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"},{id:"c2",label:"Bot",port:23002,kind:"consumer",set:""},{id:"old",label:"Old",port:23003}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{status:500,startedAt:1699999000,finishedAt:1699999499,durationMs:1000}}}}}};',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{status:500,startedAt:1699999000,finishedAt:1699999499,durationMs:1000}}}}}};',
      '(a=>[a.state,a.health])(m.topologyRouterActivity(st.topology.routers[0]))',
      '["recent","ok"]',
      'positive: тот же отказ 601 с назад — карточка Маршрутизации как после любого старого запроса: recent, ok'),
     ('alarm_router_card_old_port_that_feeds_it_counts',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"},{id:"c2",label:"Bot",port:23002,kind:"consumer",set:""},{id:"old",label:"Old",port:23003}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Old":{port:23003,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Old":{port:23003,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
      '(a=>[a.state,a.health])(m.topologyRouterActivity(st.topology.routers[0]))',
      '["error","failed"]',
      'positive: порт старого вида, подписанный на роутер, тоже даёт карточке цвет'),
-    ('alarm_router_card_client_without_a_set_does_not_feed_it',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"},{id:"c2",label:"Bot",port:23002,kind:"consumer",set:""},{id:"old",label:"Old",port:23003}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Bot":{port:23002,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
+    ('alarm_router_card_every_client_feeds_it',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Bot":{port:23002,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
+     '(a=>[a.state,a.health])(m.topologyRouterActivity(st.topology.routers[0]))',
+     '["error","failed"]',
+     'positive: отказ клиента, которому что-то запрещено, красит карточку, как любого клиента (1.3.675: канат к Маршрутизации у каждого клиента)'),
+    ('alarm_router_card_a_port_that_does_not_feed_it_is_calm',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Away":{port:23004,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
      '(a=>[a.state,a.health===undefined?null:a.health])(m.topologyRouterActivity(st.topology.routers[0]))',
      '["idle",null]',
-     'negative: клиент без набора к роутеру не подведён — его отказ карточку не красит'),
+     'negative: отказ порта старого вида, который к роутеру не подписан, карточку не красит'),
     ('alarm_router_card_a_running_request_beats_a_failure',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"},{id:"c2",label:"Bot",port:23002,kind:"consumer",set:""},{id:"old",label:"Old",port:23003}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{"23001":{port:23001,active:[{phase:"running",startedAt:1700000090}],recent:[]}}},correlatedActivity:{byProxy:{"Old":{port:23003,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{"23001":{port:23001,active:[{phase:"running",startedAt:1700000090}],recent:[]}}},correlatedActivity:{byProxy:{"Old":{port:23003,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
      '(a=>a.state)(m.topologyRouterActivity(st.topology.routers[0]))',
      '"active"',
      'positive: один клиент идёт, порт старого вида упал — карточка горит (active), а не краснеет: идущий запрос важнее отказа'),
     ('alarm_repaint_router_card_at_the_boundary',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"},{id:"c2",label:"Bot",port:23002,kind:"consumer",set:""},{id:"old",label:"Old",port:23003}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]},{id:"c2",label:"Bot",port:23002,kind:"consumer",deny:["pool:main"]},{id:"old",label:"Old",port:23003},{id:"away",label:"Away",port:23004}],clients:[],routers:[{id:"r1",inputs:["old"]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{status:500,startedAt:1699999000,finishedAt:1699999501,durationMs:1000}}}}}};',
      '(()=>{const was={now:Date.now,qsa:document.querySelectorAll,css:globalThis.CSS}; const classes=new Set(); const card={dataset:{topologyRouter:"r1"},classList:{add:(...c)=>c.forEach((x)=>classes.add(x)),remove:(...c)=>c.forEach((x)=>classes.delete(x))}}; document.querySelectorAll=(sel)=>sel==="[data-topology-router]"?[card]:[]; globalThis.CSS={escape:(x)=>x}; st.ui._lastActivityFingerprint=""; const at=(sec)=>{Date.now=()=>(1700000100+sec)*1000; m.refreshTopologyActivityState(); return [...classes].sort().join(" ");}; try { return [at(0), at(1), at(2)]; } finally { Date.now=was.now; document.querySelectorAll=was.qsa; globalThis.CSS=was.css; }})()',
      '["activity-error health-failed","activity-error health-failed","activity-recent health-ok"]',
      'positive: настоящая перекраска карточки Маршрутизации на доске — красная на 599 и 600 с, на 601 с без нового запроса становится activity-recent health-ok (она красилась только при отрисовке и оставалась красной, пока доска не перерисуется)'),
@@ -3304,7 +3253,7 @@ PINS = [
      '[["activity-error health-failed",""],["","activity-error health-failed"]]',
      'positive: тот же отказ (без id, те же секунды) перешёл с порта alpha на порт beta — красное идёт за ним: ключ несёт и порт, а не только время запроса'),
     ('instant_failure_repaints_the_router_card',
-     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",set:"main"}],clients:[],routers:[{id:"r1",inputs:[]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{}}}};',
+     'st.setTopology({proxies:[{id:"c1",label:"Hermes",port:23001,kind:"consumer",deny:[]}],clients:[],routers:[{id:"r1",inputs:[]}],assignments:{}});st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{}}}};',
      '(()=>{const was={qsa:document.querySelectorAll,css:globalThis.CSS}; const classes=new Set(); const card={dataset:{topologyRouter:"r1"},classList:{add:(...c)=>c.forEach((x)=>classes.add(x)),remove:(...c)=>c.forEach((x)=>classes.delete(x))}}; document.querySelectorAll=(sel)=>sel==="[data-topology-router]"?[card]:[]; globalThis.CSS={escape:(x)=>x}; st.ui._lastActivityFingerprint=""; const shot=()=>[...classes].sort().join(" "); try { m.refreshTopologyActivityState(); const before=shot(); st.ui.latestSystemMonitor={latest:{agentProxies:{agents:{}},correlatedActivity:{byProxy:{"Hermes":{port:23001,last:{id:"c1:23001:1700000099",status:422,startedAt:1700000099,finishedAt:1700000099,durationMs:0}}}}}}; m.refreshTopologyActivityState(); return [before, shot()]; } finally { document.querySelectorAll=was.qsa; globalThis.CSS=was.css; }})()',
      '["","activity-error health-failed"]',
      'positive: карточка Маршрутизации на главной доске тоже краснеет от мгновенного отказа клиента без полной отрисовки: она читает те же последние запросы'),
@@ -3410,8 +3359,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(probe_path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, probe_path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         probe_path.unlink(missing_ok=True)
     if run.returncode != 0:

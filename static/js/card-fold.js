@@ -1,5 +1,6 @@
 // Which cards on the board fold into a line, and how a folded one opens.
 import { t } from "./i18n.js";
+import { copyText } from "./utils.js";
 
 /**
  * The board's two long lanes — model cells and client agents — drew every card
@@ -47,6 +48,9 @@ export class CardFold {
     // The cell whose window is open now — here for the same reason: the
     // window is drawn inside its lane, and a repaint redraws the lane.
     this.openKey = "";
+    // The tab each cell's window shows, chosen in this visit (cell-window.js) — kept here so a repaint of the lane
+    // draws the window on the tab the operator left it on. Not stored: the next visit opens on the overview.
+    this.windowTabs = new Map();
     // The cards the operator is setting up in this visit — a client just added, an agent just
     // given a port: drawn open in place (as if pinned) until folded by hand or the page
     // reloads. A new card folded into a line the moment its first port came, and the fallback
@@ -57,6 +61,11 @@ export class CardFold {
     // a lane with none shows no fold switch. Null until a paint has counted.
     this.counts = null;
   }
+
+  /** The tab the window of cell `key` shows: the one chosen in this visit, "" before any was. */
+  windowTab(key) { return this.windowTabs.get(String(key)) || ""; }
+
+  chooseWindowTab(key, tab) { this.windowTabs.set(String(key), String(tab || "")); }
 
   /** The key of an agent's card; with no agent, the prefix of every card of the client. */
   static agentKey(hostId, agentId = "") { return `agent:${hostId}:${agentId}`; }
@@ -260,13 +269,25 @@ export class FoldPeek {
    *  enough that crossing the lane does not flash every card on the way, short
    *  enough that looking at one does not feel like waiting. */
   static DELAY_MS = 300;
+  /** What stands over a cell's window: a confirm, the launch command, the cell editor, a talk window — and an open "⋯" menu of
+   *  the parts (ui-menus.js), which Escape closes first. */
+  static LAYERS = ".modal-overlay, .topology-llama-edit-overlay, .history-detail-overlay, .talk-overlay, .ui-menu-list";
+
+  /** True while one of them is shown: Escape is that dialog's then, not the window's under it. */
+  static layerAbove(doc) {
+    return [...(doc?.querySelectorAll?.(FoldPeek.LAYERS) || [])].some((el) => !el.hidden && (el.getClientRects?.().length ?? 1) > 0);
+  }
 
   constructor(fold, { busy = () => false, changed = () => {} } = {}) {
     this.fold = fold;
     this.busy = busy;
     this.changed = changed;
     this.timer = 0;
+    this.copyTimer = 0;
     this.bound = false;
+    // The button a window was opened by from outside its line — the panel of a cell chosen on the machine's map
+    // (machine-head.js): Escape gives it the keyboard back.
+    this.returnTo = null;
   }
 
   slotOf(node) { return node?.closest?.('.fold-slot[data-fold-mode="line"]') || null; }
@@ -292,8 +313,8 @@ export class FoldPeek {
     this.fold.peekKey = "";
   }
 
-  /** A cell's card as a window over the board. The window is already in its
-   *  slot (card-rows.js CellWindow); opening it is a class, and openKey keeps
+  /** A cell's window over the board. The window is already in its slot
+   *  (cell-window.js CellWindow); opening it is a class, and openKey keeps
    *  it open through a repaint of the lane. */
   openWindow(slot) {
     if (!slot || this.busy()) return;
@@ -317,6 +338,17 @@ export class FoldPeek {
     const was = this.fold.openKey;
     this.fold.openKey = "";
     return was;
+  }
+
+  /** The window of cell `key` opened by a button outside its line: the panel of a cell chosen on the machine's map. The window is
+   *  in its slot; a cell whose slot the page does not hold has none to open. */
+  openFrom(button, key, doc = globalThis.document) {
+    const k = String(key || "").replace(/["\\]/g, "\\$&");
+    const slot = k ? doc?.querySelector?.(`.fold-slot[data-fold-key="${k}"]`) : null;
+    if (!slot) return false;
+    this.openWindow(slot);
+    this.returnTo = button || null;
+    return true;
   }
 
   bind(doc = globalThis.document) {
@@ -372,6 +404,13 @@ export class FoldPeek {
       this.closeWindow(target.ownerDocument);
       return;
     }
+    const opener = target.closest("[data-cell-window-open]");
+    if (opener) {
+      e.preventDefault();
+      this.openFrom(opener, opener.dataset.cellWindowOpen, target.ownerDocument);
+      return;
+    }
+    if (this.onWindowClick(e, target)) return;
     const pin = target.closest?.("[data-fold-pin]");
     const line = pin ? null : target.closest?.(".fold-row");
     // The line's own controls (▶ start) and the cable's handle keep their jobs.
@@ -388,12 +427,88 @@ export class FoldPeek {
     this.changed();
   }
 
+  /** A click in a cell's window that is the window's own business — a tab, the "⋯", the address — changes what it shows,
+   *  not the board: no repaint. True when it was one. Any other click in the window shuts its open menu, after the item's
+   *  own handler (bound on the item by the lane) has run. */
+  onWindowClick(e, target) {
+    const win = target.closest(".cell-window");
+    if (!win) return false;
+    const tab = target.closest("[data-cell-window-tab]");
+    if (tab) {
+      e.preventDefault();
+      this.showTab(win, tab.dataset.cellWindowTab || "");
+      this.closeMenu(win);
+      return true;
+    }
+    if (target.closest("[data-cell-window-more]")) {
+      e.preventDefault();
+      this.toggleMenu(win);
+      return true;
+    }
+    const copy = target.closest("[data-cell-window-copy]");
+    if (copy) {
+      e.preventDefault();
+      this.copy(win, copy.dataset.cellWindowCopy || "");
+    }
+    this.closeMenu(win);
+    return !!copy;
+  }
+
+  /** Shows tab `tab` of window `win` and remembers it for the repaints to come. The band's "Log" leads to a tab and is
+   *  none itself: only the tab buttons change their look. */
+  showTab(win, tab) {
+    this.fold.chooseWindowTab(win.dataset.tId || "", tab);
+    for (const b of win.querySelectorAll('[role="tab"][data-cell-window-tab]')) {
+      const on = b.dataset.cellWindowTab === tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    }
+    for (const p of win.querySelectorAll("[data-cell-window-panel]")) p.hidden = p.dataset.cellWindowPanel !== tab;
+  }
+
+  toggleMenu(win) {
+    const menu = win.querySelector(".cwh-menu");
+    if (!menu) return;
+    const open = menu.hidden;
+    menu.hidden = !open;
+    win.querySelector("[data-cell-window-more]")?.setAttribute("aria-expanded", String(open));
+    if (open) menu.querySelector("button:not([disabled])")?.focus?.();
+  }
+
+  /** Shuts the "⋯" of window `win`; true when it was open. */
+  closeMenu(win) {
+    const menu = win?.querySelector?.(".cwh-menu");
+    if (!menu || menu.hidden) return false;
+    menu.hidden = true;
+    win.querySelector("[data-cell-window-more]")?.setAttribute("aria-expanded", "false");
+    return true;
+  }
+
+  /** Copies the address and says so where it is written, for a moment: copied, or that the copy did not land. */
+  async copy(win, text, copy = copyText) {
+    const shown = win.querySelector("[data-cell-window-copied]");
+    const ok = await copy(text);
+    if (!shown) return ok;
+    shown.textContent = t(ok ? "cwCopied" : "cwCopyFailed");
+    clearTimeout(this.copyTimer);
+    this.copyTimer = setTimeout(() => { shown.textContent = text; }, 1600);
+    return ok;
+  }
+
   onKey(e) {
     if (e.key === "Escape") {
+      // A dialog over the window takes its own Escape: the window under it closed with it — under the window's own Apply
+      // question too — and the launch command was left over the bare board.
+      if (FoldPeek.layerAbove(globalThis.document)) return;
+      // A menu open in the window shuts first; the window itself on the next Escape.
+      const open = this.fold.openKey ? globalThis.document?.querySelector?.(".fold-slot.open > .cell-window") : null;
+      if (open && this.closeMenu(open)) return;
       this.close();
       const was = this.closeWindow();
-      // Back to the line whose window it was, not to the top of the page.
-      if (was) this.lineOf(was)?.focus?.();
+      // Back to the button the window was opened by, else to the line whose window it was — not to the top of the page.
+      const back = this.returnTo?.isConnected ? this.returnTo : null;
+      this.returnTo = null;
+      if (was) (back || this.lineOf(was))?.focus?.();
       return;
     }
     if ((e.key === "Enter" || e.key === " ") && e.target?.matches?.(".fold-row")) {

@@ -5,7 +5,7 @@
 // only the topology: the caravan's shelf (topology-nodes.js), which lists the
 // same rows, never showed a model downloaded after the page opened
 // (2026-09-26). The topology now carries the list's stamp (ModelList in
-// caravan/admin/models.py); when it differs from the stamp the page holds, the
+// rust/crates/admin/src/models/mod.rs); when it differs from the stamp the page holds, the
 // rows are fetched again — once, however many beats ask meanwhile.
 import { state } from "./state.js";
 import { api } from "./utils.js";

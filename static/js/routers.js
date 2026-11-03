@@ -80,8 +80,10 @@ function _poolMarks(pool) {
 // the clients, this card, the machines and the cloud providers. The clients' cables come into the
 // card on its left; from its right, cables go to the machines and the providers its pools lead to
 // (the owner, 2026-10-12; cables.js, PoolReach). It is small (the owner, 2026-10-13: "small and tidy,
-// without listing everything inside"): its name and two numbers — how many clients are cabled to a set,
-// how many pools there are. The pools' names stand in Routing, a click opens it (topology-dnd.js).
+// without listing everything inside"): its name and two numbers — how many clients there are, every one of which goes on to
+// Routing since 1.3.675 (it was "4/6", the clients with a cable of all, while a client had to be cabled to a set), and how
+// many pools there are.
+// The pools' names stand in Routing, a click opens it (topology-dnd.js).
 // It lights while a client's request runs — a client's or a port of the old kind that feeds it.
 export function renderTopologyRouterCard(router) {
   const clients = (topology?.proxies || []).filter((p) => String(p.kind || "") === "consumer");
@@ -93,7 +95,7 @@ export function renderTopologyRouterCard(router) {
       <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" aria-hidden="true"></span>
       <div class="topology-card-head">
         <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>${helpTip("topologyRoutingHelp")}
-        <span class="router-meta" data-t="board-routing-counts">${escapeHtml(t("topologyClientsSection"))} ${clients.filter((c) => c.set).length}/${clients.length} · ${escapeHtml(t("topologyLlamaServersSection"))} ${pools.length}</span>
+        <span class="router-meta" data-t="board-routing-counts">${escapeHtml(t("topologyClientsSection"))} ${clients.length} · ${escapeHtml(t("topologyLlamaServersSection"))} ${pools.length}</span>
       </div>
     </article>`;
 }
@@ -257,7 +259,7 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
   });
 
   // Pools: one output each (cb:<pool id>) — every pool is in Routing for as long as it is
-  // (caravan/admin/proxies_config.py, pool_output). A pool's row stands where its card stands
+  // (rust/crates/admin/src/proxies/config.rs, pool_output). A pool's row stands where its card stands
   // under Pools; an output whose pool the page does not know keeps its row too, so no
   // cable loses its end.
   const known = new Set((topology?.pools || []).map((p) => p.id));

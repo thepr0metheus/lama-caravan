@@ -2,7 +2,46 @@
 // and the window a cell's card opens in.
 import { CardFold } from "./card-fold.js";
 import { t } from "./i18n.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, formatCtxTokens } from "./utils.js";
+
+/**
+ * The window a cell is set to and the most its model was trained for, in tokens: 🪟 set / 🎓 most (the owner, 2026-10-24, for
+ * the line: "write the context that is set AND the most the model supports"; 2026-10-26, for a machine's page too).
+ * One rule for both, so the line and a cell's row on that page cannot say its context two ways. A window past the training is stretched
+ * (YaRN) and says so; a number nobody knows (0) is left out, and with neither there is nothing.
+ */
+export class CellContext {
+  constructor(ctx = {}) {
+    const whole = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(Number(n)) : 0);
+    this.set = whole(ctx?.set);
+    this.max = whole(ctx?.max);
+  }
+
+  get over() {
+    return this.set > 0 && this.max > 0 && this.set > this.max;
+  }
+
+  get state() {
+    return this.over ? "over" : this.set && this.max ? "both" : this.set ? "set" : "max";
+  }
+
+  text() {
+    return [this.set ? `🪟 ${formatCtxTokens(this.set)}` : "", this.max ? `🎓 ${formatCtxTokens(this.max)}` : ""].filter(Boolean).join(" / ");
+  }
+
+  title() {
+    return [this.set ? t("cellRowCtxSet", { n: this.set.toLocaleString("en-US") }) : "",
+      this.max ? t("cellRowCtxMax", { n: this.max.toLocaleString("en-US") }) : "", this.over ? t("cellRowCtxOver") : ""]
+      .filter(Boolean).join(" · ");
+  }
+
+  /** The chip: its class, its testability name and its id — none for the line, which its row names. */
+  html({ cls = "fr-ctx", name = "cell-row-ctx", id = "" } = {}) {
+    if (!this.set && !this.max) return "";
+    return `<span class="${cls}${this.over ? " over" : ""}" data-t="${name}"${id ? ` data-t-id="${escapeHtml(id)}"` : ""}`
+      + ` data-t-state="${this.state}" title="${escapeHtml(this.title())}">${escapeHtml(this.text())}</span>`;
+  }
+}
 
 /**
  * A cell folded into one line: what it serves, on which port, whether it runs.
@@ -38,6 +77,8 @@ export class CellRow {
     this.failed = !!f.failed;
     this.reason = String(f.reason || "");
     this.tps = String(f.tps || "");
+    // The window the cell is set to and the most its model was trained for (CellContext); 0 is "not known" and is left out.
+    this.ctx = new CellContext(f.ctx);
     // The speed is a held one — the last request's, while none runs: it is drawn quiet, and `tpsHint` says so on hover (cell-speed.js).
     this.held = !!f.held;
     this.tpsHint = String(f.tpsHint || "");
@@ -69,6 +110,11 @@ export class CellRow {
     return this.state === "reserved" ? t("topologyReservedCellLabel") : this.name;
   }
 
+  /** The window set and the most the model was trained for, on the line itself (CellContext). */
+  ctxHtml() {
+    return this.ctx.html();
+  }
+
   html() {
     const name = this.shownName();
     const warn = this.warn
@@ -84,7 +130,7 @@ export class CellRow {
       + `<span class="fr-port">:${escapeHtml(this.port)}</span>`
       + `<span class="fr-name">${escapeHtml(name)}</span>${failed}${warn}`
       + `<span class="fr-tps${this.held ? " held" : ""}" data-live-rowtps${this.tpsHint ? ` title="${escapeHtml(this.tpsHint)}"` : ""}>${escapeHtml(this.tps)}</span>`
-      + `${this.chip}${this.strip}</div>`;
+      + `${this.ctxHtml()}${this.chip}${this.strip}</div>`;
   }
 }
 
@@ -134,47 +180,6 @@ export class AgentRow {
       + ` data-t-id="${escapeHtml(this.key)}"><div class="ar-head">${AgentRow.dot(this.seen)}`
       + `<strong>${escapeHtml(this.name)}</strong><span class="ar-kind">${escapeHtml(this.kind)}</span></div>`
       + `${this.routes.map((r) => this.route(r)).join("")}</div>`;
-  }
-}
-
-/**
- * A cell's card as a window over the board: the card itself with a title bar
- * and a ✕ above it, over a dimmed board. Drawn inside the cell's slot and shown
- * only while the slot is open (fold.css), so the card's buttons are bound where
- * the lane binds them and a repaint redraws the window with the lane. The
- * cable's handle stays on the line, which never moves.
- */
-export class CellWindow {
-  // `via`: where a cell in an engine sends its requests — the engine's
-  // loopback address, which only the cell's port leads to; `viaTitle` says so.
-  // `notice`: what the window opens on, over the card — a failed cell's reason (2026-10-17: the line is red and thin,
-  // the description of the error waits in the window).
-  constructor({ key, name, port, address = "", via = "", viaTitle = "", engine = "", card = "", notice = "" } = {}) {
-    this.notice = notice || "";
-    this.key = String(key || "");
-    this.name = String(name || "");
-    this.port = String(port || "");
-    this.address = String(address || "");
-    this.via = String(via || "");
-    this.viaTitle = String(viaTitle || "");
-    this.engine = CellRow.launcher(engine);
-    this.card = card || "";
-  }
-
-  html() {
-    const k = escapeHtml(this.key);
-    const close = escapeHtml(t("close"));
-    const label = escapeHtml(`${t("a11yCell")} :${this.port} ${this.name}`.trim());
-    const address = this.address ? `<span class="cwh-addr">${escapeHtml(this.address)}</span>` : "";
-    const via = this.via
-      ? `<span class="cwh-via" data-t="cell-window-via" title="${escapeHtml(this.viaTitle)}">→ ${escapeHtml(this.via)}</span>` : "";
-    return `<div class="cell-window-backdrop" data-cell-window-close="1" aria-hidden="true"></div>`
-      + `<div class="cell-window${this.engine ? ` engine-${this.engine}` : ""}" role="dialog" aria-modal="true" aria-label="${label}"`
-      + ` data-t="cell-window" data-t-id="${k}"><div class="cell-window-head">`
-      + `<strong class="cwh-name">${escapeHtml(this.name)}</strong>`
-      + `<span class="cwh-port">:${escapeHtml(this.port)}</span>${address}${via}`
-      + `<button type="button" class="cwh-close" data-cell-window-close="1" data-t="cell-window-close"`
-      + ` data-t-id="${k}" title="${close}" aria-label="${close}">✕</button></div>${this.notice}${this.card}</div>`;
   }
 }
 
@@ -257,7 +262,7 @@ export class CellFilter {
  */
 export class EngineStrip {
   constructor({ key, engine = "", state = "", label = "", version = "", build = "", lever = "", boot = "", memory = "",
-                where = "", notes = "", links = "", title = "", hook = "node-engine" } = {}) {
+                where = "", notes = "", title = "", hook = "node-engine" } = {}) {
     this.hook = String(hook || "node-engine");
     this.key = String(key || "");
     this.engine = CellRow.launcher(engine);
@@ -270,7 +275,6 @@ export class EngineStrip {
     this.memory = memory || "";
     this.where = where || "";
     this.notes = notes || "";
-    this.links = links || "";        // the second line's links (the caravan's pages)
     this.title = String(title || "");
   }
 
@@ -280,7 +284,7 @@ export class EngineStrip {
       + ` data-t-id="${escapeHtml(this.key)}" data-t-state="${escapeHtml(this.state)}" title="${escapeHtml(this.title)}">`
       + `<div class="es-main">${this.lever}<strong class="es-name">${escapeHtml(this.label)}</strong>${version}${this.build}`
       + `<span class="es-fill"></span>${this.boot}${this.memory}</div>`
-      + `${this.where || this.notes || this.links ? `<div class="es-sub">${this.where}${this.notes}${this.links}</div>` : ""}</div>`;
+      + `${this.where || this.notes ? `<div class="es-sub">${this.where}${this.notes}</div>` : ""}</div>`;
   }
 }
 

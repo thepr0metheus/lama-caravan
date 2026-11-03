@@ -5,10 +5,11 @@ run_strata.sh runs this with Strata's own Python, so Strata's facts are read
 from Strata itself — its setup.py's tables (models, families, draft
 vocabularies, the KV-streaming rule) and its tools (iq_pack.py, mtp_rt.py,
 gguf_reader) — instead of copied here, where they would drift with every
-Strata release. Settled against Strata v0.1.42. The parts of its setup this
-does not do it refuses by name: the low-RAM mode and several cards. Unsloth's
-~4-bit packs (UD-IQ4_XS, UD-Q4_K_XL) run with the RAM budget of their experts
-that Strata's own rule recommends for the machine (`--resident-budget-gib`).
+Strata release. Settled against Strata v0.2.9; v0.1.42, the one before it, still
+starts, so a Strata put back keeps working. The parts of its setup this does
+not do it refuses by name: the low-RAM mode and several cards. Unsloth's ~4-bit
+packs (UD-IQ4_XS, UD-Q4_K_XL) run with the RAM budget of their experts that
+Strata's own rule recommends for the machine (`--resident-budget-gib`).
 
 What it makes goes to CARAVAN_CELL_SCRATCH, the scout's scratch folder of the
 cell: kept with the cell's models when it caches them, gone with them when it
@@ -38,8 +39,11 @@ class StrataLaunch:
     """One start of a Strata cell, from its arguments to the exec of Strata's
     server. Each step raises Refusal with what is missing; nothing is guessed."""
 
-    #: The trained window of Qwen3.8-Flash-Next: past it Strata's setup adds
-    #: yarn with the factor context / 262144, and so does this.
+    #: The trained window of Qwen3.8-Flash-Next: a start that names no window
+    #: asks for it (the owner, 2026-10-26: an empty context field means the
+    #: window the model was trained for — it was 131072, Strata's figure for a
+    #: 32 GB card); past it Strata's setup adds yarn with the factor
+    #: context / 262144, and so does this.
     TRAINED_CONTEXT = 262144
     #: The KV positions per layer kept in VRAM when the cache streams from RAM
     #: (setup.py step 7 writes the same number).
@@ -60,7 +64,8 @@ class StrataLaunch:
     # ── Strata itself ───────────────────────────────────────────────────────
     def strata(self):
         """Strata's setup.py as a module: its tables and rules. Loaded by path,
-        so no other `setup` on the path can stand in for it."""
+        so no other `setup` on the path can stand in for it; its folder goes on
+        the path for the packages it imports (strata_control, since v0.2)."""
         if self.setup is not None:
             return self.setup
         path = self.home / "setup.py"
@@ -70,6 +75,7 @@ class StrataLaunch:
                                f"install it with Strata's setup.sh")
         spec = importlib.util.spec_from_file_location("strata_setup", path)
         module = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(self.home))
         try:
             spec.loader.exec_module(module)
         except Exception as exc:  # noqa: BLE001 — any failure is "cannot read it"
@@ -78,7 +84,7 @@ class StrataLaunch:
                 "kv_streaming_ram_gb", "low_ram_wanted", "ram_gb", "resident_budget_gib")
         missing = [name for name in need if not hasattr(module, name)]
         if missing:
-            raise self.Refusal(f"this Strata has no setup.{missing[0]} — the caravan's launcher knows v0.1.42")
+            raise self.Refusal(f"this Strata has no setup.{missing[0]} — the caravan's launcher knows v0.2.9")
         self.setup = module
         return module
 
@@ -230,7 +236,9 @@ class StrataLaunch:
         start. The engine says what it was built for (BUILD.json `archs`, and `ptx` when it carries PTX for newer
         cards); a card nvidia-smi does not name is not refused (2026-10-17: an engine built for the RTX 5090 alone
         met a cell pinned to the RTX 3090 that came to stand beside it)."""
-        archs = sorted(int(a) for a in build.get("archs") or [])
+        # A ready-made engine's record can write them as one string ("86;120"): Strata's own reader knows; v0.1.42 has none.
+        read = getattr(self.strata(), "arch_numbers", None)
+        archs = sorted(read(build.get("archs")) if read else (int(a) for a in build.get("archs") or []))
         arch = self.card_arch(gpu) if archs else None
         if arch is None or arch in archs or (build.get("ptx") and arch > max(archs)):
             return
@@ -248,6 +256,21 @@ class StrataLaunch:
         if not pinned.strip().isdigit():
             raise self.Refusal(f"Strata runs on one card; CUDA_VISIBLE_DEVICES is {pinned!r}")
         return int(pinned.strip())
+
+    def budget_mode(self, size: str) -> bool:
+        """Does this pack keep only a budget of its experts in RAM? Strata's rule for the machine: an Unsloth pack whose
+        experts fit with room beside them keeps them all. v0.1.42 has no such rule: every such pack kept a budget."""
+        strata = self.strata()
+        if not strata.MODELS[size].get("budget"):
+            return False
+        rule = getattr(strata, "unsloth_budget", None)
+        return rule(size, strata.ram_gb()) if rule else True
+
+    def engine_env(self, family: str, size: str) -> dict:
+        """The engine settings Strata's setup writes for this pack on CUDA (its `hip` answer is False). Most packs have
+        none; v0.1.42 has no such rule and writes none."""
+        rule = getattr(self.strata(), "unsloth_default_env", None)
+        return rule(family, size, False, self.budget_mode(size)) if rule else {}
 
     def engine_args(self, first: Path, ple: Path | None, pack: Path, rt: Path | None,
                     family: str, size: str) -> list[str]:
@@ -268,7 +291,7 @@ class StrataLaunch:
             args += ["--kv", a.kv]
         if strata.kv_streaming_wanted(size, a.context, a.kv, strata.ram_gb()):
             args += ["--kv-resident", self.KV_RESIDENT]
-        if strata.MODELS[size].get("budget"):
+        if self.budget_mode(size):
             # Unsloth's ~4-bit packs hold more experts than the RAM does: the engine keeps a budget of them in RAM and reads
             # the rest from the file. The size is Strata's own recommendation for this machine (the RAM less 24 GiB for the
             # system and the file cache the rest is read through, less the RAM a streamed KV cache takes), as setup writes it.
@@ -309,6 +332,9 @@ class StrataLaunch:
             "gpu": gpu,
             "draft_vocab": self.args.draft_vocab,
         }
+        env = self.engine_env(family, size)
+        if env:
+            cfg["env"] = env
         path = self.work / "strata.json"
         path.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
         print(f"[strata] {size} ({family}), context {self.args.context}, KV {self.args.kv}, "
@@ -333,7 +359,7 @@ class StrataLaunch:
         ap.add_argument("model", help="the model's first GGUF part")
         ap.add_argument("--strata-home", default=str(Path.home() / "Strata"))
         ap.add_argument("--mtp", default="", help="the MTP draft layer's GGUF (mtp-q2_0.gguf)")
-        ap.add_argument("--context", type=int, default=131072)
+        ap.add_argument("--context", type=int, default=StrataLaunch.TRAINED_CONTEXT)
         ap.add_argument("--kv", choices=["int8", "q4_0", "k8v4"], default="int8")
         ap.add_argument("--draft-vocab", choices=["cyrillic", "cjk", "en", "fr"], default="cyrillic")
         ap.add_argument("--vram-reserve-mib", type=int, default=0)

@@ -36,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("dialogs,dialog-llamas,cables,canvas,charts,cloud,command-preview,form,llama-edit,memory,model-meta,"
          "onboarding-tours,polling,topology-activity,remote-cells,routers,system-panels,topology-dnd,topology-render,"
@@ -69,7 +69,7 @@ document.body = { appendChild() {}, dataset: {}, attrs: {}, setAttribute(k, v) {
 globalThis.__plHide = () => { globalThis.__hidden += 1; }; globalThis.__hidden = 0;
 // "+ New pool" opens the step window for a pool that does not exist yet (cloud.js POOL_STEPS):
 // an object, so its stand-in is a value that writes the call down with the others.
-globalThis.__stubValues = { "topology-render.activeView": "topology", "topology-dnd.topologyPointerDrag": null,
+globalThis.__stubValues = { "topology-render.activeView": "topology", "topology-dnd.topologyPointerDrag": null, "polling.LIVE_REFRESH_MS": 1500,
   "cloud.POOL_STEPS": { open: (poolId) => { globalThis.__calls.push(["POOL_STEPS.open", poolId]); } } };
 globalThis.__calls = []; const rec = (name, ret) => (...a) => { globalThis.__calls.push([name, ...a.map((x) => (x && typeof x === "object" && !Array.isArray(x)) ? (x.id ?? x.routerId ?? "obj") : (typeof x === "function" ? "fn" : x))]); return ret; };
 const setv = (key, v) => globalThis.__stubSetters[key](v);
@@ -90,7 +90,7 @@ const reset = () => { st.setState({ config: {} }); st.setTopology({ proxies: [],
   globalThis.__stubReturns = {
     "dialog-llamas.initDialogLlamas": rec("initDialogLlamas"), "i18n.initLanguage": arec("initLanguage", "en"), "onboarding-tours.initOnboarding": rec("initOnboarding"),
     "scout-add.mountScoutAdd": rec("mountScoutAdd"), "topology-nodes.openIncidentsModal": rec("openIncidentsModal"),
-    "polling.loadState": arec("loadState"), "polling.bindMonitorDrawer": rec("bindMonitorDrawer"), "polling.startTopologyMonitor": rec("startTopologyMonitor"),
+    "polling.loadState": arec("loadState"), "polling.bindMonitorDrawer": rec("bindMonitorDrawer"), "polling.startTopologyMonitor": rec("startTopologyMonitor"), "polling.scheduleLiveRefresh": (...a) => { globalThis.__liveBeat = a; rec("scheduleLiveRefresh")(...a); }, "polling.refreshRoutingState": rec("refreshRoutingState"),
     "topology-render.renderAll": rec("renderAll"), "topology-render.renderTopology": rec("renderTopology"), "topology-render.setActiveView": rec("setActiveView"), "topology-render.refreshTopology": arec("refreshTopology"), "topology-render.flushPendingTopologyRender": rec("flushPendingTopologyRender"),
     "model-meta.fetchProxyDailyStats": arec("fetchProxyDailyStats"), "model-meta.fetchModelPricing": arec("fetchModelPricing"), "topology-activity.refreshRouteErrBadges": arec("refreshRouteErrBadges"),
     "cables.drawTopologyCables": rec("drawTopologyCables"), "cables.drawLiveTopologyCable": rec("drawLiveTopologyCable"), "canvas.drawCanvasConnectors": rec("drawCanvasConnectors"), "canvas.canvasOpenPositions": rec("canvasOpenPositions", { "n1": { x: 1 } }), "canvas.canvasInitialView": rec("canvasInitialView", { tx: 5, ty: 6, scale: 1 }), "canvas.cvSetViewport": rec("cvSetViewport"),
@@ -111,6 +111,47 @@ PINS = [
      'await (async () => { await bootBoard(); const el = E("boardServerCards"); return [Object.keys(el.listeners), el.dataset.serverOrderBound || ""]; })()',
      '[[],""]',
      "negative: на главной доске нет списка пулов — и ничего не вешается на его место (пулы в Маршрутизации, 2026-10-12)"),
+    # 1.3.632: the machine's page chooses a cell on its map (machine-head.js, MachinePick): the entry binds the choice once, on the
+    # document. Its flag is the module's, so the pin lets it bind again after the reset took the document's listeners.
+    ("board_binds_the_map_choice", '',
+     'await (async () => { const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href); mh.MACHINE_PICK.bound = false; mh.MACHINE_PICK.port = ""; await bootBoard();'
+     ' docFire("click", { target: { closest: (sel) => (sel === "[data-machine-pick]" ? { dataset: { machinePick: "22001" } } : null) }, preventDefault() {} });'
+     ' const chosen = mh.MACHINE_PICK.port; mh.MACHINE_PICK.port = ""; return [chosen, mh.MACHINE_PICK.bound]; })()',
+     '["22001",true]',
+     "вход доски привязывает выбор ячейки на карте страницы машины: щелчок по блоку выбирает её"),
+    # 1.3.696: the plan's start as the board wires it. On the stand a refused start cleared the plan: the board's action said nothing back.
+    ("board_plan_start_hears_the_action", '',
+     'await (async () => { const pl = await import(pathToFileURL(process.env.JS_ROOT + "/machine-plan.js").href); const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href);'
+     ' const node = { id: "box", cpu: { ram: { totalGb: 60, usedGb: 10 } }, gpus: [], servers: [{ port: 22001, phase: "starting", slotConfig: { MODEL_FILE: "m.gguf" }, cacheModels: true }] };'
+     ' const plan = pl.MACHINE_PLAN; const out = {};'
+     ' const press = async (answer) => { await bootBoard(); plan.clear(); mh.MACHINE_PICK.cells = new Map([["22001", { name: "m", host: "box", fit: { how: "free", fields: {} } }]]); plan.set(22001, { how: "free", fields: { DEVICE: "CUDA1" } });'
+     '   let room = "none";'
+     '   globalThis.__stubReturns["topology-render.machinePageNode"] = () => node; globalThis.__stubReturns["dialogs.appConfirm"] = async () => true;'
+     '   globalThis.__stubReturns["remote-cells.cellServiceAction"] = async (h, p, a) => { globalThis.__calls.push(["act", h, p, a]); room = plan.room; return answer; };'
+     '   docFire("click", { target: { closest: (sel) => (sel === "[data-machine-plan-start]" ? {} : null) }, preventDefault() {} }); await settle(); await settle();'
+     '   const r = { on: plan.on, busy: plan.busy, room: room === "none" ? "none" : (room?.id ?? null), acted: globalThis.__calls.filter((c) => c[0] === "act").map((c) => c.slice(1)),'
+     '               saved: globalThis.__fetchCalls.filter((c) => c.path.endsWith("/save-config")).map((c) => JSON.parse(c.body)) }; reset(); return r; };'
+     ' out.refused = await press(false); out.done = await press(true); plan.clear(); return out; })()',
+     '{"refused":{"on":true,"busy":false,"room":"box","acted":[["box","22001","start"]],"saved":[{"hostId":"box","port":22001,"config":{"MODEL_FILE":"m.gguf","DEVICE":"CUDA1"},"cacheModels":true}]},'
+     '"done":{"on":false,"busy":false,"room":"box","acted":[["box","22001","start"]],"saved":[{"hostId":"box","port":22001,"config":{"MODEL_FILE":"m.gguf","DEVICE":"CUDA1"},"cacheModels":true}]}}',
+     "defect-history (1.3.695, стенд): вход доски: действие говорит, как прошло: отказ — план на месте, принято — снят; настройки сохранены до старта; пока запуск идёт, план рисуется на показанной машине"),
+    # A working cell dragged down to the list stops by its own button, which is on its row in the list: a name nobody draws would stop nothing, in silence.
+    ("board_drag_down_presses_the_rows_own_stop", '',
+     'await (async () => { const pl = await import(pathToFileURL(process.env.JS_ROOT + "/machine-plan.js").href); pl.MACHINE_DRAG.bound = false; await bootBoard();'
+     ' globalThis.CSS ??= {}; globalThis.CSS.escape ??= String; const asked = []; const was = document.querySelector;'
+     ' document.querySelector = (sel) => { asked.push(sel); return { click() { asked.push("clicked"); } }; };'
+     ' try { pl.MACHINE_DRAG.stop(22001); } finally { document.querySelector = was; } return asked; })()',
+     '["[data-t=\\"machine-model-stop\\"][data-t-id=\\"22001\\"]","clicked"]',
+     "вход доски: перетащенная вниз работающая ячейка жмёт «Остановить» своей строки в списке моделей; negative: не имя, которого больше нигде нет (тогда ничего бы не остановилось, молча)"),
+    # 1.3.636: the machine's side column opens the board's incidents with the bar's own opener (machine-head.js, SideIncidents).
+    ("board_binds_the_side_incidents", '',
+     'await (async () => { const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href); mh.SIDE_INCIDENTS.bound = false; await bootBoard();'
+     ' const before = names().filter((x) => x === "openIncidentsModal").length;'
+     ' docFire("click", { target: { closest: (sel) => (sel === "[data-machine-incidents]" ? {} : null) }, preventDefault() {} });'
+     ' docFire("click", { target: { closest: () => null }, preventDefault() {} });'
+     ' return [before, names().filter((x) => x === "openIncidentsModal").length, mh.SIDE_INCIDENTS.bound]; })()',
+     '[0,1,true]',
+     "вход доски привязывает «Открыть» инцидентов в колонке страницы машины к тому же открывателю, что «⚠» панели; negative: щелчок мимо — не открывает"),
     ("board_boot_order", '', 'await (async () => { await bootBoard(); const n = names(); const pos = (x) => n.indexOf(x); return [n.slice(0, 5), document.documentElement.lang === "en", pos("bindMonitorDrawer") >= 0, pos("loadState") < pos("setActiveView"), n.filter((x) => x === "renderAll").length, calls(), timers.map((t) => t.every).filter(Boolean), n.slice(-3), n.filter((x) => x === "mountScoutAdd").length]; })()',
      '[["initDialogLlamas","initOnboarding","mountScoutAdd","bindMonitorDrawer","loadState"],true,true,true,0,["/api/auth/me"],[60000,86400000,60000],["fetchProxyDailyStats","fetchModelPricing","refreshRouteErrBadges"],1]',
      "доска (i18n настоящий, initLanguage не записывается): онбординг после ламы, поле «＋ Добавить скаута» связано один раз и до загрузки состояния, монитор-ящик привязан, loadState → setActiveView, renderAll не зовётся сам (только хук языка), чип пользователя спрошен, три интервала: 60 с / сутки / 60 с"),
@@ -145,7 +186,7 @@ PINS = [
     ("board_loadstate_failure", 'globalThis.__stubReturns["polling.loadState"] = async () => { throw new Error("state down"); };', 'await (async () => { await bootBoard(); return [globalThis.__hidden, document.body.dataset.tState, document.body.dataset.tStateDetail, E("toast").textContent, names().includes("setActiveView"), names().includes("fetchProxyDailyStats")]; })()',
      '[1,"error","state down","state down",false,true]', "negative: отказ loadState — лоадер спрятан, состояние error с причиной, тост; вид не переключается, а фоновые загрузки всё равно идут"),
     ("board_user_chip_only_when_signed_in", '', 'await (async () => { await bootBoard(); const off = E("userChip").hidden; reset(); globalThis.__fetchReply["/api/auth/me"] = { enabled: true, authenticated: true, user: "admin", role: "viewer" }; await bootBoard(); return [off, E("userChip").hidden, E("userChipName").textContent, docListeners.click.filter((l) => l.capture).length]; })()',
-     '[true,false,"admin · viewer",1]', "чип пользователя: скрыт без входа; с входом — имя с суффиксом роли и закрытие меню в capture-фазе"),
+     '[true,false,"admin · viewer",2]', "чип пользователя: скрыт без входа; с входом — имя с суффиксом роли и закрытие меню в capture-фазе (их два с 1.3.684: меню аккаунта и список машин в шапке)"),
     ("board_header_buttons", '', 'await (async () => { await bootBoard(); fire("systemInfoBtn", "click"); fire("usageStatsBtn", "click"); await settle(); return [globalThis.location.href, names().filter((x) => x === "openUsageStatsModal"), ["gemmaTextBoostBtn", "gemmaVisionBtn", "textOnlyBtn", "revertBtn"].filter((id) => Object.keys(E(id).listeners).length)]; })()',
      '["/system",["openUsageStatsModal"],[]]',
      "кнопки заголовка: System — переход, статистика; negative: кнопки классической формы (gemma text/vision, «без mmproj», откат) ничем не связаны — форма ушла с ячейками контроллера (шаг 6.9)"),
@@ -193,16 +234,16 @@ PINS = [
      'await (async () => { await bootBoard(); const bound = [Object.keys(globalThis.__qa["[data-action]"][0].listeners).length, Object.keys(globalThis.__qa["[data-view-tab]"][0].listeners).length]; docFire("focusout"); const before = names().includes("flushPendingTopologyRender"); tick(60); return [bound, before, names().includes("flushPendingTopologyRender")]; })()',
      '[[0,0],false,true]', "negative: кнопки действий одиночного сервера и вкладки вида не связаны — классический вид ушёл; focusout сбрасывает отложенный рендер через 60 мс, не сразу"),
     ("standalone_boot_draws_the_pools_board", 'globalThis.ROUTER_STANDALONE = true; globalThis.location.search = "?id=router:b";',
-     'await (async () => { await bootBoard(); const n = names(); return [n.includes("renderAll"), n.includes("bindMonitorDrawer"), st.ui.topologyRouterDetailId || "",'
+     'await (async () => { globalThis.__liveBeat = null; await bootBoard(); const n = names(); const beat = globalThis.__liveBeat; const before = names().filter((x) => x === "refreshRoutingState").length; beat?.[1]?.(); const read = names().filter((x) => x === "refreshRoutingState").length - before; globalThis.__beatSeen = [beat?.[0], read, n.includes("refreshRoutingState")]; return [n.includes("renderAll"), n.includes("bindMonitorDrawer"), st.ui.topologyRouterDetailId || "",'
      ' st.ui.topologyCanvasRouterId || "", n.includes("cvSetViewport") || n.includes("canvasInitialView") || n.includes("canvasOpenPositions"),'
-     ' n.includes("renderTopology"), n.includes("startTopologyMonitor"), globalThis.__hidden, document.body.dataset.tState, calls(), n.includes("fetchModelPricing")]; })()',
-     '[false,false,"","",false,true,true,1,"ready",["/api/auth/me","/health"],true]',
-     "Маршрутизация (2026-10-12: доска пулов, pool-board.js): без доски и монитор-ящика; рендер, монитор, лоадер спрятан, ready; версия из /health; "
+     ' n.includes("renderTopology"), n.includes("startTopologyMonitor"), globalThis.__hidden, document.body.dataset.tState, calls(), n.includes("fetchModelPricing"), globalThis.__beatSeen]; })()',
+     '[false,false,"","",false,true,true,1,"ready",["/api/auth/me","/health"],true,[1500,1,false]]',
+     "Маршрутизация (2026-10-12: доска пулов, pool-board.js): без доски и монитор-ящика; рендер, монитор, такт 1,5 с, читающий топологию (1.3.691: подпись «Обслуживает сейчас» стояла до перезагрузки), лоадер спрятан, ready; версия из /health; "
      "цены подгружены; negative: ?id= роутера больше ничего не называет — ни ui-идентификаторов роутера, ни вьюпорта холста"),
     ("standalone_topology_refused", 'globalThis.ROUTER_STANDALONE = true; globalThis.__stubReturns["topology-render.refreshTopology"] = async () => { throw new Error("controller is down"); };',
      'await (async () => { await bootBoard(); await settle(); return [document.body.dataset.tState, document.body.dataset.tStateDetail, globalThis.__hidden, E("toast").textContent,'
-     ' names().includes("renderTopology"), names().includes("startTopologyMonitor")]; })()',
-     '["error","controller is down",1,"controller is down",false,false]',
+     ' names().includes("renderTopology"), names().includes("startTopologyMonitor"), names().includes("scheduleLiveRefresh")]; })()',
+     '["error","controller is down",1,"controller is down",false,false,false]',
      "negative: топологию не прочитать — состояние error с причиной, лоадер спрятан, тост; ни рендера, ни монитора"),
     ("standalone_confirm_and_escape", 'globalThis.ROUTER_STANDALONE = true;', 'await (async () => { await bootBoard(); E("confirmOverlay").hidden = false; docFire("keydown", { key: "Escape" }); fire("confirmCancel", "click"); return names().filter((x) => x === "closeConfirmModal").length; })()', '2', "Маршрутизация: общий confirm закрывается Escape и отменой"),
 ]
@@ -245,9 +286,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

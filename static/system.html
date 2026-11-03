@@ -6,6 +6,7 @@
   <title>System — Lama Caravan</title>
   <link rel="icon" href="/favicon.svg?v=4" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/ui.css">
   <link rel="stylesheet" href="/css/topology-board.css">
   <link rel="stylesheet" href="/css/canvas.css">
   <link rel="stylesheet" href="/css/modals.css">
@@ -27,50 +28,48 @@
     }
     .topbar { position: sticky; top: 0; z-index: 30; }
 
+    /* No frames (the owner, 2026-11-01: "the interface looks as if in a window; better as on /hf"): the tabs and the page's name are a
+       rail, the chosen panel a pane, from edge to edge with a line between them, each scrolling by itself. On a narrow screen the tabs
+       stand in a row over the panel again, and the page scrolls. */
     .sys-wrap {
-      width: min(980px, 94vw);
-      margin: 0 auto;
-      padding: 22px 0 60px;
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 260px minmax(0, 1fr);
+    }
+    .sys-rail {
       display: flex;
       flex-direction: column;
-      gap: 16px;
-      flex: 1;
+      gap: 14px;
+      padding: 18px 14px 24px;
+      border-right: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 45%, var(--bg));
+    }
+    .sys-pane { min-width: 0; }
+    @media (min-width: 901px) {
+      html, body { height: 100dvh; overflow: hidden; }
+      .sys-rail, .sys-pane { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
     }
 
-    /* ── hero ── */
-    .sys-hero {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 18px;
-      flex-wrap: wrap;
-      padding: 22px 24px;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      background:
-        radial-gradient(1200px 300px at 8% -40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
-        var(--surface);
-    }
-    .sys-hero h2 {
+    /* ── the page's name ── */
+    .sys-title { padding: 0 8px; }
+    .sys-title h2 {
       margin: 0 0 4px;
-      font-size: 26px;
-      letter-spacing: .02em;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      font-size: 21px;
+      font-weight: 700;
+      letter-spacing: -.01em;
     }
-    .sys-hero p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 52ch; }
+    .sys-title p { margin: 0; font-size: 12.5px; color: var(--muted); }
+
+    /* ── the figures over the panel ── */
     .sys-hero-stats {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 8px;
-      min-width: min(420px, 100%);
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      border-bottom: 1px solid var(--line);
     }
     .sys-stat {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 9px 12px;
-      background: color-mix(in srgb, var(--bg) 55%, transparent);
+      padding: 12px 24px;
+      border-right: 1px solid color-mix(in srgb, var(--line) 70%, var(--bg));
       display: flex;
       flex-direction: column;
       gap: 2px;
@@ -94,32 +93,19 @@
     .sys-stat.good strong { color: var(--ok, #4fc38a); }
 
     /* ── tabs ── */
-    .sys-tabs {
-      position: sticky;
-      top: 54px;
-      z-index: 20;
-      display: flex;
-      gap: 4px;
-      padding: 5px;
-      border: 1px solid var(--line);
-      border-radius: 13px;
-      background: color-mix(in srgb, var(--surface) 92%, transparent);
-      backdrop-filter: blur(8px);
-      overflow-x: auto;
-    }
+    .sys-tabs { display: flex; flex-direction: column; gap: 3px; }
     .sys-tab {
-      flex: 1 1 0;
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      gap: 7px;
-      padding: 9px 14px;
+      gap: 9px;
+      padding: 9px 10px;
       border: 0;
       border-radius: 9px;
       background: transparent;
       color: var(--muted);
-      font-size: 12.5px;
+      font-size: 13px;
       font-weight: 600;
+      text-align: left;
       cursor: pointer;
       white-space: nowrap;
       transition: background .15s ease, color .15s ease;
@@ -136,20 +122,19 @@
     .sys-panel { display: none; animation: sys-fade .18s ease; }
     .sys-panel.active { display: block; }
     @keyframes sys-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-    .sys-panel .panel {
-      margin: 0;
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 18px 20px;
-      background: var(--surface);
-    }
+    .sys-panel .panel { margin: 0; border: 0; border-radius: 0; padding: 18px 24px; background: transparent; }
     .sys-panel .section-title { margin-bottom: 12px; }
     .sys-panel .section-title h2 { font-size: 15px; }
     .llama-update-log:empty { display: none; }
-    .sys-foot { text-align: center; font-size: 11px; color: var(--muted); padding: 8px 0 0; }
+    .sys-foot { font-size: 11px; color: var(--muted); padding: 4px 24px 24px; }
+    @media (max-width: 900px) {
+      .sys-wrap { grid-template-columns: minmax(0, 1fr); align-content: start; }
+      .sys-rail { border-right: 0; border-bottom: 1px solid var(--line); }
+      .sys-tabs { flex-direction: row; overflow-x: auto; }
+      .sys-tab { flex: 1 1 0; justify-content: center; }
+    }
     @media (max-width: 640px) {
-      .sys-hero { padding: 16px; }
-      .sys-tabs { top: 50px; }
+      .sys-stat { padding: 10px 16px; }
       .sys-tab { padding: 8px 8px; font-size: 11.5px; }
       .sys-tab .sys-tab-label { display: none; }
       .sys-tab .sys-tab-ico { font-size: 17px; }
@@ -244,6 +229,15 @@
     </div>
     <h1 class="page-title" data-t="header-page-title" data-i18n="systemSubtitleBrand">System &amp; settings</h1>
     <div class="actions">
+      <nav id="headerPages" class="topbar-pages" data-t="header-pages" data-i18n-aria="headerPagesLabel" aria-label="Pages">
+        <a id="headerModelsLink" class="topbar-page" href="/models" data-t="header-models" data-title-i18n="modelsPageSub"><span aria-hidden="true">📦</span> <span class="topbar-page-label" data-i18n="topologyModelsLabel">Models</span></a>
+        <a id="headerHfLink" class="topbar-page" href="/hf" data-t="header-hf" data-title-i18n="hfBrowserTitle"><span aria-hidden="true">🤗</span> <span class="topbar-page-label">Hugging Face</span></a>
+        <a id="headerRoutingLink" class="topbar-page" href="/routing" data-t="header-routing" data-title-i18n="headerRoutingTitle"><span aria-hidden="true">🔀</span> <span class="topbar-page-label" data-i18n="topologyRouterTitle">Routing</span></a>
+        <div class="topbar-machines" id="headerMachines" data-t="header-machines">
+          <button id="headerMachinesBtn" class="topbar-page" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-machines-open" data-title-i18n="headerMachinesTitle"><span aria-hidden="true">🖥</span> <span class="topbar-page-label" data-i18n="topologyMachinesSection">Machines</span><span class="lang-caret" aria-hidden="true">▾</span></button>
+          <div id="headerMachinesMenu" class="topbar-machines-menu" role="menu" hidden data-t="header-machines-menu"></div>
+        </div>
+      </nav>
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
         <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
           <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
@@ -263,13 +257,11 @@
   <!-- header:end -->
 
   <div class="sys-wrap">
-    <section class="sys-hero">
-      <div>
-        <h2><span aria-hidden="true">🛠</span> <span data-i18n="systemInfoTitle">System</span></h2>
-        <p data-i18n="sysSubtitle">Controller health, llama.cpp build, accounts and diagnostics — everything operational lives here.</p>
-      </div>
-      <div class="sys-hero-stats" id="sysHeroStats" data-t="system-hero-stats"></div>
-    </section>
+    <aside class="sys-rail">
+    <div class="sys-title">
+      <h2><span aria-hidden="true">🛠</span> <span data-i18n="systemInfoTitle">System</span></h2>
+      <p data-i18n="sysSubtitle">Controller health, llama.cpp build, accounts and diagnostics — everything operational lives here.</p>
+    </div>
 
     <nav class="sys-tabs" role="tablist" id="sysTabs">
       <button class="sys-tab active" data-tab="controller" role="tab" aria-selected="true" data-t="system-tab-controller">
@@ -291,6 +283,11 @@
         <span class="sys-tab-ico" aria-hidden="true">🩺</span><span class="sys-tab-label" data-i18n="diagSection">Diagnostics</span>
       </button>
     </nav>
+
+    </aside>
+
+    <div class="sys-pane">
+    <div class="sys-hero-stats" id="sysHeroStats" data-t="system-hero-stats"></div>
 
     <section class="sys-panel active" data-panel="controller">
       <div class="panel controller-panel">
@@ -396,6 +393,7 @@
     </section>
 
     <p class="sys-foot" id="sysFoot"></p>
+    </div>
   </div>
 
   <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">

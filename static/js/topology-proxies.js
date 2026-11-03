@@ -352,7 +352,7 @@ export async function toggleTopologyGroupCloudFallback(groupKey) {
 
 // A client of the entry (kind "consumer", 2026-10-12) never feeds a router: its one cable leads
 // to a pool, and the pool's rows decide — the same rule the server's normalizer keeps
-// (caravan/admin/router_dsl.py), which clears its router binding on every save.
+// (rust/crates/admin/src/proxies/dsl.rs), which clears its router binding on every save.
 export function feedsRouters(proxy) {
   return String(proxy.kind || "") !== "consumer";
 }

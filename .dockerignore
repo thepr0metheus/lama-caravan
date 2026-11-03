@@ -1,37 +1,9 @@
-# The image carries only the code: app.py, agent-proxies.py, caravan/, static/, cells/
-# (scripts/check_image_contents.py keeps that list in step with the code).
-# Everything else — and especially live deployment state — stays out.
-.git
-.gitignore
-.claude
-.bench_cache
-__pycache__
-**/__pycache__
-*.pyc
-
-# Live state of a native deployment (never bake a real config into an image)
-var/
-logs/
-agent-proxies.json
-agent-proxies.json.bak-*
-agent-proxy-state.json
-agent-proxies.py.bak*
-client-labels.json
-token-history.json
-cloud-providers.json
-
-# Host-side tooling that is useless inside the container
-systemd/
-scripts/
-whisper/
-docs/
-*.md
-LICENSE
-Dockerfile
-docker-compose.yml
-.dockerignore
-
-# The NAS keeps the app's data next to its code (/volume1/docker/lama-caravan/data,
-# deploy/nas/compose.yaml): accounts, tokens and provider secrets must never be
-# baked into an image built there.
-data/
+# The image carries what the Dockerfile copies and nothing else: live state and the repository's history stay out by default.
+*
+!rust/
+!static/
+!cells/
+!VERSION
+rust/target/
+**/__pycache__/
+**/*.pyc

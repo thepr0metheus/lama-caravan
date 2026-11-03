@@ -21,14 +21,24 @@ canvas. What is pinned: how far a point must move to stand inside the water's ed
 pressed at a bank, and a strider shoved at one, never cross it; that a scare sends an animal along
 the stream, never across; and the rings of a hand's plop, which come once, in order.
 
-The take and the drop (1.3.546; the owner, 2026-10-14: "the fish eats the moth while its mouth is still far
-from it", "remove the splashes", "let the sound be like a drop falling into water"). The trout runs as
-itself in a stream with a fly drifting on it. What is pinned: where its mouth is and what the mouth takes
-and passes over; that a chase brings the mouth to the fly (it took it 0.39 of its length from the nose
-before), on a fast frame and on a slow one, for a fly that drifts down to a trout and for one thrown
-beside it; that a take leaves a ring and no spray; that the sound of a landing fly, of a take and of a
-hand's plop is one voice, a drop, each bigger drop lower and longer; and what that voice is made of: one
-rising sine and no noise.
+The rocks (1.3.603; the owner, 2026-10-20: "the fish run away but stop against a rock, instead of going
+round it as they come up to it"). Round stones put into the stream by hand, and the stream's own rocks.
+What is pinned: a trout looks along the way it wants to go as far as it would swim in 0.7 s, and no
+further than the place it goes to; a rock in that way is gone round — one ahead along the stream by its
+side toward the middle (the owner: "a fish at the bank would go between the bank and the rock and get
+stuck"), one across the stream by its end nearer the place; the side once taken is kept; a way along a
+rock does not turn back on itself, and close to the stone it leads out; a fish never swims at a stone
+faster than it could stop short of it, and comes up to the stone itself only for a place at it (a fly
+drifting by); no point of a body enters a rock's margin. Startled trout behind the rocks of 18 streams go
+round their rock and never touch one.
+
+The chase and the drop (1.3.546, the first version's behaviour of 1.3.597, and 1.3.599: the owner, 2026-10-19, "again the fish can take the moth very far from the
+mouth, and as soon as it appears they swim after it; they used to think longer before they started to swim"). The trout runs as itself in a stream with a fly drifting
+on it. What is pinned: that a trout takes a fly only at its mouth (the tip of its snout, where the outline draws the nose: 0.08 of its length, along the whole way the tip went in
+a step, never 0.39 away as in the first version), that the chase brings the mouth to a fly that drifts down to it and to one thrown beside it, on a fast frame and on a
+slow one; that a fly it has seen is thought over for 0.8 to 1.8 s before it moves (the thinking drawn from a stream of its own, the eyes on the fly, a fly that is gone let go); that a
+trout's constructor takes from the brook's stream the numbers the first version's did (so that every seed lays the brook out as it did); that a take leaves a ring and no spray;
+that the sound of a landing fly, of a take and of a hand's plop is one voice, a drop, each bigger drop lower and longer; and what that voice is made of: one rising sine and no noise.
 
 Run: python3 scripts/test_js_river.py
 """
@@ -41,7 +51,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -88,8 +98,9 @@ const fakeAudio = () => {
 };
 /**
  * A trout chasing a fly that drifts with the water, run as itself: how far from the tip of its snout the fly was when it was taken, in
- * body lengths, or null when the chase ended with no take. A natural fly comes down the stream to a trout holding its lie; any other is
- * thrown anywhere ahead of it or beside it, as a click on the water does.
+ * body lengths, when (seconds from the start) and how long the trout thought the fly over before it moved, or null when the chase ended with
+ * no take. A natural fly comes down the stream to a trout holding its lie; any other is thrown anywhere ahead of it or beside it, as a click
+ * on the water does.
  */
 const chaseOf = (ch, seed, dt, natural) => {
   const rng = new core.Rng(seed), at = ch.xy(600, ch.centre(600)), len = ch.C * 0.12;
@@ -103,20 +114,100 @@ const chaseOf = (ch, seed, dt, natural) => {
       if (ch.isWater(x, y, 0.2)) fly = { x, y, vx: 0, vy: 0, alive: true, claimedBy: null };
     }
   }
-  let near = null;
+  let took = null, seen = null, thought = null;
   const flies = [fly];
   const life = { time: 0, noise: new core.Noise(new core.Rng(seed + 1)), channel: ch,
     flyFor: (fish) => lifeMod.BrookLife.prototype.flyFor.call({ flies }, fish),
-    rise: (fish, g) => { g.alive = false; const m = fish.mouth(); near = Math.hypot(g.x - m.x, g.y - m.y) / fish.len; },
+    rise: (fish, g) => { const m = fish.mouth(); g.alive = false; took = { near: Math.hypot(g.x - m.x, g.y - m.y) / fish.len, at: life.time, thought }; },
     freeLie: () => null, shelterNear: () => at };
-  for (let t = 0; t < 12 && near === null; t += dt) {
+  for (let t = 0; t < 14 && took === null; t += dt) {
     const w = ch.sample(fly.x, fly.y), k = Math.min(1, 2 * dt);
     fly.vx += (w.vx - fly.vx) * k; fly.vy += (w.vy - fly.vy) * k;
     fly.x += fly.vx * dt; fly.y += fly.vy * dt; life.time = t;
+    const before = f.state;
     f.update(dt, life);
-    if (f.state === "back" && near === null && t > 0.2) break;
+    if (before !== "notice" && f.state === "notice") seen = t;
+    if (before === "notice" && f.state === "chase") thought = t - seen;
+    if (f.state === "back" && took === null && t > 0.2) break;
   }
-  return near;
+  return took;
+};
+/**
+ * A trout holding its lie and a fly that drifts down to it, run as themselves: every change of the trout's state with its time (seconds since the fly came) and whether the
+ * fly was its own by then, how far from where it was it strayed while it thought, and when it took the fly. The trout has held its lie for three seconds when the fly comes.
+ * `drop` lets the fly go: it dies, or another fish claims it, at a time.
+ */
+const thinkOf = (ch, seed, dt = 1 / 60, drop = null) => {
+  const rng = new core.Rng(seed), at = ch.xy(600, ch.centre(600)), len = ch.C * 0.12, t0 = 3;
+  const f = new fishMod.Trout(rng, at, len); f.heading = f.goal = Math.atan2(-ch.axis.y, -ch.axis.x); f.buildSpine();
+  const other = { name: "another trout" }, flies = [], rose = [], log = [];
+  const life = { time: 0, noise: new core.Noise(new core.Rng(seed + 1)), channel: ch,
+    flyFor: (fish) => lifeMod.BrookLife.prototype.flyFor.call({ flies }, fish),
+    rise: (fish, g) => { g.alive = false; rose.push(+(life.time - t0).toFixed(3)); }, freeLie: () => null, shelterNear: () => at };
+  for (let t = 0; t < t0; t += dt) { life.time = t; f.update(dt, life); }
+  const fly = { x: f.x - ch.axis.x * len * 3.5, y: f.y - ch.axis.y * len * 3.5, vx: 0, vy: 0, alive: true, claimedBy: null };
+  flies.push(fly);
+  const start = { x: f.x, y: f.y };
+  let away = 0;
+  for (let t = t0; t < t0 + 8; t += dt) {
+    const w = ch.sample(fly.x, fly.y), k = Math.min(1, 2 * dt);
+    fly.vx += (w.vx - fly.vx) * k; fly.vy += (w.vy - fly.vy) * k; fly.x += fly.vx * dt; fly.y += fly.vy * dt; life.time = t;
+    if (drop && t - t0 >= drop.at) { if (drop.kind === "dies") fly.alive = false; else fly.claimedBy = other; }
+    const before = f.state;
+    f.update(dt, life);
+    if (f.state !== before) log.push([before, f.state, +(t - t0).toFixed(3), fly.claimedBy === f]);
+    if (f.state === "notice") away = Math.max(away, Math.hypot(f.x - start.x, f.y - start.y) / len);
+  }
+  return { log, rose, fly, other, away };
+};
+/** A round stone of radius r at (x, y), standing out of the water: a rock with no wobble, where the numbers of a way past it are easy to read. */
+const stoneAt = (x, y, r) => ({ x, y, r, height: 1, emerges: true, radiusAt: () => r, inside(px, py, m = 0) { return r + m - Math.hypot(px - x, py - y); } });
+/** The fish's rock handling taken away, for the negatives: no look ahead (the want as it is) and no brakes (stopping takes no time). */
+const blind = () => { fishMod.Trout.prototype.steer = (want) => want; Object.getPrototypeOf(fishMod.Trout).STOP = 1e-9; };
+/** A trout 100 px long at (x, y), facing along `heading`, and the way it steers `want` to: the turn from the want in whole degrees, and the steered want. */
+const steerAt = (ch, x, y, want, heading = 0, f = null) => {
+  f = f || new fishMod.Trout(new core.Rng(3), { x, y }, 100); f.x = x; f.y = y; f.heading = f.goal = heading;
+  const out = f.steer(want, ch, 600), turn = Math.round(core.M.wrap(Math.atan2(out.y, out.x) - Math.atan2(want.y, want.x)) * 180 / Math.PI);
+  return { f, out, turn, across: Math.sign(Math.round(ch.acrossOf(out))) };
+};
+/**
+ * Trout at the lies behind the rocks that stand out of the water, 2.5 radii below each (as BrookLife lays them out), in streams of three sizes:
+ * each holds its lie for a second, is scared from 1.2 of its lengths below and flees for its 0.9 s. What the flights did: how many trout; how
+ * many brought the snout within ROCK_TOUCH of a rock (pressed) and in how many frames; how many had a point of the spine inside a rock; and
+ * of those whose snout got level with their rock's centre within two seconds, how many on the rock's side toward the middle of the stream
+ * (a rock on the middle line counted apart).
+ */
+const fleeOf = (seeds) => {
+  const out = { trout: 0, pressed: 0, pressedFrames: 0, bodyIn: 0, level: 0, middleSide: 0, middleLine: 0 };
+  for (const [w, h] of [[1440, 900], [1000, 600], [1920, 1080]]) for (const seed of seeds) {
+    const ch = new worldMod.Channel(w, h, new core.Rng(seed), new core.Noise(new core.Rng(seed + 40))), C = ch.C;
+    for (const r of ch.rocks) {
+      if (!r.emerges) continue;
+      const lie = { x: r.x + ch.axis.x * r.r * 2.5, y: r.y + ch.axis.y * r.r * 2.5 };
+      if (!(lie.x > C * 0.04 && lie.y > C * 0.04 && lie.x < w - C * 0.04 && lie.y < h - C * 0.04)) continue;
+      if (ch.sample(lie.x, lie.y).depth <= 0.35 || ch.rockAt(lie.x, lie.y, r.r * 0.4)) continue;
+      const len = C * 0.125, f = new fishMod.Trout(new core.Rng(seed * 7 + out.trout), lie, len);
+      f.heading = f.goal = Math.atan2(-ch.axis.y, -ch.axis.x); f.buildSpine();
+      const life = { time: 0, noise: new core.Noise(new core.Rng(seed + 1)), channel: ch, flyFor: () => null, freeLie: () => null, rise: () => {},
+        shelterNear: (fish) => lifeMod.BrookLife.prototype.shelterNear.call({ channel: ch }, fish) };
+      f.state = "hold"; f.stateTime = 0;
+      for (let i = 0; i < 60; i++) { life.time += 1 / 60; f.update(1 / 60, life); }
+      f.spook(f.x + ch.axis.x * len * 1.2, f.y + ch.axis.y * len * 1.2, ch);
+      out.trout++;
+      let pressed = 0, inside = false, side = null;
+      for (let i = 0; i < 120; i++) {
+        life.time += 1 / 60; f.update(1 / 60, life);
+        if (side === null && ch.sOf(f.x, f.y) < ch.sOf(r.x, r.y)) side = ch.middleSide(r.x, r.y, r.r * 0.25) * Math.sign(ch.nOf(f.x, f.y) - ch.nOf(r.x, r.y));
+        if (i >= 54) continue;
+        if (ch.rocks.some((q) => q.inside(f.x, f.y, f.len * fishMod.Trout.ROCK_TOUCH + 0.5) > 0)) pressed++;
+        if (f.spine.some((p) => ch.rocks.some((q) => q.inside(p.x, p.y) > 0))) inside = true;
+      }
+      if (pressed) { out.pressed++; out.pressedFrames += pressed; }
+      if (inside) out.bodyIn++;
+      if (side !== null) { out.level++; if (side === 1) out.middleSide++; if (side === 0) out.middleLine++; }
+    }
+  }
+  return out;
 };
 
 /** A store like localStorage; `refuse` makes every call throw, as a private window can. */
@@ -366,6 +457,133 @@ PINS = [
      "a trout scared by a hand darts along the stream — downstream from a hand upstream of it, up from one downstream, downstream from one level "
      "with it — and never across it; so do the minnows the hand scatters, each away from the hand along the stream (the owner, 2026-10-13: "
      "\"they may flee only up and down the stream\")"),
+    # ── the rocks: a fish goes round them as it comes up to them, and never runs into one (1.3.603) ──
+    ("middle_side_of_the_stream", "",
+     "(() => { const land = channelOf(), port = channelOf(600, 1000);"
+     " const side = (ch, dn, level) => { const p = ch.xy(500, ch.centre(500) + dn); return ch.middleSide(p.x, p.y, level); };"
+     " return { land: [side(land, -100), side(land, 100), side(land, 6, 10), side(land, 6)], port: [side(port, -100), side(port, 100), side(port, -6, 10)],"
+     " across: [land.acrossOf({ x: 3, y: -7 }), port.acrossOf({ x: 3, y: -7 })] }; })()",
+     {"land": [1, -1, 0, -1], "port": [1, -1, 0], "across": [-7, 3]},
+     "which way across the stream its middle lies from a point: from above the middle line, down toward it (1), from below it, up (-1); within "
+     "`level` of the line, neither (0) — a rock there is passed on the side the fish is on; where the stream runs down the screen the same on "
+     "the other axis; how much of a screen vector goes across the stream"),
+    ("a_trout_looks_as_far_ahead_as_it_swims", "",
+     "(() => { const ch = channelOf(), s = 300, p = ch.xy(s, ch.centre(s));"
+     " const put = (dx, dn) => { const c = ch.xy(s + dx, ch.centre(s) + dn); ch.rocks = [stoneAt(c.x, c.y, 40)]; };"
+     " put(300, 0); const fast = steerAt(ch, p.x, p.y, { x: 500, y: 0 }), slow = steerAt(ch, p.x, p.y, { x: 100, y: 0 });"
+     " put(300, 150); const beside = steerAt(ch, p.x, p.y, { x: 500, y: 0 }); put(-300, 0); const behind = steerAt(ch, p.x, p.y, { x: 500, y: 0 });"
+     " return { fast: Math.abs(fast.turn), slow: slow.turn, beside: beside.turn, behind: behind.turn, kept: Math.round(Math.hypot(fast.out.x, fast.out.y)),"
+     " look: [fishMod.Trout.LOOK, fishMod.Trout.LOOK_LEAST, fishMod.Trout.ROCK_ROOM, fishMod.Trout.TURN_LEAD] }; })()",
+     {"fast": 20, "slow": 0, "beside": 0, "behind": 0, "kept": 500, "look": [0.7, 0.5, 0.25, 0.08]},
+     "a trout looks along the way it wants to go as far as it would swim in 0.7 s: a stone of radius 0.4 three lengths ahead turns a trout that "
+     "wants 5 lengths a second by 20 degrees, onto the line that passes the stone with room (a quarter of its length, and 0.08 s of its way to "
+     "turn in), and does not turn one that wants 1 length a second (it sees 0.7 of its length ahead, the stone is not near yet); negative: a "
+     "stone 1.5 lengths beside the way, or behind the trout, turns nothing; how much it wants is kept"),
+    ("round_a_rock_on_its_middle_side", "",
+     "(() => { const go = (ch, edge) => { const s = 300, hw = ch.halfWidth(s), n = ch.centre(s + 250) + edge * hw * 0.5, c = ch.xy(s + 250, n);"
+     " ch.rocks = [stoneAt(c.x, c.y, 40)]; const p = ch.xy(s, n + edge * 20), w = ch.xy(300, 0), r = steerAt(ch, p.x, p.y, w, Math.atan2(w.y, w.x));"
+     " return [r.across, Math.sign(ch.acrossOf({ x: p.x - c.x, y: p.y - c.y }))]; };"
+     " const land = channelOf(), port = channelOf(600, 1000); const a = go(land, -1), b = go(land, 1), c = go(port, -1), d = go(port, 1);"
+     " return { goes: [a[0], b[0], c[0], d[0]], nearerSideWouldBe: [a[1], b[1], c[1], d[1]] }; })()",
+     {"goes": [1, -1, 1, -1], "nearerSideWouldBe": [-1, 1, -1, 1]},
+     "a stone ahead along the stream, half way between the middle and a bank, is gone round on its side toward the middle of the stream — by a "
+     "trout coming down to it 20 px nearer the bank than the stone's centre, for whom the other side, toward the bank, is the smaller turn (the "
+     "owner, 2026-10-20: \"not the side nearer the goal — a fish at the bank would go between the bank and the rock and get stuck\"); either "
+     "bank, and the same where the stream runs down the screen"),
+    ("a_rock_beside_is_gone_round_by_the_end_nearer_where_it_goes", "",
+     "(() => { const ch = channelOf(), s = 500, c = ch.xy(s, ch.centre(s) + 30), p = ch.xy(s, ch.centre(s) + 180); ch.rocks = [stoneAt(c.x, c.y, 40)];"
+     " const round = (ds) => { const f = new fishMod.Trout(new core.Rng(3), p, 100), q = ch.xy(s + ds, ch.centre(s) - 120);"
+     " const r = steerAt(ch, p.x, p.y, f.seek(q.x, q.y, 300), -Math.PI / 2, f); return Math.sign(ch.sOf(r.out.x, r.out.y)); };"
+     " return { downstream: round(150), upstream: round(-150) }; })()",
+     {"downstream": 1, "upstream": -1},
+     "a stone that lies across the stream from a trout, in its way to a place beyond it, is gone round by its end nearer that place: down the "
+     "stream for a place below, up it for a place above — both ways keep to the trout's side of the stone, and the other leads round the far "
+     "end, away from where it goes"),
+    ("the_side_taken_is_kept", "",
+     "(() => { const ch = channelOf(), s = 300, n = ch.centre(s + 250), c = ch.xy(s + 250, n), w = { x: 300, y: 0 }; ch.rocks = [stoneAt(c.x, c.y, 40)];"
+     " const above = ch.xy(s, n - 5), below = ch.xy(s, n + 5), first = steerAt(ch, above.x, above.y, w), f = first.f;"
+     " const kept = steerAt(ch, below.x, below.y, w, 0, f).across, fresh = steerAt(ch, below.x, below.y, w).across;"
+     " ch.rocks = []; steerAt(ch, below.x, below.y, w, 0, f); const forgotten = f.passing === null; ch.rocks = [stoneAt(c.x, c.y, 40)];"
+     " return { first: first.across, kept, fresh, forgotten, again: steerAt(ch, below.x, below.y, w, 0, f).across }; })()",
+     {"first": -1, "kept": -1, "fresh": 1, "forgotten": True, "again": 1},
+     "a stone on the middle line is gone round on the side the trout is on (here above it), and the side, once taken, is kept while that stone "
+     "is in the way: drifted to 5 px below the stone's line, the trout still goes round above, where one seeing the stone first from there "
+     "would go round below (a fish that chose again every frame would wobble into the stone); once nothing is in its way the side is forgotten, "
+     "and the next sight chooses afresh"),
+    ("a_rock_beyond_where_it_goes_is_not_in_the_way", "",
+     "(() => { const ch = channelOf(), s = 300, p = ch.xy(s, ch.centre(s)), c = ch.xy(s + 250, ch.centre(s)); ch.rocks = [stoneAt(c.x, c.y, 40)];"
+     " const to = (d) => { const f = new fishMod.Trout(new core.Rng(3), p, 100), q = { x: p.x + d, y: p.y }; return steerAt(ch, p.x, p.y, f.seek(q.x, q.y, 300), 0, f).turn; };"
+     " return { before: to(150), beyond: to(400) !== 0, nearSide: to(250 - 40 - 20), farSide: to(250 + 40 + 20) !== 0 }; })()",
+     {"before": 0, "beyond": True, "nearSide": 0, "farSide": True},
+     "a trout going to a place goes no further, and a stone beyond the place is not in its way: a place 1.5 lengths ahead with a stone 2.5 "
+     "lengths ahead is gone to straight, a place past the stone is gone round to; a place in the water about the stone (20 px off it, inside "
+     "the room a trout passes a stone with: a lie, a hiding place, a fly drifting by it) is gone to straight from the near side, and round "
+     "the stone from the far side"),
+    ("a_way_along_a_rock_keeps_its_side", "",
+     "(() => { const ch = channelOf(), s = 400, o = ch.xy(s, ch.centre(s)), stone = stoneAt(o.x, o.y, 40); ch.rocks = [stone]; let turned = 0, along = 0;"
+     " for (let deg = 0; deg < 360; deg += 3) for (const k of [1, -1]) { const a = deg * Math.PI / 180, u = { x: Math.cos(a), y: Math.sin(a) }, p = { x: o.x + u.x * 70, y: o.y + u.y * 70 };"
+     " const f = new fishMod.Trout(new core.Rng(3), p, 100), want = f.seek(o.x - u.x * 200, o.y - u.y * 200, 300); f.passing = { rock: stone, turn: k };"
+     " const r = steerAt(ch, p.x, p.y, want, a + Math.PI, f), kept = { x: Math.cos(a + Math.PI + k * Math.PI / 2), y: Math.sin(a + Math.PI + k * Math.PI / 2) };"
+     " const dot = (r.out.x * kept.x + r.out.y * kept.y) / 300; if (dot < 0) turned++; if (dot > 0.999) along++; }"
+     " return { ways: 240, along, turned }; })()",
+     {"ways": 240, "along": 240, "turned": 0},
+     "a trout already inside the room it passes a stone with (30 px off a stone of radius 40), wanting to go through the stone, goes along "
+     "the stone's outline on the side it took — either side, from every one of 120 places round the stone; negative: never the other way: the "
+     "way along the outline touches the stone, and a second look that saw the same stone there chose its side afresh — toward the middle of "
+     "the stream, against the side taken — and turned the fish round, frame after frame: in three minutes of 18 brooks a trout's goal jumped "
+     "by more than a right angle in a frame 7101 times, and about 1700 with that stone left out"),
+    ("close_to_a_stone_the_way_leads_out", "",
+     "(() => { const ch = channelOf(), s = 400, o = ch.xy(s, ch.centre(s)); ch.rocks = [stoneAt(o.x, o.y, 40)];"
+     " const off = (gap) => { const p = { x: o.x - 40 - gap, y: o.y }, f = new fishMod.Trout(new core.Rng(3), p, 100);"
+     " const r = steerAt(ch, p.x, p.y, f.seek(o.x + 200, o.y, 300), 0, f); return Math.round(Math.atan2(-r.out.x, Math.abs(r.out.y)) * 180 / Math.PI); };"
+     " return { far: off(30), near: off(8), touching: off(0), room: fishMod.Trout.ROCK_ROOM }; })()",
+     {"far": 0, "near": 43, "touching": 90, "room": 0.25},
+     "a trout inside the room it passes a stone with, wanting to go through the stone, goes along the stone; come within ROCK_ROOM of the stone "
+     "itself, it goes out of the room too, the more the nearer: 30 px off a stone (more than a quarter of its length) its way runs straight "
+     "along the outline, 8 px off it leans 43 degrees away from the stone, touching it straight out; straight along, the current set the nose of "
+     "a fish that had come close a little into the stone, and the brakes held it there (a trout after a fly crept along a stone for 2.7 s at "
+     "0.2 of its length a second)"),
+    ("a_startled_trout_goes_round_its_rock", "",
+     "(() => { const seen = fleeOf([1, 2, 3, 4, 5, 6]); blind(); const blindly = fleeOf([1, 2, 3, 4, 5, 6]);"
+     " return { trout: seen.trout, pressed: seen.pressed, bodyIn: seen.bodyIn, level: seen.level, middleSide: seen.middleSide, middleLine: seen.middleLine,"
+     " blindly: { pressed: blindly.pressed, bodyIn: blindly.bodyIn } }; })()",
+     {"trout": 45, "pressed": 0, "bodyIn": 0, "level": 25, "middleSide": 21, "middleLine": 4, "blindly": {"pressed": 45, "bodyIn": 0}},
+     "45 trout at the lies behind the rocks of 18 streams (three sizes, six layouts each), scared from below, flee up the stream toward the rock "
+     "they hold behind (the owner, 2026-10-20: \"the fish run away but stop against a rock, instead of going round it as they come up to it\"): "
+     "in its 0.9 s flight no trout brings its snout within the margin of a rock, and no point of any body is ever inside one; of the 25 that get "
+     "level with their rock within two seconds, 21 go by its side toward the middle of the stream and 4 by a rock on the middle line — none by "
+     "the bank's side; negative: the same trout with no look ahead and no brakes run into their rock, all 45 (the stone keeps their bodies off "
+     "it, and their snouts at its margin)"),
+    ("a_trout_wants_a_place_a_shoal_does_not", "",
+     "(() => { const ch = channelOf(), at = ch.xy(500, ch.centre(500)), S = Object.getPrototypeOf(fishMod.Trout).prototype, swim = S.swim, seen = [];"
+     " S.swim = function (dt, c, want, ...rest) { seen.push([this.constructor.name, want.to ? \"to\" : \"none\"]); return swim.call(this, dt, c, want, ...rest); };"
+     " const life = { time: 0, channel: ch, noise: new core.Noise(new core.Rng(1)), trout: [], flyFor: () => null, freeLie: () => null, shallowSpot: () => null, shelterNear: () => at };"
+     " const f = new fishMod.Trout(new core.Rng(3), at, 100); f.update(1 / 60, life); f.spook(at.x - 100, at.y, ch); f.update(1 / 60, life);"
+     " new fishMod.MinnowShoal(life, at, 2, 24, new core.Rng(2)).update(1 / 60, life); return seen; })()",
+     [["Trout", "to"], ["Trout", "none"], ["Minnow", "none"], ["Minnow", "none"]],
+     "what a fish wants says where it leads, when it leads to a place: a trout drifting about its lie wants a place, and a stone beyond it is "
+     "not in its way; a startled trout's flight and a shoal's sum of pulls lead nowhere in particular, and every stone along them counts"),
+    ("a_trout_brakes_short_of_a_stone", "",
+     "(() => { const ch = channelOf(), s = 300, p = ch.xy(s, ch.centre(s));"
+     " const one = (dn, at) => { const c = ch.xy(s + 152, ch.centre(s) + dn); ch.rocks = [stoneAt(c.x, c.y, 40)];"
+     " const f = new fishMod.Trout(new core.Rng(3), p, 100); f.heading = f.goal = 0; f.speed = 400; f.vx = 400; f.vy = 0; f.buildSpine();"
+     " const want = { x: 400, y: 0 }; if (at) want.to = { x: c.x - 45, y: c.y }; f.swim(1 / 60, ch, want, 600, 4.5, 6); return Math.round(f.speed); };"
+     " return { ahead: one(0, false), aPlaceAtIt: one(0, true), beside: one(120, false) > 350, stop: fishMod.Trout.STOP }; })()",
+     {"ahead": 250, "aPlaceAtIt": 280, "beside": True, "stop": 0.4},
+     "a trout swimming 4 lengths a second straight at a stone whose margin (ROCK_TOUCH) is one length ahead slows at once to 2.5 lengths a "
+     "second: never faster than it could stop short of the margin in 0.4 s; when where it goes is at the stone (a fly drifting by it) it may "
+     "come up to the stone itself, and slows to what stops it there; negative: a stone 1.2 lengths beside its way does not slow it"),
+    ("the_whole_body_keeps_off_a_rock", "",
+     "(() => { const ch = channelOf(), s = 300, p = ch.xy(s, ch.centre(s)); ch.rocks = [stoneAt(p.x - 120, p.y, 30)];"
+     " const gaps = (f) => [0, 0.5, 1].map((u) => Math.round(-ch.rocks[0].inside(f.x - f.len * u, f.y, f.len * fishMod.Trout.ROCK_TOUCH)));"
+     " const f = new fishMod.Trout(new core.Rng(3), p, 100); f.heading = 0; const before = gaps(f); f.vx = -50; f.vy = 20; f.stayInWater(ch);"
+     " const g = new fishMod.Trout(new core.Rng(3), p, 100); g.heading = 0; g.vx = 80; g.vy = 20; g.stayInWater(ch);"
+     " return { before, after: gaps(f), into: Math.round(f.vx), along: Math.round(f.vy), away: [Math.round(g.vx), Math.round(g.vy)] }; })()",
+     {"before": [78, 28, -22], "after": [100, 50, 0], "into": 0, "along": 20, "away": [80, 20]},
+     "a trout whose head is clear of a stone but whose tail lies on it (22 px inside the margin ROCK_TOUCH keeps round a stone) is moved off "
+     "until no point of it — snout, middle, tail — is inside the margin, as at a bank, and the way it had into the stone is lost while the way "
+     "along it is kept (until 1.3.603 only the snout was kept out, and a fish turning away from a rock swept its body across the stone); "
+     "negative: a way out of the stone is kept"),
     ("strider_stays_in_the_banks",
      "",
      "(() => { const ch = channelOf(); const c = ch.centre(500), hw = ch.halfWidth(500); const dir = (v) => [v.x === 0 ? 0 : v.x, v.y === 0 ? 0 : v.y];"
@@ -391,8 +609,8 @@ PINS = [
      [0, 3, 5, 5, 5],
      "how near a point lay to the way something went: on it, beside it, past its end, before its start, and a way that is a single point"),
     ("trout_mouth_is_the_tip_of_the_snout", "",
-     "(() => { const ch = channelOf(), { at, f } = troutAt(ch); const m = f.mouth(), h = f.headFor(at.x + 100, at.y + 50);"
-     " return { nose: fishMod.Trout.NOSE, gape: fishMod.Trout.GAPE, mouth: [Math.round(m.x - at.x), Math.round(m.y - at.y)], head: [Math.round(h.x - at.x), Math.round(h.y - at.y)] }; })()",
+     r"""await (async () => { const ch = channelOf(), { at, f } = troutAt(ch), T = await mod("river-trout.js"); const m = f.mouth(), h = f.headFor(at.x + 100, at.y + 50);
+       return { nose: T.TroutShape.NOSE, gape: fishMod.Trout.GAPE, mouth: [Math.round(m.x - at.x), Math.round(m.y - at.y)], head: [Math.round(h.x - at.x), Math.round(h.y - at.y)] }; })()""",
      {"nose": 0.03, "gape": 0.08, "mouth": [3, 0], "head": [97, 50]},
      "the mouth of a trout 100 px long, facing east, is 3 px ahead of the head's first point (the nose the outline draws), and the head must stand "
      "that far short of a fly for the mouth to be on it; a mouth takes a fly within 0.08 of the trout's length"),
@@ -402,7 +620,7 @@ PINS = [
      " oldReach41: took(41, 0), oldNose42: took(42, 0) }; })()",
      {"onTip": True, "ahead7": True, "ahead9": False, "beside7": True, "beside9": False, "atHead": True, "oldReach41": False, "oldNose42": False},
      "a trout takes a fly 7 px from the tip of its snout, ahead or beside, and does not take one 9 px from it; negative: a fly 41 px ahead of the head "
-     "(38 from the nose) or 42 px ahead (39 from it) — where a trout took one before: within 0.42 of its length of the head — is not at its mouth"),
+     "(38 from the nose) or 42 px ahead (39 from it) — where a trout took one in the first version: within 0.42 of its length of the head — is not at its mouth"),
     ("trout_takes_what_its_mouth_passes_over", "",
      "(() => { const ch = channelOf(); const step = (way) => { const { at, f } = troutAt(ch); if (way) f.mouthWas = f.mouth(); f.x += 60; f.buildSpine(); return { at, f }; };"
      " const a = step(true), b = step(false); const took = (r, dx, dy) => r.f.takes(r.at.x + dx, r.at.y + dy);"
@@ -418,22 +636,63 @@ PINS = [
      "every step of a trout writes down where its mouth stood before it, so that the next look at a fly sees the whole way the mouth went"),
     ("chase_brings_the_mouth_to_a_natural_fly", "",
      "(() => { const ch = channelOf(1200, 700); const run = (dt) => Array.from({ length: 40 }, (_, i) => chaseOf(ch, i + 1, dt, true)).filter((v) => v !== null);"
-     " const fast = run(1 / 60), slow = run(1 / 20); return { took: [fast.length, slow.length], near: [Math.max(...fast) <= 0.15, Math.max(...slow) <= 0.2] }; })()",
+     " const fast = run(1 / 60), slow = run(1 / 20); const near = (r) => Math.max(...r.map((v) => v.near));"
+     " return { took: [fast.length, slow.length], near: [near(fast) <= 0.15, near(slow) <= 0.2] }; })()",
      {"took": [40, 40], "near": [True, True]},
      "a fly that drifts down the stream to a trout holding its lie is taken every time, with the fly within 0.15 of the trout's length of the snout's tip "
-     "on a fast frame (60 a second) and 0.2 on a slow one (20), where it was 0.39 away before"),
+     "on a fast frame (60 a second) and 0.2 on a slow one (20), where it was 0.39 away in the first version"),
     ("chase_brings_the_mouth_to_a_thrown_fly", "",
      "(() => { const ch = channelOf(1200, 700); const run = (dt) => Array.from({ length: 40 }, (_, i) => chaseOf(ch, i + 1, dt, false)).filter((v) => v !== null);"
-     " const fast = run(1 / 60), slow = run(1 / 20); return { took: [fast.length >= 36, slow.length >= 36], near: [Math.max(...fast) <= 0.15, Math.max(...slow) <= 0.25] }; })()",
+     " const fast = run(1 / 60), slow = run(1 / 20); const near = (r) => Math.max(...r.map((v) => v.near));"
+     " return { took: [fast.length >= 36, slow.length >= 36], near: [near(fast) <= 0.15, near(slow) <= 0.25] }; })()",
      {"took": [True, True], "near": [True, True]},
      "a fly thrown anywhere ahead of a trout or beside it is taken in at least 36 of 40 chases, at the mouth as well; the others end after six seconds, "
      "the fly left to the water (the trout must turn sharply and slow down to reach it: slower or duller turns took 33 to 56 of every 100)"),
     ("chase_turns_sharper_than_the_rest", "",
      "(() => { const ch = channelOf(), { at, f } = troutAt(ch); const swimmer = fishMod.Trout.AGILITY, start = { ...f.agility };"
-     " f.enter(\"chase\", {}); const chase = { ...f.agility }; f.enter(\"back\", {}); return { start, chase, back: { ...f.agility }, frozen: Object.isFrozen(swimmer) }; })()",
-     {"start": {"gain": 2.4, "pivot": 0.35}, "chase": {"gain": 4.5, "pivot": 0.8}, "back": {"gain": 2.4, "pivot": 0.35}, "frozen": True},
+     " f.enter(\"chase\", {}); const chase = { ...f.agility }; f.enter(\"back\", {}); const back = { ...f.agility }; f.spook(at.x - 100, at.y, ch);"
+     " return { start, chase, back, flee: { ...f.agility }, frozen: Object.isFrozen(swimmer) }; })()",
+     {"start": {"gain": 2.4, "pivot": 0.35}, "chase": {"gain": 4.5, "pivot": 0.8}, "back": {"gain": 2.4, "pivot": 0.35},
+      "flee": {"gain": 5, "pivot": 0.9}, "frozen": True},
      "a trout turns as every fish does, except while it chases a fly: then it turns sharper and keeps most of its turn with no way on; "
-     "the next state gives it back"),
+     "the next state gives it back; and except when it is startled (1.3.603): it turns at once, from rest too, as a fish escapes — turning "
+     "as slowly as it swims about, it stood at the rock it holds behind while its way round was still ahead of it"),
+    ("a_trout_thinks_over_a_fly_before_it_moves", "",
+     r"""(() => { const ch = channelOf(1200, 700), T = fishMod.Trout.THINK; const runs = Array.from({ length: 30 }, (_, i) => thinkOf(ch, i + 1));
+       const first = runs.map((r) => r.log[0]), second = runs.map((r) => r.log[1]), waits = runs.map((r) => r.log[1][2] - r.log[0][2]);
+       const slow = Array.from({ length: 30 }, (_, i) => thinkOf(ch, i + 1, 1 / 20)).map((r) => r.log[1][2] - r.log[0][2]);
+       return { saw: [...new Set(first.map((l) => l[0] + ">" + l[1]))], then: [...new Set(second.map((l) => l[0] + ">" + l[1]))], sightAt: Math.max(...first.map((l) => l[2])),
+         claimed: first.every((l) => l[3]), within: [Math.min(...waits) >= T.least - 0.02, Math.max(...waits) <= T.most + 0.02], slowFrames: [Math.min(...slow) >= T.least - 0.06, Math.max(...slow) <= T.most + 0.06],
+         varied: Math.max(...waits) - Math.min(...waits) > 0.4, keepsItsLie: Math.max(...runs.map((r) => r.away)) < 0.7, tookAfter: runs.every((r) => r.rose.length === 1 && r.rose[0] > r.log[1][2]), limits: [T.least, T.most] }; })()""",
+     {"saw": ["hold>notice"], "then": ["notice>chase"], "sightAt": 0, "claimed": True, "within": [True, True], "slowFrames": [True, True], "varied": True,
+      "keepsItsLie": True, "tookAfter": True, "limits": [0.8, 1.8]},
+     "a trout that sees a fly does not move at once (the owner, 2026-10-19: \"the moment the moth appears they swim after it; they used to think longer\"): it goes from hold "
+     "to notice the step it sees it, makes the fly its own, keeps near its lie for a time between 0.8 and 1.8 s, a different one for each fly and the same on a fast frame and on a slow, "
+     "then chases it and takes it — never before the thinking is done"),
+    ("a_fly_that_is_gone_is_let_go", "",
+     r"""(() => { const ch = channelOf(1200, 700); const one = (kind) => thinkOf(ch, 4, 1 / 60, { kind, at: 0.3 }); const dies = one("dies"), claimed = one("claimed");
+       const names = (r) => r.log.map((l) => l[0] + ">" + l[1]);
+       return { dies: [names(dies), dies.rose.length], claimed: [names(claimed), claimed.rose.length, claimed.fly.claimedBy === claimed.other, claimed.fly.alive] }; })()""",
+     {"dies": [["hold>notice", "notice>hold"], 0], "claimed": [["hold>notice", "notice>hold"], 0, True, True]},
+     "negative: a fly that dies while the trout thinks, or that another fish makes its own, is let go: the trout goes back to holding its lie, takes nothing, "
+     "and leaves the other fish's claim as it was"),
+    ("thinking_draws_from_its_own_stream", "",
+     r"""(() => { const draws = (seed) => { const r = new core.Rng(seed); let n = 0; const next = r.next.bind(r); r.next = () => { n++; return next(); };
+         const f = new fishMod.Trout(r, { x: 0, y: 0 }, 100); const built = n; f.enter("notice", {}); return { extra: n - built, think: f.thinkFor }; };
+       const a = draws(3), again = draws(3), b = draws(4), T = fishMod.Trout.THINK;
+       return { extra: [a.extra, b.extra], inside: [a.think, b.think].every((v) => v >= T.least && v <= T.most), same: a.think === again.think, differ: a.think !== b.think }; })()""",
+     {"extra": [0, 0], "inside": True, "same": True, "differ": True},
+     "how long a trout thinks is drawn from a stream of its own: entering the state takes nothing from the brook's stream (every seed lays the brook out as it did), "
+     "the same trout thinks the same time and another trout another time, both within the limits"),
+    ("its_eyes_follow_the_fly_while_it_thinks", "",
+     r"""(() => { const ch = channelOf(), { at, f } = troutAt(ch); const a = Math.PI / 3, d = 400;
+       const fly = { x: at.x + Math.cos(a) * d, y: at.y + Math.sin(a) * d, vx: 0, vy: 0, alive: true, claimedBy: f };
+       const watch = (state) => { f.target = fly; f.state = state; f.look = { x: 1, y: 0 }; for (let i = 0; i < 120; i++) f.animate(1 / 60);
+         const m = f.mouth(), dx = fly.x - m.x, dy = fly.y - m.y; return +((f.look.x * dx + f.look.y * dy) / (Math.hypot(dx, dy) * Math.hypot(f.look.x, f.look.y))).toFixed(3); };
+       return { far: d / f.len, thinking: watch("notice"), holding: watch("hold") }; })()""",
+     {"far": 4, "thinking": 1, "holding": 0.494},
+     "while it thinks a fly over, the trout's eyes are on the fly however far it is (4 lengths away, 60 degrees to the side: the look comes to it); "
+     "negative: not thinking and the fly that far, the eyes stay ahead (the fly lies at 60 degrees to them, seen from the mouth: 0.494)"),
     ("rise_leaves_a_ring_and_no_spray", "",
      "(() => { const rings = [], spray = [], calls = []; const life = { C: 600, ripples: { disturb: (...a) => rings.push(a) }, specks: { splash: (...a) => spray.push(a) },"
      " scene: { sound: (fn) => fn(kitOf(calls), 0) } }; const fly = { x: 120, y: 80, alive: true };"
@@ -444,7 +703,7 @@ PINS = [
     ("water_sounds_are_drops", "",
      "(() => { const real = Math.random; Math.random = () => 0.5;"
      " const play = (what) => { const calls = []; what({ scene: { sound: (fn) => fn(kitOf(calls), 0) }, C: 600, flies: [], rng: new core.Rng(1), time: 0, trout: [], falling: [],"
-     " channel: { isWater: () => true }, ripples: { disturb() {} }, echoes: { add() {} }, shoal: { spook() {} } }); return calls; };"
+     " channel: { isWater: () => true }, ripples: { disturb() {} }, echoes: { add() {} }, shoal: { spook() {} }, frogs: { plop() {} } }); return calls; };"
      " const proto = lifeMod.BrookLife.prototype;"
      " const take = play((life) => proto.rise.call(life, new fishMod.Trout(new core.Rng(1), { x: 0, y: 0 }, 60), { x: 5, y: 5, alive: true }));"
      " const tap = play((life) => proto.pointer.call(life, \"down\", { x: 50, y: 50 }));"
@@ -479,14 +738,15 @@ PINS = [
      {"pitch": [["set", 1000, 1], ["ramp", 1800, 1.055]], "stop": [1.105]},
      "the short drops of the brook's trickle (river-scene.js) are as they were: a pitch that climbs over the whole of a few hundredths of a second; "
      "the drop of a landing, a take and a plop glides over half of its ring and nothing else changed for these"),
-    ("trout_nose_is_painted_where_the_mouth_is", "",
-     "(() => { const src = readFileSync(process.env.JS_ROOT + \"/river-fish.js\", \"utf8\");"
-     " return { body: /painter\\.outline\\(ctx, this\\.spine, this\\.widths, len \\* Trout\\.NOSE\\)/.test(src), literal: /this\\.widths, len \\* 0\\.03\\)/.test(src) }; })()",
-     {"body": True, "literal": False},
-     "the nose the outline of a trout draws and the nose its mouth is measured from are one number, Trout.NOSE: the fly is taken where the picture's "
-     "snout ends, not 3% of the length short of it or past it"),
+    ("trout_nose_is_one_number", "",
+     "await (async () => { const art = readFileSync(process.env.JS_ROOT + \"/river-trout.js\", \"utf8\"), fish = readFileSync(process.env.JS_ROOT + \"/river-fish.js\", \"utf8\"), T = await mod(\"river-trout.js\");"
+     " return { body: /const len = fish\\.len,[^;]*nose = len \\* TroutShape\\.NOSE/.test(art), shadow: /this\\.len \\* TroutShape\\.NOSE, dx, dy/.test(fish), nose: T.TroutShape.NOSE,"
+     " mouth: (fish.match(/reach = this\\.len \\* TroutShape\\.NOSE/g) || []).length, literal: /outline\\([^)]*len \\* 0\\.03\\b/.test(art + fish) }; })()",
+     {"body": True, "shadow": True, "nose": 0.03, "mouth": 2, "literal": False},
+     "the nose the outline of a trout draws, the body's and the shadow's, and the tip its mouth takes a fly at (where the mouth is, and where the head must stand for it to be there) "
+     "are one number, TroutShape.NOSE (0.03 of the length, as in the first version)"),
     ("brook_has_no_spray_and_no_noise_click", "",
-     "(() => { const src = [\"river-life.js\", \"river-fish.js\", \"river-sound.js\", \"river-scene.js\"].map((f) => readFileSync(process.env.JS_ROOT + \"/\" + f, \"utf8\")).join(\"\\n\");"
+     "(() => { const src = [\"river-life.js\", \"river-fish.js\", \"river-frogs.js\", \"river-frog.js\", \"river-sound.js\", \"river-scene.js\"].map((f) => readFileSync(process.env.JS_ROOT + \"/\" + f, \"utf8\")).join(\"\\n\");"
      " return { splash: /\\bsplash\\s*\\(/.test(src), drops: /\\.drops\\b/.test(src), click: /\\.click\\s*\\(/.test(src), white: /\\bwhite\\s*:/.test(src) }; })()",
      {"splash": False, "drops": False, "click": False, "white": False},
      "nothing in the brook throws spray any more and the sound kit has no burst of noise to make one with: a call to splash(), a list of drops, "
@@ -529,7 +789,7 @@ def check(cond, msg):
 
 
 def main():
-    if len(PINS) < 46:
+    if len(PINS) < 50:
         print(f"js river FAILED: only {len(PINS)} pins — the snapshot is empty or cut")
         return 1
     node = find_node()
@@ -552,9 +812,8 @@ def main():
         probe_path = ROOT / "scripts" / f".probe_js_river_{pid}.tmp.mjs"
         probe_path.write_text(probe)
         try:
-            run = subprocess.run(
-                [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-                 str(probe_path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=60)
+            # this file's pins hung node in process.exit now and then, the heaviest one most: NODE_FLAGS in scripts/_node.py
+            run = subprocess.run(probe_args(node, harness, probe_path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=60)
         finally:
             probe_path.unlink(missing_ok=True)
         if run.returncode != 0:
@@ -572,7 +831,7 @@ def main():
         for f in _fail:
             print("  - " + f.splitlines()[0])
         return 1
-    print(f"js river OK: the real modules in node, {len(PINS)} pins of the brook's switch, its dock, its memory, its banks, the take and the drop")
+    print(f"js river OK: the real modules in node, {len(PINS)} pins of the brook's switch, its dock, its memory, its banks and rocks, the take and the drop")
     return 0
 
 

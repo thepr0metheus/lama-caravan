@@ -79,7 +79,7 @@ else
 fi
 # Optional but worth saying out loud: without BLAS the host-side decoder runs a
 # scalar fallback the project measures as 10-15x slower.
-if ! ldconfig -p 2>/dev/null | grep -qi openblas; then
+if ! ldconfig -p 2>/dev/null | grep -i openblas >/dev/null; then
   warn "libopenblas not found — decoder falls back to scalar (10-15x slower)"
   warn "  install it with: sudo apt install libopenblas-dev, then re-run"
 fi

@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("charts,dialogs,form,llama-edit,remote-cells,system-panels,topology-activity,topology-dnd,topology-render,"
          "canvas,cables,cloud,history,favorites,config-locator,onboarding,onboarding-tours,usage-stats,dialog-llamas,"
@@ -87,6 +87,18 @@ PINS = [
      '[["/api/project-git"],"main","keep.gguf",null,["renderProjectGitBranch","refreshTopology"],false]',
      "живой такт: один запрос — /api/project-git, ветка обновлена, на доске — refreshTopology; сторож снят; negative: целого /api/state такт больше не просит (конфиг формы не тронут, state.time никто не пишет)"),
     ("refresh_live_state_failure_toasts", 'globalThis.__fetchReply["/api/project-git"] = { __status: 500, error: "down" };', 'await (async () => { await m.refreshLiveState(); return [F().toast.textContent, m.liveRefreshInflight, named().length]; })()', '["down",false,0]', "negative: отказ — тост, сторож снят, ничего не перерисовано"),
+    ("routing_beat_reads_the_topology_alone", 'globalThis.__topologyReads = 0; globalThis.__stubReturns["topology-render.refreshTopology"] = async () => { globalThis.__topologyReads++; };',
+     'await (async () => { await m.refreshRoutingState(); return [globalThis.__topologyReads, calls().map((c) => c.path)]; })()', '[1,[]]',
+     "такт Маршрутизации читает топологию (1.3.691); negative: git-чипа у страницы нет, и /api/project-git он не спрашивает"),
+    ("routing_beat_refused_says_so_and_goes_on", 'globalThis.__stubReturns["topology-render.refreshTopology"] = async () => { throw new Error("controller is down"); };',
+     'await (async () => { await m.refreshRoutingState(); const toast = F().toast.textContent; globalThis.__stubReturns["topology-render.refreshTopology"] = async () => { globalThis.__again = 1; }; await m.refreshRoutingState(); return [toast, globalThis.__again]; })()', '["controller is down",1]',
+     "negative: отказ сказан тостом, а следующий такт читает снова: отказ не оставляет чтение занятым"),
+    ("routing_beat_one_reading_at_a_time", 'globalThis.__topologyReads = 0; globalThis.__stubReturns["topology-render.refreshTopology"] = async () => { globalThis.__topologyReads++; };',
+     'await (async () => { const first = m.refreshRoutingState(); const second = m.refreshRoutingState(); await Promise.all([first, second]); const both = globalThis.__topologyReads; await m.refreshRoutingState(); return [both, globalThis.__topologyReads]; })()', '[1,2]',
+     "пока чтение в пути, второе не выходит (медленный контроллер не копит очередь); negative: следующее после него читает"),
+    ("a_beat_keeps_its_reading", 'globalThis.__beatReads = 0;',
+     'await (async () => { const fired = []; const real = globalThis.setTimeout; globalThis.setTimeout = (fn, ms) => { fired.push([fn, ms]); return 0; }; try { m.scheduleLiveRefresh(250, async () => { globalThis.__beatReads++; }); await fired[0][0](); await fired[1][0](); } finally { globalThis.setTimeout = real; } return [fired.map((f) => f[1]).slice(0, 3), globalThis.__beatReads]; })()', '[[250,1500,1500],2]',
+     "такт, запланированный со своим чтением, повторяет именно его с шагом 1,5 с; negative: он не сползает на чтение главной доски"),
     ("schedule_live_refresh", '', '(() => { m.scheduleLiveRefresh(); m.scheduleLiveRefresh(250); return [...globalThis.__timers]; })()', '["timeout:1500","timeout:250"]', "планирование: такт 1.5 с или заданная задержка"),
     ("load_state", 'globalThis.__fetchReply["/api/state"] = { config: { X: "1" }, appVersion: "9" };', 'await (async () => { await m.loadState(); return [st.state.appVersion, named(), [...globalThis.__timers]]; })()', '["9",["renderAll"],["timeout:1500"]]', "первая загрузка: состояние целиком, полная перерисовка, опрос запланирован"),
     ("single_server_writes_gone", '', '["saveConfig", "action", "renderLiveCards", "tokenSpeedState"].filter((k) => k in m)', '[]',
@@ -168,9 +180,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

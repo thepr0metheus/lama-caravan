@@ -1,13 +1,12 @@
 // How a consumer reaches the caravan, as Routing's clients panel shows it (2026-10-07).
 //
 // Every consumer goes to one address — the entry, https://caravan-api.…/v1 — with its
-// own key, and the caravan finds it by the key (caravan/proxy/entry.py). A row says
-// what a consumer has: a key (its last four characters, the way a token is shown),
-// whether its old port is still open, and when it last called. What it lacks comes
-// with the one action that gives it: a key — which closes the old port in the same
-// step, no keyless window (the operator's word) — or closing the port of a consumer
-// that had a key already. The address itself is the controller's word
-// (ConsumerAddress, caravan/admin/proxy_entry.py): the board does not build one of its own.
+// own key, and the caravan finds it by the key (rust/crates/proxy/src/front.rs). A row says
+// what a consumer has: a key (its last four characters, the way a token is shown), and
+// when it last called. No port of its own: the proxy listens on the entry alone, and the
+// ways to give a key to an old port, close it and open it again left with them (the owner,
+// 2026-11-02). The address itself is the controller's word
+// (ConsumerAddress, rust/crates/admin/src/proxies/entry_settings.rs): the board does not build one of its own.
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { t } from "./i18n.js";
 import { setTopology, topology } from "./state.js";
@@ -42,10 +41,9 @@ export class ConsumerAccess {
     return `<span class="cv-in-seen" title="${escapeHtml(t("consumerSeenTitle"))}">· ${escapeHtml(text)}</span>`;
   }
 
-  // One route's line in a consumer's row: its key, where it calls, and the one action
-  // it is missing. `p` is a board proxy (topology.proxies): keyTail, portClosed, port.
+  // One route's line in a consumer's row: its key and when it called. `p` is a board proxy
+  // (topology.proxies): keyTail, port.
   lineHtml(p) {
-    const port = escapeHtml(String(p.port));
     const seen = this.seenHtml(p.lastRequestAt);
     const tail = String(p.keyTail || "");
     if (!tail) {
@@ -54,18 +52,11 @@ export class ConsumerAccess {
       // red read as a fault that was none.
       const stuck = topology?.portsReachable === false;
       return `<span class="cv-in-key none${stuck ? "" : " quiet"}" data-t="routing-consumer-key" data-t-state="none">${escapeHtml(t("consumerNoKey"))}</span>`
-        + `<span class="cv-in-port-num">:${port}</span>${seen}`
-        + `<button class="cv-in-act" type="button" data-cv-port-key="${port}" data-t="routing-consumer-give-key">${escapeHtml(t("consumerGiveKey"))}</button>`;
+        + `<span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>${seen}`;
     }
-    const key = `<span class="cv-in-key" data-t="routing-consumer-key" data-t-state="${p.portClosed ? "entry" : "open"}"`
+    const key = `<span class="cv-in-key" data-t="routing-consumer-key" data-t-state="entry"`
       + ` title="${escapeHtml(t("consumerKeyTitle"))}">🔑 …${escapeHtml(tail)}</span>`;
-    if (p.portClosed) {
-      return `${key}<span class="cv-in-access entry">${escapeHtml(t("consumerEntryOnly"))}</span>${seen}`
-        + `<button class="cv-in-act quiet" type="button" data-cv-port-reopen="${port}" data-t="routing-consumer-reopen"`
-        + ` title="${escapeHtml(t("consumerReopenTitle", { port: String(p.port) }))}" aria-label="${escapeHtml(t("consumerReopenTitle", { port: String(p.port) }))}">↺</button>`;
-    }
-    return `${key}<span class="cv-in-access open">${escapeHtml(t("consumerPortOpen", { port: String(p.port) }))}</span>${seen}`
-      + `<button class="cv-in-act" type="button" data-cv-port-close="${port}" data-t="routing-consumer-close">${escapeHtml(t("consumerClosePort"))}</button>`;
+    return `${key}<span class="cv-in-access entry">${escapeHtml(t("consumerEntryOnly"))}</span>${seen}`;
   }
 
   // The panel's line about the entry: the address every consumer with a key may call,
@@ -73,12 +64,14 @@ export class ConsumerAccess {
   // be settable only through the API, and "The entry is off" led nowhere (2026-10-08). "No
   // address" is two cases: the entry is off, or it listens where only this machine reaches it
   // and has no public name (topology.portsReachable === false).
-  entryHtml(entry) {
+  entryHtml(entry, { stays = false } = {}) {
     const url = String(entry?.url || "");
     const port = Number(entry?.port || 0);
     // ✕ wherever the entry has a port. Turning it off used to be an empty port in the second
-    // window of ✎, which nobody found (the owner, 2026-10-11).
-    const off = port ? `<button class="cv-in-act quiet" type="button" data-cv-entry-off data-t="routing-entry-off"`
+    // window of ✎, which nobody found (the owner, 2026-10-11). None while the built-in client is
+    // there (`stays`, 2026-10-27): it is not deleted and calls only through the entry, so the
+    // controller refuses to close it.
+    const off = port && !stays ? `<button class="cv-in-act quiet" type="button" data-cv-entry-off data-t="routing-entry-off"`
       + ` title="${escapeHtml(t("consumerEntryTurnOff"))}" aria-label="${escapeHtml(t("consumerEntryTurnOff"))}">✕</button>` : "";
     if (!url) {
       // Why it is worth setting up, said under the line (the owner, 2026-10-11): "The entry is
@@ -160,76 +153,6 @@ export class ConsumerAccess {
     if (top) this.apply(top);
     this.notify(t("consumerEntryOff"));
     return res;
-  }
-
-  route(port) {
-    return (topology?.proxies || []).find((p) => Number(p.port) === Number(port)) || null;
-  }
-
-  name(port) {
-    const p = this.route(port);
-    return String(p?.label || "").replace(/\s+(primary|fallback)$/i, "").trim() || `:${port}`;
-  }
-
-  // "Give a key": the controller makes it and closes the old port in the same step; the
-  // window shows the key once beside the address to give the consumer, and copies it on the
-  // operator's word. With the entry off there is nowhere to send the consumer: it says so.
-  async giveKey(port) {
-    const name = this.name(port);
-    const address = String(topology?.entry?.url || "");
-    if (!address) {
-      // A key works only through the entry: the entry first, then the key — the press used to
-      // end in "the entry is off" with no way to turn it on.
-      this.notify(t("entryNeedsSetupFirst"));
-      const set = await this.setupEntry();
-      if (!set || !String(topology?.entry?.url || "")) return null;
-      return this.giveKey(port);
-    }
-    const sure = await this.confirm(t("consumerGiveKeyText", { name, port: String(port), address }),
-      { title: t("consumerGiveKeyTitle", { name }), danger: true, confirmLabel: t("consumerGiveKey") });
-    if (!sure) return null;
-    let res;
-    try {
-      res = await this.call("/api/agent-proxies/route-key", { method: "POST", body: JSON.stringify({ port: Number(port) }) });
-    } catch (err) {
-      this.notify(err.message);
-      return null;
-    }
-    if (res?.topology) this.apply(res.topology);
-    const copy = await this.confirm(t("consumerKeyGivenText", { name, key: String(res?.key || ""), address: res?.entryUrl || address }),
-      { title: t("consumerKeyGivenTitle", { name }), danger: false, confirmLabel: t("consumerCopyKey"), cancelLabel: t("consumerDone") });
-    if (copy && res?.key) this.notify((await this.copy(res.key)) ? t("consumerKeyCopied") : res.key);
-    return res;
-  }
-
-  // "Close port": the consumer then reaches the caravan only at the entry with its key.
-  // The question names both, since a consumer still calling the port loses its way in.
-  async closePort(port) {
-    const name = this.name(port);
-    const address = String(topology?.entry?.url || "");
-    const sure = await this.confirm(t("consumerCloseText", { name, port: String(port), address }),
-      { title: t("consumerCloseTitle", { port: String(port) }), danger: true, confirmLabel: t("consumerClosePort") });
-    if (!sure) return null;
-    return this.policy(port, true, t("consumerClosed", { port: String(port) }));
-  }
-
-  // "↺": the port listens again — the way back for a consumer that had to keep it.
-  async reopenPort(port) {
-    return this.policy(port, false, t("consumerReopened", { port: String(port) }));
-  }
-
-  async policy(port, closed, said) {
-    try {
-      const res = await this.call("/api/agent-proxies/route-policy", { method: "POST",
-        body: JSON.stringify({ port: Number(port), portClosed: closed }) });
-      this.notify(said);
-      const top = await this.call("/api/topology");
-      if (top) this.apply(top);
-      return res;
-    } catch (err) {
-      this.notify(err.message);
-      return null;
-    }
   }
 
   async copyEntry() {

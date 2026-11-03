@@ -1,0 +1,43 @@
+{
+  "presented_key": [
+    {"authorization": "Bearer abc", "x_api_key": null, "key": "abc"},
+    {"authorization": "Bearer   abc  ", "x_api_key": null, "key": "abc"},
+    {"authorization": "bearer abc", "x_api_key": "k", "key": "k", "as_is": "the scheme's word is case-sensitive here"},
+    {"authorization": "Bearer ", "x_api_key": "k", "key": "", "as_is": "an empty bearer is an empty key: x-api-key is not read then"},
+    {"authorization": "Bearer", "x_api_key": "k", "key": "k"},
+    {"authorization": "Basic abc", "x_api_key": null, "key": ""},
+    {"authorization": null, "x_api_key": "  k ", "key": "k"},
+    {"authorization": "", "x_api_key": "k", "key": "k"},
+    {"authorization": null, "x_api_key": null, "key": ""}
+  ],
+  "same": [
+    {"left": "abc", "right": "abc", "same": true},
+    {"left": "abc", "right": "abd", "same": false},
+    {"left": "abc", "right": "abcd", "same": false},
+    {"left": "ab", "right": "ba", "same": false, "why": "differences must not cancel each other"},
+    {"left": "", "right": "", "same": true},
+    {"left": "ключ", "right": "ключ", "same": true},
+    {"left": "ключ", "right": "ключь", "same": false}
+  ],
+  "route_for": {
+    "routes": [
+      {"label": "a", "port": 1, "apiKey": "key-a"},
+      {"label": "b", "port": 2, "apiKey": " key-b "},
+      {"label": "off", "port": 3, "apiKey": "key-off", "enabled": false},
+      {"label": "open", "port": 4, "apiKey": ""},
+      {"label": "twin-1", "port": 5, "apiKey": "key-twin"},
+      {"label": "twin-2", "port": 6, "apiKey": "key-twin"},
+      {"label": "twin-off", "port": 7, "apiKey": "key-one", "enabled": false},
+      {"label": "one", "port": 8, "apiKey": "key-one"}
+    ],
+    "cases": [
+      {"key": "key-a", "label": "a"},
+      {"key": "key-b", "label": "b"},
+      {"key": "", "miss": "no-key"},
+      {"key": "nobody", "miss": "unknown-key"},
+      {"key": "key-off", "miss": "unknown-key"},
+      {"key": "key-twin", "miss": "ambiguous-key"},
+      {"key": "key-one", "label": "one"}
+    ]
+  }
+}

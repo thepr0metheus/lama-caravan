@@ -3,7 +3,7 @@
 Strata runs one model, Qwen3.8-Flash-Next (177 billion weights, 512 experts in each of 48 layers, 10 experts
 a token), in the packs people have made of it. The engine keeps the experts in the machine's RAM and the card
 holds the ones a token needs most; the pack decides how many bits an expert takes, and so how much RAM, how
-much disk and how fast. The list below is Strata's own table (its `setup.py`, v0.1.42): the cell's launcher
+much disk and how fast. The list below is Strata's own table (its `setup.py`, the same in v0.1.42 and v0.2.9): the cell's launcher
 reads the family and the size of a pack from the file's NAME (`gguf_choice`), so a file with another name is
 refused, and a new pack of Strata's is a Strata update, not a caravan change.
 
@@ -25,7 +25,7 @@ pack tool cannot prepare yet.)
 
 - **What the start promises** (`StrataRunner.ram_reservation`; the cell form draws it on its RAM scale): for a pack with
   all its experts in RAM, the larger of the first part's size and what Strata's own table says the pack's experts are
-  (`arena_gb` in its `setup.py`, v0.1.42: `Q2_0` 34.0, `IQ2_XS` 35.5, `IQ3_XXS` 42.9, `IQ3_S` 50.3, the Coder's `IQ1_M`
+  (`arena_gb` in its `setup.py`, v0.2.9: `Q2_0` 34.0, `IQ2_XS` 35.5, `IQ3_XXS` 42.9, `IQ3_S` 50.3, the Coder's `IQ1_M`
   23.4 GiB), plus a GiB for the engine's own tables. The first part is not enough where the file split does not put
   every expert in it: Swift 1.5's `IQ3_S` has 41.8 GiB in its first part and the rest of its 50.3 GiB in the second.
   The scout refuses the start when that is more than the memory available less 2 GiB for the system.
@@ -39,6 +39,20 @@ pack tool cannot prepare yet.)
   takes (60.5 GiB: 34 at the 131072-token window). Strata says such a pack needs 48 GB of RAM, and the start promises
   that much. The more experts the card or cards can hold, the less the disk is read: a 4-bit pack on a card of 32 GB
   and an SSD ran at 7 to 8.5 tokens a second in Strata's own measurements.
+- **The window.** An empty context field asks for the window the model was trained for, 262144 tokens (the owner,
+  2026-10-26; it asked for 131072, Strata's figure for a 32 GB card, half of the model's); the field's placeholder says
+  it. A longer window leaves less VRAM for the cached experts, and a budget pack's streamed KV cache takes its RAM from
+  the budget (32 GiB at 262144 on a machine of 60.5 GiB). At 262144 with int8 KV and the draft layer, measured on such a
+  machine on 2026-10-26: `UD-IQ4_XS` 101–108 tokens a second on an RTX 5090, `IQ2_XS` 128 on an RTX 3090, Swift's
+  `IQ3_XXS` 152–163 on an RTX 5090 (Strata v0.1.42). On Strata v0.2.9, 2026-10-31: `IQ2_XS` 222–245 on an RTX 5090, four
+  answers of 600 tokens, the first token in 0.03 to 0.2 s.
+- **The memory of the start.** A pack whose experts take more than 70 % of the RAM (`IQ3_XXS` promises 43.9 GiB on a
+  machine of 60.5 GiB) needs caravan-scout 2.38.2: before it, the cell's scope throttled it from 42.3 GiB, and on an
+  idle machine those sleeps were the whole user session's memory pressure — systemd-oomd killed the cell, and on the
+  first start after a download the scout and the desktop's shell before it (2.38.1 keeps a download out of the page
+  cache). The load still runs the session's pressure up to about 47 % of oomd's 50 %: a machine of this size has little
+  to spare for a pack of this size. `IQ2_XS` on v0.2.9 with 46 GiB available reached 51.7 % for about 8 s and stayed over
+  40 % for 48 s, and nothing was killed: oomd asks for more than 20 s over its 50 %.
 - **The card.** A cell runs on ONE card, the one `CUDA_VISIBLE_DEVICES` in its ENV names (the card chips of the
   form write it). Strata's engine is compiled for the architectures of the cards it was built for (`BUILD.json`,
   `archs`); a cell pinned to a card it has no code for is refused before the load, with the way out. Adding a card of
@@ -79,3 +93,21 @@ family; no Hugging Face repository of the packs ships it. The library holds the 
 
 The model is copied once to the machine's disk at its first start (a cell that caches its models keeps it there),
 so a machine needs the pack's size free on its disk for each pack it runs.
+
+## Updating Strata
+
+A new Strata is built beside the working one, and `~/Strata` is a link to the one in use, so going back is one command and no
+cell runs while it changes. It needs no sudo and no model.
+
+    git clone --branch <tag> ~/Strata ~/Strata-<tag>
+    cd ~/Strata-<tag> && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+    STRATA_NVCC=/usr/local/cuda-13.2/bin/nvcc .venv/bin/python -c 'import setup; cards = setup.gpus(); setup.build_engine({**cards[-1], "archs": [c["arch"] for c in cards]}, "none", True, setup.get_llama_cpp(), toolkit=13)'
+    ln -sfn Strata-<tag> ~/Strata
+
+The compile takes about 5 minutes and 8 of the machine's 16 threads. Check the launcher against it by running it, not by reading: the names
+it needs were all still in v0.2.9's `setup.py`, and it would still have refused every start, because that file had begun to import a
+package of its own. `StrataLaunch(args).config()` makes the pack and the config from the real files without starting the engine, and
+`serve/server.py --lazy` answers `/health` without touching the card. What counts is a start from the board and a measured answer.
+
+The launcher follows Strata's rules by reading them, so what a new version changes for a pack it picks up by itself; what a new version
+adds to its setup's step 7 needs a line in `engine_args` or `config` of `cells/strata_launch.py`.

@@ -30,23 +30,37 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node  # noqa: E402
+from _node import find_node, probe_args  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGS = sorted(p.stem for p in (ROOT / "static" / "js" / "i18n").glob("*.js"))
 KEYS = ["modelCacheHead", "modelCacheKeepLabel", "modelCacheKeepHelp", "modelCacheHeld", "modelCacheFree", "modelCacheForeign",
         "modelCacheForeignHelp", "modelCacheDeleteBtn", "modelCacheDeleteTitle", "modelCacheDeleteConfirm", "modelCacheKept",
-        "modelCacheFreed", "modelCacheNothingYet", "diskLowChip", "diskLowTitle"]
+        "modelCacheFreed", "modelCacheNothingYet", "diskLowChip", "diskLowTitle",
+        # 2.38: the budget in GB and the folder.
+        "modelCacheBudgetLabel", "modelCacheGb", "modelCacheBudgetHelp", "modelCacheBudgetUnset", "modelCacheBudgetBad", "modelCacheBudgetSet",
+        "modelCacheBudgetOff", "modelCacheDirLabel", "modelCacheDirChange", "modelCacheDirHelp", "modelCacheDirPrompt", "modelCacheDirNext",
+        "modelCacheDirTitle", "modelCacheDirMove", "modelCacheMoved",
+        # The owner, 2026-11-02: clear it, and turn it off.
+        "modelCacheClear", "modelCacheClearHelp", "modelCacheClearTitle", "modelCacheClearConfirm", "modelCacheTurnOff", "modelCacheOffHelp", "modelCacheOffPrompt",
+        "modelCacheOffTitle", "modelCacheOffConfirm", "modelCacheIsOff", "modelCacheIsOn", "modelCacheOffWord", "modelCacheLibraryLabel", "modelCacheTurnOn", "modelCacheOnHelp",
+        "modelCacheOnTitle", "modelCacheOnConfirm",
+        "modelCacheThroughWord", "modelCacheUseFolder", "modelCacheUseThrough", "modelCacheThroughHelp", "modelCacheOffConfirmThrough", "modelCacheIsOffThrough",
+        "modelCacheLibraryNotSet", "modelCacheLibraryHelp", "modelCacheLibrarySave", "modelCacheLibraryIs"]
 
 PROBE = r'''
 import "./_js_globals.mjs";
 import assert from "node:assert/strict";
 const en = (await import("../static/js/i18n/en.js")).default;
-const asked = [], toasts = [], refreshes = [];
-let answer = true, confirmHook = null;
+const asked = [], toasts = [], refreshes = [], fieldsAsked = [];
+let answer = true, confirmHook = null, typed = null, chosen = "move", filled = null;
+const prompted = [], choiceAsked = [];
 globalThis.__stubReturns = {
   "i18n.t": (key, vars = {}) => String(en[key] ?? `?${key}`).replace(/\{(\w+)\}/g, (_, name) => (vars[name] === undefined ? `{${name}}` : vars[name])),
   "dialogs.appConfirm": async (message, opts) => { asked.push({ message, opts }); if (confirmHook) confirmHook(); return answer; },
+  "dialogs.appPrompt": async (message, opts) => { prompted.push({ message, opts }); return typed; },
+  "dialogs.appConfirmChoice": async (message, opts) => { choiceAsked.push({ message, opts }); return chosen; },
+  "dialogs.appConfirmFields": async (message, opts) => { fieldsAsked.push({ message, opts }); return filled; },
 };
 const toastEl = { textContent: "", classList: { add() {}, remove() {} } };
 globalThis.__fields = { toast: toastEl };
@@ -62,7 +76,7 @@ const GB = 2 ** 30;
 const FACTS = { keep: 1, managedBytes: 12 * GB, foreign: { files: 3, bytes: 67 * GB, folders: [{ folder: "hand-copied", files: 2, bytes: 61 * GB }, { folder: "speech", files: 1, bytes: 6 * GB }] },
                 disk: { totalBytes: 900 * GB, freeBytes: 400 * GB } };
 const node = (facts, id = "h1") => ({ id, name: "Box", modelCache: facts });
-const reset = () => { asked.length = 0; toasts.length = 0; refreshes.length = 0; spoken.length = 0; answer = true; confirmHook = null; globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; };
+const reset = () => { asked.length = 0; toasts.length = 0; refreshes.length = 0; spoken.length = 0; answer = true; confirmHook = null; typed = null; prompted.length = 0; choiceAsked.length = 0; chosen = "move"; fieldsAsked.length = 0; filled = null; globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; };
 const refresh = async () => { refreshes.push(1); };
 const sent = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: JSON.parse(c.body) }));
 
@@ -187,6 +201,123 @@ const sent = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c
   pin(sent()[0].body.hostId === "ghost" && spoken[0].startsWith("The cache of ghost keeps"), "a machine the board does not hold is named by its id");
 }
 
+// ── the budget in GB and the folder (2.38: the owner, "in GB, not in models"; "an HDD, not the SSD") ──
+{
+  const B = { ...FACTS, budgetBytes: null, dir: "/home/u/llama-model-cache" };
+  const unset = ModelCacheLine.of(node(B));
+  const html = unset.html();
+  pin(unset.budgets === true && unset.budgetGb === null
+      && html.includes('<input type="number" class="cache-budget" min="1" step="1" inputmode="numeric" value="" placeholder="not set" data-t="node-cache-budget" data-t-id="h1" data-cache-budget="h1">')
+      && html.includes("At most:") && html.includes(">GB</span>") && !html.includes("data-cache-keep"),
+      "a scout of 2.38 gets the budget's box in GB in place of the count's: empty with \"not set\" while none is chosen — the last models rule then");
+  pin(html.includes(escapeHtml(en.modelCacheBudgetHelp.replace("{n}", "1"))), "its help says what it keeps, and what an empty box means (the last 1 model)");
+  const set = ModelCacheLine.of(node({ ...B, budgetBytes: 100 * GB }));
+  pin(set.budgetGb === 100 && set.html().includes('value="100"'), "a chosen budget stands in the box, in GB (the board's GB: 2^30, as the figures beside it)");
+  const old = ModelCacheLine.of(node(FACTS));
+  pin(old.budgets === false && old.html().includes("data-cache-keep") && !old.html().includes("data-cache-budget"),
+      "negative: a scout older than 2.38 says no budget — the count's box stays, never a box it cannot set");
+  pin(html.includes('<div class="cache-dir" data-t="node-cache-dir" data-t-id="h1"><span class="cache-dir-label">Folder:</span>'
+                    + '<code class="cache-dir-path" dir="ltr" title="/home/u/llama-model-cache">/home/u/llama-model-cache</code>')
+      && html.includes('data-t="node-cache-dir-change" data-t-id="h1" data-cache-dir="h1"') && html.includes(">Change…</button>"),
+      "the folder the cache is in stands on its line, with the button that moves it; the path reads left to right in every "
+      + "language (in Arabic and Urdu its first slash went to the end)");
+  pin(!old.html().includes("node-cache-dir") && !ModelCacheLine.of(node({ ...B, dir: "relative/x" })).html().includes("node-cache-dir"),
+      "negative: a scout that names no folder (or no absolute one) offers no move");
+  const fp = (facts) => ModelCacheLine.of(node(facts)).fingerprint();
+  pin(fp(B) !== fp(FACTS) && fp(B) !== fp({ ...B, budgetBytes: 100 * GB }) && fp(B) !== fp({ ...B, dir: "/mnt/hdd/cache" }),
+      "the budget and the folder redraw the card when they move — chosen or not, here or from another tab");
+}
+
+// ── the budget, changed ──
+{
+  const B = { ...FACTS, budgetBytes: 50 * GB, dir: "/home/u/llama-model-cache" };
+  const box = (value, host = "h1") => ({ dataset: { cacheBudget: host }, value, disabled: false, blurred: 0, blur() { this.blurred++; } });
+  st.setTopology({ nodes: [node(B)] });
+  reset();
+  globalThis.__fetchReply["/api/topology/client-llama/cache-budget"] = { ok: true, result: { ok: true, budgetBytes: 100 * GB, removed: 2, freedBytes: 30 * GB, waiting: false } };
+  const b = box(" 100 ");
+  await ModelCacheLine.setBudget(b, refresh);
+  eq(sent(), [{ path: "/api/topology/client-llama/cache-budget", method: "POST", body: { hostId: "h1", budgetBytes: 100 * GB } }],
+     "the box sends its machine and the budget in bytes (100 GB × 2^30)");
+  eq(spoken, ["The cache of Box keeps at most 100 GB · Freed 30.0 GB · files deleted: 2"], "the operator is told the budget and what went with it");
+  pin(b.disabled === false && b.blurred === 1 && refreshes.length === 1, "the box is free again, lets go of the focus, and the board is drawn again");
+  reset();
+  globalThis.__fetchReply["/api/topology/client-llama/cache-budget"] = { ok: true, result: { ok: true, budgetBytes: null, removed: 0, freedBytes: 0, waiting: false } };
+  await ModelCacheLine.setBudget(box(""), refresh);
+  eq([sent()[0].body.budgetBytes, spoken], [null, ["The cache of Box keeps the last models again"]],
+     "an empty box takes the budget off — sent as null, and the words say the last models rule again");
+  for (const bad of ["0", "2.5", "abc", "-3"]) {
+    reset();
+    const refused = box(bad);
+    await ModelCacheLine.setBudget(refused, refresh);
+    pin(sent().length === 0 && spoken[0] === "The cache limit is a whole number of GB, 1 or more" && refused.value === "50",
+        `negative: ${JSON.stringify(bad)} is no budget — said, nothing sent, and the box goes back to the 50 the controller holds`);
+  }
+  reset();
+  globalThis.__fetchReply["/api/topology/client-llama/cache-budget"] = { __status: 502, error: "h1: budgetBytes must be a whole number of bytes" };
+  const fails = box("70");
+  await ModelCacheLine.setBudget(fails, refresh);
+  pin(spoken.length === 1 && spoken[0].includes("budgetBytes must be") && fails.value === "50" && refreshes.length === 1,
+      "negative: the scout refuses — its words are said, the box goes back to what the controller holds, the board is drawn again");
+}
+
+// ── the folder, moved: its files carried or deleted, as the operator says (2026-11-03) ──
+{
+  const B = { ...FACTS, budgetBytes: null, managedBytes: 95 * GB, dir: "/home/u/llama-model-cache" };
+  const DIR = "/api/topology/client-llama/cache-dir";
+  st.setTopology({ nodes: [node(B)] });
+  reset();
+  typed = " /mnt/hdd/models ";
+  globalThis.__fetchReply[DIR] = { ok: true, result: { ok: true, moving: true, dir: "/mnt/hdd/models", totalBytes: 95 * GB, files: 5 } };
+  await ModelCacheLine.moveFolder("h1", refresh);
+  eq([prompted[0].message, prompted[0].opts.value, prompted[0].opts.confirmLabel],
+     ["New folder for the model cache of Box — the full path on that machine:", "/home/u/llama-model-cache", "Next"],
+     "first the folder is asked, the present one in the box");
+  const q = choiceAsked[0];
+  eq([q.message, q.opts.title, q.opts.detail, q.opts.confirmLabel, q.opts.choice, q.opts.choices.map((c) => [c.value, c.label])],
+     ["The old folder holds 95.0 GB of Caravan's files. Move them to the new folder, or delete them?", "Move the model cache?",
+      "/home/u/llama-model-cache → /mnt/hdd/models", "Move", "move", [["move", "Move them"], ["delete", "Delete them"]]],
+     "then whether the files go with it or are deleted, naming how much, where from and where to — moving them pressed first");
+  eq(sent(), [{ path: DIR, method: "POST", body: { hostId: "h1", path: "/mnt/hdd/models", how: "move" } }],
+     "the controller gets the machine, the folder trimmed, and the choice");
+  eq(spoken, ["Moving 95.0 GB to /mnt/hdd/models: the page shows how far it is"], "a move under way is said as one, with its size");
+  pin(refreshes.length === 1 && asked.length === 0, "the page is drawn again, and no other question was asked");
+  reset();
+  typed = "/mnt/hdd/models";
+  chosen = "delete";
+  globalThis.__fetchReply[DIR] = { ok: true, result: { ok: true, dir: "/mnt/hdd/models", removed: 5, freedBytes: 95 * GB } };
+  await ModelCacheLine.moveFolder("h1", refresh);
+  eq(sent()[0].body.how, "delete", "deleting them is the other choice, sent as it is");
+  eq(spoken, ["The model cache of Box is in /mnt/hdd/models now · Freed 95.0 GB · files deleted: 5"], "the operator is told where the cache is and what went");
+  for (const [answerTyped, why] of [[null, "the folder's question cancelled"], ["  ", "an empty folder"], ["/home/u/llama-model-cache", "the folder it is in"]]) {
+    reset();
+    typed = answerTyped;
+    await ModelCacheLine.moveFolder("h1", refresh);
+    pin(choiceAsked.length === 0 && sent().length === 0 && refreshes.length === 0, `negative: ${why} — no second question, nothing sent`);
+  }
+  reset();
+  typed = "/mnt/hdd/models";
+  chosen = null;
+  await ModelCacheLine.moveFolder("h1", refresh);
+  pin(choiceAsked.length === 1 && sent().length === 0 && spoken.length === 0, "negative: 'Cancel' on the choice moves nothing");
+  reset();
+  typed = "/mnt/hdd/models";
+  globalThis.__fetchReply[DIR] = { __status: 502, error: "h1: the cache does not move while a cell is bringing its model: :22003 — try again when it runs" };
+  await ModelCacheLine.moveFolder("h1", refresh);
+  pin(spoken.length === 1 && spoken[0].includes("does not move while a cell is bringing its model: :22003") && refreshes.length === 1,
+      "negative: the scout refuses while a cell loads — its words, the cell named, are said");
+  reset();
+  st.setTopology({ nodes: [node({ ...B, managedBytes: 0 })] });
+  typed = "/mnt/hdd/models";
+  globalThis.__fetchReply[DIR] = { ok: true, result: { ok: true, dir: "/mnt/hdd/models", removed: 0, freedBytes: 0 } };
+  await ModelCacheLine.moveFolder("h1", refresh);
+  pin(choiceAsked.length === 0 && sent()[0].body.how === "delete", "an empty cache has nothing to carry: no choice is asked, and nothing goes");
+  reset();
+  st.setTopology({ nodes: [node(FACTS)] });
+  await ModelCacheLine.moveFolder("h1", refresh);
+  pin(prompted.length === 0 && sent().length === 0, "negative: a machine whose scout names no folder is asked nothing");
+}
+
 // ── the files the scout did not download, deleted ──
 {
   const FOREIGN = { files: 3, bytes: 71_000_000_001, folders: [{ folder: "hand-copied", files: 2, bytes: 61 * GB }, { folder: "speech", files: 1, bytes: 6 * GB }] };
@@ -276,12 +407,15 @@ const sent = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c
 {
   const make = (dataset) => ({ dataset, handlers: {}, addEventListener(type, fn) { this.handlers[type] = fn; } });
   const boxes = [make({ cacheKeep: "h1" }), make({ cacheKeep: "h2" })], buttons = [make({ cacheDeleteForeign: "h1" }), make({})];
+  const budgets = [make({ cacheBudget: "h1" })], folders = [make({ cacheDir: "h1" })], limits = [make({ cacheWorkBudget: "h1" })];
   const asks = [];
-  const root = { querySelectorAll(selector) { asks.push(selector); return selector === "[data-cache-keep]" ? boxes : selector === "[data-cache-delete-foreign]" ? buttons : []; } };
+  const found = { "[data-cache-keep]": boxes, "[data-cache-budget]": budgets, "[data-cache-work-budget]": limits, "[data-cache-dir]": folders, "[data-cache-delete-foreign]": buttons };
+  const root = { querySelectorAll(selector) { asks.push(selector); return found[selector] || []; } };
   ModelCacheLine.bind(root, refresh);
-  pin(asks.join(",") === "[data-cache-keep],[data-cache-delete-foreign]" && boxes.every((b) => typeof b.handlers.change === "function")
-      && buttons.every((b) => typeof b.handlers.click === "function"),
-      "every box and every button under the card's container gets its handler, found by its data attribute");
+  pin(asks.join(",") === "[data-cache-keep],[data-cache-budget],[data-cache-work-budget],[data-cache-dir],[data-cache-clear],[data-cache-off],[data-cache-on],[data-cache-library],[data-cache-through],[data-cache-dir-remove],[data-cache-work],[data-cache-work-remove],[data-cache-delete-foreign]"
+      && [...boxes, ...budgets, ...limits].every((b) => typeof b.handlers.change === "function")
+      && [...buttons, ...folders].every((b) => typeof b.handlers.click === "function"),
+      "every box and every button under the card's container gets its handler, found by its data attribute — the budget's box and the folder's button (2.38) too, and Strata's limit");
   st.setTopology({ nodes: [node({ ...FACTS, foreign: { files: 1, bytes: 5 * GB, folders: [] } })] });
   reset();
   let stopped = 0;
@@ -299,23 +433,212 @@ const sent = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c
   const holes = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(",");
   const want = { modelCacheHeld: "size", modelCacheFree: "free,total", modelCacheForeign: "n,size", modelCacheDeleteConfirm: "host,n,size", modelCacheKept: "host,n",
                  modelCacheFreed: "n,size", modelCacheNothingYet: "host",
-                 diskLowChip: "pct", diskLowTitle: "limit" };
+                 diskLowChip: "pct", diskLowTitle: "limit",
+                 modelCacheBudgetHelp: "n", modelCacheBudgetSet: "host,size", modelCacheBudgetOff: "host", modelCacheDirPrompt: "host",
+                 modelCacheMoved: "dir,host" };
   const lacking = [], wrong = [], same = [];
   for (const lang of langs) {
     const m = (await import(`../static/js/i18n/${lang}.js`)).default;
     for (const key of keys) {
       if (!m[key]) { lacking.push(`${lang}.${key}`); continue; }
-      if (lang !== "en" && m[key] === en[key] && !["modelCacheDeleteBtn", "modelCacheHead"].includes(key)) same.push(`${lang}.${key}`);
+      // The unit GB is written as English writes it in many languages: the same text there is the right one. Indonesian says
+      // "folder", as its file does in every string that names one.
+      const sameIsRight = ["modelCacheDeleteBtn", "modelCacheHead", "modelCacheGb"].includes(key) || `${lang}.${key}` === "id.modelCacheDirLabel";
+      if (lang !== "en" && m[key] === en[key] && !sameIsRight) same.push(`${lang}.${key}`);
       if (key in want && holes(m[key]) !== want[key]) wrong.push(`${lang}.${key}: ${holes(m[key])}`);
     }
   }
-  eq(lacking, [], "all 15 keys of the line and its sign exist in all 20 languages");
+  eq(lacking, [], `all ${keys.length} keys of the line and its sign (2.38: the budget and the folder too) exist in all ${langs.length} languages`);
   eq(wrong, [], "every language fills the holes the code fills — host, number, size, free, total — and no other");
   eq(same, [], "no language is left with the English text");
   eq(Object.entries(want).filter(([key, h]) => holes(en[key]) !== h).map(([key]) => key), [], "and the English words have exactly those holes");
 }
 
 for (const why of pass) console.log("  ok  " + why);
+// ── clear it, and turn it off (the owner, 2026-11-02) ──
+{
+  const ON = { ...FACTS, foreign: null, budgetBytes: null, managedBytes: 95 * GB, dir: "/home/u/cache", off: false };
+  const OFF = { ...ON, managedBytes: 0, off: true, library: "/mnt/lib" };
+  const on = ModelCacheLine.of(node(ON)), off = ModelCacheLine.of(node(OFF)), old = ModelCacheLine.of(node({ ...ON, off: undefined })), empty = ModelCacheLine.of(node({ ...ON, managedBytes: 0 }));
+  eq([on.html().includes('data-t="node-cache-clear"'), on.html().includes('data-t="node-cache-off"'), on.html().includes('data-t="node-cache-on"'), on.html().includes("cache-budget")],
+     [true, true, false, true], "on: Clear and Turn off stand by the setting");
+  eq([old.html().includes("node-cache-clear"), old.html().includes("node-cache-off"), old.switches], [false, false, false], "negative: a scout that does not say `off` is offered neither");
+  eq([empty.html().includes("node-cache-clear"), empty.html().includes("node-cache-off")], [false, true], "negative: nothing held, nothing to clear; the switch stays");
+  eq([off.html().includes('data-t-state="off"'), off.html().includes('data-t="node-cache-on"'), off.html().includes(">/mnt/lib<"), off.html().includes("cache-budget"), off.html().includes("node-cache-off"), off.html().includes("node-cache-clear"), off.html().includes("node-cache-dir")],
+     [true, true, true, false, false, false, false], "off: it says so and from where, offers Turn on; negative: no limit, no folder, no second switch");
+  pin(on.fingerprint() !== off.fingerprint() && off.fingerprint() !== ModelCacheLine.of(node({ ...OFF, library: "/mnt/other" })).fingerprint(), "turning it off, and another library, draw the card anew");
+  pin(on.fingerprint() !== empty.fingerprint(), "the Clear button comes and goes with what the cache holds");
+  pin(ModelCacheLine.of(node(OFF)).fingerprint() !== ModelCacheLine.of(node(ON)).fingerprint() && old.fingerprint() === ModelCacheLine.of(node({ ...ON, off: undefined, managedBytes: 1 * GB })).fingerprint(), "negative: for a scout without the switch, the size held moves no redraw, as before");
+  st.setTopology({ nodes: [node(ON)] });
+  reset();
+  globalThis.__fetchReply["/api/topology/client-llama/cache-clear"] = { ok: true, result: { ok: true, removed: 5, freedBytes: 95 * GB } };
+  await ModelCacheLine.clear("h1", refresh);
+  eq([asked[0].message.includes("95.0 GB"), asked[0].message.includes("Box"), asked[0].opts.title, asked[0].opts.confirmLabel], [true, true, "Clear the model cache?", "Clear"], "Clear asks first, naming how much goes and where");
+  eq(sent(), [{ path: "/api/topology/client-llama/cache-clear", method: "POST", body: { hostId: "h1" } }], "yes: the machine is named");
+  eq([spoken, refreshes.length], [["Freed 95.0 GB · files deleted: 5"], 1], "what went is said, and the card drawn anew");
+  reset();
+  answer = false;
+  await ModelCacheLine.clear("h1", refresh);
+  eq([sent(), refreshes.length], [[], 0], "negative: Cancel deletes nothing");
+  reset();
+  globalThis.__fetchReply["/api/topology/client-llama/cache-clear"] = { __status: 502, error: "h1 unreachable" };
+  await ModelCacheLine.clear("h1", refresh);
+  eq([spoken, refreshes.length], [["h1 unreachable"], 1], "negative: a refusal is said in its words");
+  reset();
+  typed = " /mnt/lib ";
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { ok: true, result: { ok: true, off: true, library: "/mnt/lib", removed: 5, freedBytes: 95 * GB } };
+  await ModelCacheLine.turnOff("h1", refresh);
+  eq([prompted[0].message, asked[0].opts.title, asked[0].opts.detail, asked[0].opts.confirmLabel, asked[0].message.includes("95.0 GB"), asked[0].message.includes("6 minutes")],
+     ["Where does the library lie on Box? The full path of the folder on that machine:", "Turn off the model cache?", "/mnt/lib", "Turn off…", true, true],
+     "Turn off asks where the library lies, then names what a start will cost and what goes");
+  eq(sent(), [{ path: "/api/topology/client-llama/cache-off", method: "POST", body: { hostId: "h1", off: true, library: "/mnt/lib" } }], "yes: the machine, the switch and the library, trimmed");
+  eq(spoken, ["The model cache of Box is off: models are read from /mnt/lib · Freed 95.0 GB · files deleted: 5"], "it says from where it reads now and what went");
+  for (const [word, why] of [[null, "the question cancelled"], ["  ", "an empty path"]]) {
+    reset();
+    typed = word;
+    await ModelCacheLine.turnOff("h1", refresh);
+    eq([asked.length, sent().length, refreshes.length], [0, 0, 0], `negative: ${why} — no second question, nothing sent`);
+  }
+  reset();
+  typed = "/mnt/lib";
+  answer = false;
+  await ModelCacheLine.turnOff("h1", refresh);
+  eq([asked.length, sent().length], [1, 0], "negative: Cancel on the second question turns nothing off");
+  reset();
+  typed = "/mnt/lib";
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { __status: 502, error: "h1: library must be a folder on this machine" };
+  await ModelCacheLine.turnOff("h1", refresh);
+  eq([spoken, refreshes.length], [["h1: library must be a folder on this machine"], 1], "negative: a folder that is not there is said in the scout's words");
+  st.setTopology({ nodes: [node(OFF)] });
+  reset();
+  typed = "";
+  await ModelCacheLine.turnOff("h1", refresh);
+  eq([prompted.length, asked[0].opts.detail, sent()[0].body.library], [0, "/mnt/lib", "/mnt/lib"], "the scout found the library, or was told it: where it lies is not asked, and the question names it");
+  // Turn on asks first, with the cache's folder and its limit in the same window (the owner, 2026-11-03: "it turns on at once — show such a window").
+  const OFF_BUDGET = { ...OFF, budgetBytes: 50 * GB };
+  st.setTopology({ nodes: [node(OFF_BUDGET)] });
+  reset();
+  filled = { dir: "/home/u/cache", budget: "50" };
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { ok: true, result: { ok: true, off: false, removed: 0, freedBytes: 0 } };
+  await ModelCacheLine.turnOn("h1", refresh);
+  eq([fieldsAsked[0].opts.title, fieldsAsked[0].opts.confirmLabel, fieldsAsked[0].opts.danger, fieldsAsked[0].opts.fields.map((f) => [f.key, f.value, f.kind || "text"])],
+     ["Turn the model cache on?", "Turn on", false, [["dir", "/home/u/cache", "text"], ["budget", 50, "number"]]],
+     "Turn on asks first, not in red, with the folder and the limit the cache has now in its boxes");
+  pin(fieldsAsked[0].message.startsWith("On Box, a model will be copied into this folder") && fieldsAsked[0].message.includes("Strata's folder is apart"),
+      "the question says what turning on does, and that Strata's folder is not touched");
+  eq([sent(), spoken, refreshes.length], [[{ path: "/api/topology/client-llama/cache-off", method: "POST", body: { hostId: "h1", off: false } }], ["The model cache of Box is on"], 1],
+     "nothing changed in the boxes: only the switch is sent");
+  reset();
+  filled = { dir: "/mnt/ssd/cache", budget: "300" };
+  await ModelCacheLine.turnOn("h1", refresh);
+  eq(sent().map((c) => [c.path, c.body]), [["/api/topology/client-llama/cache-dir", { hostId: "h1", path: "/mnt/ssd/cache", how: "delete" }],
+                                            ["/api/topology/client-llama/cache-budget", { hostId: "h1", budgetBytes: 300 * GB }],
+                                            ["/api/topology/client-llama/cache-off", { hostId: "h1", off: false }]],
+     "a new folder and a new limit go first, in that order, and then the switch");
+  pin(choiceAsked.length === 0, "the old folder holds nothing (turning off deleted the copies): what becomes of its files is not asked");
+  // A running cell's files outlive the turning off: the old folder still holds them, and they are asked about as "Change…" asks.
+  st.setTopology({ nodes: [node({ ...OFF_BUDGET, managedBytes: 9 * GB })] });
+  reset();
+  filled = { dir: "/mnt/ssd/cache", budget: "50" };
+  globalThis.__fetchReply["/api/topology/client-llama/cache-dir"] = { ok: true, result: { dir: "/mnt/ssd/cache", moving: true, totalBytes: 9 * GB } };
+  await ModelCacheLine.turnOn("h1", refresh);
+  eq([choiceAsked.length, choiceAsked[0]?.opts.detail, sent().map((c) => [c.path.split("/").pop(), c.body.how]), spoken],
+     [1, "/home/u/cache → /mnt/ssd/cache", [["cache-dir", "move"], ["cache-off", undefined]], ["Moving 9.00 GB to /mnt/ssd/cache: the page shows how far it is"]],
+     "what the old folder still holds is asked about — move or delete — and the answer goes with the folder; a move under way is said");
+  reset();
+  filled = { dir: "/mnt/ssd/cache", budget: "50" };
+  chosen = null;
+  await ModelCacheLine.turnOn("h1", refresh);
+  pin(choiceAsked.length === 1 && sent().length === 0 && refreshes.length === 0, "negative: stepped back at that question — nothing is sent, the cache stays off");
+  st.setTopology({ nodes: [node(OFF_BUDGET)] });
+  reset();
+  filled = { dir: "/home/u/cache", budget: "" };
+  await ModelCacheLine.turnOn("h1", refresh);
+  eq(sent().map((c) => c.body.budgetBytes !== undefined ? ["budget", c.body.budgetBytes] : [c.path.split("/").pop()]), [["budget", null], ["cache-off"]], "an emptied limit takes it off");
+  for (const bad of ["0", "2.5", "x"]) {
+    reset();
+    filled = { dir: "/home/u/cache", budget: bad };
+    await ModelCacheLine.turnOn("h1", refresh);
+    pin(sent().length === 0 && spoken[0] === "The cache limit is a whole number of GB, 1 or more", `negative: a limit of ${bad} is said, and nothing is sent — the cache stays off`);
+  }
+  reset();
+  filled = null;
+  await ModelCacheLine.turnOn("h1", refresh);
+  pin(fieldsAsked.length === 1 && sent().length === 0 && refreshes.length === 0, "negative: stepped back — nothing is sent");
+  reset();
+  filled = { dir: "/root/nope", budget: "50" };
+  globalThis.__fetchReply["/api/topology/client-llama/cache-dir"] = { __status: 502, error: "h1: the cache cannot be in /root/nope: permission denied" };
+  await ModelCacheLine.turnOn("h1", refresh);
+  eq([sent().map((c) => c.path.split("/").pop()), spoken], [["cache-dir"], ["h1: the cache cannot be in /root/nope: permission denied"]],
+     "negative: a folder the scout refuses stops it there, in the scout's words, and the cache is not turned on");
+  st.setTopology({ nodes: [node({ keep: 2, managedBytes: 0, off: true, dir: "/c" })] });
+  reset();
+  filled = { dir: "/c" };
+  await ModelCacheLine.turnOn("h1", refresh);
+  pin(fieldsAsked[0].opts.fields.length === 1 && sent().length === 1, "a scout that keeps no budget is asked its folder alone");
+  // Where the library lies, named with the cache on: nothing goes, so only that is asked.
+  st.setTopology({ nodes: [node(ON)] });
+  eq([on.html().includes('data-t="node-cache-library"'), on.html().includes('data-t="node-cache-dir"'), old.html().includes("node-cache-library"), off.html().includes(">/mnt/lib<"), off.html().includes('data-t="node-cache-dir"')],
+     [false, true, false, true, false], "the cache on: its folder, and no word of the library, for a model comes through the controller; the cache off: where it reads, and no folder of copies; negative: a scout that cannot is not asked");
+  // The long way is the default (the owner, 2026-11-02): a machine that can is asked nothing but the yes, and no folder goes along.
+  const CAN = { ...ON, canThrough: true };
+  const THROUGH = { ...CAN, managedBytes: 0, off: true, through: true };
+  st.setTopology({ nodes: [node(CAN)] });
+  reset();
+  typed = "/never/asked";
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { ok: true, result: { ok: true, off: true, removed: 2, freedBytes: 95 * GB } };
+  await ModelCacheLine.turnOff("h1", refresh);
+  eq([prompted.length, asked.length, "detail" in asked[0].opts, sent(), asked[0].message.includes("no folder has to be mounted")],
+     [0, 1, false, [{ path: "/api/topology/client-llama/cache-off", method: "POST", body: { hostId: "h1", off: true, library: "" } }], true],
+     "no folder is asked, none is named in the question, and the question says none has to be mounted");
+  eq(spoken[0].startsWith("The model cache of Box is off: models come from this controller"), true, "and the answer says where they come from now");
+  reset();
+  answer = false;
+  await ModelCacheLine.turnOff("h1", refresh);
+  eq([asked.length, sent().length], [1, 0], "negative: Cancel turns nothing off");
+  const through = ModelCacheLine.of(node(THROUGH));
+  const fromFolder = ModelCacheLine.of(node({ ...CAN, managedBytes: 0, off: true, through: false, library: "/mnt/lib" }));
+  eq([through.html().includes(">the controller<"), through.html().includes('data-t-state="through"'), through.html().includes("Use a mounted folder"), through.html().includes("data-cache-through")],
+     [true, true, true, false], "off, through the controller: it says so, and a mounted folder is an option");
+  eq([fromFolder.html().includes(">/mnt/lib<"), fromFolder.html().includes('data-t-state="folder"'), fromFolder.html().includes("data-cache-through"), off.html().includes("data-cache-through")],
+     [true, true, true, false], "off, from a folder: it names the folder and offers the way back; negative: a scout that cannot read through the controller is not offered it");
+  pin(through.fingerprint() !== fromFolder.fingerprint() && ModelCacheLine.of(node(CAN)).fingerprint() !== on.fingerprint(), "the block is drawn again when the way changes or the machine learns it can");
+  st.setTopology({ nodes: [node({ ...CAN, managedBytes: 0, off: true, through: false, library: "/mnt/lib" })] });
+  reset();
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { ok: true, result: { ok: true, off: true, removed: 0, freedBytes: 0 } };
+  await ModelCacheLine.useThrough("h1", refresh);
+  eq([asked.length, sent(), spoken, refreshes.length],
+     [0, [{ path: "/api/topology/client-llama/cache-off", method: "POST", body: { hostId: "h1", off: true, library: "" } }], ["The model cache of Box is off: models come from this controller"], 1], "back to the controller: nothing goes, so nothing is asked");
+  st.setTopology({ nodes: [node(ON)] });
+  reset();
+  typed = " /mnt/lib ";
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { ok: true, result: { ok: true, off: false, library: "/mnt/lib" } };
+  await ModelCacheLine.nameLibrary("h1", refresh);
+  eq([asked.length, prompted[0].opts.confirmLabel, sent(), spoken, refreshes.length],
+     [0, "Save", [{ path: "/api/topology/client-llama/cache-off", method: "POST", body: { hostId: "h1", off: false, library: "/mnt/lib" } }], ["The library of Box is at /mnt/lib"], 1],
+     "the library named: no second question, the cache stays as it is, and it is said");
+  for (const [word, why] of [[null, "cancelled"], ["  ", "empty"]]) {
+    reset();
+    typed = word;
+    await ModelCacheLine.nameLibrary("h1", refresh);
+    eq([sent().length, refreshes.length], [0, 0], `negative: ${why} — nothing sent`);
+  }
+  st.setTopology({ nodes: [node(OFF)] });
+  reset();
+  typed = "/mnt/lib";
+  await ModelCacheLine.nameLibrary("h1", refresh);
+  eq(sent().length, 0, "negative: the same folder — nothing sent");
+  reset();
+  typed = "/mnt/other";
+  globalThis.__fetchReply["/api/topology/client-llama/cache-off"] = { ok: true, result: { ok: true, off: true, library: "/mnt/other" } };
+  await ModelCacheLine.nameLibrary("h1", refresh);
+  eq(sent()[0].body, { hostId: "h1", off: true, library: "/mnt/other" }, "with the cache off, another library leaves it off");
+  const clicks = {};
+  const button = (hook, id) => ({ dataset: { [hook]: id }, addEventListener: (_, fn) => { clicks[hook] = fn; } });
+  ModelCacheLine.bind({ querySelectorAll: (sel) => ({ "[data-cache-clear]": [button("cacheClear", "h1")], "[data-cache-off]": [button("cacheOff", "h1")], "[data-cache-on]": [button("cacheOn", "h1")], "[data-cache-through]": [button("cacheThrough", "h1")], "[data-cache-library]": [button("cacheLibrary", "h1")] }[sel] || []) }, refresh);
+  eq(Object.keys(clicks).sort(), ["cacheClear", "cacheLibrary", "cacheOff", "cacheOn", "cacheThrough"], "the five buttons are wired");
+}
+
 console.log(`js model-cache OK: ${pass.length} pins — for whom the line is drawn, the figures, the box, the foreign files, the redraw and the live patch, the two clicks, the wiring, the words`);
 '''
 
@@ -361,7 +684,7 @@ def main():
     probe.write_text(PROBE)
     try:
         harness = ROOT / "scripts" / "_js_harness.mjs"
-        result = subprocess.run([node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');", str(probe)], cwd=ROOT,
+        result = subprocess.run(probe_args(node, harness, probe), cwd=ROOT,
                                 env={**os.environ, "JS_ROOT": str(ROOT / "static/js"), "JS_STUBS": "i18n,dialogs", "LANGS": json.dumps(LANGS), "KEYS": json.dumps(KEYS),
                                      "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"},
                                 capture_output=True, text=True, timeout=90)

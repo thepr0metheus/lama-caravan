@@ -1,0 +1,20 @@
+{
+  "read": [
+    {"raw": {}, "policy": {"maxSlots": 1, "loadingModelWaitSec": 60, "queueYieldSec": 0, "queueLimitSec": 0, "clientTimeoutSec": 3600}},
+    {"raw": {"maxSlots": 500, "loadingModelWaitSec": 5000, "queueYieldSec": 9000, "queueLimitSec": 9000, "clientTimeoutSec": 10}, "policy": {"maxSlots": 64, "loadingModelWaitSec": 900, "queueYieldSec": 3600, "queueLimitSec": 3600, "clientTimeoutSec": 60}},
+    {"raw": {"maxSlots": 0, "loadingModelWaitSec": -1, "queueYieldSec": -1, "queueLimitSec": -1, "clientTimeoutSec": 999999}, "policy": {"maxSlots": 1, "loadingModelWaitSec": 0, "queueYieldSec": 0, "queueLimitSec": 0, "clientTimeoutSec": 86400}},
+    {"raw": {"maxSlots": "4", "loadingModelWaitSec": "x", "queueYieldSec": 90, "queueLimitSec": 60, "clientTimeoutSec": null}, "policy": {"maxSlots": 4, "loadingModelWaitSec": 60, "queueYieldSec": 60, "queueLimitSec": 60, "clientTimeoutSec": 3600}, "why": "a patience is no longer than a limit"},
+    {"raw": {"maxSlots": "x", "queueYieldSec": 90, "queueLimitSec": 0}, "policy": {"maxSlots": 1, "loadingModelWaitSec": 60, "queueYieldSec": 90, "queueLimitSec": 0, "clientTimeoutSec": 3600}, "why": "a limit of 0 caps nothing"}
+  ],
+  "client_timeout": [
+    {"raw": {}, "own": 0, "seconds": 3600},
+    {"raw": {"clientTimeoutSec": 120}, "own": 0, "seconds": 120},
+    {"raw": {"clientTimeoutSec": 120}, "own": 90, "seconds": 90}
+  ],
+  "leave": [
+    {"raw": {"queueYieldSec": 90, "queueLimitSec": 300}, "way_on": true, "after": 90.0, "to": "next", "limit": 300.0, "said_since_1000": {"leaveAt": 1090.0, "leaveTo": "next"}, "due": [[89.9, false], [90.0, true]], "without_way": {"after": 300.0, "to": "refuse", "limit": 300.0}},
+    {"raw": {"queueYieldSec": 90, "queueLimitSec": 300}, "way_on": false, "after": 300.0, "to": "refuse", "limit": 300.0, "said_since_1000": {"leaveAt": 1300.0, "leaveTo": "refuse"}, "due": [[299.0, false], [301.0, true]], "without_way": {"after": 300.0, "to": "refuse", "limit": 300.0}},
+    {"raw": {"queueYieldSec": 0, "queueLimitSec": 0}, "way_on": true, "after": 0.0, "to": "next", "limit": null, "said_since_1000": {"leaveAt": 1000.0, "leaveTo": "next"}, "due": [[0.0, true]], "without_way": {"after": null, "to": "refuse", "limit": null}},
+    {"raw": {"queueYieldSec": 0, "queueLimitSec": 0}, "way_on": false, "after": null, "to": "refuse", "limit": null, "said_since_1000": {"leaveAt": null, "leaveTo": null}, "due": [[99999.0, false]], "without_way": {"after": null, "to": "refuse", "limit": null}}
+  ]
+}

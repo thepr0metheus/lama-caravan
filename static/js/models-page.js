@@ -5,11 +5,16 @@
 // age — with which cells use each file, downloads, moves (model-moves.js) and
 // deletion of what nobody uses.
 // Data: /api/models/unused (this disk), /api/model-stores/files (the
-// libraries), /api/models/freshness, /api/hf/download/jobs; deletion:
+// libraries), /api/models/freshness, /api/hf/download/jobs, /api/model-notes
+// (one comment on each model, whatever its quants); deletion:
 // /api/models/gc (refuses referenced files server-side too).
 import { appConfirm, settleAppConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
+import { HeaderMachines } from "./header-machines.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
+import { LibraryPath } from "./library-path.js";
+import { ModelRating } from "./model-rating.js";
+import { ModelFacts } from "./model-facts.js";
 import { mountMoves } from "./model-moves.js";
 import { mountStores } from "./model-stores.js";
 import { ui } from "./state.js";
@@ -39,8 +44,26 @@ let refreshes = 0;
 // list without asking the server again.
 let last = null;
 // What the list shows besides the place: one filter of the side column (or
-// none), and the words typed into the name box.
-const view = { filter: "", query: "" };
+// none), the words typed into the name box, and what the models do and how long a
+// context they take (model-facts.js; "" and 0 — any).
+const view = { filter: "", query: "", job: "", window: 0 };
+// The owner's texts on a model (rust/crates/admin/src/models/notes.rs, ModelFields): the description, as the comment on a model was called until
+// 2026-10-31; the launch parameters its developer recommends; the owner's own word. `from` is its map in what /api/model-notes answers.
+const NOTE_FIELDS = [
+  { field: "note", from: "notes", mark: "💬", head: "mdlFieldNote", add: "mdlNoteAdd", hint: "mdlNotePlaceholder",
+    hooks: { box: 'data-t="models-note"', add: 'data-t="models-note-add"', edit: 'data-t="models-note-edit"', input: 'data-t="models-note-input"', save: 'data-t="models-note-save"', cancel: 'data-t="models-note-cancel"' } },
+  { field: "params", from: "params", mark: "🧪", head: "mdlFieldParams", add: "mdlParamsAdd", hint: "mdlParamsPlaceholder",
+    hooks: { box: 'data-t="models-params"', add: 'data-t="models-params-add"', edit: 'data-t="models-params-edit"', input: 'data-t="models-params-input"', save: 'data-t="models-params-save"', cancel: 'data-t="models-params-cancel"' } },
+  { field: "comment", from: "comments", mark: "✍️", head: "mdlFieldComment", add: "mdlCommentAdd", hint: "mdlCommentPlaceholder",
+    hooks: { box: 'data-t="models-comment"', add: 'data-t="models-comment-add"', edit: 'data-t="models-comment-edit"', input: 'data-t="models-comment-input"', save: 'data-t="models-comment-save"', cancel: 'data-t="models-comment-cancel"' } },
+];
+
+// The comment being written on a model: whose it is and the words so far. They
+// are kept here and not in the markup, because the tree is drawn anew after
+// every answer and a box only the markup held would lose what was typed.
+const noteEdit = { model: "", field: "note", draft: "" };
+// The box was just opened: the next drawing puts the cursor in it.
+let noteFocus = false;
 // The branches that were open before a filter or a name narrowed the list.
 // Narrowed, the list opens every branch it keeps — a match folded out of sight
 // is a match not found — and clearing it gives back the branches that were
@@ -87,12 +110,12 @@ async function refresh() {
   // for as long as the NAS took to answer. "…" is for the first load only,
   // when there is nothing to keep.
   if (!treeDrawn) paint(tree, `<p class="muted">…</p>`);
-  let data, fresh = null, jobs = null, libs = null;
+  let data, fresh = null, jobs = null, libs = null, notes = null, rows = null;
   try {
     // Freshness comes from the SAVED watcher report, not a trip to HF on
     // every redraw: 75 files across 20 repositories would be 20 outbound
     // requests for a page that's opened to look at the disk.
-    [data, fresh, jobs, libs] = await Promise.all([
+    [data, fresh, jobs, libs, notes, rows] = await Promise.all([
       api("/api/models/unused"),
       api("/api/models/freshness").catch(() => null),
       // Jobs live on the SERVER. So progress survives a page reload, is
@@ -101,6 +124,14 @@ async function refresh() {
       // What the libraries hold: a model moved to the NAS is still one of the
       // caravan's models, and the tree is where models are looked for.
       api("/api/model-stores/files").catch(() => null),
+      // The comments on the models. Not having them is not "no comments": the
+      // page then offers no box to write one (see noteBlock), since a box that
+      // opens empty over a comment it did not read would save over it.
+      api("/api/model-notes").catch(() => null),
+      // What each model does and the window its weights were trained with: the
+      // cell editor's rows, which carry every GGUF's header (model-facts.js).
+      // Not having them is not "no job": the two columns then say nothing.
+      api("/api/models/rows").catch(() => null),
     ]);
   } catch (err) {
     if (mine !== refreshes) return;
@@ -120,7 +151,8 @@ async function refresh() {
     markPageState("error", data.error || "models dir not found");
     return;
   }
-  last = { data, fresh, jobs, libs };
+  // A refresh that could not read the comments keeps the ones it read last: they change rarely, and a box being typed in must not vanish.
+  last = { data, fresh, jobs, libs, notes: notes || (last && last.notes) || null, rows: rows || (last && last.rows) || null };
   const dlByPath = draw();
   // Polling starts ONLY when there's something to show, and stops on its own
   // once no downloads are left: a timer ticking over an empty page is work
@@ -133,9 +165,9 @@ async function refresh() {
 function draw() {
   if (!last) return new Map();
   const tree = $("mdlTree");
-  const { data, fresh, jobs, libs } = last;
+  const { data, fresh, jobs, libs, notes, rows: modelRows } = last;
   const words = view.query.trim().toLowerCase();
-  const narrowed = !!(view.filter || words);
+  const narrowed = !!(view.filter || words || view.job || view.window);
   // What lives in the markup is read at the moment it is replaced — AFTER the
   // answer, not before the request: a branch opened or a box ticked while the
   // data travelled survives the redraw too. Open branches, because the whole
@@ -145,6 +177,9 @@ function draw() {
   const openBranches = branchesToKeep(narrowed);
   const pickedBefore = new Set(pickedFiles().map((f) => f.path));
   const wasScrolled = typeof window !== "undefined" ? window.scrollY || 0 : 0;
+  // On a wide screen the list scrolls in its own pane (models.html), and that pane is what keeps its place; on a narrow one, the page.
+  const listPane = document.querySelector?.(".mdl-main");
+  const listWasScrolled = Number(listPane?.scrollTop) || 0;
   const files = data.files || [];
   const totalBytes = files.reduce((a, f) => a + f.sizeBytes, 0);
 
@@ -272,7 +307,14 @@ function draw() {
   // A button that would pick nothing is not offered.
   $("mdlSelectAll").hidden = !unused.n;
   const named = (f) => !words || f.path.toLowerCase().includes(words);
-  const shown = inView.filter((f) => (!keeps[view.filter] || keeps[view.filter](f)) && named(f));
+  // What the models of this place do, and how long a context they take: the
+  // side column's two more groups count them here, the tree says them on each row.
+  const facts = ModelFacts.of(modelRows, files);
+  const jobsBox = $("mdlJobs");
+  const windowsBox = $("mdlWindows");
+  if (jobsBox) paint(jobsBox, facts.jobsNavHtml(inView, view.job));
+  if (windowsBox) paint(windowsBox, facts.windowsNavHtml(inView, view.window));
+  const shown = inView.filter((f) => (!keeps[view.filter] || keeps[view.filter](f)) && named(f) && facts.keeps(f.path, view));
 
   // What a row weighs in each column: this disk's bytes, and the library's —
   // every library's under "All models", the chosen one's under a library.
@@ -280,8 +322,8 @@ function draw() {
     .reduce((a, c) => a + c.size, 0);
   const hereSize = (f) => (f.libraryOnly ? 0 : f.sizeBytes);
   const grouped = new Map();
-  const node = (leaf) => (leaf ? { bytes: 0, libBytes: 0, minAge: Infinity, differs: 0, movable: 0, files: [] }
-    : { bytes: 0, libBytes: 0, minAge: Infinity, differs: 0, movable: 0, children: new Map() });
+  const node = (leaf) => (leaf ? { bytes: 0, libBytes: 0, minAge: Infinity, differs: 0, movable: 0, facts: ModelFacts.blank(), files: [] }
+    : { bytes: 0, libBytes: 0, minAge: Infinity, differs: 0, movable: 0, facts: ModelFacts.blank(), children: new Map() });
   shown.forEach((f) => {
     const segs = f.path.split("/");
     const model = segs.length > 1 ? segs[0] : "(root)";
@@ -300,6 +342,7 @@ function draw() {
       n.minAge = Math.min(n.minAge, f.ageDays);
       n.differs += d;
       n.movable += movable;
+      facts.take(n.facts, f.path);
     };
     if (!grouped.has(model)) grouped.set(model, node(false));
     const l1 = grouped.get(model); add(l1);
@@ -322,12 +365,15 @@ function draw() {
   // report is stored per repository, while this tree is grouped by
   // directory; same-named files from different repositories already sit in
   // different branches on disk.
+  // A size that differs is another build for sure; the same size with a newer commit on HF is only a hint — the bytes may be the
+  // same, and only a hash tells (the /hf page's Verify). Each is said as what it is, the way /hf says it: until 1.3.679 both read
+  // "a different file", and on 2026-10-27 that stood over an IQ1_M part whose size matched HF's to the byte.
   const freshChip = (path) => {
     const row = freshByPath.get(path);
     // No entry means not checked. Stay silent: an empty space is more honest than a ✓.
     if (!row || row.state === "same") return "";
     if (row.state === "unknown") return `<span class="mdl-fresh unknown" title="${escapeHtml(t("mdlFreshUnknown"))}">?</span>`;
-    const title = t("mdlFreshNewer", {
+    const title = t(row.state === "date" ? "mdlFreshReuploaded" : "mdlFreshNewer", {
       ours: `${fmtGb(row.localSize || 0)} · ${row.localDate || "?"}`,
       theirs: `${fmtGb(row.remoteSize || 0)} · ${row.remoteDate || "?"}`,
     });
@@ -365,6 +411,7 @@ function draw() {
     const go = moves && movableFile(f) ? moves.openHtml("file", f.path, { size: f.sizeBytes, kind: f.kind }) : "";
     return `<div class="mdl-file mdl-row" style="--lvl:${depth}">`
       + `<span class="mdl-c-name"><span class="tw"></span>${box}${folderChip(f)}<code title="${escapeHtml(f.path)}">${escapeHtml(name)}</code></span>`
+      + `${facts.jobsHtml(facts.single(f.path), f.path)}${facts.windowHtml(facts.single(f.path), f.path)}`
       + `<span class="mdl-c-status">${used}${alsoInLibrary(f.path)}${freshChip(f.path)}`
       + `${way ? moves.rowHtml(f.path) : updateBtns(f.path)}${way || !moves ? "" : moves.stayedHtml(f.path)}</span>`
       + `${sizes(f.sizeBytes, libSize(f))}<span class="mdl-c-age">${f.ageDays}d</span><span class="mdl-c-go">${go}</span></div>`;
@@ -391,6 +438,7 @@ function draw() {
     return `<div class="mdl-file mdl-file-lib mdl-row" data-t="models-library-file" data-t-id="${escapeHtml(f.path)}" style="--lvl:${depth}">`
       + `<span class="mdl-c-name"><span class="tw"></span><span class="mdl-nobox"></span>${folderChip(f)}`
       + `<code title="${escapeHtml(f.path)}">${escapeHtml(f.path.split("/").pop())}</code></span>`
+      + `${facts.jobsHtml(facts.single(f.path), f.path)}${facts.windowHtml(facts.single(f.path), f.path)}`
       + `<span class="mdl-c-status"><span class="mdl-lib" title="${escapeHtml(t("mdlInLibrary", { name: where }))}">📚 ${escapeHtml(where)}</span>`
       + `${way ? moves.rowHtml(f.path) : ""}</span>`
       + `${sizes(0, libSize(f))}<span class="mdl-c-age">${f.ageDays}d</span><span class="mdl-c-go">${go}</span></div>`;
@@ -406,6 +454,40 @@ function draw() {
   const groupChip = (n) => (n.differs
     ? `<span class="mdl-fresh newer" title="${escapeHtml(t("mdlFreshGroup", { n: String(n.differs) }))}">⇪ ${n.differs}</span>`
     : "");
+  // What the owner keeps on a model, one of each for all its quants (NOTE_FIELDS; ModelRating): a 💬 and its mark on the folded row say
+  // there is something; the opened model reads the texts above its authors, each with the way to write or change it, and its like and
+  // dislike. The row of the files that lie straight in the models folder is many models, not one, so it has none. A page that
+  // did not get them draws neither the chip nor the box (see refresh).
+  const noted = notes && notes.ok && notes.notes && typeof notes.notes === "object" && Number(notes.limit) > 0 ? notes : null;
+  const textOf = (model, f) => (noted && model !== noted.root ? String((noted[f.from] || {})[model] || "") : "");
+  const noteOf = (model) => textOf(model, NOTE_FIELDS[0]);
+  const noteChip = (model) => (noteOf(model)
+    ? `<span class="mdl-note-chip" data-t="models-note-chip" data-t-id="${escapeHtml(model)}" title="${escapeHtml(noteOf(model))}">💬</span>` : "")
+    + (noted && model !== noted.root ? ModelRating.markHtml(ModelRating.of(noted.ratings, model), t) : "");
+  const fieldHtml = (model, f) => {
+    const text = textOf(model, f), id = escapeHtml(model), flag = f.field === "note" ? "" : ` data-note-field="${f.field}"`;
+    if (noteEdit.model === model && noteEdit.field === f.field) {
+      return `<div class="mdl-note editing" ${f.hooks.box} data-t-id="${id}"><span class="mdl-note-head">${escapeHtml(t(f.head))}</span>`
+        + `<textarea class="mdl-note-input" data-note-input ${f.hooks.input} data-t-id="${id}" maxlength="${Number(noted.limits?.[f.field] ?? noted.limit)}" rows="4"`
+        + ` placeholder="${escapeHtml(t(f.hint))}">${escapeHtml(noteEdit.draft)}</textarea>`
+        + `<span class="mdl-note-actions"><button class="mdl-mini save" type="button" data-note-save="${id}" ${f.hooks.save} data-t-id="${id}">${escapeHtml(t("save"))}</button>`
+        + `<button class="mdl-mini" type="button" data-note-cancel ${f.hooks.cancel} data-t-id="${id}">${escapeHtml(t("cancel"))}</button></span></div>`;
+    }
+    if (!text) return "";
+    return `<div class="mdl-note" ${f.hooks.box} data-t-id="${id}"><span class="mdl-note-mark" aria-hidden="true">${f.mark}</span><span class="mdl-note-head">${escapeHtml(t(f.head))}</span>`
+      + `<span class="mdl-note-text">${escapeHtml(text)}</span>`
+      + `<button class="mdl-mini" type="button" data-note-edit="${id}"${flag} ${f.hooks.edit} data-t-id="${id}"`
+      + ` title="${escapeHtml(t("edit"))}" aria-label="${escapeHtml(t("edit"))}">✎</button></div>`;
+  };
+  const noteBlock = (model) => {
+    if (!noted || model === noted.root) return "";
+    const id = escapeHtml(model);
+    // What has no words yet is one line of buttons under the texts, with the like and the dislike.
+    const adds = NOTE_FIELDS.filter((f) => !textOf(model, f) && !(noteEdit.model === model && noteEdit.field === f.field))
+      .map((f) => `<button class="mdl-mini" type="button" data-note-edit="${id}"${f.field === "note" ? "" : ` data-note-field="${f.field}"`} ${f.hooks.add} data-t-id="${id}">${escapeHtml(t(f.add))}</button>`).join("");
+    return NOTE_FIELDS.map((f) => fieldHtml(model, f)).join("")
+      + `<div class="mdl-note mdl-note-foot">${adds}${ModelRating.buttonsHtml(model, ModelRating.of(noted.ratings, model), t, { cls: "mdl-rate", hook: 'data-t="models-rate"' })}</div>`;
+  };
   // Open branches survive a redraw (captured above). The whole tree is rebuilt
   // from scratch after every action, and without this pressing "update" deep
   // inside it collapsed everything — taking down the very progress bar the
@@ -419,12 +501,11 @@ function draw() {
   // <model>/<author>/<quant> is how /hf lays its downloads out — so it opens
   // that one; a model branch searches its name, which finds every author's
   // build. A folder not laid out that way ("(root)", "·", a cache folder) has none.
-  const HF_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+  // The rule is LibraryPath's, which the cell window's link to /hf asks too.
   const hfLink = (trail, depth) => {
     const [model, author] = trail.split("/");
-    if (depth > 1 || !HF_ID.test(model) || model.startsWith("models--")) return "";
-    if (depth === 1 && (!HF_ID.test(author || "") || author === "default")) return "";
-    const query = depth === 1 ? `${author}/${model}` : model;
+    const query = depth > 1 ? "" : LibraryPath.hfQuery(model, depth === 1 ? (author ?? "") : null);
+    if (!query) return "";
     const title = t(depth === 1 ? "mdlHfRepo" : "mdlHfSearch");
     return `<a class="mdl-tree-hf" href="/hf?q=${encodeURIComponent(query)}" data-t="models-hf-open" data-t-id="${escapeHtml(query)}"`
       + ` title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">🤗</a>`;
@@ -434,10 +515,11 @@ function draw() {
       + ` data-branch="${escapeHtml(trail)}"${narrowed || openBranches.has(trail) ? " open" : ""}>
       <summary class="mdl-row" data-t="models-tree-group-toggle" data-t-id="${escapeHtml(label)}" style="--lvl:${depth}">`
       + `<span class="mdl-c-name"><span class="tw"></span><span class="mdl-name">${escapeHtml(label)}</span>${hfLink(trail, depth)}</span>`
-      + `<span class="mdl-c-status">${groupChip(n)}${moves ? moves.branchHtml(trail) : ""}</span>`
+      + `${facts.jobsHtml(n.facts, trail)}${facts.windowHtml(n.facts, trail)}`
+      + `<span class="mdl-c-status">${depth === 0 ? noteChip(label) : ""}${groupChip(n)}${moves ? moves.branchHtml(trail) : ""}</span>`
       + `${sizes(n.bytes, n.libBytes)}<span class="mdl-c-age">${age(n.minAge)}</span>`
       + `<span class="mdl-c-go">${moves && n.movable ? moves.openHtml("branch", trail) : ""}</span></summary>
-      <div class="mdl-lvl">${inner}</div>
+      <div class="mdl-lvl">${depth === 0 ? noteBlock(label) : ""}${inner}</div>
     </details>`;
   // Every level sorts largest-first (authors, quants and files too — not just
   // the top-level repos), so the biggest disk eaters always float up. Under
@@ -461,17 +543,32 @@ function draw() {
           `${model}/${author}/${quant}`, 2)).join(""), `${model}/${author}`, 1)).join(""), model, 0))
     .join("");
   const head = `<div class="mdl-row mdl-head" data-t="models-tree-head"><span>${escapeHtml(t("mdlColModel"))}</span>`
-    + `<span>${escapeHtml(t("mdlColStatus"))}</span>`
+    + `<span class="mdl-c-job">${escapeHtml(t("mdlColJob"))}</span><span class="mdl-c-window">${escapeHtml(t("mdlColWindow"))}</span>`
+    + `<span class="mdl-c-status">${escapeHtml(t("mdlColStatus"))}</span>`
     + (two
       ? `<span class="mdl-c-size">🏠 ${escapeHtml(t("mdlColHere"))}</span><span class="mdl-c-size">📚 ${escapeHtml(t("mdlColLibrary"))}</span>`
       : `<span class="mdl-c-size">${libScope ? "📚" : "🏠"} ${escapeHtml(t("mdlColSize"))}</span>`)
     + `<span class="mdl-c-age">${escapeHtml(t("mdlColAge"))}</span><span></span></div>`;
   tree.classList.toggle("one", !two);
-  paint(tree, rows ? head + rows + libMore : (libMore || emptyList(narrowed, place)));
+  // The tree is replaced whole, and a box being typed in would lose its cursor: it is put back where it was.
+  const typing = document.activeElement?.matches?.("[data-note-input]")
+    ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
+  const unknown = noted ? "" : `<p class="muted mdl-notes-unknown" data-t="models-notes-unknown">${escapeHtml(t("mdlNoteUnknown"))}</p>`;
+  paint(tree, rows ? head + rows + libMore + unknown : (libMore || emptyList(narrowed, place)));
   treeDrawn = true;
+  if (typing || noteFocus) {
+    const field = tree.querySelector?.("[data-note-input]");
+    if (field) {
+      field.focus?.();
+      const [from, to] = typing || [field.value.length, field.value.length];
+      field.setSelectionRange?.(from, to);
+    }
+    noteFocus = false;
+  }
   renderFreshnessRow(fresh, files.length, dlByPath);
   updatePicked();
   if (wasScrolled && typeof window.scrollTo === "function") window.scrollTo(0, wasScrolled);
+  if (listWasScrolled) listPane.scrollTop = listWasScrolled;
   markPageState("ready");
   dlDrawn = dlSignature(dlByPath);
   return dlByPath;
@@ -530,13 +627,6 @@ function drawFilters(counts) {
   }).join(""));
 }
 
-// Time of day configures ONLY the daily check. With the checkbox off, the
-// field is disabled: a setting nobody is going to act on would look like a promise.
-function applyWatchState(w) {
-  const at = $("mdlFreshAt");
-  if (at) at.disabled = !w.check;
-}
-
 // A timestamp and a count, right next to the button. Without the time, a
 // report reads as "just checked", and yesterday's "everything matches" looks
 // like today's.
@@ -547,8 +637,6 @@ function renderFreshnessRow(fresh, fileCount, dlByPath) {
   if (auto) auto.checked = !!w.check;
   if ($("mdlFreshGet")) $("mdlFreshGet").checked = !!w.download;
   if ($("mdlFreshKeep")) $("mdlFreshKeep").checked = !!w.keepPrev;
-  if ($("mdlFreshAt") && w.at) { $("mdlFreshAt").value = w.at; $("mdlFreshAt").__accepted = w.at; }
-  applyWatchState(w);
   if (!stamp) return;
   // While something is downloading, the row says so: per-file details live
   // on their own rows, and this is the overall total, visible without
@@ -768,8 +856,81 @@ function bindStagedButtons() {
     const prev = e.target.closest?.("[data-staged-prev]");
     if (prev) return stagedAction("/api/models/staged/revert", prev.dataset.stagedPrev, prev, "mdlStagedApplying", revertQuestion(prev.dataset.stagedPrev));
     if (e.target.closest?.("[data-show-all]")) showAll();
+    const edit = e.target.closest?.("[data-note-edit]");
+    if (edit) return openNote(edit.dataset.noteEdit, edit.dataset.noteField || "note");
+    const rate = e.target.closest?.("[data-model-rate]");
+    if (rate) return rateModel(rate.dataset.modelRateFor, rate.dataset.modelRate);
+    if (e.target.closest?.("[data-note-cancel]")) return closeNote();
+    const save = e.target.closest?.("[data-note-save]");
+    if (save) return saveNote(save.dataset.noteSave, save);
     return undefined;
   });
+  // What is typed in the comment box is kept as it is typed (see noteEdit), and Escape lets it go.
+  tree.addEventListener("input", (e) => {
+    const box = e.target.closest?.("[data-note-input]");
+    if (box) noteEdit.draft = box.value;
+  });
+  tree.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && e.target.closest?.("[data-note-input]")) closeNote();
+  });
+}
+
+// The box of a text on a model opens with the words it has now.
+function openNote(model, field = "note") {
+  const from = NOTE_FIELDS.find((f) => f.field === field).from;
+  const kept = last && last.notes && last.notes[from] ? String(last.notes[from][model] || "") : "";
+  noteEdit.model = model;
+  noteEdit.field = field;
+  noteEdit.draft = kept;
+  noteFocus = true;
+  draw();
+}
+
+function closeNote() {
+  noteEdit.model = "";
+  noteEdit.field = "note";
+  noteEdit.draft = "";
+  draw();
+}
+
+// A like or a dislike pressed on an opened model: the same one again takes it away. What the server answers is every model's mark, so the
+// tree needs no second trip; a refusal says why and changes nothing.
+async function rateModel(model, kind) {
+  const now = ModelRating.pressed(ModelRating.of(last?.notes?.ratings, model), kind);
+  try {
+    const res = await api("/api/model-rating", { method: "POST", body: { model, rating: now } });
+    if (last?.notes) last.notes.ratings = res.ratings;
+    draw();
+  } catch (err) {
+    toast(String(err.message || err));
+  }
+}
+
+// Saves what was typed — one text of its field for the model, whatever its quants; an
+// empty box takes it away. The page keeps what the server says it
+// kept (it trims the ends), so the tree needs no second trip. A refusal says
+// why and leaves the box open with the words in it.
+async function saveNote(model, btn) {
+  if (noteEdit.model !== model) return;
+  btn.disabled = true;
+  const field = noteEdit.field;
+  try {
+    const res = await api("/api/model-notes", { method: "POST", body: { model, field, note: noteEdit.draft } });
+    const from = NOTE_FIELDS.find((f) => f.field === field).from;
+    if (last?.notes) {
+      const kept = (last.notes[from] ||= {});
+      if (res.note) kept[model] = res.note;
+      else delete kept[model];
+    }
+    toast(t(res.note ? "mdlNoteSaved" : "mdlNoteGone"));
+    noteEdit.model = "";
+    noteEdit.field = "note";
+    noteEdit.draft = "";
+    draw();
+  } catch (err) {
+    toast(String(err.message || err));
+    btn.disabled = false;
+  }
 }
 
 // Clears what narrows the list — the filter and the name — and keeps the place.
@@ -793,6 +954,20 @@ function bindListControls() {
       draw();
     });
   }
+  // What the models do and how long a context they take: a choice pressed again is taken off.
+  $("mdlJobs")?.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("[data-mdl-job]");
+    if (!btn) return;
+    view.job = view.job === btn.dataset.mdlJob ? "" : btn.dataset.mdlJob;
+    draw();
+  });
+  $("mdlWindows")?.addEventListener("click", (e) => {
+    const btn = e.target.closest?.("[data-mdl-window]");
+    if (!btn) return;
+    const size = Number(btn.dataset.mdlWindow) || 0;
+    view.window = view.window === size ? 0 : size;
+    draw();
+  });
   const search = $("mdlSearch");
   if (search) {
     search.addEventListener("input", () => { view.query = search.value; draw(); });
@@ -824,46 +999,30 @@ function bindFreshness() {
       }
     });
   }
-  // The checkboxes and the TIME travel as ONE body: the server itself makes
-  // the lower tiers required by the upper ones, and decides for itself
-  // whether today counts as done — sending fields one at a time would mean
-  // arguing with it along the way.
+  // The checkboxes travel as ONE body: the server itself makes the lower
+  // tiers required by the upper ones — sending fields one at a time would
+  // mean arguing with it along the way. There is no hour to send: the first
+  // board opened in a day starts the day's look (1.3.678).
   const boxes = ["mdlFreshAuto", "mdlFreshGet", "mdlFreshKeep"].map((id) => $(id)).filter(Boolean);
-  const at = $("mdlFreshAt");
   const sendWatch = async () => {
     const body = {
       check: !!$("mdlFreshAuto")?.checked,
       download: !!$("mdlFreshGet")?.checked,
       keepPrev: !!$("mdlFreshKeep")?.checked,
-      at: at ? at.value : "",
     };
     const before = boxes.map((b) => b.checked);
-    // A rollback must go to the last time the server ACCEPTED, not to what's
-    // in the field: the field already holds the garbage just typed into it,
-    // and rolling back to that would be rolling back to nowhere (caught by a pin).
-    const wasAt = at ? (at.__accepted || "") : "";
     try {
       const res = await api("/api/models/freshness/watch", { method: "POST", body });
       const w = (res && res.watch) || {};
       if ($("mdlFreshAuto")) $("mdlFreshAuto").checked = !!w.check;
       if ($("mdlFreshGet")) $("mdlFreshGet").checked = !!w.download;
       if ($("mdlFreshKeep")) $("mdlFreshKeep").checked = !!w.keepPrev;
-      // The time shown is WHATEVER THE SERVER ACCEPTED: it normalizes "7:5"
-      // to "07:05" and is free to reject garbage. Leaving the typed value on
-      // screen would show a setting that doesn't exist.
-      if (at && w.at) { at.value = w.at; at.__accepted = w.at; }
-      applyWatchState(w);
     } catch (err) {
       boxes.forEach((b, i) => { b.checked = before[i]; });
-      if (at) at.value = wasAt;
       toast(String(err.message || err));
     }
   };
   boxes.forEach((b) => b.addEventListener("change", sendWatch));
-  // change, not input: <input type="time"> fires input on every digit typed,
-  // and the server would receive "0", "03", "03:0" in turn — two of those
-  // are invalid, and the third would mean midnight.
-  if (at) at.addEventListener("change", sendWatch);
 }
 
 function bindUserChip() {
@@ -871,6 +1030,7 @@ function bindUserChip() {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }
     window.location = "/login";
   };
+  new HeaderMachines({ get: api, words: t }).bind();
   api("/api/auth/me").then((me) => {
     if (!me.enabled || !me.authenticated) return;
     $("userChipName").textContent = me.user + (me.role === "viewer" ? t("userViewerSuffix") : "");
@@ -889,10 +1049,16 @@ function bindUserChip() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // A page opens on the whole list: no filter, no name, nothing put aside.
+  // A page opens on the whole list: no filter, no name, nothing put aside — or, opened by a link that names a model (`?q=`, the
+  // cell window's "in the library", 1.3.660), on the files whose path holds those words, its box saying them.
   view.filter = "";
-  view.query = "";
+  view.query = new URLSearchParams(globalThis.location?.search || "").get("q") || "";
   openBefore = null;
+  // Nothing kept from before the page opened: the last answers (a comment read once is not one this page may fall back on) and a box that was open.
+  last = null;
+  noteEdit.model = "";
+  noteEdit.draft = "";
+  noteFocus = false;
   initDialogLlamas();
   applyTheme();
   // The language table is its own module now (see i18n-data.js), so it has
@@ -952,6 +1118,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindFreshness();
   bindStagedButtons();
   bindListControls();
+  if ($("mdlSearch")) $("mdlSearch").value = view.query;
   fillVersionChipFromHealth();
 
   $("confirmCancel").addEventListener("click", () => settleAppConfirm(false));

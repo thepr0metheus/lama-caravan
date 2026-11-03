@@ -17,6 +17,13 @@ const GIB = 2 ** 30;
 export class CellMemory {
   /** The hook a test finds each badge by (docs/testability.md), and the word its text begins with. One place for both. */
   static HOOKS = { ram: "cell-ram", gpu: "cell-gpu" };
+  /** The phases in which a cell's process holds memory now: running, warming up (its model still loading), broken (the process
+   *  is up, its engine is not). The card's badges and the machine's map of its memory (machine-head.js) read the same list. */
+  static HOLDING = ["running", "warming", "broken"];
+
+  static holds(phase) {
+    return CellMemory.HOLDING.includes(String(phase || ""));
+  }
   static LABELS = { ram: "RAM", gpu: "GPU" };
 
   /** A size in bytes as the badge says it: gigabytes with one place, "0" for nothing, "<0.1G" for what one place would round to nothing. */
@@ -40,6 +47,10 @@ export class CellMemory {
    *   split      the same per card, for the tip ("GPU0: 31.0 GiB")
    *   plannedGb  the runner's own measured figure for the card, in GiB (0: none)
    *   fileBytes  the model file's size, for the estimate (0: not known)
+   *   takesFree  its runner takes its card's free memory (Strata): what it is expected to hold is `freeBytes` — that room less its
+   *              reserve, as a machine's page lays it (CellFit "free") — null where its card or the card's room is not known, or the card
+   *              lacks its floor. Its files are no measure of it: it keeps its weights in RAM, and an 87 GB pack read "≈87.2G" of
+   *              video memory on a 32 GB card (2026-10-26)
    *   heldTitle  the tip of a badge that says what is held, where the cell's own words are not the machine's: an engine's cell says it is the
    *              engine that reports it
    */
@@ -51,6 +62,7 @@ export class CellMemory {
     const vram = number(f.vramBytes);
     const plan = Number(f.plannedGb) > 0 ? Number(f.plannedGb) * GIB : 0;
     const file = Number(f.fileBytes) > 0 ? Number(f.fileBytes) : 0;
+    const free = number(f.freeBytes);
     const split = String(f.split || "");
     const held = String(f.heldTitle || "");
     if (live) {
@@ -61,6 +73,7 @@ export class CellMemory {
     } else {
       this.ram = f.cpu && file ? { kind: "expected", bytes: file, title: t("cellRamEstChipTitle") } : { kind: "idle", title: t("cellMemIdleTitle") };
       this.gpu = f.cpu ? { kind: "none", bytes: 0, title: t("topologyCpuCellsHint") }
+        : f.takesFree ? (free ? { kind: "expected", bytes: free, title: t("machineSizeFree") } : { kind: "idle", title: t("machineSizeFree") })
         : plan ? { kind: "expected", bytes: plan, title: t("vramPlanChipTitle") }
           : file ? { kind: "expected", bytes: file, title: t("vramEstChipTitle") }
             : { kind: "idle", title: t("cellMemIdleTitle") };
@@ -78,10 +91,15 @@ export class CellMemory {
     return kind === "none" ? "mbadge-mem-zero" : "mbadge-mem-unknown";
   }
 
-  /** What a badge says: the label, then the figure — "≈" before an estimate, "—" where nothing is told. */
+  /** The figure of a part: "≈" before an estimate, "—" where nothing is told. The badge and the window's tile say it alike. */
+  static figure(part) {
+    if (part.kind === "unknown" || part.kind === "idle") return "—";
+    return `${part.kind === "expected" ? "≈" : ""}${CellMemory.gb(part.bytes)}`;
+  }
+
+  /** What a badge says: the label, then the figure. */
   static textOf(label, part) {
-    if (part.kind === "unknown" || part.kind === "idle") return `${label} —`;
-    return `${label} ${part.kind === "expected" ? "≈" : ""}${CellMemory.gb(part.bytes)}`;
+    return `${label} ${CellMemory.figure(part)}`;
   }
 
   badge(which) {

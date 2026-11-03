@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Value snapshot: the LFM2.5-Audio cell (cells/lfm_audio_server.py) and the launchers of the voice cells
-(caravan/admin/cell_assets.py).
+"""Value snapshot: the LFM2.5-Audio cell (cells/lfm_audio_server.py).
 
 The cell speaks: text to speech, a spoken answer to a spoken question, speech to text. The model needs torch and
 Liquid's package, so the model side is a stand-in here (`voice`), and what is pinned is everything around it:
@@ -29,12 +28,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "cells"))
-sys.path.insert(0, str(ROOT))
-os.environ.setdefault("CARAVAN_DATA_DIR", "/tmp/caravan-lfm-audio-test")
 
 import lfm_audio_server as lfm  # noqa: E402
-from caravan.admin import cell_assets  # noqa: E402
-from caravan.admin.topology import _cell_meta  # noqa: E402
 
 _fail = []
 
@@ -165,52 +160,6 @@ def main():
     check(post(c, "/asr", b"")[0] == 400, "negative: /asr with an empty body is a 400")
     code, out, _ = post(c, "/v1/nothing", {})
     check(code == 404 and "/v1/nothing" in out["error"], "an unknown route is a 404 that names it")
-
-    print("the launchers of the voice cells, and the stale-source check:")
-    check(cell_assets.group_for_command("bash ~/run_lfm_audio.sh $PORT") == "lfm-audio"
-          and cell_assets.group_for_command("bash ~/run_personaplex.sh $PORT /mnt/m") == "personaplex"
-          and cell_assets.group_for_command("bash ~/run_vllm_omni.sh $PORT qwen3-omni /mnt/m") in ("step-audio2", "qwen3-omni")
-          and cell_assets.group_for_command("bash ~/run_minicpm_omni.sh $PORT /mnt/m") == "minicpm-omni"
-          and cell_assets.group_for_command("bash ~/run_tts.sh $PORT xtts") == "custom",
-          "a command names its launcher, and the launcher names its group of files (the two vLLM-Omni runners share one launcher)")
-    check(cell_assets.group_for_command("python3 srv.py") == "" and cell_assets.group_for_command("") == ""
-          and cell_assets.group_for_command("bash ~/run_nothing_of_ours.sh") == "",
-          "negative: a command with no launcher of ours, an empty one, and a launcher nobody ships name no group")
-    check(cell_assets.RUNNER_ASSETS["lfm-audio"] == ("run_lfm_audio.sh", "cell_base.py", "lfm_audio_server.py")
-          and cell_assets.RUNNER_ASSETS["personaplex"] == ("run_personaplex.sh",)
-          and cell_assets.RUNNER_ASSETS["step-audio2"] == cell_assets.RUNNER_ASSETS["qwen3-omni"] == ("run_vllm_omni.sh",)
-          and cell_assets.RUNNER_ASSETS["minicpm-omni"] == ("run_minicpm_omni.sh",)
-          and all(name in cell_assets.CELL_ASSETS for group in ("lfm-audio", "personaplex", "step-audio2", "qwen3-omni", "minicpm-omni")
-                  for name in cell_assets.RUNNER_ASSETS[group]),
-          "what each launcher needs is in the allowlist the fleet may fetch")
-    stamp = cell_assets.server_stamp("lfm-audio")
-    command = "bash ~/run_lfm_audio.sh $PORT /mnt/m"
-    check(len(stamp) == 12 and stamp != cell_assets.server_stamp("custom"), "LFM's files have a stamp of their own, not the TTS server's")
-    check(cell_assets.cell_source_state("custom", stamp, command) == "current", "the cell that runs the files we ship is current, though its runner id is custom")
-    check(cell_assets.cell_source_state("custom", stamp) == "stale",
-          "negative: with no command the old rule holds (the runner id's files), so the same cell would read as stale — the defect this fixes")
-    check(cell_assets.cell_source_state("custom", "0123456789ab", command) == "stale", "negative: another stamp is stale")
-    check(cell_assets.cell_source_state("custom", "", command) == "unknown", "negative: a cell that reports nothing is unknown, not stale")
-    check(cell_assets.cell_source_state("custom", "", "bash ~/run_personaplex.sh $PORT /mnt/m") == "unknown",
-          "PersonaPlex serves itself and reports no stamp: unknown, never stale")
-    check(cell_assets.cell_source_state("custom", "", "bash ~/run_vllm_omni.sh $PORT step-audio2 /mnt/m") == "unknown",
-          "vLLM-Omni serves itself and reports no stamp: unknown, never stale")
-    check(cell_assets.cell_source_state("custom", "", "bash ~/run_minicpm_omni.sh $PORT /mnt/m") == "unknown",
-          "llama.cpp-omni serves itself and reports no stamp: unknown, never stale")
-
-    print("the board's verdict on a cell follows its launcher:")
-    healthy = {"status": "ok", "meta": {"source": stamp}}
-    lfm_cfg = {"CELL_KIND": "command", "COMMAND": command}
-    check(_cell_meta(healthy, lfm_cfg, True).get("sourceState") == "current",
-          "the LFM cell that runs the files we ship is current on the board")
-    check(_cell_meta(healthy, {"CELL_KIND": "command", "COMMAND": "bash ~/run_tts.sh $PORT xtts"}, True).get("sourceState") == "stale",
-          "negative: the same stamp under a TTS command is stale: the verdict is per launcher")
-    check(_cell_meta(healthy, {"CELL_KIND": "command"}, True).get("sourceState") == "stale",
-          "negative: a command cell saved with no COMMAND falls back to the runner id's files")
-    check("sourceState" not in _cell_meta(healthy, lfm_cfg, False), "negative: a cell that is no command cell gets no verdict")
-    check("sourceState" not in _cell_meta({"status": "loading", "meta": {"source": stamp}}, lfm_cfg, True),
-          "negative: a cell that is still loading gets no verdict")
-    check("sourceState" not in _cell_meta(None, lfm_cfg, True), "negative: a cell that did not answer gets no verdict")
 
     if _fail:
         print(f"FAILED ({len(_fail)}):")

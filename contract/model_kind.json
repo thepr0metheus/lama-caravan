@@ -1,0 +1,138 @@
+{
+ "serves": [
+  {
+   "jobs": [
+    "llm"
+   ],
+   "path": "/v1/chat/completions",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "llm"
+   ],
+   "path": "/v1/chat/completions/",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "llm"
+   ],
+   "path": "/v1/completions?x=1",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "llm"
+   ],
+   "path": "/v1/responses",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "llm"
+   ],
+   "path": "/v1/messages",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "llm"
+   ],
+   "path": "/v1/embeddings",
+   "serves": false
+  },
+  {
+   "jobs": [
+    "embed"
+   ],
+   "path": "/v1/embeddings",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "embed"
+   ],
+   "path": "/v1/chat/completions",
+   "serves": false
+  },
+  {
+   "jobs": [
+    "asr"
+   ],
+   "path": "/v1/audio/transcriptions",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "asr"
+   ],
+   "path": "/v1/audio/translations",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "asr"
+   ],
+   "path": "/v1/chat/completions",
+   "serves": false
+  },
+  {
+   "jobs": [
+    "speech-translate"
+   ],
+   "path": "/v1/audio/translations",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "tts"
+   ],
+   "path": "/v1/audio/speech",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "tts"
+   ],
+   "path": "/v1/audio/transcriptions",
+   "serves": false
+  },
+  {
+   "jobs": [
+    "translate"
+   ],
+   "path": "/v1/translate",
+   "serves": false
+  },
+  {
+   "jobs": [
+    "robot-policy"
+   ],
+   "path": "/robot/predict",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "voice-chat"
+   ],
+   "path": "/v1/chat/completions",
+   "serves": false
+  },
+  {
+   "jobs": [
+    "voice-chat",
+    "llm"
+   ],
+   "path": "/v1/chat/completions",
+   "serves": true
+  },
+  {
+   "jobs": [
+    "a job nobody knows"
+   ],
+   "path": "/v1/chat/completions",
+   "serves": false
+  }
+ ]
+}

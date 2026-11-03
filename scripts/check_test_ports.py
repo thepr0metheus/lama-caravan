@@ -21,8 +21,6 @@ class TestPorts:
     #: Scripts that bind port 0 on purpose, with the reason: it is not a free port they ask for.
     ALLOWED = {
         "test_cell_servers.py": "holder: another process's listener on every address, kept open on purpose",
-        "test_listening_ports.py": "the socket stays open and listening: it is the thing under test",
-        "test_machine_scout.py": "closed_port(): a port nobody listens on, on purpose",
     }
     #: Scripts that write the pattern down as TEXT (the guard's own regex, a breakage for the guard's self-test): they ask for no port.
     TEXT_ONLY = ("check_test_ports.py", "test_guards_fail.py")

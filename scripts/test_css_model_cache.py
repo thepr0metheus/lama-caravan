@@ -52,6 +52,8 @@ CARDS = (ROOT / "static" / "css" / "cards.css").read_text(encoding="utf-8")
 KEEP, DELETE, LINE = declared(NODES, ".cache-keep"), declared(NODES, ".cache-foreign-delete"), declared(NODES, ".cache-line")
 FOREIGN, TEXT, FIGURES = declared(NODES, ".cache-foreign"), declared(NODES, ".cache-foreign-text"), declared(NODES, ".cache-figures")
 DISK = declared(NODES, ".node-disk-low")
+BUDGET, FOLDER = declared(NODES, ".cache-budget"), declared(NODES, ".cache-dir")
+PATH, CHANGE = declared(NODES, ".cache-dir-path"), declared(NODES, ".cache-dir-change")
 
 print("the board's global rules — the trap:")
 check(any(CssRules.px(decl.get("height")) == 42 and sel == "select" for sel, decl in CssRules.rules(CARDS)),
@@ -66,6 +68,20 @@ check(CssRules.px(DELETE.get("min-height")) == 0 and CssRules.px(DELETE.get("hei
       "the delete button has no minimum height, is 22px high and takes only the room it needs")
 check(not (CssRules.px(KEEP.get("height")) or 0) >= 34 and not (CssRules.px(DELETE.get("height")) or 0) >= 34,
       "negative: neither is as tall as the board's own controls")
+
+print("the budget's box and the folder's line (2.38):")
+check(any(CssRules.px(decl.get("height")) == 42 and "input" in [x.strip() for x in sel.split(",")] for sel, decl in CssRules.rules(CARDS)),
+      "cards.css still gives an input 42px of height — which is why the budget's box is sized in full")
+check(BUDGET.get("width") == "8em" and CssRules.px(BUDGET.get("min-height")) == 0 and CssRules.px(BUDGET.get("height")) == 22,
+      "the budget's box is wide enough for its \"not set\" beside the spin buttons (8em — at 6em it was cut), has no minimum height "
+      "and is 22px high, as the count's select is")
+check(CssRules.px(CHANGE.get("min-height")) == 0 and CssRules.px(CHANGE.get("height")) == 22 and CHANGE.get("flex") == "0 0 auto",
+      "the folder's button is sized as the delete button")
+check(FOLDER.get("flex") == "1 0 100%" and CssRules.px(FOLDER.get("min-width")) == 0
+      and PATH.get("text-overflow") == "ellipsis" and PATH.get("min-width") == "0" and PATH.get("overflow") == "hidden",
+      "the folder stands on a line of its own, and a long path is cut with an ellipsis — it never widens the card")
+check(BUDGET.get("width") != "100%" and not (CssRules.px(BUDGET.get("height")) or 0) >= 34,
+      "negative: the box is not the board's full-width, 42px input")
 
 print("the line wraps:")
 check(LINE.get("display") == "flex" and LINE.get("flex-wrap") == "wrap" and CssRules.px(LINE.get("min-width")) == 0,

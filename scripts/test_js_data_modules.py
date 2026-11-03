@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Snapshot of three data modules: i18n-data.js, constants.js, state.js.
 
-i18n-data: 20 languages, English first and static; `loadLanguage` — an
+i18n-data: 6 languages, English first and static; `loadLanguage` — an
 unknown/empty code and an import failure both fall back to "en" (the page
 never ends up with no strings at all), a known one loads the table once and
 returns the code, augmenters (tour strings) run for already-loaded tables
@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ""
 
@@ -44,14 +44,14 @@ const out = {};
 """
 
 PINS = [
-    ("langs_twenty_unique_english_first", '', '[D.LANGS.length, D.LANGS[0].code, new Set(D.LANGS.map((l) => l.code)).size, D.LANGS.every((l) => l.code && l.emoji && l.label), globalThis.__initialKeys]', '[20,"en",20,true,["en"]]',
-     "двадцать языков без повторов, английский первым и единственный загруженный при импорте"),
+    ("langs_six_unique_english_first", '', '[D.LANGS.length, D.LANGS[0].code, new Set(D.LANGS.map((l) => l.code)).size, D.LANGS.every((l) => l.code && l.emoji && l.label), globalThis.__initialKeys]', '[6,"en",6,true,["en"]]',
+     "шесть языков без повторов, английский первым и единственный загруженный при импорте"),
     ("load_unknown_or_empty_falls_back", '', 'await (async () => [await D.loadLanguage("zz"), await D.loadLanguage(""), await D.loadLanguage(null), "zz" in D.messages])()', '["en","en","en",false]', "negative: неизвестный, пустой и null — «en», ничего не загружено"),
     ("load_known_once", '', 'await (async () => { const a = await D.loadLanguage("de"); const t1 = D.messages.de; const b = await D.loadLanguage("de"); return [a, b, t1 === D.messages.de, typeof D.messages.de.saved, D.messages.de.saved !== D.messages.en.saved]; })()', '["de","de",true,"string",true]',
      "известный код: таблица загружена один раз (повтор отдаёт тот же объект), строки свои, не английские"),
     ("augmenters_run_for_loaded_and_late", '', 'globalThis.__augProbe', '{"atOnce":["en"],"late":["de"],"deProbe":"de","enProbe":"en"}',
      "аугментер запускается для всех уже загруженных таблиц сразу и для каждой поздней"),
-    ("all_messages_loads_twenty", '', 'await (async () => { const all = await D.allMessages(); return [Object.keys(all).length, D.LANGS.every((l) => typeof all[l.code]?.saved === "string")]; })()', '[20,true]', "allMessages — все двадцать таблиц (для гвардов покрытия, не для страницы)"),
+    ("all_messages_loads_six", '', 'await (async () => { const all = await D.allMessages(); return [Object.keys(all).length, D.LANGS.every((l) => typeof all[l.code]?.saved === "string")]; })()', '[6,true]', "allMessages — все шесть таблиц (для гвардов покрытия, не для страницы)"),
     ("tab_groups_all_exist", '', '(() => { const groups = new Set(C.advancedGroups.map((g) => g.titleKey)); const refs = C.advancedTabDefs.flatMap((t) => t.groups); return [refs.length > 0, refs.every((g) => groups.has(g)), C.advancedTabDefs.every((t) => t.key && t.groups.length), C.advancedGroups.every((g) => Array.isArray(g.fields) && g.fields.length)]; })()', '[true,true,true,true]',
      "каждая группа из таблицы вкладок существует и непуста — посылка гварда домов полей"),
     ("memory_fields_numeric_toggles_subset", '', '[C.memoryEstimateFields.every((f) => C.numericFields.includes(f)), C.defaultOnOptionalToggles.every((f) => C.optionalToggleFields.includes(f)), C.optionalToggleFields.every((f) => C.toggleFields.includes(f)), C.modelFields.includes("MODEL_FILE")]', '[true,true,true,true]',
@@ -60,6 +60,12 @@ PINS = [
      "выбор значений только у полей с домом; negative: ни сентинела контроллера, ни моделей Gemma-режима классической формы — у контроллера нет своих ячеек и формы с шага 6.9; грязные переключатели — общий Set; размеры моделей положительные"),
     ("dirty_toggles_shared_mutable", '', '(() => { C.dirtyOptionalToggles.add("X"); const a = C.dirtyOptionalToggles.has("X"); C.dirtyOptionalToggles.clear(); return [a, C.dirtyOptionalToggles.size]; })()', '[true,0]', "Set грязных переключателей — один на всех и очищается"),
     ("state_setters_rebind_live", '', '(() => { S.setState({ a: 1 }); const a = S.state; S.setState({ b: 2 }); S.setTopology({ proxies: [] }); return [a.a, S.state.b, "a" in S.state, S.topology.proxies.length]; })()', '[1,2,false,0]', "setState/setTopology ЗАМЕНЯЮТ объект целиком (не сливают) — импортёры видят новый"),
+    ("a_reading_older_than_the_page_holds_is_dropped", '', '(() => { const R = S.TOPOLOGY_READINGS; const first = R.setOut(), second = R.setOut(); return [R.land(second, { of: "second" }), R.land(first, { of: "first" }), S.topology.of]; })()', '[true,false,"second"]',
+     "negative (1.3.691): чтение, вышедшее раньше, пришло позже — остаётся то, что вышло последним"),
+    ("readings_landing_in_their_order_all_land", '', '(() => { const R = S.TOPOLOGY_READINGS; const first = R.setOut(), second = R.setOut(); return [R.land(first, { of: "first" }), S.topology.of, R.land(second, { of: "second" }), S.topology.of]; })()', '[true,"first",true,"second"]',
+     "чтения, пришедшие по порядку, садятся оба: первое не отменяет второе, что вышло до его прихода, но после него"),
+    ("a_write_answer_outdates_the_readings_on_their_way", '', '(() => { const R = S.TOPOLOGY_READINGS; const way = R.setOut(); S.setTopology({ of: "write" }); const late = R.land(way, { of: "late" }); const held = S.topology.of; const next = R.setOut(); return [late, held, R.land(next, { of: "next" }), S.topology.of]; })()', '[false,"write",true,"next"]',
+     "ответ на запись новее чтений в пути (перенесённая строка не прыгает назад); negative: чтение, вышедшее после ответа, садится"),
     ("state_initial_null_and_ui_shape", '', '(() => { const keys = Object.keys(S.ui).sort(); return [S.ui.usageStatsScope, S.ui.usageStatsDays, S.ui.topologyProxyFormOpen, S.ui.pendingConfirm, S.ui.latestSystemMonitor, keys.length, keys.includes("topologyRouterDetailId"), keys.includes("_lastCloudProvidersKey"), keys.includes("topologyRouterInputSearch"), keys.includes("topologyRouterInputsExpanded")]; })()', '["overview",30,false,null,null,18,true,true,false,false]',
      "форма ui по умолчанию: область статистики overview, 30 дней, форма прокси закрыта, нет ожидающего подтверждения и монитора; 18 ключей "
      "(режим окна конфига агента ушёл вместе с окном; поиск по входам Маршрутизации и раскрытие входов — 2026-10-11, их поля и кнопок "
@@ -105,9 +111,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

@@ -63,6 +63,13 @@ html.river-on .pb-empty { background: var(--panel); }
    pane, and so does the repository column once it shows a repository; empty, it shows the water. */
 html.river-on .hfp-side,
 html.river-on .hfp-repo:not(:has(> .hfp-empty)) { background: var(--panel); }
+html.river-on .mdl-side,                                                           /* /models */
+html.river-on .mdl-main,
+html.river-on .sys-rail,                                                           /* /system */
+html.river-on .sys-pane,
+html.river-on .machine-main,                                                       /* a machine's page */
+html.river-on .machine-side,
+html.river-on .machine-page .ui-win-head { background: var(--panel); }
 html.river-on .hfp-repo > .hfp-empty { text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9); }
 /* The panels keep base.css's colours with a little of the water showing through. */
 html.river-on { --panel: rgba(24, 33, 37, 0.86); --topbar: rgba(16, 24, 26, 0.76); }

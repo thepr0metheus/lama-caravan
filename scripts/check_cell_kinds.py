@@ -7,7 +7,7 @@ grew their own spellings before there was a vocabulary: whisper said
 ways. A consumer matching on the job then found one of them and missed the
 other — while nothing looked wrong from either side.
 
-The rule: at least one BARE job word from caravan/common/model_jobs.JOBS,
+The rule: at least one BARE job word from the program's vocabulary (contract/model_jobs.json),
 optionally with a dotted refinement naming the engine ("stt.whisper" beside
 "asr"). The bare word is what a consumer choosing by job matches on; the dotted
 one is for a consumer that already knows the engine.
@@ -27,7 +27,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from caravan.common.model_jobs import JOBS  # noqa: E402
+from _contract import Contract  # noqa: E402
+
+JOBS = Contract.table("model_jobs")["jobs"]
 
 CELLS = ROOT / "cells"
 
@@ -117,7 +119,7 @@ def main() -> int:
     for p in problems:
         print(f"  - {p}", file=sys.stderr)
     if problems:
-        print(f"\nсловарь работ живёт в caravan/common/model_jobs.py (JOBS); "
+        print(f"\nсловарь работ живёт в rust/crates/admin/src/common/model_jobs.rs (JOBS); "
               f"голое слово — то, по чему ячейку выбирают, точечное — уточнение движка",
               file=sys.stderr)
         return 1

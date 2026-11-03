@@ -101,12 +101,13 @@ html:not([data-board-view="machine"]) .topology-lanes > section:first-child { al
   width: auto;
 }
 
+/* The small ＋ of a program beside the big one (the owner, 2026-10-30): as high as it, as wide as its word, in the head's own colours. */
+
 /* "+ New pool" in the head of Pools: the lane's main action, wide and in the
    accent (2026-10-04, the operator), filling the head between the title and its icon buttons —
    as "＋" does in the clients lane. It stood as a dashed button at the end of a long list. */
 .lane-servers .topology-lane-head > .topology-head-actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
-.topology-head-actions > .icon-action.prominent.topology-head-add,
-.board-pages > .icon-action.prominent.board-page-link {
+.topology-head-actions > .icon-action.prominent.topology-head-add {
   flex: 1 1 auto;
   width: auto;
   min-width: 0;
@@ -117,8 +118,7 @@ html:not([data-board-view="machine"]) .topology-lanes > section:first-child { al
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.topology-head-actions > .icon-action.prominent.topology-head-add:hover,
-.board-pages > .icon-action.prominent.board-page-link:hover {
+.topology-head-actions > .icon-action.prominent.topology-head-add:hover {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
@@ -793,12 +793,6 @@ details.topology-server-stats-card > .topology-processes-details {
 .topology-card.router-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); }
 .router-card .topology-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .router-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
-/* 📦 Models and 🤗 Hugging Face in the head of Machines (the owner, 2026-10-14): the caravan's other two pages, two
-   wide buttons of the Add scout kind (the look is the one rule below, shared), a row of their own over the scouts'
-   buttons, each half of the column. They are links: the page opens in this tab (2026-10-17). */
-.board-pages { display: flex; gap: 8px; flex: 1 1 100%; min-width: 0; }
-.board-pages > .icon-action.prominent.board-page-link { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; }
-.board-page-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .router-default-chip {
   font-size: 9px;
   text-transform: uppercase;
@@ -934,6 +928,40 @@ body:has(.topology-view) .topbar {
 .scout-add .scout-add-connect:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .scout-add .scout-add-connect:disabled { opacity: .5; cursor: default; }
 @media (prefers-reduced-motion: reduce) { .scout-add, .scout-add * { transition: none; } }
+/* The command for a new machine: one line to copy, above the address it will print. */
+.scout-install { display: grid; gap: 4px; }
+.scout-install-hint { font-size: 12px; line-height: 1.4; color: var(--muted); }
+.scout-install-command {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--field) 84%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.scout-install-command[hidden], .scout-install-copy[hidden] { display: none; }
+.scout-add .scout-install-copy {
+  min-height: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--field) 84%, transparent);
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.scout-add .scout-install-copy:hover { border-color: var(--accent); }
+.scout-add .scout-install-copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scout-install-note { font-size: 12px; line-height: 1.4; color: var(--muted); }
+.scout-install-note:empty { display: none; }
+.scout-install[data-t-state="copied"] .scout-install-note { color: var(--ok); }
+.scout-install[data-t-state="error"] .scout-install-note { color: var(--bad); }
 .scout-add-status { font-size: 12px; line-height: 1.4; }
 .scout-add-status:empty { display: none; }
 .scout-add[data-t-state="working"] .scout-add-status { color: var(--muted); }
@@ -1002,27 +1030,37 @@ body:has(.topology-view) .topbar {
 .machine-glance .node-cpu-row > .node-ram-bar { grid-column: 1 / -1; grid-row: 2; }
 .machine-glance .node-gpu-maker, .machine-glance [data-live-gpuspark] { display: none; }
 .machine-glance .node-telemetry { padding: 4px 12px 8px; }
-.machine-glance .node-telemetry .gpu-metric {
+/* A metric a line — its name, its value, its sparkline — on the main board's glance and in the activity of a machine's own page
+   (the owner chose this for the page's side column, 2026-10-25: always in sight, a line per chart). */
+.machine-side .node-telemetry { padding: 0; }
+.machine-glance .node-telemetry .gpu-metric, .machine-side .node-telemetry .gpu-metric {
   display: grid; grid-template-columns: max-content minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 2px 0;
 }
-.machine-glance .node-telemetry .gpu-metric .topology-history-subhead { margin: 0; grid-column: 1; }
-.machine-glance .node-telemetry .gpu-metric .topology-card-head.compact { display: contents; }
-.machine-glance .node-telemetry .gpu-metric .topology-card-head.compact > :first-child { display: none; }
-.machine-glance .node-telemetry .gpu-metric [data-node-metric-val] {
+.machine-glance .node-telemetry .gpu-metric .topology-history-subhead,
+.machine-side .node-telemetry .gpu-metric .topology-history-subhead { margin: 0; grid-column: 1; }
+.machine-glance .node-telemetry .gpu-metric .topology-card-head.compact,
+.machine-side .node-telemetry .gpu-metric .topology-card-head.compact { display: contents; }
+.machine-glance .node-telemetry .gpu-metric .topology-card-head.compact > :first-child,
+.machine-side .node-telemetry .gpu-metric .topology-card-head.compact > :first-child { display: none; }
+.machine-glance .node-telemetry .gpu-metric [data-node-metric-val], .machine-side .node-telemetry .gpu-metric [data-node-metric-val] {
   grid-column: 2; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   color: var(--text); font-variant-numeric: tabular-nums;
 }
-.machine-glance .node-telemetry .gpu-metric .gpu-metric-spark { grid-column: 3; margin-left: 0; }
-.machine-glance .node-telemetry .gpu-metric canvas { grid-column: 1 / -1; }
+.machine-glance .node-telemetry .gpu-metric .gpu-metric-spark,
+.machine-side .node-telemetry .gpu-metric .gpu-metric-spark { grid-column: 3; margin-left: 0; }
+.machine-glance .node-telemetry .gpu-metric canvas, .machine-side .node-telemetry .gpu-metric canvas { grid-column: 1 / -1; }
 /* The lines of the cards (charts.js nodeTelemetryRowsHtml) span the metric's whole grid, or they are squeezed into its first column. */
-.machine-glance .node-telemetry .gpu-metric .gpu-metric-cards { grid-column: 1 / -1; }
+.machine-glance .node-telemetry .gpu-metric .gpu-metric-cards,
+.machine-side .node-telemetry .gpu-metric .gpu-metric-cards { grid-column: 1 / -1; }
 .machine-glance .node-body::before { display: none; }
 /* The card is the way into the machine's window (main.js): it says so to the pointer, and its name is
-   the link for the keyboard, read as the name, not as a button (the owner, 2026-10-12). */
+   the link for the keyboard, read as the name, not as a button (the owner, 2026-10-12). The pointer
+   sees the card answer, not the name: the whole card opens the same page, and a name that lit up on
+   its own read as a second way somewhere else (the owner, 2026-10-26). The keyboard still sees where it is. */
 .machine-glance { cursor: pointer; transition: border-color .12s ease; }
 .machine-glance:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .machine-glance .machine-name { color: inherit; font-size: 15px; font-weight: 700; text-decoration: none; white-space: nowrap; }
-.machine-glance .machine-name:hover, .machine-glance .machine-name:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.machine-glance .machine-name:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
 .machine-missing { padding: 24px 4px; color: var(--muted); }
 
 /* A machine's own window: its whole card under the page's header, nothing of the main board
@@ -1047,6 +1085,10 @@ html[data-board-view="machine"] .topology-board { grid-template-columns: minmax(
 html[data-board-view="machine"] .topology-lanes { grid-template-columns: minmax(0, 1fr); }
 html[data-board-view="machine"] .topology-lanes.nodes-on .lane-servers { grid-column: 1 / -1; }
 html[data-board-view="machine"] .machines-head { margin-top: 0; justify-content: flex-end; }
+/* A machine's page has panes where the screen holds two (machine.css): this grid gives them its whole height. */
+@media (min-width: 1101px) {
+  html[data-board-view="machine"] .lane-servers .machine-cards { flex: 1 1 auto; min-height: 0; height: 100%; }
+}
 
 /* 🔍 Find in the Machines head: a word beside the icon, so it is no wider than it must be. Either
    head button says when the box it opened is open. */
@@ -1055,8 +1097,7 @@ html[data-board-view="machine"] .machines-head { margin-top: 0; justify-content:
 .topology-head-actions > [data-scout-add-find][aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
 /* A machine's own window: adding and finding scouts are the main board's. */
 html[data-board-view="machine"] .machines-head [data-scout-add-open],
-html[data-board-view="machine"] .machines-head [data-scout-add-find],
-html[data-board-view="machine"] .machines-head .board-pages { display: none; }
+html[data-board-view="machine"] .machines-head [data-scout-add-find] { display: none; }
 
 /* A client's recent requests on its own card (consumers.js activityHtml, charts.js
    drawClientActivity): one row of the activity chart, across the card; a click opens them all. */

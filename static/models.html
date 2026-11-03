@@ -6,6 +6,7 @@
   <title>Models — Lama Caravan</title>
   <link rel="icon" href="/favicon.svg?v=4" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/ui.css">
   <link rel="stylesheet" href="/css/topology-board.css">
   <link rel="stylesheet" href="/css/canvas.css">
   <link rel="stylesheet" href="/css/modals.css">
@@ -34,11 +35,15 @@
       --move: #4fc3f7;
       --faint: color-mix(in srgb, var(--muted) 72%, var(--bg));
       --line-soft: color-mix(in srgb, var(--line) 70%, var(--surface));
-      width: min(1320px, calc(100% - 32px));
-      margin: 0 auto;
-      padding: 20px 0 64px;
-      display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 16px; align-items: start;
-      flex: 1;
+      display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: stretch;
+      flex: 1; min-height: 0;
+    }
+    /* No frames (the owner, 2026-11-01: "the interface looks as if in a window; better as on /hf"): the side and the list stand from
+       edge to edge with a line between them, and each scrolls by itself. On a narrow screen they are one column, and the page scrolls. */
+    @media (min-width: 901px) {
+      html, body { height: 100dvh; overflow: hidden; }
+      .mdl-side, .mdl-main { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+      .mdl-head { position: sticky; top: 0; z-index: 5; background: var(--bg); }
     }
     @media (max-width: 900px) { .mdl-wrap { grid-template-columns: minmax(0, 1fr); } }
     /* The app's forms make every input a full-width 42px field and every
@@ -52,11 +57,10 @@
        are how the list is steered, and a steering wheel scrolled off the
        screen is one nobody reaches for. */
     .mdl-side {
-      position: sticky; top: 72px; max-height: calc(100dvh - 88px); overflow: auto;
-      display: grid; gap: 18px; padding: 12px 8px;
-      border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
+      display: grid; gap: 18px; align-content: start; padding: 14px 10px 24px;
+      border-right: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 45%, var(--bg));
     }
-    @media (max-width: 900px) { .mdl-side { position: static; max-height: none; } }
+    @media (max-width: 900px) { .mdl-side { border-right: 0; border-bottom: 1px solid var(--line); } }
     .mdl-side-h {
       margin: 0 0 6px 10px; font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
       text-transform: uppercase; color: var(--faint);
@@ -98,12 +102,6 @@
     .mdl-hf .mdl-side-h { margin: 0; }
     .mdl-fresh-row { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
     .mdl-fresh-auto { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-    .mdl-fresh-at {
-      width: auto; height: 26px; background: transparent; color: var(--text); font-size: 12px;
-      border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
-      border-radius: 6px; padding: 1px 6px;
-    }
-    .mdl-fresh-at:disabled { opacity: 0.45; }
     /* The timestamp is required: a report without one reads as "just
        checked", and yesterday's "everything matches" looks like today's. */
     .mdl-fresh-stamp { color: var(--text); }
@@ -118,10 +116,7 @@
     /* clip, not hidden: hidden would make this box the scroller, and the
        selection bar below could no longer stick to the bottom of the
        window. */
-    .mdl-main {
-      min-width: 0; display: flex; flex-direction: column; overflow: clip;
-      border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
-    }
+    .mdl-main { min-width: 0; display: flex; flex-direction: column; overflow-x: clip; }
 
     /* The summary over the list says what the chosen place holds and how
        much room it has left. */
@@ -182,8 +177,26 @@
     /* Nesting is indentation INSIDE the name cell, never a margin on the
        branch: a nested box a few pixels narrower would shift every column of
        its rows off the header's. */
-    .mdl-tree { --cols: minmax(0, 1fr) minmax(0, 270px) 84px 84px 44px 28px; font-size: 13px; padding-bottom: 6px; }
-    .mdl-tree.one { --cols: minmax(0, 1fr) minmax(0, 270px) 90px 44px 28px; }
+    .mdl-tree { --cols: minmax(0, 1fr) 132px 120px minmax(0, 180px) 84px 84px 44px 28px; font-size: 13px; padding-bottom: 6px; }
+    .mdl-tree.one { --cols: minmax(0, 1fr) 132px 120px minmax(0, 180px) 90px 44px 28px; }
+    /* A list narrower than its eight columns gives the name its room: the
+       status goes under the row, as it does on a phone. */
+    @media (max-width: 1200px) and (min-width: 721px) {
+      .mdl-tree { --cols: minmax(0, 1fr) 132px 120px 84px 84px 44px 28px; }
+      .mdl-tree.one { --cols: minmax(0, 1fr) 132px 120px 90px 44px 28px; }
+      .mdl-head .mdl-c-status { display: none; }
+      .mdl-row > .mdl-c-status { grid-column: 1 / -1; grid-row: 2; padding: 0 0 6px calc(var(--lvl, 0) * 18px + 20px); }
+      .mdl-row > .mdl-c-status:empty { display: none; }
+    }
+    /* What a model does and the window its weights were trained with
+       (model-facts.js): a group with nothing to offer is not drawn. */
+    .mdl-side-facts:has(> nav:empty) { display: none; }
+    .mdl-c-job { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; overflow: hidden; }
+    .mdl-job {
+      font-size: 10.5px; line-height: 1.5; padding: 0 6px; border-radius: 9px; white-space: nowrap;
+      border: 1px solid var(--line); color: var(--muted);
+    }
+    .mdl-c-window { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .mdl-row {
       display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px;
       min-height: 36px; padding: 0 14px; border-top: 1px solid var(--line-soft);
@@ -213,7 +226,7 @@
          would size to each row's numbers and zigzag down the list. */
       .mdl-tree { --cols: minmax(0, 1fr) 86px 86px 28px; }
       .mdl-tree.one { --cols: minmax(0, 1fr) 72px 28px; }
-      .mdl-head, .mdl-c-age { display: none; }
+      .mdl-head, .mdl-c-age, .mdl-c-job, .mdl-c-window { display: none; }
       .mdl-c-status { grid-column: 1 / -1; grid-row: 2; padding: 0 0 6px calc(var(--lvl, 0) * 18px + 20px); }
       .mdl-c-status:empty { display: none; }
       .mdl-tree:not(.one) .mdl-c-size.here::before { content: "🏠 "; }
@@ -313,12 +326,32 @@
        dimmer, because it is not on this disk. */
     .mdl-lib { font-size: 10px; color: var(--lib, #b39ddb); white-space: nowrap; cursor: default; }
     /* 🤗 beside a model or author name: to that model on /hf. Quiet until the row is looked at. */
-    /* A class of its own: .mdl-hf is the Hugging Face box in the side column and .mdl-hf-link the
-       header button, and a tree link that borrowed either name restyled them. The name cell's gap spaces it. */
+    /* A class of its own: .mdl-hf is the Hugging Face box in the side column, and a tree link that borrowed its name
+       restyled it. The name cell's gap spaces it. */
     .mdl-tree-hf { display: inline-block; align-self: center; padding: 0; line-height: 1; font-size: 12px; text-decoration: none; opacity: .55; flex: none; }
     .mdl-row:hover .mdl-tree-hf, .mdl-tree-hf:focus-visible { opacity: 1; }
     .mdl-kind { font-size: 10px; cursor: default; flex: none; }
     .mdl-file-lib code { opacity: .7; }
+
+    /* The comment on a model, one for all its quants: a 💬 on the folded row, and on the opened model a block above its authors. It sits
+       where the authors' names begin, so the model's own words and its branches read as one column. */
+    .mdl-note-chip { font-size: 11px; cursor: help; flex: none; opacity: .8; }
+    .mdl-note { display: flex; align-items: flex-start; gap: 8px; padding: 7px 14px 8px 52px; border-top: 1px solid var(--line-soft); font-size: 12.5px; line-height: 1.45; }
+    .mdl-note-mark { flex: none; font-size: 12px; }
+    .mdl-note { flex-wrap: wrap; }
+    .mdl-note-head { order: -1; flex: 0 0 100%; color: var(--muted); font-size: 11.5px; }
+    .mdl-note-foot { align-items: center; }
+    .mdl-rate { display: inline-flex; gap: 2px; margin-left: auto; }
+    .mdl-note-text { flex: 1 1 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: color-mix(in srgb, var(--text) 84%, var(--muted)); }
+    .mdl-note.editing { flex-direction: column; align-items: stretch; }
+    .mdl-note-input {
+      width: 100%; min-height: 84px; resize: vertical; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; line-height: 1.45;
+    }
+    .mdl-note-input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+    .mdl-note-actions { display: flex; gap: 8px; }
+    .mdl-mini.save { color: var(--accent-strong); border-color: color-mix(in srgb, var(--accent-strong) 45%, transparent); }
+    .mdl-notes-unknown { padding: 8px 14px; font-size: 12px; }
 
     /* ── Stores: state, path, room ─────────────────────────────────────── */
     .mdl-store-path {
@@ -400,7 +433,6 @@
       width: auto; height: 30px; background: transparent; color: var(--text); font-size: 12px; border-radius: 999px; padding: 3px 8px;
       border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
     }
-    .mdl-hf-link { text-decoration: none; }
     @media (prefers-reduced-motion: reduce) { .mdl-dl-bar { transition: none; } }
   </style>
 </head>
@@ -492,7 +524,15 @@
     </div>
     <h1 class="page-title" data-t="header-page-title" data-i18n="modelsPage">Models on disk</h1>
     <div class="actions">
-      <a class="sys-back mdl-hf-link" href="/hf">🤗 HF</a>
+      <nav id="headerPages" class="topbar-pages" data-t="header-pages" data-i18n-aria="headerPagesLabel" aria-label="Pages">
+        <a id="headerModelsLink" class="topbar-page" href="/models" data-t="header-models" data-title-i18n="modelsPageSub" aria-current="page"><span aria-hidden="true">📦</span> <span class="topbar-page-label" data-i18n="topologyModelsLabel">Models</span></a>
+        <a id="headerHfLink" class="topbar-page" href="/hf" data-t="header-hf" data-title-i18n="hfBrowserTitle"><span aria-hidden="true">🤗</span> <span class="topbar-page-label">Hugging Face</span></a>
+        <a id="headerRoutingLink" class="topbar-page" href="/routing" data-t="header-routing" data-title-i18n="headerRoutingTitle"><span aria-hidden="true">🔀</span> <span class="topbar-page-label" data-i18n="topologyRouterTitle">Routing</span></a>
+        <div class="topbar-machines" id="headerMachines" data-t="header-machines">
+          <button id="headerMachinesBtn" class="topbar-page" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-machines-open" data-title-i18n="headerMachinesTitle"><span aria-hidden="true">🖥</span> <span class="topbar-page-label" data-i18n="topologyMachinesSection">Machines</span><span class="lang-caret" aria-hidden="true">▾</span></button>
+          <div id="headerMachinesMenu" class="topbar-machines-menu" role="menu" hidden data-t="header-machines-menu"></div>
+        </div>
+      </nav>
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
         <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
           <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
@@ -527,26 +567,33 @@
         <nav class="mdl-nav" id="mdlFilters" data-t="models-filters"
              data-i18n-aria="a11yModelsFilters" aria-label="List filters"></nav>
       </div>
+      <!-- What the models do and how long a context their weights were trained
+           with (static/js/model-facts.js): the same jobs the cell editor's
+           picker names, the window each model's own header states. -->
+      <div class="mdl-side-facts">
+        <h3 class="mdl-side-h" id="mdlJobsTitle" data-i18n="mdlJobsTitle">What for</h3>
+        <nav class="mdl-nav" id="mdlJobs" data-t="models-jobs" aria-labelledby="mdlJobsTitle"></nav>
+      </div>
+      <div class="mdl-side-facts">
+        <h3 class="mdl-side-h" id="mdlWindowsTitle" data-i18n="mdlWindowsTitle">Context up to</h3>
+        <nav class="mdl-nav" id="mdlWindows" data-t="models-windows" aria-labelledby="mdlWindowsTitle"></nav>
+      </div>
       <!-- The freshness check lives with its settings in one box: four loose
            checkboxes used to sit over the tree as if they were part of it, and
            then behind a ⚙ where nobody saw what was set. -->
       <section class="mdl-hf" aria-labelledby="mdlHfTitle">
         <h3 class="mdl-side-h" id="mdlHfTitle" data-i18n="mdlHfTitle">Updates from Hugging Face</h3>
         <span class="mdl-fresh-stamp" id="mdlFreshStamp" data-t="models-fresh-stamp"></span>
-        <!-- The time of day sits RIGHT NEXT TO the checkbox it qualifies.
-             "Once a day" with no answer to "at what time exactly" is half a
-             setting, and the operator goes looking for the other half where
-             it doesn't exist. -->
+        <!-- When it looks is said by the checkbox's own words: the first time
+             the main board is opened that day (1.3.678). "Once a day" with no
+             answer to "when exactly" is half a setting, and the operator goes
+             looking for the other half where it doesn't exist; until then the
+             answer was an hour, in a field of its own. -->
         <div class="mdl-fresh-row">
           <label class="mdl-fresh-auto" data-i18n-tip="mdlFreshAutoTip"
-                 title="Compares what is on disk with Hugging Face at the time below. Looking alone downloads nothing.">
+                 title="Compares what is on disk with Hugging Face once a day, the first time the main board is opened that day. Looking alone downloads nothing.">
             <input type="checkbox" id="mdlFreshAuto" data-t="models-fresh-auto">
-            <span data-i18n="mdlFreshAutoLabel">Look once a day</span>
-          </label>
-          <label class="mdl-fresh-auto">
-            <span data-i18n="mdlFreshAtLabel">at</span>
-            <input type="time" id="mdlFreshAt" class="mdl-fresh-at" data-t="models-fresh-at"
-                   data-i18n-tip="mdlFreshAtTip" title="Local time of the daily check">
+            <span data-i18n="mdlFreshAutoLabel">Look once a day, when the main board is opened</span>
           </label>
         </div>
         <!-- The label must name the ACTION: the first checkbox used to

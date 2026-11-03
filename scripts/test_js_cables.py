@@ -29,7 +29,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("topology-dnd,canvas,polling,topology-render,dialogs,charts,cloud,history,favorites,config-locator,"
          "system-panels,onboarding,onboarding-tours,usage-stats,dialog-llamas,models-page,system-page,memory,"
@@ -149,17 +149,17 @@ PINS = [
      "окно машины показывает одну её карточку: кабелей нет — клиенты и узел Маршрутизации в странице скрыты, кабель к ним шёл бы из угла доски; "
      "и потерянными они не записаны"),
     # ── a client of the entry (2026-10-11, the owner: its activity on the cables, as the agents' was;
-    #    2026-10-12: one cable goes on from a client — to its set of models, which stands in Routing) ──
+    #    2026-10-12: one cable goes on from a client — to Routing, where the pools and the models it calls stand) ──
     ("draw_client_to_the_routing",
-     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "router:default", set: "main" });'
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "router:default", deny: [] });'
      ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.cloud("luna")] = R(700, 300);',
      '(() => { m.drawTopologyCables(); const mine = (svg().innerHTML.match(/<path class="[^"]*consumer[^"]*" d="[^"]*"/g) || []);'
      ' return [paths().filter((c) => c.includes("consumer")), mine.map((x) => x.split(\' d="\')[1].slice(0, -1)), m.cableDrops.map((d) => d.what)]; })()',
      '[["topology-cable consumer idle proxy-ctl-proxy-23050"],["M 120 270 C 264 270, 276 130, 420 130"],["box-a/hotel embeddings -> router"]]',
-     "клиент с набором — один кабель от центра гнезда его карточки к центру входа карточки Маршрутизации (точки, как в Маршрутизации, 1.3.549): наборы и пулы стоят в Маршрутизации (2026-10-12); "
+     "клиент — один кабель от центра гнезда его карточки к центру входа карточки Маршрутизации (точки, как в Маршрутизации, 1.3.549): пулы стоят в Маршрутизации (2026-10-12); "
      "negative: к карточкам пулов кабеля нет — их на главной доске нет"),
     ("draw_client_cable_lit_by_any_of_its_requests",
-     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "main" });'
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", deny: [] });'
      ' st.topology.routers[0].inputs = ["ctl:proxy:23001"];'
      ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.cloud("luna")] = R(700, 300);'
      ' st.ui.latestSystemMonitor = { latest: { agentProxies: { agents: { "23050": { port: 23050, recent: [],'
@@ -171,13 +171,23 @@ PINS = [
      '[["topology-cable consumer activity-active proxy-ctl-proxy-23050"],["topology-cable consumer idle proxy-ctl-proxy-23050"]]',
      "кабель клиента горит от любого его запроса — и от того, что служит ячейка пула (запись без облака); "
      "negative: запрос чужого порта к тому же пулу его не зажигает"),
-    ("draw_client_without_a_set_has_no_cable",
-     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "", pool: "terra" });'
-     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260);',
+    ("draw_every_client_has_a_cable",
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", deny: ["pool:terra", "account:luna"] });'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.cloud("luna")] = R(700, 300);',
      '(() => { m.drawTopologyCables(); return [paths().filter((c) => c.includes("consumer")), m.cableDrops.filter((d) => d.what.startsWith("client")).length]; })()',
-     '[[],0]',
-     "negative: канат от клиента к набору не проведён — кабеля нет, и потерянным он не записан: его нет и в данных; "
-     "старое поле pool доска не читает (1.3.497: контроллер отдаёт set)"),
+     '[["topology-cable consumer idle proxy-ctl-proxy-23050"],0]',
+     "у каждого клиента входа — кабель к Маршрутизации (1.3.675: каждый видит все пулы и модели, кроме запрещённого ему; владелец, 2026-10-27: «кабели на "
+     "главной — пусть останутся»), и у того, кому запрещены пул и аккаунт; negative: потерянным он не записан"),
+    # 2026-10-27: the built-in client, Open WebUI, has no set — its models are every model that runs — and its cable goes all the same.
+    # 2026-10-27: the built-in client, Open WebUI; since 1.3.675 it is a client as any other.
+    ("draw_builtin_client_cable",
+     'st.topology.proxies.push({ id: "ctl:proxy:23059", port: 23059, kind: "consumer", label: "Open WebUI", routerId: "", deny: [], builtin: "open-webui" });'
+     ' st.topology.proxies.push({ id: "ctl:proxy:23058", port: 23058, kind: "consumer", label: "Open WebUI", routerId: "", deny: [] });'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23059"]\'] = R(100, 260);'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23058"]\'] = R(100, 300); globalThis.__q[SEL.cloud("luna")] = R(700, 300);',
+     '(() => { m.drawTopologyCables(); return paths().filter((c) => c.includes("consumer")); })()',
+     '["topology-cable consumer idle proxy-ctl-proxy-23059","topology-cable consumer idle proxy-ctl-proxy-23058"]',
+     "встроенный клиент — кабель к Маршрутизации, как у любого клиента, и клиент с тем же именем без поля builtin — тоже: кабель не по виду клиента"),
     ("draw_no_routing_cable_to_a_busy_pool",
      'st.topology.routers[0].inputs = ["ctl:proxy:23001"];'
      ' st.ui.latestSystemMonitor = { latest: { agentProxies: { agents: { "23001": { port: 23001, recent: [],'
@@ -211,11 +221,27 @@ PINS = [
      '["topology-cable router idle","topology-cable router idle"],["topology-cable router idle","topology-cable router idle"]]',
      "канат горит, пока туда идёт запрос: к провайдеру — по его аккаунту на запросе, к машине — по выходу её ячейки; "
      "negative: запрос к ячейке, которой нет в пулах, и запрос к другому аккаунту каната не зажигают"),
+    ("draw_routing_cable_lights_for_a_machines_model",
+     'st.topology.pools = [{ id: "std", steps: [{ kind: "output", output: "mm:gemma" }, { kind: "output", output: "eng:qwen" },'
+     ' { kind: "account", accountId: "sub" }] }];'
+     ' st.topology.routers[0].outputs.push({ id: "mm:gemma", upstreamType: "machine", upstreamHost: "127.0.0.1", upstreamPort: 8092, upstreamModel: "gemma" },'
+     ' { id: "eng:qwen", upstreamType: "engine", upstreamHost: "127.0.0.1", upstreamPort: 11434, upstreamModel: "qwen" });'
+     ' globalThis.__stubReturns = { "topology-nodes.machineAt": () => ({ key: "box-c" }) };'
+     ' globalThis.__q[\'.machine-glance[data-node-id="box-c"] > .node-head\'] = R(700, 300); globalThis.__q[\'[data-board-provider="sub"] > .node-head\'] = R(700, 400);'
+     ' const run = (it) => ({ latest: { agentProxies: { agents: { "23050": { port: 23050, recent: [], active: [{ phase: "running", port: 23050, ...it }] } } } } });',
+     '(() => { const draw = (mon) => { st.ui.latestSystemMonitor = mon; m.drawTopologyCables(); return paths().filter((c) => c.startsWith("topology-cable router")); };'
+     ' return [draw(run({ upstreamType: "machine", routedOutputId: "mm:gemma", upstream: "127.0.0.1:8092/gemma" })), draw(run({ upstreamType: "engine", routedOutputId: "eng:qwen" })),'
+     ' draw(run({ routedOutputId: "mm:gemma" })), draw(run({ upstreamType: "cloud", routedOutputId: "mm:gemma", cloudAccountId: "other" }))]; })()',
+     '[["topology-cable router activity-active","topology-cable router idle"],["topology-cable router activity-active","topology-cable router idle"],'
+     '["topology-cable router activity-active","topology-cable router idle"],["topology-cable router idle","topology-cable router idle"]]',
+     "канат к машине горит и под запросом к модели её входа (строки пулов ведут туда с 1.3.655), и к модели движка рядом с ячейками, и у запроса, "
+     "чей вид не сказан (по правилу UpstreamType это ячейка) (владелец, 2026-10-26: «не вижу правой части активной дорожки»); "
+     "negative: облачная нога, у которой в routedOutputId осталась модель машины, канат к машине не зажигает"),
     ("the_cables_are_named_for_their_story",
      'st.topology.pools = [{ id: "std", steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "srv:22001" }] }];'
      ' globalThis.__stubReturns = { "topology-nodes.machineAt": () => ({ key: "box-c" }) };'
      ' globalThis.__q[\'.machine-glance[data-node-id="box-c"] > .node-head\'] = R(700, 300); globalThis.__q[\'[data-board-provider="sub"] > .node-head\'] = R(700, 400);'
-     ' st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "main" });'
+     ' st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", deny: [] });'
      ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260);',
      '(() => { const keys = (ports, it) => { CableFlow.reset(); const agents = {}; ports.forEach((port) => { agents[String(port)] = { port, recent: [], active: [{ phase: "running", port, ...it }] }; });'
      ' st.ui.latestSystemMonitor = { latest: { agentProxies: { agents } } }; m.drawTopologyCables(); return [...CableFlow.seen.keys()].sort(); };'
@@ -230,7 +256,7 @@ PINS = [
      '[{"what":"routing -> provider sub","routingOutputFound":true,"targetFound":false}]',
      "defect-class: канат Маршрутизации к провайдеру, чьей карточки нет на доске, не пропал молча — назван, и сказано, чего нет"),
     ("draw_client_cable_drop_named",
-     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "main" });'
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", deny: [] });'
      ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260); globalThis.__q[SEL.rin("router:default")] = null;',
      '(() => { m.drawTopologyCables(); return m.cableDrops.filter((d) => d.what.startsWith("client")).map((d) => ({ ...d })); })()',
      '[{"what":"client Hermes -> routing","handleFound":true,"routingFound":false}]',
@@ -287,8 +313,8 @@ PINS = [
      "кабель не дублируется: в списке путей двойника нет"),
     ("draw_calm_board_has_no_drops", '', '(() => { m.drawTopologyCables(); return twins(); })()', '[]', "negative: на доске, где ничего не идёт, капель нет"),
     ("draw_client_cable_runs_drops_while_a_request_runs_and_stands_lit_after",
-     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", set: "main" };'.replace("main\" };", "main\" });")
-     + ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260);'
+     'st.topology.proxies.push({ id: "ctl:proxy:23050", port: 23050, kind: "consumer", label: "Hermes", routerId: "", deny: [] });'
+     ' globalThis.__q[\'[data-topology-proxy-output][data-proxy-id="ctl:proxy:23050"]\'] = R(100, 260);'
      ' const mon = (active, recent) => ({ latest: { agentProxies: { agents: { "23050": { port: 23050, active, recent } } } } });',
      '(() => { const look = (mon_, again = false) => { if (!again) CableFlow.reset(); st.ui.latestSystemMonitor = mon_; globalThis.__fields = { topologyCables: svgEl() }; m.drawTopologyCables();'
      ' return [paths().filter((c) => c.includes("consumer")), twins().length]; };'
@@ -397,9 +423,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

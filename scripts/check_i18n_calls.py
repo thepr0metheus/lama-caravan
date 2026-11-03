@@ -19,7 +19,7 @@ Three lookup routes, because the UI has three:
      A missed [data-i18n] is at least visible on screen; a missed name is only
      audible, and only to the people least able to work around it.
   3. hfT("key") and this.t("key") in static/js/hf-*.js → the /hf page's OWN
-     20-language HFS table in static/js/hf-text.js, a separate dictionary that
+     HFS table in static/js/hf-text.js, a separate dictionary that
      predates the shared one. Inside those modules `t(` is HfText.t, so they
      are checked against HFS and never against the shared dictionary.
 

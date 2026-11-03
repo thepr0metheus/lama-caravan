@@ -13,8 +13,9 @@ import { escapeHtml } from "./utils.js";
  * simply failed to start, with the reason in a log nobody was watching.
  *
  * The four values themselves stay in constants.js with every other field's
- * value set. This class owns what they MEAN — the labels, the hint, the one a
- * fresh multi-card selection gets — so a fifth mode is named in one place.
+ * value set. This class owns what they MEAN — the labels, what each does, gives
+ * and costs, the one a fresh multi-card selection gets — so a fifth mode is
+ * named in one place.
  * llama.cpp added "tensor" after this field was written, and the field's own
  * help text still said "none, layer, or row" the day it shipped.
  */
@@ -41,6 +42,9 @@ export class SplitMode {
    *  split by the cards' sizes 36.0. The faster modes are one click away, and a
    *  start that fails on "row" now says why, by name (classifyLlamaError). */
   static DEFAULT = "layer";
+  /** The data-t names of the lines under the tile, spelled out for docs/testability.md (its guard finds a composed hook only
+   *  as a literal): the chosen mode's three lines (data-t-id = the mode), and the fold that sets all three side by side. */
+  static HOOKS = { about: "cell-remote-split-about", compare: "cell-remote-split-compare" };
 
   constructor(value) {
     this.value = String(value ?? "").trim().toLowerCase();
@@ -75,15 +79,27 @@ export class SplitMode {
       || this.value;
   }
 
-  /** One line on what the chosen mode does. Empty for a mode with nothing to
-   *  say about it — an empty hint is left out rather than drawn as a blank
-   *  line that reads like a missing translation. */
-  hint() {
-    if (!SplitMode.SHOWN.includes(this.value)) return "";
-    // "row" has a hint of its own: llama.cpp took it out of the CUDA backend on 2026-07-06 ("CUDA: remove -sm row", #24216),
-    // so on an NVIDIA build from then on it cannot start — said where the tile is, with the names of the two that can.
-    if (this.value === "row") return t("splitHintRow", { layer: t("splitLayer"), tensor: t("splitTensor") });
-    return this.parallel ? t("splitHintParallel") : t("splitHintLayer");
+  /** What the mode does, what it is good for and what it costs — the three lines under the tile, and "what" on its button.
+   *  The owner, 2026-10-24: "say in detail how each mode differs, what it gives and its minuses". The figures are this
+   *  fleet's: Llama 3.3 70B on a 3090 and a 5090 (2026-10-17), and the 35 GB Qwen3-Coder-Next asked of the 32 GB card in
+   *  tensor (2026-10-24). "row" names the two modes that start where it cannot: llama.cpp took it out of the CUDA backend on
+   *  2026-07-06 ("CUDA: remove -sm row", #24216). Null for a value with nothing to say. */
+  details() {
+    const keys = {
+      layer: ["splitWhatLayer", "splitPlusLayer", "splitMinusLayer"],
+      row: ["splitWhatRow", "splitPlusRow", "splitMinusRow"],
+      tensor: ["splitWhatTensor", "splitPlusTensor", "splitMinusTensor"],
+    }[this.value];
+    if (!keys) return null;
+    const others = { layer: t("splitLayer"), tensor: t("splitTensor") };
+    return { what: t(keys[0]), plus: t(keys[1]), minus: t(keys[2], others) };
+  }
+
+  /** The three lines of `details`, in the tile's words. */
+  static aboutHtml(d) {
+    return `<p class="compute-split-what">${escapeHtml(d.what)}</p>`
+      + `<p class="compute-split-plus"><b aria-hidden="true">+</b> ${escapeHtml(d.plus)}</p>`
+      + `<p class="compute-split-minus"><b aria-hidden="true">−</b> ${escapeHtml(d.minus)}</p>`;
   }
 
   /** The value to write when `cards` cards are selected. One card has nothing
@@ -103,7 +119,7 @@ export class SplitMode {
         ? `<span class="compute-split-exp">${escapeHtml(t("splitExperimental"))}</span>` : "";
       return `<button type="button" class="compute-split-btn${v === this.value ? " on" : ""}"`
         + ` data-split="${v}" data-t="${hook}" data-t-id="${v}"`
-        + ` title="${escapeHtml([mode.label(), mode.hint()].filter(Boolean).join(" · "))}">`
+        + ` title="${escapeHtml([mode.label(), mode.details()?.what].filter(Boolean).join(" · "))}">`
         + `${escapeHtml(mode.label())}${exp}</button>`;
     }).join("");
     // A value llama-server does not know is said out loud, here, where it was
@@ -111,10 +127,16 @@ export class SplitMode {
     const warn = this.value && !this.known
       ? `<p class="compute-split-warn">⚠ ${escapeHtml(t("splitUnknown", { value: this.value }))}</p>`
       : "";
-    const hint = this.hint()
-      ? `<p class="compute-split-hint">${escapeHtml(this.hint())}</p>` : "";
+    // The chosen mode in three lines, and all three side by side under one fold — for the choice before it is made.
+    const about = this.details();
+    const aboutHtml = about ? `<div class="compute-split-about" data-t="${SplitMode.HOOKS.about}" data-t-id="${this.value}">${SplitMode.aboutHtml(about)}</div>` : "";
+    const compare = `<details class="compute-split-compare"><summary data-t="${SplitMode.HOOKS.compare}">${escapeHtml(t("splitCompare"))}</summary>`
+      + SplitMode.SHOWN.map((v) => {
+        const mode = new SplitMode(v);
+        return `<div class="compute-split-cmp"><b>${escapeHtml(mode.label())}</b>${SplitMode.aboutHtml(mode.details())}</div>`;
+      }).join("") + "</details>";
     return `<div class="compute-split">`
       + `<div class="compute-split-label">${escapeHtml(t("splitMode"))}</div>`
-      + `<div class="compute-split-seg">${seg}</div>${warn}${hint}</div>`;
+      + `<div class="compute-split-seg">${seg}</div>${warn}${aboutHtml}${compare}</div>`;
   }
 }

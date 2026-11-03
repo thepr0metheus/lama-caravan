@@ -25,7 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 def _table(code):
     """Every one-string line of a language file (en.js, ru.js) — a pin quotes the page's own words, not a
@@ -81,7 +81,10 @@ const F = (fields) => { globalThis.__fields = { toast: toastEl(), ...fields }; }
 const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, nodes: [] });
   F({}); globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true, "dialogs.appConfirmTyped": async () => true };
-  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
+  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear();
+  // The cell form's hearers and its keeper (the cell window, cell-settings.js) are the module's one form's: none between pins.
+  rc.CELL_FORM.keeper = null; rc.CELL_FORM.watching = false; for (const k of Object.keys(rc.CELL_FORM.listeners)) rc.CELL_FORM.listeners[k].length = 0;
+  delete globalThis.MutationObserver; };
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body }));
 const toastText = () => globalThis.__fields.toast.textContent;
 const out = {};
@@ -378,6 +381,31 @@ PINS = [
      'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
      '"⚠️ Already Running here — this host runs one server slot at a time — wait for the current start to finish"',
      'boundary: cellServiceAction: регэксп busy нечувствителен к регистру («Already Running») → подсказка добавлена'),
+    ('csa_says_how_it_went',
+     '',
+     r'''await (async () => {
+       const asked = async (reply, boom) => {
+         globalThis.__fetchReply["/api/topology/server-cell/action"] = reply;
+         return rc.cellServiceAction("h1", 22001, "start");
+       };
+       const out = { done: await asked({ ok: true }), refused: await asked({ ok: false, error: "boom" }) };
+       globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: true };
+       out.stop = await rc.cellServiceAction("h1", 22001, "stop");
+       return out;
+     })()''',
+     '{"done": true, "refused": false, "stop": true}',
+     'defect-history (1.3.695, стенд): cellServiceAction говорит, как прошло: true — ячейку попросили, false — отказ, причина уже сказана; без этого план запуска считал отказ успехом'),
+    ('csa_says_how_it_went_declined_short',
+     'globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;'
+     ' globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, short: { model: "m", needBytes: 1, freeBytes: 0, basis: "weights" } };',
+     'await rc.cellServiceAction("h1", 22001, "start")',
+     'false',
+     'negative: оператор не стал запускать ячейку движка, которой не хватает места: это тоже «не запущено»'),
+    ('csa_says_how_it_went_failed_request',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { __status: 502, error: "unreachable" };',
+     'await rc.cellServiceAction("h1", 22001, "start")',
+     'false',
+     'negative: запрос не прошёл (502, сеть): причина сказана тостом, ответ — false, а не молчаливый успех'),
     ('csa_reply_plain_error',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "boom" };',
      'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
@@ -875,12 +903,13 @@ PINS = [
      'модель не выбрана («＋ Add model» открывает пустое поле) — сразу «выберите модель», без вопроса «применить?» и без '
      'запроса (раньше сначала спрашивалось, потом отказывалось)'),
     # ── vLLM without a path: a model picked in the list is not a path on THIS machine ──
-    ('apply_vllm_with_a_pick_and_no_path_asks_for_the_path',
-     'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; }; globalThis.__asked = () => asked;'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" } });',
-     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), globalThis.__asked(), calls()]; })()',
-     json.dumps([en("vllmPathNeeded"), 0, []], ensure_ascii=False),
-     'defect-history (2026-10-17): на машине, где нет контроллера, выбор модели в списке не вписывает VLLM_MODEL (путь у неё свой), а Apply отвечал «Select a model» при выбранной модели; теперь просит путь, без вопроса и без запроса'),
+    ('apply_vllm_with_a_pick_and_no_path_names_the_pick',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" },'
+     ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => [c.path, JSON.parse(c.body).config.VLLM_MODEL])]; })()',
+     json.dumps([en("topologyRemoteStartSent", host="box-a"), [["/api/topology/client-llama/start", "Omni-AWQ/org/AWQ"]]]),
+     'defect-history (2026-10-17, 2026-11-03): выбор в списке — это место среди моделей контроллера, на любой машине: путь на самой машине больше не нужен, и Apply не просит его вписать'),
     ('apply_vllm_with_nothing_picked_still_says_select_a_model',
      'F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "  " } });',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls()]; })()',
@@ -905,6 +934,39 @@ PINS = [
      'globalThis.__fields["tr-ENABLE_FLASH_ATTN"].checked',
      'false',
      'negative: что сказано в настройках машины («0»), остаётся как сказано — умолчание «включён» стоит только там, где сказать было нечего'),
+    # ── The window: left empty, it asks for the one the model was trained for ──
+    ('new_cell_opens_with_an_empty_window',
+     'F({ "tr-CTX_SIZE": { value: "4096" } }); ' + OPEN_FORM,
+     'globalThis.__fields["tr-CTX_SIZE"].value',
+     '""',
+     'defect-history (2026-10-26): новая ячейка открывалась с окном 4096, которого никто не вводил (у контроллера на NAS своего '
+     'CTX_SIZE нет), — и у пяти ячеек llama.cpp осталось 4096; теперь поле пустое: старт попросит окно обучения модели'),
+    ('new_cell_keeps_the_machines_own_window',
+     'st.setState({ ...st.state, config: { CTX_SIZE: "32768" } }); F({ "tr-CTX_SIZE": { value: "" } }); ' + OPEN_FORM,
+     'globalThis.__fields["tr-CTX_SIZE"].value',
+     '"32768"',
+     'negative: окно, сказанное в настройках машины, остаётся как сказано'),
+    ('cell_form_says_its_window_field_and_the_models_most',
+     'st.setState({ ...st.state, runners: [{ id: "llama-server", modelField: "MODEL_FILE" }, { id: "vllm", contextField: "MAX_MODEL_LEN", modelField: "VLLM_MODEL" }],'
+     ' models: [{ path: "m/a.gguf", ggufMeta: { contextLength: 131072 } }, { path: "Qwen/Qwen3-8B/BF16", contextLength: 40960 }] });'
+     ' F({ "tr-RUNNER": { value: "" }, "tr-MODEL_FILE": { value: "m/a.gguf" }, "tr-VLLM_MODEL": { value: "Qwen/Qwen3-8B/BF16" } });',
+     '(() => { const f = rc.CELL_FORM; const a = [f.windowField(), f.modelWindow()]; globalThis.__fields["tr-RUNNER"].value = "vllm";'
+     ' const b = [f.windowField(), f.modelWindow()]; globalThis.__fields["tr-VLLM_MODEL"].value = "elsewhere/x"; return [...a, ...b, f.modelWindow()]; })()',
+     '["CTX_SIZE",131072,"MAX_MODEL_LEN",40960,0]',
+     'форма ячейки говорит окну ячейки поле окна своего раннера и максимум его модели — из заголовка GGUF или конфига '
+     'чекпойнта; negative: модели нет в библиотеке — 0, а не выдуманное'),
+    # ── Jinja: llama.cpp's own default, and the builder says OFF out loud ──
+    ('new_cell_opens_with_jinja_on',
+     'F({ "tr-ENABLE_JINJA": { checked: false } }); ' + OPEN_FORM,
+     'globalThis.__fields["tr-ENABLE_JINJA"].checked',
+     'true',
+     'defect-history (2026-10-26): новая ячейка открывалась с выключенным Jinja, сборщик писал --no-jinja, и ячейка gemma-4 из '
+     'мастера ответила на первый вопрос 500 «this custom template is not supported, try using --jinja»; теперь включён'),
+    ('new_cell_keeps_the_machines_own_jinja',
+     'st.setState({ ...st.state, config: { ENABLE_JINJA: "0" } }); F({ "tr-ENABLE_JINJA": { checked: true } }); ' + OPEN_FORM,
+     'globalThis.__fields["tr-ENABLE_JINJA"].checked',
+     'false',
+     'negative: что сказано в настройках машины («0»), остаётся как сказано — «включён» стоит только там, где сказать было нечего'),
     ('apply_refuses_quantized_v_cache_without_flash_attention',
      'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; }; globalThis.__asked = () => asked;'
      ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" } });',
@@ -936,6 +998,18 @@ PINS = [
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path), globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
      json.dumps([en("saved"), ["/api/topology/server-cell/save-config"], True]),
      'positive: Apply остановленной ячейки только сохраняет — «Saved.», один запрос save-config, окно закрыто; запуска нет'),
+    # ── The new-cell wizard's Create: its button was the question, and Apply does not ask it again (1.3.638) ──
+    ('apply_confirmed_by_its_caller_asks_nothing',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped" }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
+     ' globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return false; };'
+     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { const asked = await rc.submitRemoteLlamaStart(); const before = [asked, globalThis.__asked.length, calls().length];'
+     ' const sure = await rc.submitRemoteLlamaStart({ confirmed: true }); return [before, sure, globalThis.__asked.length, calls().map((c) => c.path)]; })()',
+     json.dumps([[False, 1, 0], True, 1, ["/api/topology/server-cell/save-config"]]),
+     'negative: Apply спрашивает, и «нет» не сохраняет ничего; positive: вызов от «Создать» мастера (confirmed) не спрашивает второй раз и сохраняет'),
     ('apply_of_a_running_cell_says_it_keeps_its_old_settings',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
      ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "running", gpuMem: { "0": 18350, "1": 24364 } }] }] });'
@@ -1096,6 +1170,112 @@ PINS = [
      'await (async () => { ' + IN_RUSSIAN.replace("{BODY}", '(' + OPEN_FORM.replace("try {", "(() => { try {").replace("catch (e) {}", "catch (e) {} })()") + ', await (await import("node:timers/promises")).setTimeout(60), __panel.list.innerHTML.includes(' + json.dumps(ru("cacheTotal", n=2, gb="3.50"), ensure_ascii=False) + '))') + ' })()',
      json.dumps(True),
      'positive: on a Russian page the total under the list of cached files is said in Russian'),
+    # The 🌐 of a cell that serves its own page (cell-page.js, 1.3.613) is a link: the browser follows it in this tab.
+    # ── The cell form for the cell window (cell-settings.js): one form, heard when filled, saved and closed ──
+    ('cellform_holds_the_cell_it_was_filled_for',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });',
+     '(() => { const f = rc.CELL_FORM; f.fill("h1", "22013", { hidden: true }); const a = [f.holds("h1", "22013"), f.holds("h1", 22013), f.holds("h1", "22014"), f.holds("h2", "22013")];'
+     ' f.fill("h1", "", { hidden: true }); return [...a, f.holds("h1", "")]; })()',
+     json.dumps([True, True, False, False, False]),
+     "the form holds the cell it was filled for (a port as text or number); negative: another port, another machine, and a "
+     "new cell (no port yet) are not held"),
+    ('cellform_filled_heard_without_the_dialog',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });',
+     '(() => { const heard = []; rc.CELL_FORM.on("filled", (...a) => heard.push(a.length)); rc.CELL_FORM.fill("h1", "22013", { hidden: true });'
+     ' const shut = globalThis.__fields.llamaRemoteEditOverlay.hidden; rc.CELL_FORM.fill("h1", "22013");'
+     ' return [heard, shut, globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
+     json.dumps([[0, 0], True, False]),
+     "a filling is heard, with nothing carried; the window's own filling shows no dialog; negative: the dialog's own does"),
+    ('cellform_saved_heard_with_the_config_sent',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true }); F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" },'
+     ' llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { const heard = []; rc.CELL_FORM.on("saved", (cfg) => heard.push([cfg.PORT, cfg.MODEL_FILE]));'
+     ' const ok = await rc.CELL_FORM.save(); return [ok, heard, calls().map((c) => c.path)]; })()',
+     json.dumps([True, [["22013", "m/model.gguf"]], ["/api/topology/server-cell/save-config"]]),
+     "the window's Apply is the dialog's: it saves, answers true, and the save is heard with the config sent"),
+    ('cellform_save_refused_or_declined_is_false',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true }); F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" },'
+     ' llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { const heard = []; rc.CELL_FORM.on("saved", () => heard.push(1));'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; const declined = await rc.CELL_FORM.save();'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => true; globalThis.__fetchReply["/api/topology/server-cell/save-config"] = { __status: 500, error: "disk full" };'
+     ' const failed = await rc.CELL_FORM.save(); return [declined, failed, heard.length, calls().length]; })()',
+     json.dumps([False, False, 0, 1]),
+     "negative: a declined question and a failed save answer false and are not heard as saved — the window keeps its edits"),
+    ('open_dialog_shows_the_edits_the_window_keeps',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     'await (async () => { const heard = []; rc.CELL_FORM.on("filled", () => heard.push("filled")); const asked = [];'
+     ' rc.CELL_FORM.keepBy({ keeps: (h, p) => h === "h1" && String(p) === "22013", leave: async () => { asked.push(1); return true; } });'
+     ' await rc.openRemoteFormForHost("h1", "22013"); return [heard, asked.length, globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
+     json.dumps([[], 0, False]),
+     "the dialog of the cell whose edits the window keeps comes up with the form as it stands — not filled again, nothing asked"),
+    ('open_dialog_for_another_cell_asks_first',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     'await (async () => { const heard = []; rc.CELL_FORM.on("filled", () => heard.push("filled")); let answer = false; const asked = [];'
+     ' rc.CELL_FORM.keepBy({ keeps: () => false, leave: async (h, p) => { asked.push([h, String(p)]); return answer; } });'
+     ' await rc.openRemoteFormForHost("h1", "22014"); const first = [heard.length, globalThis.__fields.llamaRemoteEditOverlay.hidden, rc.CELL_FORM.holds("h1", "22013")];'
+     ' answer = true; await rc.openRemoteFormForHost("h1", "22014");'
+     ' return [first, heard.length, globalThis.__fields.llamaRemoteEditOverlay.hidden, rc.CELL_FORM.holds("h1", "22014"), asked]; })()',
+     json.dumps([[0, True, True], 1, False, True, [["h1", "22014"], ["h1", "22014"]]]),
+     "negative: edits the window keeps are not dropped by a dialog for another cell without the operator's word — declined, the "
+     "form keeps its cell and no dialog comes up; agreed, the form is filled for the other and its dialog shown"),
+    ('open_dialog_kept_for_a_cell_the_form_no_longer_holds_fills',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     'await (async () => { const heard = []; rc.CELL_FORM.on("filled", () => heard.push("filled"));'
+     ' rc.CELL_FORM.keepBy({ keeps: () => true, leave: async () => true }); await rc.openRemoteFormForHost("h1", "22099");'
+     ' return [heard, rc.CELL_FORM.holds("h1", "22099")]; })()',
+     json.dumps([["filled"], True]),
+     "negative: a keeper's word alone does not show the form as it stands — the form holds another cell, so it is filled for this one"),
+    ('open_dialog_to_add_a_model_never_shows_the_kept_form',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     'await (async () => { const asked = []; rc.CELL_FORM.keepBy({ keeps: () => true, leave: async () => { asked.push(1); return true; } });'
+     ' await rc.openRemoteFormForHost("h1", "22013", { pickModel: true }); return asked.length; })()',
+     '1',
+     "negative: «+ Add model» is a new choice of a model — the form is filled afresh (asked first), never shown as it stood"),
+    ('cellform_set_writes_as_typing_would',
+     'const ev = []; const rec = (o) => ({ ...o, dispatchEvent: (e) => { ev.push([e.type, e.bubbles]); return true; } });'
+     ' F({ "tr-CTX_SIZE": rec({ value: "4096" }), "tr-MMAP": rec({ type: "checkbox", checked: false }) }); globalThis.__ev = ev;',
+     '[rc.CELL_FORM.set("CTX_SIZE", 8192), globalThis.__fields["tr-CTX_SIZE"].value, rc.CELL_FORM.set("MMAP", "1"), globalThis.__fields["tr-MMAP"].checked,'
+     ' rc.CELL_FORM.set("MMAP", "0"), globalThis.__fields["tr-MMAP"].checked, rc.CELL_FORM.set("NOPE", "1"), globalThis.__ev]',
+     json.dumps([True, "8192", True, True, True, False, False, [["input", True], ["change", True], ["input", True], ["change", True], ["input", True], ["change", True]]]),
+     "a write is the form's own: the value (a box by \"1\"/\"0\"), then input and change that bubble — the form's listeners redraw "
+     "what reads it and mark an optional toggle as stated; negative: a field the form has not is not written"),
+    ('cellform_checked_locked_settle',
+     'F({ "tr-MMAP": { type: "checkbox", checked: true }, "tr-PORT": { value: "22013", readOnly: true }, "tr-CTX_SIZE": { value: "1" },'
+     ' "tr-EXTRA_ARGS": { value: "--ctx-size 8192" } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { const f = rc.CELL_FORM; const a = [f.checked("MMAP"), f.checked("NOPE"), f.locked("PORT"), f.locked("CTX_SIZE"), f.locked("NOPE")];'
+     ' await f.settle("CTX_SIZE"); const before = calls().length; await f.settle("EXTRA_ARGS"); return [...a, before, calls().map((c) => c.path)]; })()',
+     json.dumps([True, False, True, False, False, 0, ["/api/parse-extra-args"]]),
+     "the box as the form draws it, a locked port; leaving EXTRA_ARGS asks the controller which flags have fields of their own, "
+     "as leaving it in the dialog does; negative: leaving another field asks nothing"),
+    ('cellform_place_map_none_for_another_runner',
+     'F({ "tr-RUNNER": { value: "vllm" } });',
+     '(() => { const box = { innerHTML: "old map" }; return [rc.CELL_FORM.placeMap(box), box.innerHTML, rc.CELL_FORM.placeMap(null)]; })()',
+     json.dumps([False, "", False]),
+     "negative: a cell of another runner has no map — false, and the box is emptied (memory.js mountPlacementMap, the dialog's own rule); no box — false"),
+    ('cellform_hidden_heard_once_however_closed',
+     'F({ llamaRemoteEditOverlay: { hidden: false } }); globalThis.__mo = [];'
+     ' globalThis.MutationObserver = class { constructor(cb) { this.cb = cb; globalThis.__mo.push(this); } observe(el, opts) { this.el = el; this.opts = opts; } };',
+     '(() => { const heard = []; rc.CELL_FORM.on("hidden", () => heard.push(1)); rc.CELL_FORM.on("hidden", () => heard.push(2));'
+     ' const mo = globalThis.__mo; mo[0].cb(); globalThis.__fields.llamaRemoteEditOverlay.hidden = true; mo[0].cb();'
+     ' return [mo.length, mo[0].el === globalThis.__fields.llamaRemoteEditOverlay, mo[0].opts, heard]; })()',
+     json.dumps([1, True, {"attributes": True, "attributeFilter": ["hidden"]}, [1, 2]]),
+     "the dialog closed by any hand is heard once, by its hidden attribute, by every hearer; negative: watched once however many hear, "
+     "and a change that leaves it shown is not heard as closed"),
+    ('page_link_click_stays_with_the_link',
+     '',
+     r'''await (async () => {
+       const handlers = [];
+       const a = { dataset: { cellPage: "h1:22021" }, addEventListener: (ev, fn) => handlers.push([ev, fn]) };
+       const root = { querySelectorAll: (q) => (q === "[data-cell-page]" ? [a] : []) };
+       document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+       rc.bindServerSlotControls(root);
+       const ev = { stopped: 0, prevented: 0, stopPropagation() { this.stopped += 1; }, preventDefault() { this.prevented += 1; } };
+       handlers.forEach(([name, fn]) => { if (name === "click") fn(ev); });
+       return { bound: handlers.map(([name]) => name), stopped: ev.stopped, prevented: ev.prevented, calls: calls().length }; })()''',
+     json.dumps({"bound": ["click"], "stopped": 1, "prevented": 0, "calls": 0}),
+     "the card's 🌐 is the browser's to follow: the card under it hears nothing of the click; negative: the link is not "
+     "held back (no preventDefault) and nothing is asked of the controller"),
 ]
 
 _fail = []
@@ -1139,8 +1319,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(probe_path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, probe_path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         probe_path.unlink(missing_ok=True)
     if run.returncode != 0:

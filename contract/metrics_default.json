@@ -1,0 +1,48 @@
+{
+ "cases": [
+  {
+   "said": null,
+   "on": true
+  },
+  {
+   "said": "",
+   "on": true
+  },
+  {
+   "said": "  ",
+   "on": true
+  },
+  {
+   "said": "1",
+   "on": true
+  },
+  {
+   "said": "true",
+   "on": true
+  },
+  {
+   "said": "on",
+   "on": true
+  },
+  {
+   "said": "yes",
+   "on": true
+  },
+  {
+   "said": "0",
+   "on": false
+  },
+  {
+   "said": "false",
+   "on": false
+  },
+  {
+   "said": "off",
+   "on": false
+  },
+  {
+   "said": "no",
+   "on": false
+  }
+ ]
+}

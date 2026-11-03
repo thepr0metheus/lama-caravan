@@ -10,7 +10,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from _node import find_node, node_search_paths
+from _node import find_node, node_search_paths, probe_args
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,8 +36,7 @@ def run(label, tmp_name, preamble, pins, stubs=""):
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": stubs,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         done = subprocess.run(
-            [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=180)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=180)
     finally:
         path.unlink(missing_ok=True)
     if done.returncode != 0:

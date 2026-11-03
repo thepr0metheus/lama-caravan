@@ -205,13 +205,13 @@ PINS = [
     ("time_left_is_the_shared_rule", "",
      r"""(() => { const at = """ + eta_inputs() + r""".map((s) => T.HfFormat.eta(s));
         localStorage.setItem(T.LANG_KEY, "ru"); const ru = T.HfFormat.eta(4200);
-        localStorage.setItem(T.LANG_KEY, "ja"); const ja = T.HfFormat.eta(185);
+        localStorage.setItem(T.LANG_KEY, "zh"); const zh = T.HfFormat.eta(185);
         localStorage.setItem(T.LANG_KEY, "xx"); const unknown = T.HfFormat.eta(185); localStorage.clear();
-        return [at, ru, ja, unknown]; })()""",
-     json.dumps([eta_expected(say_in("en")), say_in("ru")("moveEtaHours", h=1, m=10), say_in("ja")("moveEtaMinutes", n=4),
+        return [at, ru, zh, unknown]; })()""",
+     json.dumps([eta_expected(say_in("en")), say_in("ru")("moveEtaHours", h=1, m=10), say_in("zh")("moveEtaMinutes", n=4),
                  say_in("en")("moveEtaMinutes", n=4)], ensure_ascii=False),
      "время до конца: то же правило и те же слова, что у страницы /models (pace-rule.js, таблица scripts/pace_cases.py, слова — из общего словаря): "
-     "секунды шагом 5, от минуты — минуты вверх, от часа — часы и минуты, неизвестное — ничего; на языке страницы (ru, ja), незнакомый язык — английский"),
+     "секунды шагом 5, от минуты — минуты вверх, от часа — часы и минуты, неизвестное — ничего; на языке страницы (ru, zh), незнакомый язык — английский"),
 ]
 
 

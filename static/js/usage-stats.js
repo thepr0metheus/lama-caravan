@@ -52,29 +52,29 @@ function _shouldFetch(cache, accountId, force = false) {
 export const apiCostsCache = new Map();
 // OpenRouter: key info + daily token limit + request rate limit.
 export const openrouterLimitsCache = new Map();
-export async function fetchApiCosts(accountId, { force = false } = {}) {
-  if (!_shouldFetch(apiCostsCache, accountId, force)) return;
-  apiCostsCache.set(accountId, { ...(apiCostsCache.get(accountId) || {}), loading: true });
+// DeepSeek: what is left on the balance its tokens are paid from.
+export const deepseekBalanceCache = new Map();
+// One reading of what a key's provider says of the key, kept in its cache. Already retried on error, but with no cooldown a
+// persistently dead endpoint got a request per repaint: the guard is here, for all of them.
+async function readKeyReport(cache, accountId, route, force) {
+  if (!_shouldFetch(cache, accountId, force)) return;
+  cache.set(accountId, { ...(cache.get(accountId) || {}), loading: true });
   try {
-    const res = await api(`/api/cloud-accounts/api-costs?id=${encodeURIComponent(accountId)}`);
-    apiCostsCache.set(accountId, { data: res, fetchedAt: Date.now(), loading: false });
+    const res = await api(`/api/cloud-accounts/${route}?id=${encodeURIComponent(accountId)}`);
+    cache.set(accountId, { data: res, fetchedAt: Date.now(), loading: false });
   } catch (e) {
-    apiCostsCache.set(accountId, { data: null, error: String(e), fetchedAt: Date.now(), loading: false });
+    cache.set(accountId, { data: null, error: String(e), fetchedAt: Date.now(), loading: false });
   }
   readingLanded();
 }
-export async function fetchOpenRouterLimits(accountId, { force = false } = {}) {
-  // Already retried on error — but with no cooldown, so a persistently dead
-  // endpoint got a request per repaint. Same guard as its siblings now.
-  if (!_shouldFetch(openrouterLimitsCache, accountId, force)) return;
-  openrouterLimitsCache.set(accountId, { ...(openrouterLimitsCache.get(accountId) || {}), loading: true });
-  try {
-    const res = await api(`/api/cloud-accounts/openrouter-limits?id=${encodeURIComponent(accountId)}`);
-    openrouterLimitsCache.set(accountId, { data: res, fetchedAt: Date.now(), loading: false });
-  } catch (e) {
-    openrouterLimitsCache.set(accountId, { data: null, error: String(e), fetchedAt: Date.now(), loading: false });
-  }
-  readingLanded();
+export function fetchApiCosts(accountId, { force = false } = {}) {
+  return readKeyReport(apiCostsCache, accountId, "api-costs", force);
+}
+export function fetchOpenRouterLimits(accountId, { force = false } = {}) {
+  return readKeyReport(openrouterLimitsCache, accountId, "openrouter-limits", force);
+}
+export function fetchDeepseekBalance(accountId, { force = false } = {}) {
+  return readKeyReport(deepseekBalanceCache, accountId, "deepseek-balance", force);
 }
 // Local spend-meter: $ spent through the proxy (our token counts × pricing). One fetch
 // returns every account; cached briefly.
@@ -425,6 +425,26 @@ export function openRouterLimitsHtml(accountId) {
   return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}${tierBadge}</div>${rows}</div>`;
 }
 
+// DeepSeek's word on its key: each currency's balance and what it is made of, as DeepSeek writes them. A balance it did not
+// name is said to be not named, never drawn as zero; `available: false` is its own word that requests will fail.
+export function deepseekBalanceHtml(accountId) {
+  const c = deepseekBalanceCache.get(accountId);
+  const isLoading = c?.loading;
+  const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-ds-balance-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRefreshBalance"))}" ${isLoading ? "disabled" : ""}>↻</button>`;
+  const panel = (rows) => `<div class="sub-usage-panel" data-t="cloud-deepseek-balance"><div class="sub-usage-head">${refreshBtn}</div>${rows}</div>`;
+  const row = (html) => `<div class="sub-usage-row">${html}</div>`;
+  if (!c || (c.loading && !c.data)) return panel(row(`<span class="muted">${escapeHtml(t("usLoadingBalance"))}</span>`));
+  const d = c.data;
+  if (!d?.ok) {
+    return panel(row(d?.authError ? `<span class="or-key-invalid">⚠ key invalid</span>` : `<span class="muted">${escapeHtml(d?.error || c.error || "unavailable")}</span>`));
+  }
+  const balances = (d.balances || []).map((b) => row(`<div class="sub-usage-meta"><span class="sub-usage-label">${escapeHtml(t("usDeepseekBalance"))}</span>`
+    + `<span class="sub-usage-pct">${escapeHtml(`${b.total} ${b.currency}`.trim())}</span></div>`
+    + `<span class="sub-usage-resets">${escapeHtml(t("usDeepseekParts", { granted: b.granted, toppedUp: b.toppedUp }))}</span>`)).join("");
+  const empty = d.available === false ? row(`<span class="or-key-invalid">⚠ ${escapeHtml(t("usDeepseekEmpty"))}</span>`) : "";
+  return panel((balances || row(`<span class="muted">${escapeHtml(t("usDeepseekUnknown"))}</span>`)) + empty);
+}
+
 export async function fetchSubscriptionUsage(accountId, { force = false } = {}) {
   if (!_shouldFetch(subscriptionUsageCache, accountId, force)) return;
   const cached = subscriptionUsageCache.get(accountId);
@@ -540,8 +560,8 @@ export function subscriptionRefreshHtml(accountId) {
   return `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRereadLimits"))}" aria-label="${escapeHtml(t("usTitleRereadLimits"))}" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
 }
 
-/** One limit bar of a subscription, with a pool step's two levels on it (caravan/common/usage_reserve.py,
- *  caravan/proxy/pool_steps.py; the operator, 2026-10-11).
+/** One limit bar of a subscription, with a pool step's two levels on it (rust/crates/rules/src/usage_limits.rs,
+ *  rust/crates/proxy/src/pool_steps/mod.rs; the operator, 2026-10-11).
  *
  *  ▲ STOP, red, under the bar: the share of the window the step never spends — once the window is
  *  down to it, the step does not serve, and with no other step the caravan answers "limit reached".
@@ -791,6 +811,7 @@ export const USAGE_READINGS = {
   subscription: { cache: subscriptionUsageCache, fetch: fetchSubscriptionUsage },
   apiCosts: { cache: apiCostsCache, fetch: fetchApiCosts },
   openrouter: { cache: openrouterLimitsCache, fetch: fetchOpenRouterLimits },
+  deepseek: { cache: deepseekBalanceCache, fetch: fetchDeepseekBalance },
 };
 
 //: How old a reading must be before RETURNING to the page re-reads it.

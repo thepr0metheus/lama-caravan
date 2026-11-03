@@ -8,7 +8,7 @@ new privileges, no capabilities, a read-only root, and /tmp in memory. A later e
 of the compose file could drop one without a word; this snapshot names the one.
 
 The caravan itself needs nothing more: it writes only under /data
-(scripts/test_data_volume_paths.py) and binds ports above 1024.
+and binds ports above 1024.
 
 deploy/nas/ is private to this deployment, and the public copy has no such file:
 there the snapshot says so and checks the rule on its own sample only.

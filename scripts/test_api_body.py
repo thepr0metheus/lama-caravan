@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, node_args  # noqa: E402
 
 HARNESS = r"""
 globalThis.document = { getElementById: () => null };
@@ -27,7 +27,8 @@ globalThis.location = { pathname: "/x" };
 let seen = null;
 globalThis.fetch = async (path, opts) => {
   seen = opts && "body" in opts ? opts.body : null;
-  return { ok: true, status: 200, json: async () => ({}) };
+  // A response as fetch gives it: api() reads its text, so that a gateway's page is told from the caravan's JSON.
+  return { ok: true, status: 200, text: async () => "{}", json: async () => ({}) };
 };
 const m = await import(process.argv[1]);
 const out = {};
@@ -64,7 +65,7 @@ if NODE is None:
     sys.exit(0)
 
 proc = subprocess.run(
-    [NODE, "--input-type=module", "-e", HARNESS, str(ROOT / "static" / "js" / "utils.js")],
+    node_args(NODE, "--input-type=module", "-e", HARNESS, ROOT / "static" / "js" / "utils.js"),
     capture_output=True, text=True, timeout=60)
 if proc.returncode != 0:
     print("api body: FAILED — харнесс не отработал")

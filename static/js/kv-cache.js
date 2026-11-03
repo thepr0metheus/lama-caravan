@@ -1,11 +1,11 @@
 // Which pair of flash attention and V cache type llama.cpp starts with: the browser's copy of
-// caravan/common/kv_cache.py, so Apply says so before the cell crashes four times and gives up.
+// rust/crates/rules/src/cell_config.rs, so Apply says so before the cell crashes four times and gives up.
 //
 // llama.cpp keeps the V half of the KV cache in a quantized type (q8_0, q4_0 …) only with flash
 // attention on; with it off the server exits at once with "quantized V cache requires flash_attn to
 // be enabled". The form of a new cell offered exactly that pair (2026-10-14). The two copies of the
-// rule are held together by one table of cases (scripts/fixtures/kv-cache-cases.json) that both
-// snapshots run (scripts/test_kv_cache.py, scripts/test_js_kv_cache.py).
+// rule are held together by one table of cases (contract/kv_cache.json) that both
+// run (rust/crates/admin/tests/contract.rs, scripts/test_js_kv_cache.py).
 export class KvCache {
   //: The cache types that hold plain numbers, so need no flash attention. "" is the field left
   //: empty: llama.cpp's own default, f16.

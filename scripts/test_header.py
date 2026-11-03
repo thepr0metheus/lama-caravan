@@ -8,7 +8,8 @@ from one template, and what a page may do differently is the one table AppHeader
 
 Pinned by value: the way back is the first thing in the bar of every page, to /board, with the same words and hook; the pages
 differ in exactly the table's six things (the title, the tagline, the tour, the «Security» entry, what stands before the account,
-the view the way back is for) and in nothing else; every id a script finds the bar's parts by is on every page; the words the bar carries before a language
+the view the way back is for) and in which of the caravan's two model pages the page itself is, and in nothing else; every id a
+script finds the bar's parts by is on every page; the words the bar carries before a language
 is loaded are the English ones of the shared dictionary (a page must not flash other words); the generator puts a bar in once and
 leaves a second run alone; and the rule that hides the way back keys on the link's own word (`data-view-only="machine"`, on the
 board's page alone), not on `data-board-view="main"`: Routing loads the board's script and is marked "main" too, and its
@@ -73,7 +74,8 @@ EXPECT = {
 }
 #: What every bar has: the ids the pages' scripts find the account, the language picker and the version chip by.
 COMMON_IDS = sorted(["projectGitBranch", "userChip", "userChipBtn", "userChipName", "userMenu", "userMenuLogout",
-                     "langSelect", "langTrigger", "langTriggerEmoji", "langTriggerCode", "langMenu"])
+                     "langSelect", "langTrigger", "langTriggerEmoji", "langTriggerCode", "langMenu",
+                     "headerPages", "headerModelsLink", "headerHfLink", "headerRoutingLink", "headerMachines", "headerMachinesBtn", "headerMachinesMenu"])
 
 
 def english(key):
@@ -137,13 +139,16 @@ def test_what_differs():
         text = re.sub(r'\n\s*<button type="button" class="ob-btn-head".*?</button>', "", text, flags=re.S)
         text = re.sub(r'(<h1 class="page-title" data-t="header-page-title")[^>]*>[^<]*</h1>', r"\1></h1>", text)
         text = text.replace(' data-view-only="machine"', "")
+        # The caravan's two model pages are in every bar; on its own page a link says so (test_header_model_pages.py).
+        text = text.replace(' aria-current="page"', "")
         return text
     base = skeleton("board")
     for name in AppHeader.PAGES:
         check(skeleton(name) == base, f"{name}: with its six things taken out, its bar is the board's, character for character")
-    check(AppHeader.PAGES["models"].actions.count("\n") == 0 and "/hf" in AppHeader.PAGES["models"].actions, "/models adds its link to /hf before the account")
-    check(all(h in AppHeader.PAGES["hf"].actions for h in ('id="hfDiskBadge"', 'id="hfOnDiskBtn"', 'data-t="hf-on-disk"')),
-          "/hf adds its disk badge and its link to what is on disk before the account")
+    check(AppHeader.PAGES["models"].actions == "",
+          "/models adds nothing before the account: its link to /hf is the bar's own now, on every page (2026-10-24)")
+    check('id="hfDiskBadge"' in AppHeader.PAGES["hf"].actions and "/models" not in AppHeader.PAGES["hf"].actions,
+          "/hf adds its disk badge before the account, and no link to what is on disk: the bar has the Models page")
 
 
 def test_the_parts_scripts_find():
@@ -153,7 +158,7 @@ def test_the_parts_scripts_find():
         if EXPECT[name][4]:
             extra.append("userMenuSecurity")
         if name == "hf":
-            extra += ["hfDiskBadge", "hfOnDiskBtn"]
+            extra += ["hfDiskBadge"]
         if EXPECT[name][3]:
             extra.append("obBtnLabel")
         check(bar.ids() == sorted(COMMON_IDS + extra), f"{name}: ids {sorted(set(bar.ids()) - set(COMMON_IDS))} besides the common {len(COMMON_IDS)}")

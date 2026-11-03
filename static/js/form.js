@@ -3,7 +3,6 @@ import { effectiveModelsDir, renderCommandPreview } from "./command-preview.js";
 import {
   advancedGroups,
   advancedTabDefs,
-  defaultOnOptionalToggles,
   dirtyOptionalToggles,
   fieldChoices,
   modelFields,
@@ -18,9 +17,12 @@ import {
   syncFavoriteMirrors,
   updateStarStates,
 } from "./favorites.js";
+import { CellFields } from "./cell-plan.js";
 import { bindCommandLocator, renderConfigSearch } from "./config-locator.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { ggufKind, gpuComputeCap, renderCellPreviews, runnerRegistry, stKind, stOwner } from "./llama-edit.js";
+import { AskedWindow } from "./asked-window.js";
+import { effectiveRunnerId, ggufKind, gpuComputeCap, renderCellPreviews, runnerRegistry, stKind, stOwner } from "./llama-edit.js";
+import { ModelCopy } from "./model-copy.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -43,9 +45,10 @@ import {
 } from "./memory.js";
 import { JOB_LABELS, JOB_MARKS, jobsForArtifact } from "./model-jobs.js";
 import { _modelBenchKey, fetchPickerBenchBatch, repoOnlyWords, serverBenchCache } from "./model-meta.js";
-import { _trCachedModels, _trClientCpu, formOnControllerMachine } from "./remote-cells.js";
+import { _trCachedModels, _trClientCpu, formConfigOf } from "./remote-cells.js";
+import { ModelRating } from "./model-rating.js";
 import { state, topology } from "./state.js";
-import { $, api, escapeHtml, formatBool, formatCtxTokens, toast } from "./utils.js";
+import { $, api, escapeHtml, formatCtxTokens, toast } from "./utils.js";
 import { DraftFile } from "./draft-file.js";
 
 export function syncToggleLabel(input) {
@@ -68,12 +71,10 @@ export function syncCompanionMuting(pfx = "") {
     draftWrap.classList.toggle("is-muted", !specOn);
 }
 
+// A box of a config: what it says, or unsaid, the optional toggles' default — CellFields' rule (cell-plan.js), which the
+// machine page reads a stored config by.
 export function toggleChecked(field, config = state.config) {
-  const value = config?.[field];
-  if (value === undefined || value === null || String(value).trim() === "") {
-    return defaultOnOptionalToggles.includes(field);
-  }
-  return formatBool(value);
+  return CellFields.toggle(field, config);
 }
 
 export function syncAllToggleLabels(pfx = "") {
@@ -221,6 +222,16 @@ export function toggleYarnMode(pfx) {
 
 export function modelsByPath() {
   return new Map((state.models || []).map((row) => [row.path, row]));
+}
+
+// The most the form's model takes: the window it was trained for, from the library's list — a GGUF's header (ggufMeta) or a
+// checkpoint's config (contextLength) — of the field its runner reads the model from (MODEL_FILE, vLLM's VLLM_MODEL); 0 when
+// the list does not know the model. A field a window is typed into shows it as its placeholder, whatever the field holds (the
+// owner, 2026-10-26: "always the most the model supports"), and an empty one asks for it (AskedWindow).
+export function modelWindowFor(pfx) {
+  const field = runnerRegistry().find((r) => r.id === effectiveRunnerId(pfx))?.modelField || "MODEL_FILE";
+  const row = modelsByPath().get(($(pfx + field)?.value || "").trim());
+  return AskedWindow.positive(row?.ggufMeta?.contextLength ?? row?.contextLength) || 0;
 }
 
 export function isQwenModelPath(path) {
@@ -604,8 +615,9 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         : jobChips(jobsForArtifact(item.kind, item.sttVariant, item.stArch, item.detectedFamily));
       el.innerHTML = `
         <div class="mc-item-main">
-          ${jobHtml}${runnerIcons}<span class="mc-item-name">${escapeHtml(fname)}</span>
+          ${jobHtml}${runnerIcons}<span class="mc-item-name">${escapeHtml(fname)}</span>${ModelRating.markHtml(item.rating, t)}
           ${item.sizeLabel ? `<span class="mc-item-size">${escapeHtml(item.sizeLabel)}</span>` : item.sizeGb ? `<span class="mc-item-size">${item.sizeGb} GB</span>` : ""}
+          ${item.window ? `<span class="mc-item-ctx" title="${escapeHtml(t("mdlWindowTip"))}">${escapeHtml(t("mcWindow", { n: Number(item.window).toLocaleString("en-US") }))}</span>` : ""}
           ${badges}
           ${dateStr ? `<span class="mc-item-date" title="${t("addedOnDisk")}">${dateStr}</span>` : ""}
         </div>
@@ -629,10 +641,13 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
 export function modelChoiceOf(pfx = "") {
   const modelEl = $(pfx + "MODEL_FILE");
   if (modelEl?.dataset?.pickPending === "1") return { model: "", mmproj: "", draft: "" };
+  // The config this form was opened on, not the controller's: a cell with an empty field read as the controller's default model, the
+  // list jumped to it on the next redraw, and Apply kept it, so that a start copied a file nobody asked for (the owner's check, 2026-11-01).
+  const config = formConfigOf(pfx) || state.config;
   return {
-    model: modelEl?.value || state.config.MODEL_FILE || "",
-    mmproj: $(pfx + "MMPROJ_FILE")?.value || state.config.MMPROJ_FILE || "",
-    draft: $(pfx + "SPEC_DRAFT_MODEL_FILE")?.value || state.config.SPEC_DRAFT_MODEL_FILE || "",
+    model: modelEl?.value || config.MODEL_FILE || "",
+    mmproj: $(pfx + "MMPROJ_FILE")?.value || config.MMPROJ_FILE || "",
+    draft: $(pfx + "SPEC_DRAFT_MODEL_FILE")?.value || config.SPEC_DRAFT_MODEL_FILE || "",
   };
 }
 
@@ -672,6 +687,139 @@ export class ModelCompanions {
   }
 }
 
+/**
+ * The models a cell's form offers (`pfx`): the library's GGUF files (a split one as its first part), the safetensors
+ * folders, whisper's sizes, moonshine's languages and NLLB's checkpoints — one list for the picker's rows and for the
+ * new-cell wizard (add-model.js), so the wizard offers exactly what the form can save. Each item says its kind, its size
+ * and, where the model states it, the window its weights were trained with (`window`: a GGUF's header, a folder's
+ * config.json; absent where nothing states one). What only the picker draws — its bench scores, which rows the current
+ * runner cannot launch, the field's own value missing from the list — stays with the picker.
+ */
+export class ModelChoices {
+  static window(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  static items(pfx = "", models = state.models || []) {
+    // A later part of a split GGUF is not a choice: an engine loads the first
+    // part and opens the rest beside it, and a scout brings them with it. Listed,
+    // Strata's second part sat in the picker as a llama.cpp model of its own.
+    const laterPart = (path) => (ModelCopy.part(path)?.index || 0) > 1;
+    const modelItems = models
+      .filter((row) => row.kind === "model" && !laterPart(row.path))
+      .map((row) => ({
+        value: row.path,
+        sizeGb: row.sizeGb,
+        rating: ModelRating.ofPath(topology?.modelRatings, row.path),
+        // A split model is ONE choice, its first part, and says how big the whole is and how many parts it has: "93.68 GB ×3". A
+        // part the list did not find is said too ("×2/3"): that model cannot start, and it must not look whole.
+        sizeLabel: row.parts > 1
+          ? `${row.sizeGb} GB ×${Number(row.partsFound) < Number(row.parts) ? `${row.partsFound}/` : ""}${row.parts}` : undefined,
+        mtime: row.mtime,
+        kind: row.kind,
+        capability: row.capability,
+        suggestedMmproj: row.suggestedMmproj,
+        suggestedDraft: row.suggestedDraft,
+        hasMtpBuiltin: row.hasMtpBuiltin,
+        detectedFamily: row.detectedFamily,
+        familyDefaults: row.familyDefaults,
+        // Speech weights, straight from the file's own stt.* metadata — the only
+        // thing that separates the recognizer from forty chat models that look
+        // exactly like it in a list of filenames.
+        sttVariant: (row.ggufMeta || {}).sttVariant || "",
+        // The file's architecture: a runner may claim it (ggufKind) — Strata's.
+        ggufArch: (row.ggufMeta || {}).architecture || "",
+        langs: (row.ggufMeta || {}).languages || [],
+        // The window the weights were trained with, as the file's header states it.
+        window: ModelChoices.window((row.ggufMeta || {}).contextLength),
+        cached: pfx === "tr-" && _trCachedModels.has(row.path),
+        // A file only a library holds: offered like any other — the cell can
+        // start from there — but it says where it is.
+        libraryOnly: !!row.libraryOnly,
+        store: row.store || null,
+      }));
+    // Safetensors artifacts (vLLM and the like launch them), on every machine: a scout brings a model through
+    // the controller, or shows it, by its place among the models. Offered only with a share mounted, a cell
+    // on a machine with none could read no checkpoint (the owner, 2026-11-02: the share is optional).
+    (state.artifacts || [])
+      .forEach((row) => modelItems.push({
+        value: row.path,
+        sizeGb: row.sizeGb,
+        rating: ModelRating.ofPath(topology?.modelRatings, row.path),
+        mtime: row.mtime,
+        kind: "st",
+        stName: row.name,
+        stFormat: row.format,
+        stArch: row.arch || "",
+        // As the folder's config.json states it (models.py checkpoint_facts).
+        window: ModelChoices.window(row.contextLength),
+      }));
+    // Whisper models join the same picker (🎙) on EVERY form: the "model" is a
+    // size name and faster-whisper downloads it on the target host itself.
+    // Dimming marks sizes missing from the CONTROLLER's disk — client (tr-)
+    // caches are unknown here, so their rows never dim.
+    {
+      const have = new Set(state.whisperOnDisk || []);
+      [["tiny", "75 MB"], ["base", "145 MB"], ["small", "480 MB"], ["medium", "1.5 GB"],
+       ["large-v3", "3 GB"], ["large-v3-turbo", "1.6 GB"], ["distil-large-v3", "1.5 GB"]]
+        .forEach(([size, sizeLabel]) => modelItems.push({
+          value: `whisper/models--Systran--faster-whisper-${size}`,
+          kind: "whisper",
+          whSize: size,
+          sizeLabel,
+          whOnDisk: pfx === "tr-" || have.has(size),
+          mtime: 0,
+        }));
+    }
+    // Moonshine languages join the picker too (🌙): CPU-only STT, the model is a
+    // LANGUAGE code and downloads itself on the target host. en is MIT; the rest
+    // ship under the free Moonshine Community License — said right on the row.
+    {
+      [["en", "MIT · ~250 MB"], ["es", "Community license"], ["zh", "Community license"],
+       ["ja", "Community license"], ["ko", "Community license"], ["vi", "Community license"],
+       ["uk", "Community license"], ["ar", "Community license"]]
+        .forEach(([lang, sizeLabel]) => modelItems.push({
+          value: `moonshine/${lang}`,
+          kind: "moonshine",
+          msLang: lang,
+          sizeLabel,
+          whOnDisk: true,
+          mtime: 0,
+        }));
+    }
+    // NLLB checkpoints join the picker too (🔄). Same shape as whisper: the row
+    // is the model, the runner's own field carries the value, and the weights
+    // download themselves on the target host into <models>/translate. Sizes are
+    // the download, not the VRAM.
+    {
+      const have = new Set(state.translateOnDisk || []);
+      [["facebook/nllb-200-distilled-600M", "600M distilled", "2.5 GB"],
+       ["facebook/nllb-200-distilled-1.3B", "1.3B distilled", "5.5 GB"],
+       ["facebook/nllb-200-1.3B", "1.3B", "5.5 GB"],
+       ["facebook/nllb-200-3.3B", "3.3B", "17.6 GB"]]
+        .forEach(([repo, name, sizeLabel]) => modelItems.push({
+          value: `translate/models--${repo.replace("/", "--")}`,
+          kind: "translate",
+          trRepo: repo,
+          trName: name,
+          sizeLabel,
+          whOnDisk: pfx === "tr-" || have.has(repo),
+          mtime: 0,
+        }));
+      // A repo id the operator set by hand still gets a row, so the picker never
+      // shows a blank for a cell that has a model.
+      (state.translateOnDisk || []).forEach((repo) => {
+        const value = `translate/models--${repo.replace("/", "--")}`;
+        if (modelItems.some((i) => i.value === value)) return;
+        modelItems.push({ value, kind: "translate", trRepo: repo,
+                          trName: repo.split("/").pop(), whOnDisk: true, mtime: 0 });
+      });
+    }
+    return modelItems;
+  }
+}
+
 export function renderModelSelects(pfx = "") {
   if (!drawModelPickers(pfx)) return;
   renderChatTemplateOptions(pfx);
@@ -701,125 +849,8 @@ function drawModelPickers(pfx = "") {
   makeModelCombobox(mmprojEl);
   if (draftEl) makeModelCombobox(draftEl);
 
-  // Model items
-  // A later part of a split GGUF is not a choice: an engine loads the first
-  // part and opens the rest beside it, and a scout brings them with it. Listed,
-  // Strata's second part sat in the picker as a llama.cpp model of its own.
-  const laterPart = (path) => {
-    const m = /-(\d{5})-of-\d{5}\.gguf$/i.exec(String(path || ""));
-    return !!m && Number(m[1]) > 1;
-  };
-  const modelItems = models
-    .filter((row) => row.kind === "model" && !laterPart(row.path))
-    .map((row) => ({
-      value: row.path,
-      sizeGb: row.sizeGb,
-      // A split model is ONE choice, its first part, and says how big the whole is and how many parts it has: "93.68 GB ×3". A
-      // part the list did not find is said too ("×2/3"): that model cannot start, and it must not look whole.
-      sizeLabel: row.parts > 1
-        ? `${row.sizeGb} GB ×${Number(row.partsFound) < Number(row.parts) ? `${row.partsFound}/` : ""}${row.parts}` : undefined,
-      mtime: row.mtime,
-      kind: row.kind,
-      capability: row.capability,
-      suggestedMmproj: row.suggestedMmproj,
-      suggestedDraft: row.suggestedDraft,
-      hasMtpBuiltin: row.hasMtpBuiltin,
-      detectedFamily: row.detectedFamily,
-      familyDefaults: row.familyDefaults,
-      // Speech weights, straight from the file's own stt.* metadata — the only
-      // thing that separates the recognizer from forty chat models that look
-      // exactly like it in a list of filenames.
-      sttVariant: (row.ggufMeta || {}).sttVariant || "",
-      // The file's architecture: a runner may claim it (ggufKind) — Strata's.
-      ggufArch: (row.ggufMeta || {}).architecture || "",
-      langs: (row.ggufMeta || {}).languages || [],
-      cached: pfx === "tr-" && _trCachedModels.has(row.path),
-      // A file only a library holds: offered like any other — the cell can
-      // start from there — but it says where it is.
-      libraryOnly: !!row.libraryOnly,
-      store: row.store || null,
-    }));
-  // Safetensors artifacts (vLLM launches them). Only where the target reads the
-  // controller's models tree (formOnControllerMachine): a vLLM cell elsewhere
-  // reads its folder by a path its machine does not have. A SeamlessM4T folder
-  // is the exception since scout 2.30: the scout brings a seamless cell's
-  // folder through the controller (GET /api/models/folder), and with the
-  // controller on the NAS no form is on its machine — the folder was never
-  // offered anywhere.
-  {
-    const everywhere = formOnControllerMachine(pfx);
-    (state.artifacts || []).filter((row) => everywhere || stOwner(row.arch))
-      .forEach((row) => modelItems.push({
-        value: row.path,
-        sizeGb: row.sizeGb,
-        mtime: row.mtime,
-        kind: "st",
-        stName: row.name,
-        stFormat: row.format,
-        stArch: row.arch || "",
-      }));
-  }
-  // Whisper models join the same picker (🎙) on EVERY form: the "model" is a
-  // size name and faster-whisper downloads it on the target host itself.
-  // Dimming marks sizes missing from the CONTROLLER's disk — client (tr-)
-  // caches are unknown here, so their rows never dim.
-  {
-    const have = new Set(state.whisperOnDisk || []);
-    [["tiny", "75 MB"], ["base", "145 MB"], ["small", "480 MB"], ["medium", "1.5 GB"],
-     ["large-v3", "3 GB"], ["large-v3-turbo", "1.6 GB"], ["distil-large-v3", "1.5 GB"]]
-      .forEach(([size, sizeLabel]) => modelItems.push({
-        value: `whisper/models--Systran--faster-whisper-${size}`,
-        kind: "whisper",
-        whSize: size,
-        sizeLabel,
-        whOnDisk: pfx === "tr-" || have.has(size),
-        mtime: 0,
-      }));
-  }
-  // Moonshine languages join the picker too (🌙): CPU-only STT, the model is a
-  // LANGUAGE code and downloads itself on the target host. en is MIT; the rest
-  // ship under the free Moonshine Community License — said right on the row.
-  {
-    [["en", "MIT · ~250 MB"], ["es", "Community license"], ["zh", "Community license"],
-     ["ja", "Community license"], ["ko", "Community license"], ["vi", "Community license"],
-     ["uk", "Community license"], ["ar", "Community license"]]
-      .forEach(([lang, sizeLabel]) => modelItems.push({
-        value: `moonshine/${lang}`,
-        kind: "moonshine",
-        msLang: lang,
-        sizeLabel,
-        whOnDisk: true,
-        mtime: 0,
-      }));
-  }
-  // NLLB checkpoints join the picker too (🔄). Same shape as whisper: the row
-  // is the model, the runner's own field carries the value, and the weights
-  // download themselves on the target host into <models>/translate. Sizes are
-  // the download, not the VRAM.
-  {
-    const have = new Set(state.translateOnDisk || []);
-    [["facebook/nllb-200-distilled-600M", "600M distilled", "2.5 GB"],
-     ["facebook/nllb-200-distilled-1.3B", "1.3B distilled", "5.5 GB"],
-     ["facebook/nllb-200-1.3B", "1.3B", "5.5 GB"],
-     ["facebook/nllb-200-3.3B", "3.3B", "17.6 GB"]]
-      .forEach(([repo, name, sizeLabel]) => modelItems.push({
-        value: `translate/models--${repo.replace("/", "--")}`,
-        kind: "translate",
-        trRepo: repo,
-        trName: name,
-        sizeLabel,
-        whOnDisk: pfx === "tr-" || have.has(repo),
-        mtime: 0,
-      }));
-    // A repo id the operator set by hand still gets a row, so the picker never
-    // shows a blank for a cell that has a model.
-    (state.translateOnDisk || []).forEach((repo) => {
-      const value = `translate/models--${repo.replace("/", "--")}`;
-      if (modelItems.some((i) => i.value === value)) return;
-      modelItems.push({ value, kind: "translate", trRepo: repo,
-                        trName: repo.split("/").pop(), whOnDisk: true, mtime: 0 });
-    });
-  }
+  // Model items: the choices of this form (ModelChoices), the picker's own marks on top.
+  const modelItems = ModelChoices.items(pfx, models);
   if (currentModel && !modelItems.find((i) => i.value === currentModel)) {
     modelItems.unshift({ value: currentModel, kind: "model", label: currentModel, missing: true });
   }
@@ -952,7 +983,7 @@ export function renderChatTemplateHint(pfx = "") {
 
 // allowEmpty: draw the pool bar even with nothing to estimate (a custom command
 // is an opaque process — its host still has a use/free picture worth seeing).
-// hard, cards, vramNote: a start with an exact rule (memory.js FreeVramStart) —
+// hard, cards, vramNote: a start with an exact rule (placement.js FreeVramStart) —
 // it overflows at the first MiB short, not past the 1 GB grace an estimate gets;
 // it lands on these cards alone; and the VRAM pool says how it takes memory.
 // ramPlan (ram-plan.js RamPlan): a runner that keeps its weights in the machine's
@@ -1375,6 +1406,25 @@ export function renderField(field, pfx = "") {
 }
 
 /**
+ * The alias a cell's model gets while the operator gives none — what its server answers with and, unless the
+ * operator names the model, what the machine's entry lists it by (caravan-scout, entry.ModelName). The model's own
+ * name, in lower case: a GGUF file without `.gguf` and without the part a split adds; a safetensors artifact by its
+ * model folder, not by the format folder its path ends in ("nvfp4"); a folder of HF's cache by its repository's name —
+ * `models--Systran--faster-whisper-large-v3-turbo` is how HF lays its files out, not the model's name, and it stood
+ * in the machine's list of models as one (2026-10-25).
+ */
+export class ModelAlias {
+  static HF_CACHE = /^models--[^/]+?--(.+)$/;
+
+  static of(path, artifact) {
+    if (artifact) return String(artifact.name || "").toLowerCase();
+    const last = String(path || "").split("/").pop().replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "");
+    const cached = ModelAlias.HF_CACHE.exec(last);
+    return (cached ? cached[1] : last).toLowerCase();
+  }
+}
+
+/**
  * Prefixed version — works for any form prefix (e.g. "tr-" for remote modal).
  * Always rewrites all companion fields to match the selected model, then draws
  * the previews from them (renderCellPreviews) — writing the fields and drawing
@@ -1394,13 +1444,7 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   if (aliasEl && modelVal) {
     const cur = aliasEl.value.trim();
     if (opts.aliasFollow || !cur || cur === aliasEl.dataset.autoAlias) {
-      // Safetensors artifact paths end in a FORMAT folder — the alias should be
-      // the model folder (first segment), not "nvfp4".
-      const stRow = (state.artifacts || []).find((a) => a.path === modelVal);
-      const derived = stRow
-        ? stRow.name.toLowerCase()
-        : modelVal.split("/").pop()
-            .replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "").toLowerCase();
+      const derived = ModelAlias.of(modelVal, (state.artifacts || []).find((a) => a.path === modelVal));
       aliasEl.value = derived;
       aliasEl.dataset.autoAlias = derived;
     }
@@ -1774,15 +1818,22 @@ export function readConfigForm(pfx = "") {
   // The model's name at the machine's entry (1.3.507): every runner's, not a flag of any.
   config.MODEL_NAME = ($(pfx + "MODEL_NAME")?.value || "").trim();
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
+   "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "CPU_OFFLOAD_GB", "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
    "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
    "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
-   "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS"].forEach((k) => {
+   "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS", "TTS_ENGINE"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });
+  // The page a cell serves itself: kept only by a runner that serves one (its registry row's `page`) — another
+  // runner's cell keeps no address of a page it has not.
+  const pageField = (runnerRegistry().find((r) => r.id === config.RUNNER) || {}).page?.field || "";
+  config.PAGE_URL = pageField === "PAGE_URL" ? ($(pfx + "PAGE_URL")?.value || "").trim() : "";
   // vLLM's --trust-remote-code: "1" when ticked, "" when not (a cell of another runner keeps no stray "0").
   config.TRUST_REMOTE_CODE = $(pfx + "TRUST_REMOTE_CODE")?.checked ? "1" : "";
-  if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine") {
+  // A runner that ignores the model picker keeps no file of it either: a voice-clone cell names its engine.
+  const ignoresPicker = (runnerRegistry().find((r) => r.id === config.RUNNER) || {}).sharedPicker === "ignored";
+  if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine"
+      || ignoresPicker) {
     // Not a llama-server — don't carry a stale model/mmproj/draft into the slot.
     config.MODEL_FILE = "";
     config.MMPROJ_FILE = "";

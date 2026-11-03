@@ -1,0 +1,17 @@
+{
+  "cases": [
+    {"method": "POST", "path": "/v1/chat/completions", "inference": true, "chat": true},
+    {"method": "post", "path": "/v1/chat/completions/", "inference": true, "chat": true},
+    {"method": "POST", "path": "/v1/chat/completions?x=1", "inference": true, "chat": true},
+    {"method": "GET", "path": "/v1/chat/completions", "inference": false, "chat": true},
+    {"method": "POST", "path": "/v1/responses", "inference": true, "chat": true},
+    {"method": "POST", "path": "/v1/completions", "inference": true, "chat": false},
+    {"method": "POST", "path": "/v1/embeddings", "inference": true, "chat": false},
+    {"method": "POST", "path": "/v1/audio/transcriptions", "inference": true, "chat": false},
+    {"method": "POST", "path": "/robot/predict", "inference": true, "chat": false},
+    {"method": "POST", "path": "/api/show", "inference": false, "chat": false},
+    {"method": "GET", "path": "/v1/models", "inference": false, "chat": false},
+    {"method": "POST", "path": "", "inference": false, "chat": false},
+    {"method": "POST", "path": "/", "inference": false, "chat": false}
+  ]
+}

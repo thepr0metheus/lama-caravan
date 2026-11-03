@@ -25,13 +25,13 @@ export class OutputCells {
     stopping: "stopping",
     error: "failed", broken: "failed",
   };
-  // An engine's state (caravan/domain/engine.py) → the same words. A model of a running engine
+  // An engine's state (rust/crates/admin/src/domain/engine.rs) → the same words. A model of a running engine
   // is served: the engine loads it on the first request.
   static ENGINE = { ok: "running", stopped: "stopped", auth: "failed", unreachable: "failed" };
   // A model of a machine's entry (its scout, 1.3.506): the scout's own words, the same four.
   static MACHINE = { running: "running", starting: "starting", failed: "failed", stopped: "stopped" };
   // The outputs whose port serves many models, each named in the request: an engine's and a
-  // machine's entry (caravan/common/upstream_types.py, NAMED). A model is told by its output's id.
+  // machine's entry (rust/crates/rules/src/upstream_type.rs, NAMED). A model is told by its output's id.
   static NAMED = new Set(["engine", "machine"]);
   // The word a row says beside its name (i18n keys). A running row says none — its dot speaks.
   static WORDS = { stopped: "stopped", starting: "starting", stopping: "rtCellStopping", failed: "failed", unknown: "unknown" };
@@ -51,7 +51,7 @@ export class OutputCells {
   }
 
   // The queue a local output's requests stand in, as the proxy names it on each request
-  // (caravan/proxy/capacity.py route_group_key — the twin pinned by scripts/test_machine_models.py):
+  // (rust/crates/proxy/src/places.rs route_group_key):
   // "host:port" for a cell or an engine, "host:port/model" for a model of a machine's entry — its
   // port serves every model of the machine, each with places of its own (1.3.506).
   static upstream(out) {

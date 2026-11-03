@@ -1,0 +1,482 @@
+[
+ {
+  "method": "GET",
+  "path": "/",
+  "summary": "The scout's page: this machine's address for the controller's board",
+  "description": "HTML, read-only since 2.1: the machine, whether a controller has paired it, and the address:port to enter on the controller's board.",
+  "tag": "meta",
+  "page": true
+ },
+ {
+  "method": "GET",
+  "path": "/index.html",
+  "summary": "The scout's page: this machine's address for the controller's board",
+  "description": "HTML, read-only since 2.1: the machine, whether a controller has paired it, and the address:port to enter on the controller's board.",
+  "tag": "meta",
+  "page": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/pairing",
+  "summary": "What the page shows: this machine and whether a controller has paired it",
+  "description": "Host id, name and IP, the scout's port, platform, GPU names, cells running and total, `controllerUrl`, `tokenRequired` and the heartbeat `{state, lastAt, error}` (`state` is `unpaired` until a controller adds the scout) — never the controller's reply. The controller reads it first when the operator adds the scout.",
+  "tag": "pairing",
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/api/health",
+  "summary": "Liveness: service, version, whether a fleet token is required, time",
+  "description": "`{ok, service, version, tokenRequired, time}`.",
+  "tag": "meta",
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/openapi.json",
+  "summary": "This description of the API, as OpenAPI 3.1",
+  "description": "Written from the table the scout answers by, so it cannot drift from what the scout does; the endpoint tables of docs/http-api.md are written from the same table. `info.version` is the version /api/health names.",
+  "tag": "meta",
+  "public": true
+ },
+ {
+  "method": "GET",
+  "path": "/v1/models",
+  "summary": "This machine's models, by OpenAI's API",
+  "description": "`{object: \"list\", data: [{id, object: \"model\", created, owned_by, caravan: {state, slots, busy, copies: [{port, state, slots, busy}]}}]}`: every cell the scout runs, starts or keeps a start request for, and every one the controller keeps for this machine, a stopped one as stopped (2.37) — by its model's name: the name its operator gave (`MODEL_NAME`), else the cell's `ALIAS`, else one made of its model (a folder of HF's cache by its repository) — two cells of one model on one runner are its copies, one name on two runners is two models `<name>@<runner>` (2.39). `state`: running, starting, failed, stopped; a model's is the best of its copies'. `slots`, `busy` — how many requests a running copy takes at once (/props `total_slots`) and works on now (/metrics); a model's are its running copies' sums, 0 when none runs, null when one does not say (2.29+). `created` — when its first copy started, 0 for none; `owned_by` — this machine's host id. What a model does (`architecture`) is not said: that is the controller's vocabulary.",
+  "tag": "entry",
+  "entry": true
+ },
+ {
+  "method": "GET",
+  "path": "/v1/models/{model}",
+  "summary": "One model of this machine, by OpenAI's API",
+  "description": "The model as the list has it; 404 `model_not_found` in OpenAI's error shape for a name no cell has.",
+  "tag": "entry",
+  "entry": true,
+  "params": {
+   "model": "The model's name as the list has it, URL-encoded."
+  }
+ },
+ {
+  "method": "POST",
+  "path": "/v1/{path}",
+  "summary": "A request by OpenAI's API, handed to a running copy of its model",
+  "description": "`model` of a JSON body, or the form field `model` of a multipart one (a recording), names the model; the request goes to its running copy with the fewest requests in work — as it came, but for one hop's headers, the client's `Authorization`, and `model` in the cell's own words when its server answers to other names (vLLM refuses a name it does not serve) — and the answer comes back as it came, a stream as a stream. The body is read whole first, by its length or its chunks. Refusals in OpenAI's shape: no `model`, or a body that cannot be read — 400; no such model — 404 `model_not_found`; none of its copies running — 503 `model_not_running`; the cell not answering — 502 `cell_unreachable`; a body over 256 MiB — 413.",
+  "tag": "entry",
+  "body_more": true,
+  "entry": true,
+  "body": [
+   "model"
+  ],
+  "params": {
+   "path": "The rest of the path under /v1, slashes and all: chat/completions, embeddings, audio/transcriptions… — the cell gets it as it came."
+  }
+ },
+ {
+  "method": "GET",
+  "path": "/api/state",
+  "summary": "The machine as a whole: hardware, cells, engines, llama.cpp build, driver",
+  "description": "The machine: host identity/IP, GPUs, CPU/RAM, compute apps (`[{gpuUuid, pid, name, usedMiB}]` — `name` is the process's executable, \"\" when nvidia-smi cannot name it, 2.12+), `engines` — the model engines on this machine that are not its cells (2.12+, below), heartbeat status, llama.cpp build and update status (`llamaUpdate`), the scout's own version (`scoutVersion`), per-cell `llamaNodes` (a running cell's `promptTps`, `genTps` and `requestsProcessing` from its /metrics, or `noMetrics: true` when its server answers it keeps none — 404, 501: llama.cpp started without --metrics, 2.41+ — llama.cpp/Prism speeds from gauges or token/compute-time counters, retained while idle (2.23.2+); a vLLM cell's also `requestsWaiting`, and its rates from its token counters, 2.7+; a Strata cell's, asked for Prometheus text, the running request's own speeds while it works and the last measured ones while it idles, with `requestsWaiting` and `ctxUsed`, 2.35.1+; a cell copying its model says `downloadedBytes` of `totalBytes` of `downloadingFile`, and `downloadBytesPerSec` — how fast, over the copy's last seconds, null while not measured, 2.42+; a running cell says `readBytes` — what its processes have read, the larger of rchar and read_bytes of each, summed — `readBytesPerSec` over the run's last seconds and `modelBytes`, what its files weigh, measured by its start; null each while not known, 2.43+; `listening` — whether a running cell's port listens on this machine yet, and while it does not, `startingTail`, the last lines of its log, 2.7+; `launchDiskNewer` — the roles (`model`, `mmproj`, `draft`) of the files a running cell holds that changed on disk after it started, so a restart would pick them up (a folder by its newest file), 2.11+; `ramBytes` — the memory a running cell's processes hold in RAM, their RSS in bytes (the server and everything it started), `null` when ps did not answer, 2.35+; a cell that crashed since it was last started by hand carries `crash: {count, at, reason, tail?, gaveUp?}`, 2.5+; `tail` — the last 8 lines of the crashed run's log, keys scrubbed, 2.6+), `autostart` — the ports that start with the machine, stopped ones too (2.4+), `autostartRequests` — the start request kept for each of them by port, `{config, modelPath, cacheModels}`, so a controller that did not start a cell keeps a record of it (2.26+), `entryModels` — the machine's models as `GET /v1/models` lists them, null when not known (2.28+), `driver` — the NVIDIA driver as the next boot will meet it (2.19+, below), and `llamaSuspect` — `{suspect: false}` or the incident of cells crashing after a fresh llama.cpp build: `crashes15m`, `builtAt`, `currentCommit`, `firstSeenAt`, `lastSeenAt`, `restoreCandidate` (the archived build to offer, or null) (2.6+). The heartbeat pushes the same facts under the same names.",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/status",
+  "summary": "Every server cell of this machine with its state",
+  "description": "`{ok, nodes: [...]}`.",
+  "tag": "cells"
+ },
+ {
+  "method": "GET",
+  "path": "/api/monitor/nvidia-smi",
+  "summary": "A raw nvidia-smi snapshot for the controller's monitor drawer",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/monitor/btop",
+  "summary": "A btop frame and top's table, for the controller's monitor drawer",
+  "description": "(2.24+) `{kind, ok, frame, top, source, time}`: `frame` is what btop drew, terminal escapes and all (the controller renders it); `top` is `top -b`'s table, for when btop could not draw.",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/host/processes",
+  "summary": "The busiest processes on this machine, by CPU",
+  "description": "(2.24+) `{ok, processes: [{pid, name, user, cpuPct, memPct, rssMiB}], time}`, seven at most. `processes` is null when ps will not say — not an empty machine.",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/host/driver",
+  "summary": "The NVIDIA driver packages: running, installed, available, Secure Boot",
+  "description": "(2.24+) What the controller's driver panel decides from, read when asked: `{ok, running, runningError, installed: [{package, version}], available: [{package, version}], secureBoot, moduleLoaded, signedModules, signedModulesInstalled, rebootPending, rebootPendingPackages, kernel, checkedAt}`. `running` is the version in the kernel (nvidia-smi) and `installed` the packages (dpkg), newest first: right after an install they differ until a reboot, and `runningError` says why there is no running number.",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/host/driver/install-status",
+  "summary": "The driver install job: running, result, last 200 lines",
+  "description": "(2.24+)",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/host/listeners",
+  "summary": "TCP ports listening on this machine, and what owns each",
+  "description": "`{ok, ports: [{port, proc, pid, addrs}]}` — the controller's port picker. The owning process where the OS says; `addrs` (2.12+): the addresses the port is bound on (`127.0.0.1` only — this machine alone reaches it). `ss` on Linux, `lsof` where there is none (macOS, 2.12+); a tool that fails is `{ok: false, error}`, not an empty machine.",
+  "tag": "machine"
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/configs",
+  "summary": "Launch configs saved on this machine",
+  "description": "Stored in `llama-node-configs/`.",
+  "tag": "cells"
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/update-status",
+  "summary": "The llama.cpp update or restore job: running, result, last 200 lines",
+  "description": "Running or done, the return code, the last 200 lines.",
+  "tag": "llama.cpp"
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/builds",
+  "summary": "Archived llama.cpp builds on this machine, newest first",
+  "tag": "llama.cpp"
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/list-cache",
+  "summary": "What the local model cache holds",
+  "tag": "cells"
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/log",
+  "summary": "The last lines a cell's server wrote, and the runs there are to read",
+  "description": "(2.36+) `port` — the cell; `lines` — how many of the last (300 when not said, 2000 at most); `run` — an earlier run's log, by a name `runs` gives (the newest run when not said). `{ok, port, run, lines: [...], runs: [{name, bytes, modifiedAt}]}`, the newest run first; keys are scrubbed out of the lines as out of a crash's tail. `{ok: false, error}` for a port with no log here, or a name that is not one of its runs.",
+  "tag": "cells",
+  "query": [
+   "port",
+   "lines",
+   "run"
+  ]
+ },
+ {
+  "method": "GET",
+  "path": "/api/llama-node/cache",
+  "summary": "The model cache: the setting, what it holds, what the disk has left",
+  "description": "(2.34+) `{ok, keep, budgetBytes, dir, managedBytes, foreign: {files, bytes, folders: [{folder, files, bytes}]}, disk: {totalBytes, freeBytes} | null}`. `keep` is how many of the last started models the cache keeps (1 to 5, 1 until set); `budgetBytes` (2.38+) how much its models may take in all, null until set — then `keep` rules; `dir` (2.38+) the folder the cache is in; `managedBytes` is what this scout downloaded and still holds; `foreign` is what lies in the cache folder that it did not download — counted, never deleted by itself. `dirChosen` whether the operator chose that folder, `dirOwn` (2026-11-03) the folder it lies in by itself, where it goes back to when the chosen one is removed. `managedBytes` counts what the cache's cells made from its models (`.cells` there) as well. `work` (2026-11-03): the folder for Strata's files, a shelf of its own — `{dir, chosen, budgetBytes, budgetChosen}`, and while a folder is chosen `{bytes, modelsBytes, madeBytes, models: [{name, bytes}], disk: {totalBytes, freeBytes} | null, rotational}`: where it lies (`.strata` in the cache's folder while none is chosen, where nothing is written), whether the operator chose it, its limit — what its copies may take in all, 300 GiB until the operator chooses — the copies it keeps and what the cells made from them, up to eight copies biggest first, its disk, and whether that disk spins (an HDD), said only where the system says it. `moving` (2026-11-03) `{what: cache|work, to, doneBytes, totalBytes}` while a folder's files move, `moveError` the words of the last move that failed, until the next one. The same object rides both reports as `modelCache`.",
+  "tag": "cells"
+ },
+ {
+  "method": "GET",
+  "path": "/api/vllm",
+  "summary": "vLLM in this machine's venv: version, history, the install job",
+  "description": "(2.9+) In `~/vllm-venv`: `{ok, installed, version, venv, history: [{version, seenAt}], job}` — the version read from its dist-info folder, the versions the venv has had (newest first, five kept: the rollback candidates) and the install job, briefly.",
+  "tag": "vllm"
+ },
+ {
+  "method": "GET",
+  "path": "/api/vllm/update-status",
+  "summary": "The vLLM install job: running, result, last 200 lines",
+  "description": "(2.9+)",
+  "tag": "vllm"
+ },
+ {
+  "method": "GET",
+  "path": "/api/telemetry",
+  "summary": "The machine second by second: samples newer than a moment, for the board's charts",
+  "description": "(2.8+) Samples newer than `since` (epoch seconds; 0 or missing returns all that are kept) — `{t, gpus: [{index, memUsedMiB, memTotalMiB, utilPct, powerW, tempC}], cpuPct, ram}`. Ten minutes are kept, one sample a second while the machine is watched and one in ten seconds otherwise; each ask marks the machine watched for 30 s.",
+  "tag": "machine",
+  "query": [
+   "since"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/controller-url",
+  "summary": "Pair this machine with a controller: its address and the fleet token",
+  "description": "The controller calls it when the operator adds the scout on its board: `{url, token?}` → validates (`http[s]://`, scheme optional in the form), writes `controllerUrl` into `config.json` (atomic, preserves the rest of the file), updates the running scout and fires one heartbeat right away. Returns `{ok, controllerUrl, heartbeat}`; `heartbeat.state` is `error` if the controller did not answer (the URL is still saved). The fleet token may come in the body (`token`) instead of the header, since the pairing form has no header. A token regenerated on the controller passes without the one the scout holds when the address is the same controller's and that controller accepts a heartbeat carrying it; a different address still needs the token the scout holds.",
+  "tag": "pairing",
+  "own": true,
+  "body": [
+   "url",
+   "token"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/heartbeat",
+  "summary": "Send one heartbeat to the controller now",
+  "description": "The controller calls it when the Topology page opens.",
+  "tag": "pairing"
+ },
+ {
+  "method": "POST",
+  "path": "/api/unpair",
+  "summary": "Let go of the controller: its address and the fleet token leave config.json",
+  "description": "The ✕ on the machine's node on the board: `controllerUrl` and `controllerToken` leave `config.json`, the heartbeat stops (`state: unpaired`); the cells keep running. Token-gated like everything else, so only the scout's own controller can let go.",
+  "tag": "pairing"
+ },
+ {
+  "method": "POST",
+  "path": "/api/scout/update",
+  "summary": "Take a new release of the scout from the controller",
+  "description": "Body `{commit, sha256}`. Fetches `/scout/bundle.tar.gz` from this scout's controller, checks the sum and that the new program runs here, moves the link `current` to it, answers `{ok, commit, restarting}` and ends for the service to start the new one; the cells that run outlive it. 409 while a cell is on its way up or a job runs, or for a scout not installed as a release.",
+  "tag": "pairing"
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/start",
+  "summary": "Start a server cell: llama.cpp, vLLM or a command cell",
+  "description": "A llama cell needs the controller-built `args` (with `{{MODEL_PATH}}`-style placeholders), `port`, model file references to download and `cacheModels`. A command cell (`cellKind=command`) needs `shellLine` — the complete `bash -lc` sentence — plus `healthPath`, which is stored with the cell so re-adoption after a scout restart probes the right endpoint (a vLLM cell answers on `/v1/models`, not `/health`). Missing `args` or `shellLine` is refused with a version hint: this scout never assembles its own. `inPlace` (optional, 2.3+) maps each model path the cell is sent to where the controller reads that file — `{path, size}` for a file, `{path, dir: true}` for a folder, `library` when it is a library's: a file this machine has at that path with that size is read there (no copy, never deleted); a library's file it lacks is refused (409) naming what is missing, since a download cannot bring it; a folder it lacks is fetched file by file through the controller's `GET /api/models/folder` and `GET /api/models/download` (2.30+, before that refused). `vram` (optional, 2.7+) — `{device, reserveMiB, who, why, lower}`, what the cell reserves on a card the moment it starts (the controller's rule: vLLM takes utilization × the card): a command cell whose card has less free right now is refused before it runs, naming what holds THAT card and how much (2.33: the cells with a process on it, and any other process by its executable; not the cells of the other card), saying so when the card is too small for the reserve, and naming another card with the room when there is one. `ram` (optional, 2.32+) — `{reserveMiB, who, why}`, the memory a command cell keeps resident (Strata holds every expert in RAM): a start the machine's memory cannot hold — what the kernel says is available, and what the cells already up or still loading promised — is refused before it runs, naming the cells to stop. Since 2.32 a start for a port whose cell this scout lost track of (found by the mark in its environment, `CARAVAN_SCOUT_CELL`) holds that cell again and answers that a server already runs there, instead of starting a second copy beside it, and a port held by a process no scout started is refused with its pid and command line. `env` (optional, 2.8.1+) — `{NAME: value}` a llama cell's server starts with, over the scout's own environment: a CPU-only cell (`N_GPU_LAYERS` 0) gets `CUDA_VISIBLE_DEVICES=\"\"`, the environment the controller's start.sh exports; it is written into the cell's start.sh and kept for a restart after a crash. A name that is not a shell variable name, or a value that is not a string, is refused (400) before anything starts. Since 2.20 a command cell takes `env` too (it was dropped), and `env` may not name `CARAVAN_SCOUT_CELL` (400): the scout sets that marker itself, last. `modelFiles` (optional, 2.31+) — the model paths a command cell reads, as the controller's runner names them; without it, the config's `MODEL_FILE` alone. The first part of a split GGUF (`…-00001-of-00002.gguf`) brings its other parts, in the cache beside it or found beside it where it is read in place (409 when one is missing there). A command cell gets `CARAVAN_CELL_SCRATCH`, a folder for what it makes from its model: kept with its models, emptied at its start and removed at its stop when they are not kept (`cacheModels`, which a command cell obeys since 2.31). Async, a command cell's start too since 2.31 (it ran on the request, download included): returns `{status: \"starting\", phase: \"resolving\"}` immediately; progress is visible in `/api/llama-node/status` and the fast heartbeats.",
+  "tag": "cells",
+  "body_more": true,
+  "body": [
+   "port",
+   "args",
+   "cellKind",
+   "shellLine",
+   "healthPath",
+   "cacheModels",
+   "inPlace",
+   "vram",
+   "ram",
+   "env",
+   "modelFiles"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/autostart",
+  "summary": "Set whether a cell starts with the machine",
+  "description": "(2.4+) `{port, enabled, payload}`. On keeps `payload` — the very request `/api/llama-node/start` takes — and the scout starts the cell when its machine boots: on the first scout start of a boot only (the machine's boot id), so a scout update never brings back a cell the operator stopped. A start of an autostart cell refreshes the kept request. Off drops it. Answers `{ok, port, autostart: [ports]}`; 400 for a bad port or an on without a request.",
+  "tag": "cells",
+  "body": [
+   "port",
+   "enabled",
+   "payload"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/host/reboot",
+  "summary": "Reboot this machine",
+  "description": "`sudo -n systemctl reboot` or `poweroff`; needs passwordless sudo for it and says so when it is missing. Two paths, not a flag: poweroff cannot be undone from the board, and an old scout answers 404 to a path it does not have instead of doing the wrong one of the two.",
+  "tag": "machine"
+ },
+ {
+  "method": "POST",
+  "path": "/api/host/driver/install",
+  "summary": "Install an NVIDIA driver package",
+  "description": "(2.24+) `{package}` — `nvidia-driver-<N>` or `-open`, and one apt offers: 400 for another shape, 404 for a package apt does not have. Under Secure Boot the install carries the signed modules for the running kernel and removes the DKMS build in their way. `sudo -n apt-get`, so it needs passwordless sudo for it. One background job: 409 while it runs. The controller decides what to install and when.",
+  "tag": "machine",
+  "body": [
+   "package"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/host/poweroff",
+  "summary": "Power this machine off — nothing on the board can switch it back on",
+  "description": "`sudo -n systemctl reboot` or `poweroff`; needs passwordless sudo for it and says so when it is missing. Two paths, not a flag: poweroff cannot be undone from the board, and an old scout answers 404 to a path it does not have instead of doing the wrong one of the two.",
+  "tag": "machine"
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/stop",
+  "summary": "Stop one cell by its port, or every cell",
+  "description": "`{port}`, or no port for ALL cells. Drops the cell from the fleet view and the registry; purges cached models — files and, since 2.31, model folders — unless the cell had `cacheModels` (safe purge — never evicts a model a sibling cell still serves, nor a download still under way); a command cell's own `cacheModels` counts since 2.31 (it kept its models always), and its scratch folder goes with its models. A port still held by a process the scout lost track of is reclaimed only when it is recognisably ours (its marker or the llama-server binary); an unrecognised holder is named and left alone.",
+  "tag": "cells",
+  "body": [
+   "port"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/update",
+  "summary": "Start the llama.cpp update job (empty tag: the latest release)",
+  "description": "`{tag?}` — empty is the latest release; a commit works too. With `restoreId` in the body the same job restores an archived build instead of building. 409 while one runs.",
+  "tag": "llama.cpp",
+  "body": [
+   "tag",
+   "restoreId"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/vllm/update",
+  "summary": "Install another vLLM version into the machine's venv",
+  "description": "(2.9+) Into `~/vllm-venv`: `{version?}` — empty is the latest release (`pip install --upgrade vllm`), a version pins it (`vllm==X`; a rollback is an older pin). The current version goes into the history first. Its own background job, apart from the llama.cpp build's: 409 while one runs; 400 for a version that is not one, or when the venv does not exist yet (the first vLLM cell start provisions it). Running cells keep their vLLM until restarted.",
+  "tag": "vllm",
+  "body": [
+   "version"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/restore",
+  "summary": "Restore an archived llama.cpp build",
+  "description": "`{id}` — `restoreId` is read as an alias, and `id` wins when both are given. 400 \"build id is required\" without one: the update job would read an empty id as no restore and build the latest release instead. The same job as the update, so 409 while one runs.",
+  "tag": "llama.cpp",
+  "body": [
+   "id",
+   "restoreId"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/suspect-dismiss",
+  "summary": "Hide the \"fresh build, crashing cells\" banner for the current build",
+  "description": "(2.6+) A new build can raise it again.",
+  "tag": "llama.cpp"
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/purge-cache",
+  "summary": "Clear the model cache, never evicting a model a running cell serves",
+  "tag": "cells"
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/cache/keep",
+  "summary": "Set how many of the last started models the cache keeps, and trim it to that now",
+  "description": "(2.34+) `{keep}`, a whole number from 1 to 5 (400 for anything else) → `{ok, keep, removed, freedBytes, waiting}`. The cache keeps the files of the `keep` models that ran most recently, and of every cell that is starting or running whatever its age; the rest of what this scout downloaded is deleted — now, and after each start that reaches a running process. `waiting: true`: the scout knows no model that ran yet (it has just learned this), so nothing was deleted; the first start after that begins the trimming. The setting is kept in `state.json`.",
+  "tag": "cells",
+  "body": [
+   "keep"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/cache/budget",
+  "summary": "Set how much the cache's models may take in all, and trim it to that now",
+  "description": "(2.38+) `{budgetBytes}`, a whole number of bytes from 1 GiB up, or null to take it off (400 for anything else) → `{ok, budgetBytes, removed, freedBytes, waiting}`. The cache keeps the files of every cell that is starting or running, then the models that ran, newest first, as many as fit in the budget together with them; the rest of what this scout downloaded is deleted — now, and after each start that reaches a running process. Without a budget the cache keeps the last `keep` models. The setting is kept in `state.json`.",
+  "tag": "cells",
+  "body": [
+   "budgetBytes"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/cache/dir",
+  "summary": "Move the model cache to another folder",
+  "description": "(2.38+) `{path, how}`: an absolute folder, or none to go back to the folder the cache lies in by itself (`modelsBasePath`), and what happens to the files of the folder it leaves (2026-11-03). `how` \"move\": this scout's own files — what its record names, the record, and what the stopped cells made when the work folder follows the cache — are copied on a thread of their own, each under a name of its own until whole; the setting turns when every one is there, then the old ones go; a failure takes the copies back and leaves the old folder as it was. Answers `{ok, moving, dir, totalBytes, files}` at once; `moving` in the cache's report says how far, `moveError` why the last move failed. `how` \"delete\", or none: what this scout downloaded into the folder it leaves is deleted — every model of it is the controller's copy, and a start brings its model into the new folder — then the cache is there: `{ok, dir, removed, freedBytes}`. The folder is made when it is not. 400: no absolute path, the folder it is in now, a folder inside the old one or holding it or holding the cells' work folder, one that cannot be made or written to, going back with no folder chosen, a `how` that is neither word. 409 while a cell is bringing its model (resolving, downloading, loading) or a move is under way, and for a move onto a file of the same name or onto a disk without the room for it and 2 GB to spare; a cell that runs keeps running. While a move is under way, starts, Clear, Turn off and the deletion of foreign files are refused (409) and trims wait. The setting is kept in `state.json`, before `modelsBasePath` of `config.json`.",
+  "tag": "cells",
+  "body": [
+   "path",
+   "how"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/cache/work",
+  "summary": "Move the folder for Strata's files, or remove it",
+  "description": "(2026-11-03) `{path, how}`: an absolute folder, or none to remove the one chosen → `{ok, dir, chosen, removed, freedBytes}`, or `{ok, moving, dir, totalBytes, files}` for a move. It is a shelf of its own: a start the controller marks `workFolder` (Strata) keeps its models there — copied from the controller whether the cache is on or off, never read where the controller has them, kept after the stop up to the folder's limit (see `/api/llama-node/cache/work/budget`) — and gets `CARAVAN_CELL_SCRATCH` in `.cells` there: Strata's pack, its draft layer and its engine's log. `how` \"move\": the copies, their record and what the stopped cells made go with it, as the cache's files go (see `/api/llama-node/cache/dir`); \"delete\", none, and always when the folder is removed: they are deleted — a copy is the controller's file, and a start makes the rest again — and the scout's `.cells` there goes when nothing else lies in it; the folder itself and anything else in it stay. With none chosen a start marked `workFolder` is refused (409), and the controller starts no Strata cell. The setting is kept in `state.json`. 400: no absolute path, a folder in the cache's folder (its count would take the files for foreign ones), one that cannot be made or written to, removing when none is chosen, choosing the one chosen, a `how` that is neither word. 409 while a cell is bringing its model, a move is under way, or a running cell keeps its files or reads its model in the folder it leaves, the cells named.",
+  "tag": "cells",
+  "body": [
+   "path",
+   "how"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/cache/work/budget",
+  "summary": "Set how much the models in the folder for Strata's files may take in all",
+  "description": "(2026-11-03) `{budgetBytes}`, a whole number of bytes from 1 GiB up, or null for the folder's own 300 GiB (400 for anything else) → `{ok, budgetBytes, removed, freedBytes, waiting}`. The folder keeps the models of every Strata cell that is starting or running, then the models that ran, newest first, as many as fit in the limit together with them; the rest of what this scout copied there goes — now, and after each start that reaches a running process — with what the cells made from them. A copy that would take the folder over its limit makes room from the copies no cell uses, those not used for longest first; one that still does not fit is refused before a byte is copied, in words that name its size, the limit and what running cells hold. The setting is kept in `state.json`.",
+  "tag": "cells",
+  "body": [
+   "budgetBytes"
+  ]
+ },
+ {
+  "method": "POST",
+  "tag": "cells",
+  "body": [
+   "expectBytes"
+  ],
+  "path": "/api/llama-node/cache/off",
+  "summary": "Turn the model cache off or on on this machine",
+  "description": "`{off, library}`. Off, a model is read where the library lies on this machine, nothing lands on its disk, and what this scout downloaded goes, but for what a running cell holds: `library` names that folder, once; it may be named with the cache on too. Answers `{ok, off, library, removed, freedBytes}`. A start whose model is not there is refused in words. 400 for a folder that is not there, 409 while a cell is bringing its model."
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/cache/delete-foreign",
+  "summary": "Delete the files of the cache folder that this scout did not download",
+  "description": "(2.34+) `{expectBytes}`: the size the operator was shown (`modelCache.foreign.bytes`) → `{ok, removed, freedBytes}`. 409 when it is no longer the size (something came or went since: nothing is deleted), 400 without it. Files a running or starting cell holds stay. These files are not deleted by themselves — they were there before this scout kept a record, or came by another road, and the cache folder is a setting that can name a library.",
+  "tag": "cells",
+  "body": [
+   "expectBytes"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/llama-node/configs/delete",
+  "summary": "Delete a saved launch config by its filename",
+  "tag": "cells",
+  "body": [
+   "filename"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/engines/unload",
+  "summary": "Unload a model from Ollama or LM Studio",
+  "description": "(2.14+) `{kind, port, model}` — only an engine the last scan found and a model it listed and holds loaded (else 400/404/409 with the reason), one act per model at a time. Answered at once with `{ok, engines}`, the model carrying `action: {op, since}`; the act runs on a thread of its own, then the engines are scanned again. Ollama: `/api/generate` with `keep_alive: 0`. LM Studio 0.4+: `/api/v1/models/unload` for every loaded instance. A refusal stays on the model as `actionError: {op, error, at}` — the engine's own words — until the next act on it. There is no load (2.18): a cell in the engine loads its model when it starts.",
+  "tag": "engines",
+  "body": [
+   "kind",
+   "port",
+   "model"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/engines/delete",
+  "summary": "Delete a model from Ollama's disk",
+  "description": "(2.17) `{kind, port, model}` — Ollama only (`DELETE /api/delete`), on a thread of its own with `action: {op: \"delete\"}` on the model while it runs; a loaded model is refused (409: unload it first). LM Studio has no verb for it and does not say which files are a model's, so it does not offer it. Nothing is downloaded into an engine (2.22).",
+  "tag": "engines",
+  "body": [
+   "kind",
+   "port",
+   "model"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/engines/start",
+  "summary": "Start an engine's server (Ollama, LM Studio)",
+  "description": "(2.16) `{kind, port}` — a known server that is not running: a view of its own, `state: \"stopped\"`, `models: null`. Only what its view's `controls` offer. Answered at once with `{ok, engines}`, the engine carrying `serverAction`; the start waits up to 60 s for the server to answer, the stop up to 20 s for it to go quiet, then the engines are scanned again; what failed stays as `serverError`. Ollama: `ollama serve` with the binary and the `OLLAMA_*` / device variables of the run it was learned from, in a session of its own (a scout restart leaves it running), output in `engine-logs/ollama.log` next to the state; stopped with SIGTERM, and SIGKILL for it and its children after 10 s. LM Studio: `lms daemon up` + `lms server start -p <port> --bind <address>`; stopped with `lms daemon down` (`lms server stop` where no daemon runs). A server started here starts again when the machine boots (once per boot), until it is stopped here.",
+  "tag": "engines",
+  "body": [
+   "kind",
+   "port"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/engines/stop",
+  "summary": "Stop an engine's server (Ollama, LM Studio)",
+  "description": "(2.16) `{kind, port}` — a server this scout's user runs, when the scout knows how to start it again. Only what its view's `controls` offer. Answered at once with `{ok, engines}`, the engine carrying `serverAction`; the start waits up to 60 s for the server to answer, the stop up to 20 s for it to go quiet, then the engines are scanned again; what failed stays as `serverError`. Ollama: `ollama serve` with the binary and the `OLLAMA_*` / device variables of the run it was learned from, in a session of its own (a scout restart leaves it running), output in `engine-logs/ollama.log` next to the state; stopped with SIGTERM, and SIGKILL for it and its children after 10 s. LM Studio: `lms daemon up` + `lms server start -p <port> --bind <address>`; stopped with `lms daemon down` (`lms server stop` where no daemon runs). A server started here starts again when the machine boots (once per boot), until it is stopped here.",
+  "tag": "engines",
+  "body": [
+   "kind",
+   "port"
+  ]
+ },
+ {
+  "method": "POST",
+  "path": "/api/engines/keep-at-boot",
+  "summary": "An engine's server that runs now starts with the machine",
+  "description": "`{kind}` — what a controller gives back to a new scout: a server that already runs cannot be asked to start, and this says the same of the boots to come. It is not started, and an unknown kind is a 404.",
+  "tag": "engines",
+  "body": [
+   "kind"
+  ]
+ }
+]

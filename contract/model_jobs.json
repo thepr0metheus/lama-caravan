@@ -1,0 +1,612 @@
+{
+ "jobs": [
+  "llm",
+  "embed",
+  "asr",
+  "tts",
+  "translate",
+  "speech-translate",
+  "voice-chat",
+  "robot-policy"
+ ],
+ "artifacts": [
+  {
+   "name": "embed_gguf",
+   "kind": "model",
+   "sttVariant": "",
+   "arch": "",
+   "family": "embedding",
+   "jobs": [
+    "embed"
+   ],
+   "why": "positive: эмбеддинговая модель — ОТДЕЛЬНАЯ работа: она отдаёт векторы, а чат с той же ячейки llama.cpp не поднимет; первая версия правила звала её «LLM», и живая Qwen3-Embedding ходила по доске с 💬"
+  },
+  {
+   "name": "chat_gguf_family_blank",
+   "kind": "model",
+   "sttVariant": "",
+   "arch": "",
+   "family": "",
+   "jobs": [
+    "llm"
+   ],
+   "why": "negative: семейство не названо — обычная языковая модель, а не эмбеддинги по догадке"
+  },
+  {
+   "name": "chat_gguf",
+   "kind": "model",
+   "sttVariant": "",
+   "arch": "",
+   "family": "qwen",
+   "jobs": [
+    "llm"
+   ],
+   "why": "обычный gguf — LLM; и это СКАЗАНО, а не выведено из того, что про него молчат"
+  },
+  {
+   "name": "asr_gguf",
+   "kind": "model",
+   "sttVariant": "gigaam-rnnt",
+   "arch": "",
+   "family": "asr",
+   "jobs": [
+    "asr"
+   ],
+   "why": "тот же .gguf, но с речевыми метаданными — распознавание; расширение их не различает"
+  },
+  {
+   "name": "asr_gguf_whitespace_variant",
+   "kind": "model",
+   "sttVariant": "   ",
+   "arch": "",
+   "family": "",
+   "jobs": [
+    "llm"
+   ],
+   "why": "boundary: пробельный stt.variant — это НЕ речевые веса, а пустое поле"
+  },
+  {
+   "name": "safetensors_chat",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "qwen3",
+   "family": "",
+   "jobs": [
+    "llm"
+   ],
+   "why": "safetensors под vLLM — тоже LLM"
+  },
+  {
+   "name": "safetensors_seamless",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "seamless_m4t_v2",
+   "family": "",
+   "jobs": [
+    "speech-translate"
+   ],
+   "why": "positive: seamless — речь → перевод, ОТДЕЛЬНАЯ работа от распознавания: транскрипта он не отдаёт"
+  },
+  {
+   "name": "safetensors_gr00t",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "Gr00tN1d7",
+   "family": "",
+   "jobs": [
+    "robot-policy"
+   ],
+   "why": "positive: папка GR00T — действия робота, а не чат: её ответ — числа для робота, которых не прочтёт ни один чат-клиент"
+  },
+  {
+   "name": "safetensors_cosmos_backbone",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "qwen3_vl",
+   "family": "",
+   "jobs": [
+    "llm"
+   ],
+   "why": "negative: основа GR00T (Cosmos, qwen3_vl) — сама по себе чат-модель, не робот"
+  },
+  {
+   "name": "safetensors_personaplex",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "personaplex",
+   "family": "",
+   "jobs": [
+    "voice-chat"
+   ],
+   "why": "positive: PersonaPlex — голосовой собеседник (речь → речь), а не чат: чат-клиент из списка LLM получил бы WebSocket"
+  },
+  {
+   "name": "safetensors_lfm_audio_by_architecture",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "Lfm2AudioForConditionalGeneration",
+   "family": "",
+   "jobs": [
+    "tts"
+   ],
+   "why": "positive: LFM2.5-Audio без model_type в config.json — по первой из architectures; он говорит (text → speech), его ячейка сама называет tts"
+  },
+  {
+   "name": "safetensors_step_audio2",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "step_audio_2",
+   "family": "",
+   "jobs": [
+    "llm",
+    "voice-chat"
+   ],
+   "why": "positive: Step-Audio 2 отвечает и чатом, и голосом по OpenAI API: обе работы, в порядке словаря"
+  },
+  {
+   "name": "safetensors_qwen3_omni",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "qwen3_omni_moe",
+   "family": "",
+   "jobs": [
+    "llm",
+    "voice-chat"
+   ],
+   "why": "positive: Qwen3-Omni — то же: чат и голос"
+  },
+  {
+   "name": "safetensors_qwen3_family_stays_chat",
+   "kind": "st",
+   "sttVariant": "",
+   "arch": "qwen3_moe",
+   "family": "",
+   "jobs": [
+    "llm"
+   ],
+   "why": "negative: обычный Qwen3 MoE (без речи) остаётся чатом — голос только у архитектур с хозяином"
+  },
+  {
+   "name": "whisper_size",
+   "kind": "whisper",
+   "sttVariant": "",
+   "arch": "",
+   "family": "",
+   "jobs": [
+    "asr"
+   ],
+   "why": "whisper — распознавание, хотя «модель» тут это размер"
+  },
+  {
+   "name": "moonshine_lang",
+   "kind": "moonshine",
+   "sttVariant": "",
+   "arch": "",
+   "family": "",
+   "jobs": [
+    "asr",
+    "tts"
+   ],
+   "why": "moonshine делает ДВЕ работы — и распознаёт, и синтезирует: одна строка ≠ одна работа"
+  },
+  {
+   "name": "nllb_repo",
+   "kind": "translate",
+   "sttVariant": "",
+   "arch": "",
+   "family": "",
+   "jobs": [
+    "translate"
+   ],
+   "why": "NLLB — перевод текста в текст"
+  },
+  {
+   "name": "unknown_kind",
+   "kind": "sherpa",
+   "sttVariant": "",
+   "arch": "",
+   "family": "",
+   "jobs": [],
+   "why": "negative: неизвестный вид — НИЧЕГО, а не «llm» по умолчанию; выдуманная работа хуже названной"
+  },
+  {
+   "name": "empty_kind",
+   "kind": "",
+   "sttVariant": "",
+   "arch": "",
+   "family": "",
+   "jobs": [],
+   "why": "negative: пустой вид — тоже ничего"
+  }
+ ],
+ "cells": [
+  {
+   "name": "llama_cell",
+   "runner": "llama-server",
+   "kinds": [],
+   "jobs": [
+    "llm"
+   ],
+   "why": "раннер без живого отчёта — работа из таблицы раннеров"
+  },
+  {
+   "name": "vllm_cell",
+   "runner": "vllm",
+   "kinds": [],
+   "jobs": [
+    "llm"
+   ],
+   "why": "vLLM — тоже LLM"
+  },
+  {
+   "name": "strata_cell",
+   "runner": "strata",
+   "kinds": [],
+   "jobs": [
+    "llm"
+   ],
+   "why": "Strata — чат-модель (Qwen3.8-Flash-Next), тоже LLM"
+  },
+  {
+   "name": "gr00t_cell",
+   "runner": "gr00t",
+   "kinds": [],
+   "jobs": [
+    "robot-policy"
+   ],
+   "why": "GR00T без живого отчёта — действия робота по таблице раннеров"
+  },
+  {
+   "name": "gr00t_cell_dotted_kind",
+   "runner": "gr00t",
+   "kinds": [
+    "robot-policy",
+    "robot-policy.gr00t"
+   ],
+   "jobs": [
+    "robot-policy"
+   ],
+   "why": "живой отчёт ячейки GR00T: голое слово работы и уточнение движком — одна работа"
+  },
+  {
+   "name": "vla_alias",
+   "runner": "custom",
+   "kinds": [
+    "vla"
+   ],
+   "jobs": [
+    "robot-policy"
+   ],
+   "why": "«vla» (vision-language-action, как говорит поле) — то же слово, что robot-policy"
+  },
+  {
+   "name": "personaplex_cell",
+   "runner": "personaplex",
+   "kinds": [],
+   "jobs": [
+    "voice-chat"
+   ],
+   "why": "positive: PersonaPlex без живого отчёта (его сервер — не наш, отчёта нет) — голос по таблице раннеров"
+  },
+  {
+   "name": "minicpm_omni_cell",
+   "runner": "minicpm-omni",
+   "kinds": [],
+   "jobs": [
+    "voice-chat"
+   ],
+   "why": "positive: llama.cpp-omni — голос; чатом через вход не отвечает (WebSocket), поэтому llm у него нет"
+  },
+  {
+   "name": "step_audio2_cell",
+   "runner": "step-audio2",
+   "kinds": [],
+   "jobs": [
+    "llm",
+    "voice-chat"
+   ],
+   "why": "positive: ячейка Step-Audio 2 — чат и голос; чип чата рисуется первым"
+  },
+  {
+   "name": "qwen3_omni_cell",
+   "runner": "qwen3-omni",
+   "kinds": [],
+   "jobs": [
+    "llm",
+    "voice-chat"
+   ],
+   "why": "positive: ячейка Qwen3-Omni — чат и голос"
+  },
+  {
+   "name": "lfm_audio_cell_table",
+   "runner": "lfm-audio",
+   "kinds": [],
+   "jobs": [
+    "tts"
+   ],
+   "why": "LFM2.5-Audio без отчёта — «говорит», как сказано и в его сервере"
+  },
+  {
+   "name": "lfm_audio_cell_live",
+   "runner": "lfm-audio",
+   "kinds": [
+    "tts",
+    "tts.lfm-audio"
+   ],
+   "jobs": [
+    "tts"
+   ],
+   "why": "живой отчёт LFM — голое слово работы и уточнение движком: одна работа"
+  },
+  {
+   "name": "qwen3_tts_cell",
+   "runner": "qwen3-tts",
+   "kinds": [],
+   "jobs": [
+    "tts"
+   ],
+   "why": "positive: ячейка Qwen3-TTS — «говорит» по таблице раннеров (её сервер — не наш)"
+  },
+  {
+   "name": "voice_clone_cell_table",
+   "runner": "voice-clone",
+   "kinds": [],
+   "jobs": [
+    "tts"
+   ],
+   "why": "positive: клон голоса (1.3.611) без живого отчёта — «говорит» по таблице раннеров, как командные ячейки TTS до него не могли"
+  },
+  {
+   "name": "voice_clone_cell_live",
+   "runner": "voice-clone",
+   "kinds": [
+    "tts",
+    "tts.xtts"
+   ],
+   "jobs": [
+    "tts"
+   ],
+   "why": "живой отчёт клона голоса — работа и движок: одна работа"
+  },
+  {
+   "name": "voice_chat_said_by_a_custom_cell",
+   "runner": "custom",
+   "kinds": [
+    "voice-chat"
+   ],
+   "jobs": [
+    "voice-chat"
+   ],
+   "why": "positive: командная ячейка может назвать себя голосовой собеседницей сама — слово в словаре"
+  },
+  {
+   "name": "prism_cell",
+   "runner": "prism",
+   "kinds": [],
+   "jobs": [
+    "llm"
+   ],
+   "why": "defect-history: PrismML — LLM и на сервере: двойник в браузере говорил «llm», а сервер молчал"
+  },
+  {
+   "name": "whisper_cell_dotted_kind",
+   "runner": "whisper",
+   "kinds": [
+    "stt.whisper"
+   ],
+   "jobs": [
+    "asr"
+   ],
+   "why": "positive: «stt.whisper» читается по первому сегменту — движок в слове, а работа всё равно понятна"
+  },
+  {
+   "name": "transcribe_cell_bare_kind",
+   "runner": "transcribe",
+   "kinds": [
+    "asr"
+   ],
+   "jobs": [
+    "asr"
+   ],
+   "why": "…и голое «asr» из другой ячейки значит ТО ЖЕ САМОЕ — два написания одной работы"
+  },
+  {
+   "name": "moonshine_cell_two_jobs",
+   "runner": "moonshine",
+   "kinds": [
+    "asr",
+    "tts"
+   ],
+   "jobs": [
+    "asr",
+    "tts"
+   ],
+   "why": "две работы разом — обе и названы"
+  },
+  {
+   "name": "seamless_cell",
+   "runner": "seamless",
+   "kinds": [
+    "speech-translate"
+   ],
+   "jobs": [
+    "speech-translate"
+   ],
+   "why": "positive: seamless говорит про себя правду — речь → перевод"
+  },
+  {
+   "name": "custom_tts_cell_named_by_itself",
+   "runner": "custom",
+   "kinds": [
+    "tts"
+   ],
+   "jobs": [
+    "tts"
+   ],
+   "why": "positive: TTS живёт командной ячейкой, и назвать её работой может ТОЛЬКО её собственный отчёт"
+  },
+  {
+   "name": "custom_cell_silent",
+   "runner": "custom",
+   "kinds": [],
+   "jobs": [],
+   "why": "negative: командная ячейка молчит — работы не выдумываем: команду печатал человек, раннер про неё не знает"
+  },
+  {
+   "name": "live_kinds_outrank_the_table",
+   "runner": "whisper",
+   "kinds": [
+    "tts"
+   ],
+   "jobs": [
+    "tts"
+   ],
+   "why": "живой отчёт ПЕРЕВЕШИВАЕТ таблицу: ячейка знает про себя больше, чем ожидание от раннера"
+  },
+  {
+   "name": "unknown_kinds_fall_back_to_runner",
+   "runner": "whisper",
+   "kinds": [
+    "sorcery"
+   ],
+   "jobs": [
+    "asr"
+   ],
+   "why": "boundary: непонятное слово в kinds — не отчёт; падаем на таблицу раннера, а не показываем пусто"
+  },
+  {
+   "name": "unknown_runner_silent",
+   "runner": "sherpa",
+   "kinds": [],
+   "jobs": [],
+   "why": "negative: неизвестный раннер без отчёта — молчание, а не догадка"
+  },
+  {
+   "name": "kinds_order_is_the_vocabulary",
+   "runner": "custom",
+   "kinds": [
+    "tts",
+    "asr"
+   ],
+   "jobs": [
+    "asr",
+    "tts"
+   ],
+   "why": "порядок чипов задан словарём, а не порядком в отчёте: две ячейки с теми же работами рисуются одинаково"
+  }
+ ],
+ "records": [
+  {
+   "name": "llama_slot",
+   "config": {
+    "MODEL_FILE": "x.gguf"
+   },
+   "meta": {},
+   "runner": "llama-server",
+   "jobs": [
+    "llm"
+   ],
+   "why": "ячейка с настройками без RUNNER — llama-server, чат"
+  },
+  {
+   "name": "embedding_flag",
+   "config": {
+    "ENABLE_EMBEDDINGS": "1"
+   },
+   "meta": {},
+   "runner": "llama-server",
+   "jobs": [
+    "embed"
+   ],
+   "why": "флаг эмбеддингов — эмбеддинги, хотя раннер llama-server"
+  },
+  {
+   "name": "embedding_flag_off",
+   "config": {
+    "ENABLE_EMBEDDINGS": " Off "
+   },
+   "meta": {},
+   "runner": "llama-server",
+   "jobs": [
+    "llm"
+   ],
+   "why": "negative: флаг выключен словом off — снова чат"
+  },
+  {
+   "name": "command_tts",
+   "config": {
+    "CELL_KIND": "command"
+   },
+   "meta": {
+    "kinds": [
+     "tts.cosyvoice"
+    ]
+   },
+   "runner": "custom",
+   "jobs": [
+    "tts"
+   ],
+   "why": "ячейка-команда — раннер custom; голос узнаётся только по её собственным kinds"
+  },
+  {
+   "name": "command_silent",
+   "config": {
+    "CELL_KIND": "command"
+   },
+   "meta": {},
+   "runner": "custom",
+   "jobs": [],
+   "why": "negative: команда, которая о себе молчит, — работы нет, а не «llm»"
+  },
+  {
+   "name": "no_settings_asr",
+   "config": {},
+   "meta": {
+    "kinds": [
+     "asr"
+    ]
+   },
+   "runner": "llama-server",
+   "jobs": [
+    "asr"
+   ],
+   "why": "ячейка, сделанная другим контроллером, — то, что она говорит о себе"
+  },
+  {
+   "name": "no_settings_silent",
+   "config": {},
+   "meta": {},
+   "runner": "llama-server",
+   "jobs": [],
+   "why": "negative: без настроек и без слов — ничего: раннер по умолчанию был бы догадкой"
+  },
+  {
+   "name": "whisper_upper",
+   "config": {
+    "RUNNER": " Whisper "
+   },
+   "meta": {},
+   "runner": "whisper",
+   "jobs": [
+    "asr"
+   ],
+   "why": "RUNNER читается без регистра и пробелов"
+  },
+  {
+   "name": "seamless_kinds",
+   "config": {
+    "RUNNER": "seamless"
+   },
+   "meta": {
+    "kinds": [
+     "speech-translate"
+    ]
+   },
+   "runner": "seamless",
+   "jobs": [
+    "speech-translate"
+   ],
+   "why": "seamless — перевод речи, а не распознавание"
+  }
+ ]
+}

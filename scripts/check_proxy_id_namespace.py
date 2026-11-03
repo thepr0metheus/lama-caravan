@@ -21,16 +21,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 NAMESPACE = "skynet"
-#: `<word>:proxy:` wherever it is built or parsed, in Python or in the browser.
+#: `<word>:proxy:` wherever it is built or parsed, in the program or in the browser.
 PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9_-]*):proxy:')
-TREES = ("caravan", "static/js")
+TREES = ("rust/crates", "static/js")
 
 
 def main():
     found, errors = 0, []
     for tree in TREES:
         for path in sorted((ROOT / tree).rglob("*")):
-            if path.suffix not in (".py", ".js") or "__pycache__" in path.parts:
+            if path.suffix not in (".rs", ".js"):
                 continue
             for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 for word in PATTERN.findall(line):

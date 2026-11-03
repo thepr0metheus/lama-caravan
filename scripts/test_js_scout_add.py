@@ -43,6 +43,19 @@ const part = (value = "") => {
            focus() { this.focused = true; },
            fire(ev, arg) { return Promise.all((handlers[ev] || []).map((fn) => fn(arg))); } };
 };
+// A read the box started by itself has run its course: the page's timers are the harness's and do not fire here.
+const settled = async () => { for (let step = 0; step < 50; step += 1) await Promise.resolve(); };
+// The command for a new machine, where the page has it (ScoutInstallLine), and what it shows.
+const withInstall = () => {
+  const line = part();
+  line.parts = { "[data-scout-install-command]": part(), "[data-scout-install-copy]": part(), "[data-scout-install-note]": part() };
+  line.querySelector = (sel) => line.parts[sel] || null;
+  root.parts["[data-scout-install]"] = line;
+  return line;
+};
+const lineView = (line) => ({ state: line.dataset.tState, command: line.parts["[data-scout-install-command]"].textContent,
+                              shown: !line.parts["[data-scout-install-command]"].hidden, copy: !line.parts["[data-scout-install-copy]"].hidden,
+                              note: line.parts["[data-scout-install-note]"].textContent });
 // The 🔍 panel, where the page has it (ScoutFinder): added to the block on demand, closed.
 const withFinder = () => {
   for (const sel of ["[data-scout-find]", "[data-scout-add-find]", "[data-scout-find-networks]", "[data-scout-find-run]", "[data-scout-find-list]"]) root.parts[sel] = part();
@@ -76,7 +89,59 @@ DONE = {"ok": True, "hostId": "box-a", "name": "Box A", "scoutVersion": "2.1.0",
         "scoutUrl": "http://10.0.0.5:8092", "controllerUrl": "http://10.0.0.1:7990"}
 REFUSED = "no scout answers at http://10.0.0.5:8092: Connection refused — is ./install.sh done there, and is the port open?"
 
+# A form on the board's page, with its opener: what it asked to run later waits in `waiting`, and runs when a pin says.
+CLOSING = (
+    f"globalThis.__fetchReply['/api/topology/scout/connect'] = {json.dumps(DONE)};"
+    " const waiting = []; const opener = part();"
+    " const form = new sa.ScoutAddForm(root, { opener, later: (run, ms) => waiting.push({ run, ms }) }); form.bind();"
+    " const connected = async () => { P('[data-scout-add-address]').value = '10.0.0.5'; await P('[data-scout-add-connect]').fire('click'); };"
+    " const closing = () => ({ hidden: !!root.hidden, expanded: opener.attrs['aria-expanded'], state: root.dataset.tState, status: P('[data-scout-add-status]').textContent });"
+)
+
 PINS = [
+    ("closes_a_moment_after_connecting",
+     CLOSING + " form.open(true);",
+     "await (async () => { await connected(); const before = closing(); const asked = waiting.map((w) => w.ms); waiting.forEach((w) => w.run()); return { before, asked, after: closing() }; })()",
+     json.dumps({"before": {"hidden": False, "expanded": "true", "state": "ok", "status": en("scoutAddDone", name="Box A", version="2.1.0")},
+                 "asked": [2500],
+                 "after": {"hidden": True, "expanded": "false", "state": "idle", "status": ""}}, ensure_ascii=False),
+     "машина на доске: слово держится 2,5 секунды, потом ящик закрывается сам и при новом открытии не говорит о прошлой машине"),
+    ("stays_when_the_next_address_is_typed",
+     CLOSING + " form.open(true);",
+     "await (async () => { await connected(); P('[data-scout-add-address]').value = 'next-box'; waiting.forEach((w) => w.run()); return closing(); })()",
+     json.dumps({"hidden": False, "expanded": "true", "state": "ok", "status": en("scoutAddDone", name="Box A", version="2.1.0")}, ensure_ascii=False),
+     "negative: оператор уже вводит следующий адрес — ящик остаётся"),
+    ("stays_while_the_scan_lists_machines",
+     CLOSING.replace("const form = new", "withFinder(); const form = new") + " form.open(true); P('[data-scout-find]').hidden = false;",
+     "await (async () => { await connected(); waiting.forEach((w) => w.run()); return closing().hidden; })()",
+     "false",
+     "negative: открыт поиск по сети, в списке могут быть ещё машины — ящик остаётся"),
+    ("stays_after_a_refusal",
+     CLOSING + f" globalThis.__fetchReply['/api/topology/scout/connect'] = {{ __status: 502, error: {json.dumps(REFUSED)} }}; form.open(true);",
+     "await (async () => { await connected(); return { asked: waiting.length, hidden: closing().hidden }; })()",
+     json.dumps({"asked": 0, "hidden": False}),
+     "negative: отказ — закрывать нечего, адрес остаётся для исправления"),
+    ("a_page_without_the_opener_keeps_its_box",
+     f"globalThis.__fetchReply['/api/topology/scout/connect'] = {json.dumps(DONE)};"
+     " const waiting = []; const form = new sa.ScoutAddForm(root, { later: (run, ms) => waiting.push({ run, ms }) }); form.bind();",
+     "await (async () => { P('[data-scout-add-address]').value = '10.0.0.5'; await P('[data-scout-add-connect]').fire('click'); return waiting.length; })()",
+     "0",
+     "negative: страница без кнопки открытия — ящик стоит всегда, закрывать нечем"),
+    ("settings_that_came_back_are_said",
+     CLOSING.replace(json.dumps(DONE), json.dumps({**DONE, "settingsBack": ["cacheLimit", "cell:22013"]})) + " form.open(true);",
+     "await (async () => { await connected(); return { status: closing().status, asked: waiting.length }; })()",
+     json.dumps({"status": en("scoutAddDone", name="Box A", version="2.1.0") + " " + en("scoutAddSettingsBack"), "asked": 1}, ensure_ascii=False),
+     "настройки машины вернулись: сказано одной фразой, ящик закрывается как обычно"),
+    ("settings_that_did_not_come_back_keep_the_box",
+     CLOSING.replace(json.dumps(DONE), json.dumps({**DONE, "settingsBack": ["cacheLimit"], "settingsNotBack": ["cacheFolder: the cache cannot be in /mnt/gone"]})) + " form.open(true);",
+     "await (async () => { await connected(); return { status: closing().status, asked: waiting.length }; })()",
+     json.dumps({"status": en("scoutAddDone", name="Box A", version="2.1.0") + " " + en("scoutAddSettingsBack") + " " + en("scoutAddSettingsNotBack", what="cacheFolder: the cache cannot be in /mnt/gone"), "asked": 0}, ensure_ascii=False),
+     "negative: что-то не вернулось: названо словами скаута, и ящик остаётся, чтобы это прочитали"),
+    ("connect_names_the_scouts_release",
+     f"globalThis.__fetchReply['/api/topology/scout/connect'] = {json.dumps({**DONE, 'scoutCommit': '86f58740'})}; sa.ScoutAddForm.mount(doc); P('[data-scout-add-address]').value = '10.0.0.5';",
+     "await (async () => { await P('[data-scout-add-connect]').fire('click'); return P('[data-scout-add-status]').textContent; })()",
+     json.dumps(en("scoutAddDone", name="Box A", version="86f58740"), ensure_ascii=False),
+     "скаут, назвавший свой выпуск: в словах номер выпуска, как в шапке страницы машины"),
     ("mount_binds_once",
      "",
      "[!!sa.ScoutAddForm.mount(doc), sa.ScoutAddForm.mount(doc), root.dataset.bound, "
@@ -203,6 +268,64 @@ HEAD_PINS = [
      "negative: страница без кнопок в заголовке — ящик открыт, как был всегда, и курсор сам никуда не прыгает"),
 ]
 PINS += HEAD_PINS
+
+COMMAND = "curl -fsSL https://caravan.example/scout/install.sh | bash"
+PLAIN_COMMAND = "curl -fsSL http://10.0.0.1:7990/scout/install.sh | bash"
+
+
+def line_shows(reply, state, command, note):
+    """A pin of what the line shows after reading the controller's `reply`, and that it asked only the one address."""
+    return ("await (async () => { const line = withInstall(); const form = new sa.ScoutInstallLine(line); await form.load();"
+            " return { ...lineView(line), calls: globalThis.__fetchCalls.map((c) => [c.method, c.path]) }; })()",
+            json.dumps({"state": state, "command": command, "shown": bool(command), "copy": bool(command), "note": note,
+                        "calls": [["GET", "/api/fleet/scout-release"]]}, ensure_ascii=False))
+
+
+INSTALL_PINS = [
+    ("install_line_over_https_warns_of_the_certificate",
+     f"globalThis.__fetchReply['/api/fleet/scout-release'] = {json.dumps({'ok': True, 'release': {'commit': 'abc1'}, 'running': None, 'installCommand': COMMAND})};",
+     *line_shows(None, "ready", COMMAND, en("scoutInstallTrust")),
+     "команда контроллера показана как есть, с кнопкой копирования; по https сказано, что машина должна доверять сертификату"),
+    ("install_line_over_http_says_nothing_of_a_certificate",
+     f"globalThis.__fetchReply['/api/fleet/scout-release'] = {json.dumps({'ok': True, 'release': {'commit': 'abc1'}, 'running': None, 'installCommand': PLAIN_COMMAND})};",
+     *line_shows(None, "ready", PLAIN_COMMAND, ""),
+     "negative: по http сертификата нет, и о нём ни слова"),
+    ("install_line_without_a_bundle_shows_no_command",
+     "globalThis.__fetchReply['/api/fleet/scout-release'] = {'ok': true, 'release': null, 'running': null, 'installCommand': null};",
+     *line_shows(None, "none", "", en("scoutInstallNone")),
+     "negative: у контроллера нет скаута — команды, которая упала бы, нет, и сказано почему"),
+    ("install_line_when_the_controller_refuses",
+     "globalThis.__fetchReply['/api/fleet/scout-release'] = { __status: 500, error: 'the disk is gone' };",
+     *line_shows(None, "error", "", "the disk is gone"),
+     "negative: отказ контроллера — его слова, состояние error, команды нет"),
+    ("install_copy_says_what_happened",
+     "",
+     "await (async () => { const line = withInstall(); const copied = []; let lands = true;"
+     " const form = new sa.ScoutInstallLine(line, { call: async () => ({ installCommand: 'the command' }), copy: async (text) => { copied.push(text); return lands; } });"
+     " form.bind(); await form.load(); await line.parts['[data-scout-install-copy]'].fire('click'); const landed = lineView(line);"
+     " lands = false; await line.parts['[data-scout-install-copy]'].fire('click'); const failed = lineView(line);"
+     " return [copied, landed.state, landed.note, failed.state, failed.note]; })()",
+     json.dumps([["the command", "the command"], "copied", en("scoutInstallCopied"), "ready", en("scoutInstallCopyFailed")], ensure_ascii=False),
+     "кнопка копирует саму команду и говорит «скопировано»; negative: не легло в буфер — сказано, что не скопировалось, а не «готово»"),
+    ("install_is_read_when_the_box_opens",
+     HEAD + " globalThis.__fetchReply['/api/fleet/scout-release'] = {'ok': true, 'installCommand': 'c'};",
+     "await (async () => { const line = withInstall(); sa.ScoutAddForm.mount(doc); const before = globalThis.__fetchCalls.length;"
+     " const o = head['[data-scout-add-open]']; await o.fire('click'); await settled(); const opened = globalThis.__fetchCalls.length;"
+     " await o.fire('click'); await settled(); return [before, opened, globalThis.__fetchCalls.length, line.dataset.tState]; })()",
+     json.dumps([0, 1, 1, "ready"]),
+     "закрытый ящик ничего не спрашивает, открытый читает команду; negative: закрытие не читает"),
+    ("install_absent_on_a_page_without_it",
+     "",
+     "(() => { const form = new sa.ScoutAddForm(root); form.bind(); form.open(true); return [form.install, globalThis.__fetchCalls.length]; })()",
+     json.dumps([None, 0]),
+     "negative: на странице без строки команды форма работает и ничего не спрашивает"),
+    ("install_read_at_once_on_a_page_with_the_box_always_open",
+     "globalThis.__fetchReply['/api/fleet/scout-release'] = {'ok': true, 'installCommand': 'c'};",
+     "await (async () => { withInstall(); sa.ScoutAddForm.mount(doc); await settled(); return globalThis.__fetchCalls.map((c) => c.path); })()",
+     json.dumps(["/api/fleet/scout-release"]),
+     "страница без кнопок в заголовке держит ящик открытым — команда читается сразу"),
+]
+PINS += INSTALL_PINS
 
 if __name__ == "__main__":
     sys.exit(run("js scout-add", ".probe_js_scout_add.tmp.mjs", PREAMBLE, PINS,

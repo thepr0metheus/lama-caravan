@@ -1,0 +1,126 @@
+{
+ "cases": [
+  {
+   "path": "m/dflash-qwen.gguf",
+   "sidecar": "draft-dflash",
+   "launch": "draft-dflash",
+   "why": "positive: dflash- в начале имени — DFlash"
+  },
+  {
+   "path": "DSPARK_x.gguf",
+   "sidecar": "draft-dspark",
+   "launch": "draft-dspark",
+   "why": "positive: регистр не важен, после слова подчёркивание"
+  },
+  {
+   "path": "eagle3.head.gguf",
+   "sidecar": "draft-eagle3",
+   "launch": "draft-eagle3",
+   "why": "positive: после слова точка"
+  },
+  {
+   "path": "g/unsloth/default/mtp-gemma-4-31B-it-Q8_0.gguf",
+   "sidecar": "draft-mtp",
+   "launch": "draft-mtp",
+   "why": "positive: mtp- в начале имени — голова MTP, как называет upstream"
+  },
+  {
+   "path": "gemma-4-31b-it/mtp/gemma-4-31B-it-MTP-Q8_0.gguf",
+   "sidecar": "draft-mtp",
+   "launch": "draft-mtp",
+   "why": "positive (дефект): файл в папке mtp/ модели — голова MTP; сканер предлагал его черновиком, а тип был draft-simple"
+  },
+  {
+   "path": "Gemma/MTP/head.gguf",
+   "sidecar": "draft-mtp",
+   "launch": "draft-mtp",
+   "why": "positive: папка MTP без учёта регистра"
+  },
+  {
+   "path": "/models/gemma/mtp/head.gguf",
+   "sidecar": "draft-mtp",
+   "launch": "draft-mtp",
+   "why": "positive: абсолютный путь — та же папка"
+  },
+  {
+   "path": "gemma-4-31b-it/mtp/dflash-x.gguf",
+   "sidecar": "draft-dflash",
+   "launch": "draft-dflash",
+   "why": "boundary: слово в имени важнее папки"
+  },
+  {
+   "path": "my-dflash-lookalike.gguf",
+   "sidecar": "",
+   "launch": "draft-simple",
+   "why": "negative: слово дальше по имени — не sidecar"
+  },
+  {
+   "path": "mtpx-head.gguf",
+   "sidecar": "",
+   "launch": "draft-simple",
+   "why": "negative: mtpx — не mtp"
+  },
+  {
+   "path": "a/mtp-heads/x.gguf",
+   "sidecar": "",
+   "launch": "draft-simple",
+   "why": "negative: папка не ровно mtp"
+  },
+  {
+   "path": "Qwen3.6-27B-MTP-GGUF/unsloth/Q4_K_M/Qwen3.6-27B-MTP-Q4_K_M.gguf",
+   "sidecar": "",
+   "launch": "draft-simple",
+   "why": "negative: модель, которая лишь говорит MTP в имени, — модель (MTP у неё внутри)"
+  },
+  {
+   "path": "plain.gguf",
+   "sidecar": "",
+   "launch": "draft-simple",
+   "why": "negative: обычный файл — вторая модель, draft-simple"
+  },
+  {
+   "path": "",
+   "sidecar": "",
+   "launch": "draft-simple",
+   "why": "absence: нет пути — sidecar нет (пусто сказано), запуск draft-simple"
+  }
+ ],
+ "cellTypes": [
+  {
+   "draft": "gemma-4-31b-it/mtp/head.gguf",
+   "family": "draft-mtp",
+   "cell": "draft-mtp",
+   "why": "черновик из папки mtp/ — draft-mtp"
+  },
+  {
+   "draft": "m/dflash-x.gguf",
+   "family": "draft-mtp",
+   "cell": "draft-dflash",
+   "why": "negative: тип семейства не пишется поверх DFlash: такая голова стартует как MTP и ничего не предлагает"
+  },
+  {
+   "draft": "m/plain.gguf",
+   "family": "draft-mtp",
+   "cell": "draft-simple",
+   "why": "negative: обычный черновик — draft-simple, не тип семейства"
+  },
+  {
+   "draft": "",
+   "family": "draft-eagle3",
+   "cell": "draft-eagle3",
+   "why": "без файла — тип семейства (MTP внутри модели)"
+  },
+  {
+   "draft": "",
+   "family": "",
+   "cell": "draft-mtp",
+   "why": "без файла и без типа семейства — draft-mtp"
+  },
+  {
+   "draft": "",
+   "family": null,
+   "cell": "draft-mtp",
+   "why": "absence: семейство не сказало ничего — тоже draft-mtp"
+  }
+ ]
+}

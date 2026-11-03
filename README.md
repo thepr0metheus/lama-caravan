@@ -7,8 +7,8 @@ Repository/service slug: `lama-caravan`.
 Local control plane for LAMA CARAVAN: controller topology, proxy routing, and
 per-host `llama.cpp` server cells.
 
-The app is intentionally dependency-light: it uses Python standard library
-HTTP handling and static HTML/CSS/JS.
+The app is intentionally dependency-light: three Rust programs on plain threads,
+and static HTML/CSS/JS.
 
 ## Why LAMA CARAVAN
 
@@ -22,35 +22,39 @@ take it, in the cloud when it can't.
 What that gives you in practice:
 
 - **The OpenAI API, the way companies' gateways speak it.** A client gets one
-  address and a key of its own, made with ＋ on the board, and one cable in
-  Routing leads it to a set of models: `model` in a request picks one of the
-  set's pools by its name, as OpenAI's API picks a model, and `GET /v1/models`
-  lists them with what each does. Errors come in OpenAI's shape — 401 for a
-  key, 404 for a model the key's set has not (or while no cable leads the key
-  to a set), 429 with `Retry-After` at a limit, 400 for work a model does not
-  do — and say nothing of the providers, accounts and machines behind a pool.
+  address and a key of its own, made with ＋ on the board, and sees every pool
+  and every model that runs, but what is blocked for it in Routing: `model` in a
+  request picks a pool or a model by its name, as OpenAI's API picks a model, and
+  `GET /v1/models` lists them with what each does. Errors come in OpenAI's shape —
+  401 for a key, 403 for a pool or a model blocked for the key, 404 for a model the
+  caravan has not, 503 for one that does not run now, 429 with `Retry-After` at a
+  limit, 400 for work a model does not do — and say nothing of the providers,
+  accounts and machines behind a pool.
   Any OpenAI SDK works as is: set `base_url` and `api_key`.
 - **Stable endpoints, whatever runs behind them.** A client keeps its address
   and its key — and never needs reconfiguring again. Swap the model, move it to
-  another machine, reroute to the cloud: the client doesn't notice. Agents of
-  the older kind keep a fixed proxy port of their own, and may come in through
-  the entry with that port's key instead.
+  another machine, reroute to the cloud: the client doesn't notice.
 - **Cloud models for ANY app, not just agents.** The caravan holds the
   keys/OAuth, picks the pool's row, meters the spend and logs the requests: a
   transcription tool, a translator overlay or an IDE plugin calls the entry with
   a key of its own and speaks to `gpt-…`/OpenRouter/Anthropic without owning a
   single credential. Every app comes in the same way: one address, its own key.
   Chat Completions and the Responses API (`/v1/responses`, what Codex CLI
-  speaks) both work, on API-key and subscription rows alike.
-- **Local ⇄ cloud routing you can draw.** In Routing each client's cable
-  leads to a set of models, the set's cables lead to pools — its models, picked
-  by the request's `model` — and a pool is a list of rows — a subscription's
-  model or a machine's cell, mixed as you like. The proxy tries the rows from the top and
-  moves on at a limit, when a cell is off, while a cell is busy and a later row
-  is free, or on an error before the first byte; a started stream is never
-  cut. Changes hot-reload in ~2 s, no restarts.
+  speaks) both work, on API-key and subscription rows alike; a reasoning effort
+  a model does not take goes as the nearest one its provider lists.
+- **Local ⇄ cloud routing you can draw.** In Routing a client calls a pool or a
+  model by the request's `model` — every one but what is blocked for it — and a
+  pool is a list of rows — a subscription's
+  model or a machine's model, mixed as you like. A machine's model is called by
+  its name, not by a port: its scout serves every model of the machine at one
+  address, its cells are the model's copies, and a cell moved to another port
+  touches no pool. The proxy tries the rows from the top and
+  moves on at a limit, when a model is off, while it is busy and a later row
+  is ready (at once, or after a patience you set), or on an error before the
+  first byte; a started stream is never cut. A change holds from the next
+  request, with no restart.
 - **Queues instead of timeouts — one GPU can serve many agents.** Requests
-  line up with priorities and per-route limits, and the waiting ones are *held*
+  line up in each model's queue, and the waiting ones are *held*
   rather than dropped. See [One GPU, many agents](#one-gpu-many-agents) below —
   it is the feature people are most surprised by.
 - **Money and privacy.** Local tokens cost electricity; the cloud is used only
@@ -58,8 +62,7 @@ What that gives you in practice:
   agent and per backend, so the routing pays for itself visibly. Sensitive
   agents can be pinned to local-only routes — those prompts never leave the LAN.
 - **Your whole zoo of hardware as one fleet — client GPUs included.** Put the
-  [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar on a
-  box whose GPU or CPU you want in the pool: its hardware and cells appear on
+  caravan-scout sidecar on a box whose GPU or CPU you want in the pool: its hardware and cells appear on
   the board, and you launch cells there remotely — **any of the eleven runners,
   on that host's own GPU or CPU**, models cached and shipped from the
   controller. Before starting you see a "will it fit" estimate against BOTH
@@ -70,7 +73,8 @@ What that gives you in practice:
 - **Eleven runners, one lifecycle.** A cell is not just llama.cpp — pick the
   engine per cell, and they all share the same cards, health checks,
   start/stop/schedule machinery and memory math:
-  - 🦙 **llama.cpp** — GGUF, CPU offload, MTP speculative decoding, KV-cache control
+  - 🦙 **llama.cpp** — GGUF; a model split across several cards and RAM, each card's share set by a handle on a map
+    that places the model as llama.cpp's own fitting will; MTP speculative decoding, KV-cache control
   - 🌱 **PrismML** — the PrismML llama.cpp fork for Bonsai GGUF (PQ2_0/PTQ1_0),
     in an isolated runtime installed on first start ([docs/prismml.md](docs/prismml.md))
   - ⚡ **vLLM** — safetensors (AWQ/GPTQ everywhere, NVFP4/FP8 on new GPUs),
@@ -101,16 +105,25 @@ What that gives you in practice:
     punctuated, from a 260 MB file
   - 🌐 **Seamless** — speech to translated text in one model (SeamlessM4T v2):
     a Russian sentence in, an English transcript out
+  - The cells that hear — moonshine, transcribe.cpp, Seamless, LFM2.5-Audio — read a WAV themselves and webm, ogg,
+    mp3 or m4a (what a browser and Open WebUI send) through the machine's `ffmpeg`, refusing with the reason where
+    there is none; whisper reads them all through faster-whisper
   - 🔄 **NLLB** — text translation (NLLB-200), the same card and lifecycle as
     every other cell
   - 🛠️ **Custom command** — any process that listens on `$PORT` becomes a
     managed cell: health-checked, logged, scheduled, restarted
-- **Voice-clone TTS ships as command cells.** One bundled server, three
-  engines picked per cell — `bash ~/run_tts.sh $PORT xtts|f5|cosyvoice` with
-  `HEALTH_PATH /health` — cloning a voice from a short reference sample.
-  CosyVoice2 is the engine whose weights allow commercial use (see
-  [Model licences](#model-licences)); on Blackwell GPUs its venv needs the
-  cu128 torch noted in [Tested versions](#tested-versions).
+- **🦜 Voice clone is a runner.** XTTS-v2, CosyVoice2 or F5-TTS, the engine picked on its tab: a text read out in
+  a voice taken from a few seconds of a sample, through OpenAI's `POST /v1/audio/speech` — the board's 🎙 window
+  and Open WebUI talk to it as to Qwen3-TTS — with a voice kept on the machine under a name, and the voice app's
+  own `/v1/audio/speech-clone`. Until 1.3.611 these were custom commands from three presets. CosyVoice2 is the
+  engine whose weights allow commercial use (see [Model licences](#model-licences)); on Blackwell GPUs its venv
+  needs the cu128 torch noted in [Tested versions](#tested-versions).
+- **Talk to a voice model from its card.** 🎙 on a running cell of a model that speaks or hears — Qwen3-Omni,
+  Step-Audio 2, LFM2.5-Audio, Qwen3-TTS, the speech recognizers, a llama.cpp model whose server says it hears —
+  opens a window over the board: record a question in the browser, hear and read the answer, see how long it took.
+  The controller asks the cell (`POST /api/cell-talk`), so the https board talks to a plain-http cell. A Qwen3-TTS
+  cell reads a text in the voice of a sample recorded there — on your word that the voice is yours or its owner
+  agreed — and keeps that voice under a name, for Open WebUI or any client to ask for.
 - **One compute-target switch.** Every cell picks **CPU / GPU / auto** with one
   control (options a runner can't do are disabled); a multi-GPU host fans out
   into per-card chips or a checklist, and llama.cpp gets the right
@@ -121,11 +134,11 @@ What that gives you in practice:
 - **You see everything.** A live topology board (cables light up with real
   traffic), per-request history with timings and error kinds, incident badges,
   GPU/CPU/token-speed monitors.
-- **Nothing to install but Python.** Controller and agent are stdlib-only; no
-  database server, no external services, Docker optional (see the quick start).
-  State lives in plain JSON files (hot-reloadable, git-diffable, backed up by
-  copying) plus one small embedded SQLite file for accounts/sessions — and
-  systemd/launchd units on your own machines.
+- **Little to install.** The controller is two programs and a folder of static
+  files, the scout one static program; no database server, no external services,
+  Docker optional (see the quick start). State lives in plain JSON files
+  (hot-reloadable, git-diffable, backed up by copying), and a machine with a scout
+  has one systemd user unit.
 
 A concrete day with it: your coding agents hammer a local Qwen on the desktop
 GPU all night on a schedule window; in the morning the schedule flips them to
@@ -142,24 +155,30 @@ The long version of that day — with the Routing page that implements it — li
 
 ## Deployment model: a scout only where there is hardware to share
 
-**[caravan-scout](https://github.com/thepr0metheus/caravan-scout) runs only on
-machines that share hardware.** It is the sidecar of a box with a GPU (or
+**caravan-scout (`rust/crates/scout`) runs only on machines that share
+hardware.** It is the sidecar of a box with a GPU (or
 spare CPU) you want in the pool: it reports the machine — GPUs and what runs
 on them, CPU/RAM, cells, the llama.cpp build — runs the cells the controller
 configures, and keeps llama.cpp current.
 
-Adding such a box takes two steps. On the box, from a clone of caravan-scout:
-`./install.sh` — it installs what the machine needs, starts the scout and
-prints its address and port. On the board: **Machines → ＋ Add scout**,
-that address, Connect — the controller pairs the scout itself and hands it
-the fleet token. From then on the box is a machine node, and its cells are
-launched from there; its ✕ lets go again.
+Adding such a box takes two steps. **Machines → ＋ Add scout** on the board shows
+one command; run it on the box (Linux on x86_64): `curl -fsSL
+<controller>/scout/install.sh | bash`. It takes the scout from the controller,
+installs what the machine needs, starts the scout and prints its address and
+port. Back on the board: that address, Connect — the controller pairs the scout
+itself and hands it the fleet token. From then on the box is a machine node, and
+its cells are launched from there; its ✕ lets go again. A new version comes the
+same way, from the machine's ⋯ menu: **Update the scout**. Cells that run keep
+running while it restarts. A controller whose release carries no scout has none
+to hand out and says so: [Install On the controller](#install-on-the-controller)
+says how a release gets one.
 
 A machine that merely *runs agents* installs nothing. Each agent is a client
 of the entry, made **on the board**: ＋ in the Clients column asks a name,
-then shows its key once, and a cable in Routing leads it to its pool. The agent calls the entry's
-address with that key — that is the whole integration. Agents of the older kind
-keep the proxy ports and records they have. A machine that does both shows up
+then shows its key once. The agent calls the entry's
+address with that key — that is the whole integration. An agent of the older kind
+keeps its record on the board, but its own port no longer listens and the entry
+refuses its key: make it a client. A machine that does both shows up
 twice: as a machine with its hardware and as its agents' client cards.
 
 Why: fewer moving parts on machines that gain nothing from a sidecar, a
@@ -199,7 +218,7 @@ agent C ──┘   (per upstream)   └── 60–90 min ─ answer
 
 **How the waiting one survives.** A queued request is not a paused request: the
 proxy answers immediately and keeps the stream alive, sending a keepalive frame
-about every 20 s (configurable) until real tokens start flowing. The shape of
+about every 20 s until real tokens start flowing. The shape of
 that frame is the whole trick, and it was found the hard way — clients reset
 their read timeout
 **only on chunks that carry actual token text**. SSE comments, role-only chunks
@@ -209,24 +228,26 @@ activity for the timer, but lands in the model's *thinking* channel, so it
 never pollutes the visible answer. From the agent's side the request looks
 exactly like a slow model that is already working.
 
-**What bounds the wait.** Not a number we invented — the client's *own*
-timeout, which the operator writes on its route (until 2026-09-24 the caravan
-read it out of each agent's config), so the queue's thresholds scale against
-the budget that client actually has (an hour is assumed while it is unknown). Chained queues share one absolute deadline, so a
-second queue cannot hand out a fresh full budget after the first has already
-spent part of it.
+**What bounds the wait.** By default, the client's *own* timeout: the request
+waits until the client gives up. Routing says how long the clients wait — one
+setting for all, 60 minutes unless you say otherwise; give your agents that
+timeout — and shows by it how long a running request's client still waits.
+Set a limit for the models' queue and a request with nowhere else to go waits
+that long, then gets an honest 503.
 
 **What the queue is not.** It is not one global line: each request competes
-only for the slots of *its own* upstream, and the slot count is read from that
-server's real `--parallel`. Inside a server the order is plain arrival order —
-priority buys no place in the line. What it buys is the right to *take a slot
-back*: once a crowned route has waited its share of the budget (half, by
-default) it can preempt a running request, while crowned requests that are
-already running are never the victim. An agent that hangs up leaves the queue
-immediately instead of holding a place. And a route with a spill edge does not
-wait to the end — after a fraction of its budget (a fifth, by default) it walks
-out to whatever that edge points at, a cloud model or another server. That edge
-is a line you draw in Routing.
+only for the slots of *its own* model, and the slot count is read from that
+server's real `--parallel`. Inside a model's queue the order is plain arrival
+order: at the entry no request has priority, and none takes a slot back from
+another. An agent that hangs up leaves the queue
+immediately instead of holding a place. The queue is the model's, however many
+pools send it requests, and a request whose pool has a ready row further on
+does not wait to the end — after the patience (0 by default: at once) it goes
+on to that row. The patience and the limit are one pair for every model, set
+in seconds and minutes from the head of Routing's Models column. Routing shows
+each model's queue: "1 of 1 · 2 waiting" on its line, and in its strip who
+holds the slots and each waiting request on a scale up to the moment it
+leaves.
 
 **The honest part.** Everything still takes 90 minutes: the queue buys you
 *completion instead of collapse*, not speed. And the keepalive only exists for
@@ -234,44 +255,50 @@ is a line you draw in Routing.
 just a client waiting on a silent socket, and survives only if its own timeout
 is long enough. Details in [docs/backend-proxy.md](docs/backend-proxy.md).
 
-## Quick start (Docker)
+## Quick start
 
-> **Docker is the evaluation path** — the fastest way to look around: one
-> container with the admin UI and the proxy router, no models inside. The
-> **primary, fully-featured deployment is the native systemd install**
-> ([Install On the controller](#install-on-the-controller)). Neither runs a
-> model itself: cells run on machines with a scout — the controller's own
-> machine included, with a scout installed on it like on any other.
+The fastest way to look around: the controller with its proxy, no models inside. Neither
+program runs a model itself: cells run on machines with a scout — the controller's own
+machine included, with a scout installed on it like on any other.
+
+With Docker, which builds it all, the scout it hands out included:
 
 ```bash
 git clone https://github.com/thepr0metheus/lama-caravan.git
 cd lama-caravan
-TZ=<your/Zone> LLAMA_TOPOLOGY_SERVER_IP=<this-machine-LAN-IP> docker compose up -d --build
+TZ=Europe/Berlin LLAMA_TOPOLOGY_SERVER_IP=<this-machine's-address> docker compose up -d --build
 # open http://<this-machine>:7990
 ```
 
-Both settings are required. `TZ` is the controller's time zone, e.g.
-`Europe/Berlin`: every schedule runs by it. `LLAMA_TOPOLOGY_SERVER_IP` is the
-address agents and scouts reach the controller at. Without them the container
-does not start and says which one is missing.
+Without it, you build it with the compiler `rust/rust-toolchain.toml` names:
 
-Models are **not** served from inside the container (it has no systemd and, by
-design, no GPU): on each GPU machine — the Docker host itself included — run
-[caravan-scout](https://github.com/thepr0metheus/caravan-scout)'s
-`./install.sh`, then enter the address it prints under **Machines → ＋ Add
-scout**: the controller pairs the scout, and its cells appear on the board. All state lives in the `caravan-data` volume
-(`/data`): config, accounts, token history, logs and downloaded models.
+```bash
+git clone https://github.com/thepr0metheus/lama-caravan.git
+cd lama-caravan
+(cd rust && cargo build --locked --release -p admin -p proxy)
 
-Notes:
+# A release is one folder: the programs, the board's files, the cell servers.
+mkdir -p ~/caravan/release/bin ~/caravan/data
+cp rust/target/release/caravan-admin ~/caravan/release/
+cp rust/target/release/caravan-proxy ~/caravan/release/bin/
+git archive HEAD static cells VERSION | tar -xm -C ~/caravan/release
 
-- **Linux host recommended.** `network_mode: host` lets the proxy bind its
-  per-agent ports on the fly; on Docker Desktop (macOS/Windows) enable its
-  host-networking option or use the native install below.
-- Liked it? For day-to-day fleet duty switch to the native install — the
-  container is also fine long-term for a GPU-less controller box (NAS/VPS)
-  where every model lives on scout hosts.
-- Version chip: build with
-  `CARAVAN_GIT_HEAD=$(git rev-parse --short HEAD) docker compose up -d --build`.
+CARAVAN_ROOT=~/caravan/release CARAVAN_DATA_DIR=~/caravan/data ~/caravan/release/caravan-admin
+# open http://<this-machine>:7990
+```
+
+`CARAVAN_ROOT` says where the release is. `CARAVAN_DATA_DIR` is where all state lives:
+config, accounts, token history, logs and downloaded models; the proxy does not start
+without it. The first page is `/setup`, which makes the first account, and the entry
+opens by itself on port 23999.
+
+Models are **not** served by the controller: on each GPU machine run the command
+**Machines → ＋ Add scout** shows, then enter the address it prints there: the controller
+pairs the scout, and its cells appear on the board. A release hands out a scout only when
+it carries one: [Install On the controller](#install-on-the-controller).
+
+In a container two more settings are required, `TZ` and `LLAMA_TOPOLOGY_SERVER_IP`:
+[docs/operations.md](docs/operations.md#controller-in-a-container).
 
 ## Models directory layout
 
@@ -283,39 +310,86 @@ multi-part grouping tidy (parts `…-00001-of-00004.gguf` belong together).
 A repository with many files is read to its last page, and a gated one (its terms are accepted on its
 Hugging Face page) opens that page in a new window when the hub refuses its files.
 
+## How a model reaches a machine
+
+The models live with the controller, in its models directory. A machine with a scout needs no share mounted: it gets
+what it runs through the controller, over HTTPS, in one of two ways. The machine's page chooses.
+
+- **With a cache** (the default). The scout copies the model to its own disk the first time a cell asks for it, then
+  starts from the copy. A limit in GiB, or a number of last models, says how much it keeps; the oldest unused goes first
+  when a new copy needs room.
+- **With no cache** (*Turn off*). Nothing lands on the disk, and what the cache held goes. The scout shows the
+  controller's files as a read-only folder, a FUSE mount, and the cell reads its model from there as it would from a
+  disk: only the parts it asks for cross the network, into the system's page cache and then the card. A second start of
+  the same model reads from the page cache and takes seconds. The machine needs `fuse3`; without it, or when you prefer
+  it, name a folder where the models directory is mounted, and the cell reads from there.
+
+The mount sits in the scout's folder (`library-view`), so `du` counts what it shows: use `du -x`, or `df`, to see the disk.
+
+Strata keeps its models in a folder of its own, chosen on the machine's page (*Model disk → Strata files*), whatever the
+cache does: while it answers it reads its model there at random — its table of n-grams alone is 29 GB — and through the
+controller or from an HDD it stalls, so the folder belongs on an SSD; the row says so, and warns in red when the system
+says the disk spins. A Strata cell copies its model there on its first start and the copy stays after the stop, up to the
+folder's limit — 300 GB unless you change it in the row: a new model that does not fit makes room from the models not used
+longest, and one bigger than the limit is refused before a byte is copied, in words that name the sizes. The disk is
+written once per model, and Strata's pack of about 2.3 GB once per cell and model; answering only reads. Until a folder
+is chosen the row is red and the controller starts no Strata cell there, saying where to choose it. Both folders can be
+changed in two ways — the files move with it (the scout copies them in the background, the page shows how far, and a move
+that fails leaves the old folder as it was) or they are deleted — and ✕ removes a chosen folder: its files go, the cache
+goes back to the folder it lies in by itself, and Strata waits for another. The controller keeps both folders and
+Strata's limit, and a scout installed again gets them back.
+
 ## Screenshots
 
-These are from 1.3.539 (2026-10-14), taken with the brook switched on: the water behind the pages is
-the header's switch, which is off until you turn it on. The clients, the machine (`gpu-box`) and its
-address are made up for the pictures — they are a stand's, not a real fleet's.
+These are from 2.0.0 (2026-11-03), taken on [the stand](docs/stand.md): the machine (`stand-box`), its two
+cards, the entry's address and the clients are made up, and the models are GGUF headers with no weights
+behind them — a stand's, not a real fleet's. Its "disk 95% full" is the laptop the stand ran on.
 
-The main board, in three columns of one width — the entry's address and its clients on the left, each
-with its recent requests as marks; the Routing card in the middle, with how many clients have a set and
-how many pools there are; on the right the machines and the cloud providers — two wide buttons to the Models and
-Hugging Face pages, the scouts' buttons under them, the machines at a glance, the providers' limit windows
-drawn once per subscription. The heads of Clients and Machines stand on one line:
+The main board, in three columns — the entry's address and its clients on the left (Open WebUI and
+opencode are built in, any other client gets a key of its own), each with its recent requests as marks;
+the Routing card in the middle, with how many clients and how many pools there are; on the right the
+machines, each card with what runs on it and its history, and the cloud providers:
 
 ![Main board](docs/screenshots/board.png)
 
-The cell editor: the compute target (CPU, a card, or auto), the model file with its kind and its
-companions, the runner row (llama.cpp / PrismML / vLLM / Strata / GR00T / whisper / moonshine /
-transcribe.cpp / Seamless / NLLB / custom), the memory estimate against BOTH pools of the host, the
-mmproj and the MTP draft of a multimodal GGUF, the schedule window — and, below, every flag explained
-and the exact command it will run:
+A machine's page: one rack across the page, a lane per card and one for the RAM, with what lies where
+and each card's load, memory and power at its end. Under it every model of the library with its work, the
+longest context it was trained for, its size and its cells. On the right the engines and the model disk:
+the cache with its limit and its folder, and the folder for Strata's files apart from it:
 
-![Cell editor](docs/screenshots/editor.png)
+![Machine page](docs/screenshots/machine.png)
 
-Routing — four columns joined by cables: the clients, the sets of models they see ("ID sets"), the pools
-("ID (Pools)": a pool's name is the model id a client puts in `model`) and the models. A click on a card pins its path: here the pool "chat" with its client, its set and its
-models lit, the rest stepped back, and its details in the strip under the columns — its rows as the
-proxy says them, when it goes on to the next row, "＋ row", the pool's settings and its switch history.
+A cell's window: its state, and tabs for its memory, its settings, its log and a chat with it. The memory
+tab shows where the model lives — what each card holds, the handle that caps a card, and what a flag set
+by hand changes. The settings tab has every flag of the runner explained and searchable; «Open all
+settings…» opens the cell editor: the compute target, the runner row (llama.cpp / PrismML / vLLM / Strata / GR00T /
+whisper / moonshine / transcribe.cpp / Seamless / NLLB / custom), the mmproj and the MTP draft of a
+multimodal GGUF, the schedule window and the exact command it will run:
+
+![Cell window](docs/screenshots/cell.png)
+
+A new cell starts from «＋ Add model» on a machine: a wizard asks what the model is for, lists the
+models of that job with the context each was trained with and what it would weigh with its cache,
+proposes the largest window the cards hold whole, picks the runner made for the model, and puts the
+settings that move the memory beside the machine's map — every other flag of llama.cpp folded under
+them, a star bringing any of them up. It drives the same cell editor: «Full form…» opens it with
+everything set.
+
+Routing — three columns: the clients, the pools ("ID (Pools)": a pool's name is the model id a client puts in
+`model`) with «Direct» on their top — the models clients call by their own name right now — and the models. A
+client's card says how many models it sees and what is blocked for it, and "＋ Block" chooses that. The cables
+show for a card pinned by a click and while requests run, never at rest. A click on a card pins its path — the
+clients that called it, its pools, its models lit, the rest stepped back — and its details in the strip under
+the columns: for a pool its rows as the proxy says them, when it goes on to the next row, "＋ row", the pool's
+settings and its switch history (in the picture, `coder-auto` is pinned).
 A subscription's limits are drawn once on its card, one small bar for a window, with a red tick where its models stop;
 a model's own two levels stand in its strip, and a model that is on its switch level wears "↓ yielding". With
 nothing pointed at or pinned the strip is hidden:
 
 ![Routing](docs/screenshots/routing.png)
 
-The built-in HuggingFace GGUF browser:
+The built-in Hugging Face GGUF browser: a search with size buckets and tags, and the files of a
+repository by quantization, with their sizes:
 
 ![HF browser](docs/screenshots/hf.png)
 
@@ -323,40 +397,44 @@ The built-in HuggingFace GGUF browser:
 
 | Component | Requirement |
 |---|---|
-| Controller OS | **Primary:** Linux with systemd (tested on Ubuntu 24.04; any systemd distro should work). **Evaluation:** any Docker host via the [Docker quick start](#quick-start-docker) — controller-only, cells then live on scout hosts |
-| Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
+| Controller OS | Linux, tested in a container on `debian:bookworm-slim`; controller-only, cells live on scout hosts. It also builds and runs on macOS: that is [the stand](docs/stand.md) |
+| Rust | to build the programs: the version `rust/rust-toolchain.toml` names |
+| Python | none on the controller. `python3` on a machine with a scout, for the cell servers and the install scripts: the scout's installer brings it |
 | llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; see [Tested versions](#tested-versions)) |
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
-| Scout hosts (share a GPU/CPU) | Linux (systemd --user) or macOS (launchd), Python 3.9+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) — 2.24+ on the controller's own machine (2.25+ to say why it lists no card): the controller powers it, reads and updates its GPU driver and reads its cards and processes through that scout |
-| Agent-only machines | nothing to install — the agent calls the entry with its key (an agent of the older kind, its proxy port) |
+| Scout hosts (share a GPU/CPU) | Linux on x86_64 with `systemd --user`: the static `caravan-scout`, by the command of ＋ Add scout. On another system build `rust/crates/scout` yourself: it runs on macOS too, with no installer. A scout on the controller's own machine (2.24+, 2.25+ to say why it lists no card): the controller powers it, reads and updates its GPU driver and reads its cards and processes through that scout |
+| Reading a model with no copy on the machine | `fuse3` on the scout host; see [How a model reaches a machine](#how-a-model-reaches-a-machine) |
+| Agent-only machines | nothing to install — the agent calls the entry with its key |
 | Browser | any modern browser — native ES modules, no build step |
-| Storage | plain JSON files + an embedded SQLite file (accounts/sessions); no database server required |
+| Storage | plain JSON files; no database server required |
 
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-10-15**):
+whenever a component is upgraded (last verified: **2026-11-03**):
 
 | Component | Verified version |
 |---|---|
-| llama.cpp | release `b10357` (commit `689e227db`, built 2026-08-11), CUDA build — updated through the GUI Update-build button; verified live with Muse Glimmer 30B (vision+video modalities detected, ~70 t/s decode on the RTX 5090). The Linux client still runs `b9947` until its own ⇪ chip is pressed |
+| llama.cpp | `0.8.0-dev` (build 2744, commit `8642541b2`, built 2026-11-02), CUDA build — updated through the GUI Update-build button; verified live with NVIDIA-Nemotron-3.5-Bolt-74B-A9B (24 GB GGUF with its mmproj), which the build before could not load — its GGUF names `nemotron_h_moe.expert_used_count` per layer, "wrong type arr but expected type u32": loaded from the machine's cache in 45 s, 122 tokens/s decode on the RTX 5090. This build dropped `--mmap`, `--no-mmap` and `--mlock`; the controller writes `--load-mode` instead, and `scripts/check_llama_flags.py` holds every flag it writes to this build's own help (`contract/llama-server-help.txt`). The Linux client still runs `b9947` until its own ⇪ chip is pressed |
 | CUDA toolkit | 12.6 |
-| NVIDIA driver | 610.57.04 open kernel module (controller, 2026-09-26), 580.159 (client). Under Secure Boot the driver metapackage is not enough: the Canonical-signed `linux-modules-nvidia-610-open-generic-hwe-24.04` must come with it, and no DKMS build may shadow it — `updates/dkms/` outranks `kernel/` in the module search path. A kernel from the security pocket arrives before its signed modules, whose driver lives in the updates pocket: that kernel boots without the GPU. The DKMS from NVIDIA's CUDA repository (3.4.x) also fails a kernel's setup when a signed module of the same version is already there; `BUILD_EXCLUSIVE_KERNEL="^$"` in `/etc/dkms/nvidia.conf` stops it building nvidia at all, which costs nothing where Secure Boot rejects its builds anyway |
+| NVIDIA driver | 615.71.09 (the GPU machine, as nvidia-smi says it on 2026-11-03), 580.159 (client). Under Secure Boot the driver metapackage is not enough: the Canonical-signed `linux-modules-nvidia-610-open-generic-hwe-24.04` must come with it, and no DKMS build may shadow it — `updates/dkms/` outranks `kernel/` in the module search path. A kernel from the security pocket arrives before its signed modules, whose driver lives in the updates pocket: that kernel boots without the GPU. The DKMS from NVIDIA's CUDA repository (3.4.x) also fails a kernel's setup when a signed module of the same version is already there; `BUILD_EXCLUSIVE_KERNEL="^$"` in `/etc/dkms/nvidia.conf` stops it building nvidia at all, which costs nothing where Secure Boot rejects its builds anyway |
 | GPUs | RTX 5090 (Blackwell `sm_120`), RTX 3090 (`sm_86`) |
-| OS | Ubuntu 24.04.4 LTS (controller, kernel 7.0.0-34 + Linux client), macOS 26.5 (Mac client) |
-| Python | 3.12.3 (controller, Linux client); the macOS scout runs on stock 3.9.6 |
+| OS | Ubuntu 24.04.4 LTS (the GPU machine, kernel 7.0.0-38 + Linux client), macOS 26.5 (Mac client) |
+| Rust | 1.99.1 — the controller and its proxy (built in `rust:1.99.1-slim-bookworm`, in a container on `debian:bookworm-slim`), the scout (static, `x86_64-unknown-linux-musl`), on the fleet since 2026-11-02 |
+| Python | 3.12.3 (the cell servers on the GPU machine); stock macOS's 3.9.6 is the floor they are held to (`scripts/check_cell_python_floor.py`). The controller, its proxy and the scout run no Python |
 | systemd | 255 (Ubuntu 24.04) |
+| fuse3 | 3.14.0 (Ubuntu 24.04's package) on the GPU machine — the scout's read-only folder for a model with no copy on the disk, verified 2026-11-03: a GGUF of 5.9 GB started in 69 s, a model folder of 9.26 GB loaded in 153 s while the scout kept answering in 0.1–0.2 s, a vLLM checkpoint of 4.9 GB answered after 141 s |
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0, cuDNN 9.26 from the `nvidia-cudnn-cu12` wheel) — whisper command cells; a transcription verified on the Linux host 2026-09-24 |
 | vLLM | 0.30.0, pinned provisioning — on the controller's machine since 2026-10-05, installed through System (the scout's update job; 0.24.0 stays in its rollback history) because 0.24.0 carried 28 known vulnerabilities (osv.dev); a cell (`:22026`, model folder read from the NAS library) last verified on 0.24.0 2026-09-25 |
 | Ollama | 0.34.4, next to the cells on the controller's machine — installed in the user's home from the official release (no sudo), listening on 127.0.0.1, its server started and stopped from the board, a model downloaded and deleted from the board (verified 2026-09-25); its scout finds it, the board names the VRAM its runner holds and lists its models, verified 2026-09-25; two models loaded at once, and loading and unloading them from the board (a model loaded from the board stays until unloaded), verified 2026-09-25. Its runner is a bundled `llama-server` of its own (`lib/ollama/llama-server`): the scout never takes it for a cell — a different binary, without the scout's mark |
 | LM Studio | headless `llmster` 0.0.25 (LM Studio without its window; runtime `llama.cpp-linux-x86_64-nvidia-cuda12-avx2` 2.45.0), next to the cells on the controller's machine — installed in the user's home by the official installer without touching PATH, listening on 127.0.0.1:1234; its scout reads the v1 API (`/api/v1/models`), the board lists its models, their windows and the memory it holds, and loads and unloads them, verified 2026-09-25; a load with an idle limit goes through its `lms load --ttl`, and its own `--estimate-only` says what a load needs, verified 2026-09-25 |
-| caravan-scout | 2.31.0 on the GPU machine (2026-10-13) — it runs every cell there (one trial start per runner); since 2.31 it brings every part of a split GGUF and a command cell's other model files through the controller, starts a command cell in the background, keeps a command cell's models as the cell's cache switch says, and names the processes a cell's server started (Strata's engine); installed with `./install.sh` and added from the board (Machines → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed; for the controller it reads its machine's driver packages and installs the one the controller picks, lists the busiest processes and takes the nvidia-smi and btop snapshots (2.24.0, verified 2026-10-07), and says in nvidia-smi's words why it lists no card (2.25.0) |
+| caravan-scout | 2.43.0 on the GPU machine (2026-10-26: a loading cell says what its processes have read of its model, how fast, and what its files weigh — 2.43.0; a copy of a model says how fast it goes, `downloadBytesPerSec` over its last seconds — 2.42.0; a cell whose server keeps no metrics says so, `noMetrics` on a 404 or 501 — 2.41.0; a start no longer opens its cell's port to everyone in ufw — the cells' range is the owner's rule, the controller alone — and ufw is read as ufw decides, first match, ranges and denies counted — 2.40.0; a model's copies are cells of one runner, one name on two runners being two models `<name>@<runner>` — 2.39.0; a download leaves the page cache as it is written — 2.38.1 — and a cell's memory scope is no smaller than the memory it promised — 2.38.2; three Strata cells at a 262144-token window started from the board and answered, the largest — 44 GiB of experts in 60.5 GiB of RAM — on its first start at 47 % of systemd-oomd's 50 % pressure limit; the cache's limit in GB and its folder — 2.38.0; a stop lets go of the stopped cell's own models only — 2.37.1–2.37.3) — it runs every cell there (one trial start per runner); since 2.31 it brings every part of a split GGUF and a command cell's other model files through the controller, starts a command cell in the background, keeps a command cell's models as the cell's cache switch says, and names the processes a cell's server started (Strata's engine); in Rust since 2026-11-02, with the same version number; since 2026-11-03 it shows a cell the controller's model through a read-only FUSE folder when its cache is off, goes on with a copy cut short, and takes the machine's settings back from the controller when it is paired anew; installed with the command of Machines → ＋ Add scout and added from the board; knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed; for the controller it reads its machine's driver packages and installs the one the controller picks, lists the busiest processes and takes the nvidia-smi and btop snapshots (2.24.0, verified 2026-10-07), and says in nvidia-smi's words why it lists no card (2.25.0) |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | Isaac-GR00T | commit `d2b7e75` with torch 2.9.0+cu128, transformers 4.57.3 and flash-attn 2.8.3 (its own `uv.lock`, uv 0.13.0) — GR00T cells; GR00T N1.7 3B (revision `2fc962b`) with Cosmos-Reason2-2B (revision `9ce19a1`) on the RTX 5090: one prediction of 40 actions in about 61 ms, 7.0 GB of VRAM, the DROID sample answered through the cell's HTTP API, verified 2026-10-13 |
-| Strata | v0.1.42 (commit `61b3fb5`), engine built on the machine with nvcc 13.2.86 (CUDA 13.2.2 — nvcc 13.2.78 miscompiles `sm_120`, Strata issues #892, #968) — Strata cells; Qwen3.8-Flash-Next GSQ-RCO IQ2_XS on the RTX 5090: 159–192 tokens/s with the MTP draft layer, verified 2026-10-13 |
+| Strata | v0.2.9 (commit `c62d5e3a`, engine 0.1.55), engine built on the machine with nvcc 13.2.86 (CUDA 13.2.2 — nvcc 13.2.78 miscompiles `sm_120`, Strata issues #892, #968) — Strata cells; Qwen3.8-Flash-Next GSQ-RCO IQ2_XS on the RTX 5090 at the 262144-token window: 222–245 tokens/s with the MTP draft layer, verified 2026-10-31 (v0.1.42 at 131072: 159–192) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
-| vLLM-Omni (the Step-Audio 2 and Qwen3-Omni runners) | 0.30.0 with vLLM 0.30.0, one venv per model (`run_vllm_omni.sh`); the answers of both transcribed back by a speech recognizer, verified on the RTX 5090 2026-10-15. Step-Audio 2 mini: 25 GB, the first answer after a 73 s warm-up, then 1.5 s. Qwen3-Omni-30B-A3B AWQ 4-bit (cyankiwi): 31 GB, English and Russian answers, a 15 s story generated in 1.5 s; the checkpoint came from the NAS at 8 minutes |
+| vLLM-Omni (the Step-Audio 2, Qwen3-Omni and Qwen3-TTS runners) | 0.30.0 with vLLM 0.30.0, one venv per model (`run_vllm_omni.sh`); the answers transcribed back by a speech recognizer, verified on the RTX 5090 2026-10-15. Step-Audio 2 mini: 25 GB, the first answer after a 73 s warm-up, then 1.5 s. Qwen3-Omni-30B-A3B AWQ 4-bit (cyankiwi): 31 GB, English and Russian answers, a 15 s story generated in 1.5 s; the checkpoint came from the NAS at 8 minutes. Qwen3-TTS-12Hz-1.7B (2026-10-22): Base on the RTX 3090 and CustomVoice on the RTX 5090, 7.9 and 8.3 GB with four requests at once, 12-16 s of speech in 1.6-2.9 s; the Russian of both read back word for word by GigaAM, and a clone keeps its sample's pitch (145 to 151 Hz, 222 to 200 Hz) |
 | PersonaPlex (runner) | NVIDIA/personaplex commit `3428dfd` with torch 2.13.0+cu130 in a venv of its own (the repository's own pins stop at torch 2.5, which has no `sm_120` kernels); the weights of `nvidia/personaplex-7b-v1` (bf16, about 20 GB), an answer spoken back to a spoken question, verified 2026-10-15 |
 | llama.cpp-omni (runner; MiniCPM-o) | tc-mb/llama.cpp-omni tag b280 (commit `88bd37e`, 2026-10-12) built with CUDA 13.2.86 for `sm_120`; `llama-moe-slot.cpp` needs `-DF_NOCACHE=-1` to compile on Linux; MiniCPM-o 4.5 Q4_K_M with the F16 audio, vision and speech parts: 12 GB, an English question answered in 4.8 s with a 9 s spoken answer, verified 2026-10-15 |
 | liquid-audio (the LFM2.5-Audio runner) | v1.3.0 from its own lock (torch 2.8.0+cu128, transformers 4.56.1); LFM2.5-Audio-1.5B, 6 GB: text to speech and a spoken answer, English, verified 2026-10-15 |
@@ -384,10 +462,12 @@ whenever a component is upgraded (last verified: **2026-10-15**):
 
 | Doc | Covers |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Components, data flow, the file contract between the daemons, deployment topology |
-| [docs/backend-admin.md](docs/backend-admin.md) | `caravan/admin/` module reference (the admin server) |
-| [docs/backend-proxy.md](docs/backend-proxy.md) | `caravan/proxy/` module reference + the request lifecycle |
+| [docs/architecture.md](docs/architecture.md) | Components, data flow, the file contract between the controller and its proxy, deployment topology |
+| [docs/backend-admin.md](docs/backend-admin.md) | `rust/crates/admin` reference (the controller) |
+| [docs/rust-code.md](docs/rust-code.md) | How the Rust is written: layers, what is forbidden and what catches it, the packages, the kept answers |
+| [docs/backend-proxy.md](docs/backend-proxy.md) | `rust/crates/proxy` reference + the request lifecycle |
 | [docs/frontend.md](docs/frontend.md) | `static/js/` ES-module reference, state model, render/polling pipeline |
+| [docs/ui-parts.html](docs/ui-parts.html) | The parts every screen is built from (`ui-parts.js`, `ui.css`), every state in both themes; open it through a static server at the repository's root |
 | [docs/http-api.md](docs/http-api.md) | Every HTTP endpoint of the admin and the proxy surface |
 | [docs/operations.md](docs/operations.md) | Runbook: services, deploy, rollback, backups, the entry with keys and its clients, local dev, quirks |
 | [docs/pools.md](docs/pools.md) | Pools of rows: Routing, the levels on a model, the next row, what a client sees at a limit |
@@ -395,15 +475,16 @@ whenever a component is upgraded (last verified: **2026-10-15**):
 | [docs/adding-a-runner.md](docs/adding-a-runner.md) | How a server joins the runner row of the new-cell form — and why it is never a typed command: the class, the launcher, the places a runner touches, the checks |
 | [docs/strata-models.md](docs/strata-models.md) | The packs Strata runs (the original at 2 to 3.5 bits, the Coder, Swift 1.5, Unsloth's ~4-bit): sizes, the RAM and the card each asks, how to get one |
 | [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md) | A worked example: one day of hybrid local/cloud routing and the Routing page behind it |
-| [docs/security.md](docs/security.md) | Accounts/sessions (SQLite), the fleet token for scouts, what stays open |
+| [docs/security.md](docs/security.md) | Accounts/sessions, the fleet token for scouts, what stays open |
+| [docs/stand.md](docs/stand.md) | A whole caravan on one laptop for checking the board with no machine at hand: the real controller and scout, stand-ins for the cards, the engines and the weights |
 | [docs/testability.md](docs/testability.md) | The E2E contract: `data-t` hooks as public API, page identity/readiness flags, landmark names — what an external test suite may rely on |
 
 The controller's own settings — the models directory and the defaults a new
-cell starts from — live in the marked config block of this script (see
-[Safety Model](#safety-model)):
+cell starts from — live in the marked config block of this script under the data
+folder (see [Safety Model](#safety-model)):
 
 ```text
-~/llama.cpp/start-server.sh
+config/start-server.sh
 ```
 
 Server cells run on machines with a scout — the controller's own machine
@@ -412,32 +493,35 @@ hands to the machine's scout on every start.
 
 ## Runtime Layout
 
-On the controller the admin service is `lama-caravan.service` and the proxy
-daemon is `lama-caravan-proxies.service` (templates in `systemd/`). Each
-machine's scout starts that machine's cells. An older install may still have
-the legacy single server `llamacpp-current.service` (see
+The controller is `caravan-admin`. The proxy, `caravan-proxy`, is its child: the
+controller starts it, watches it and replaces it, and it has no unit of its own. Each
+machine's scout starts that machine's cells. An older install may still have the legacy
+single server `llamacpp-current.service` (see
 [Legacy single server](#legacy-single-server)).
 
 ```text
-~/.config/systemd/user/lama-caravan.service
-  -> ~/lama-caravan/.venv/bin/python app.py
+<release>/                       CARAVAN_ROOT: one folder, or a link to one of releases/<commit>/
+  caravan-admin                  the controller
+  bin/caravan-proxy              the entry, its child
+  bin/rust-packages.txt          what GET /api/packages lists
+  static/  cells/  VERSION       the board's files, the cell servers, the commit
+  scout-bundle.tar.gz, .json     the scout it hands out, and what that file is
 
-~/.config/systemd/user/lama-caravan-proxies.service
-  -> ~/lama-caravan/.venv/bin/python agent-proxies.py
+<data>/                          CARAVAN_DATA_DIR: docs/architecture.md, "File contract"
+
+~/caravan-scout/                 on a machine with a scout
+  releases/<commit>/             the program and its scripts/; current is a link to one
+  config.json  state.json  var/server-cells/
+~/.config/systemd/user/caravan-scout.service
 
 ~/.config/systemd/user/llamacpp-current.service   (legacy, if present)
   -> ~/llama.cpp/start-server.sh
      -> ~/llama.cpp/build/bin/llama-server
 ```
 
-For boot-time autostart without waiting for an interactive SSH or
-desktop session, enable linger for your user and install the user
-services. Do not also keep a crontab `@reboot` launcher for this admin: two
-launchers will fight for port `7990`.
-
-```text
-loginctl enable-linger $USER
-```
+The scout's installer enables linger for its user, so its unit starts at boot without
+waiting for an interactive SSH or desktop session. The controller's port is `7990` unless
+`LLAMACPP_ADMIN_PORT` says otherwise.
 
 Default URL:
 
@@ -447,53 +531,44 @@ http://<controller-ip>:7990
 
 ## Code Layout
 
-`app.py` and `agent-proxies.py` are thin launchers (systemd entry points and
-the load target for `scripts/test_queue_node.py`); the code lives in the
-`caravan/` package:
-
 ```text
-caravan/
-├── common/   shared stdlib helpers: errors, procs, fsio (atomic writes),
-│             fetch, jsonx, ttl_cache
-├── admin/    the admin server (app.py): paths, state, config_builder, launch,
-│             models, systemd_ctl, llama_metrics, hf, downloads, benchmarks,
-│             terminal, router_dsl, proxies_config, cloud, token_history,
-│             proxy_stats, monitoring, openclaw, oauth, cloud_api, pricing,
-│             telemetry, server_cells, fleet_clients, topology, proxy_ops,
-│             backups, status, cell_ops, routes (HTTP tables + Handler), main
-└── proxy/    the proxy daemon (agent-proxies.py): paths, runtime (shared
-              mutable state), config, events, capacity, graph (router DAG),
-              state, cloud_auth, translate, summarize, queue_admission,
-              handler, listeners, main
+rust/crates/
+├── admin/     the controller, caravan-admin: routes/ and web/ (the HTTP tables and the
+│              server), fleet/ (machines, scouts, cells), models/, cloud/, proxies/ (the
+│              proxy's settings and its child), topology/, monitoring/, store/, config/
+├── proxy/     the entry, caravan-proxy: front (key and model), exchange/ (one request
+│              down its pool), pool_steps/, queue, upstream, provider_call, relay, board
+├── scout/     one machine's scout, caravan-scout: cells/, starts/, models/, entry/,
+│              engines/, runtimes/, install.sh and scripts/
+└── rules, files, net, plumbing, wire, os   the library crates under the three
+contract/      tables of cases the Rust rules and the browser share
+static/        the board: HTML, CSS, native ES modules, no build step
+cells/         the cell servers, in Python, handed to the machines
+scripts/       guards, tests, install scripts and the stand
 ```
 
-Import layering is strict and cycle-free: `common` ← `paths` ← `state` ←
-domain modules ← aggregators (`topology`, `status`) ← ops/`routes` ← `main`.
-Rebindable module globals live in the same module as every function that
-rebinds them.
+Dependencies go only downwards between the crates, and the compiler holds it so. How
+the Rust is written is held by `scripts/check_rust_contract.py`; the reasons are in
+[docs/rust-code.md](docs/rust-code.md).
 
 ## Deployment Rule
 
 Source changes are deployed through git only:
 
 ```text
-local commit -> push to your remote -> git pull on the controller/scout hosts
+local commit -> push to your remote -> merge -> a release built from that commit
 ```
 
 Do not deploy project code by direct `scp` or hand-copying files, except for an
-explicit emergency recovery. Generated runtime files under `var/` are local host
-state and are not the source deployment path.
+explicit emergency recovery. Generated runtime files under the data folder are local
+host state and are not the source deployment path.
 
-`scripts/deploy.sh` wraps the whole flow in one command — refuse-if-dirty,
-push, pull on the controller, byte-compile, restart the admin and — only when
-its own code changed — the proxy, then **verify `/health` reports the exact
-version and commit that were shipped**:
-
-```sh
-CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
-# checkout path via CARAVAN_DEPLOY_PATH (default ~/projects/lama-caravan);
-# --no-restart for static-only changes
-```
+A new version is a folder of its own, `releases/<commit>/`, beside the running one, and
+the link `current`, which `CARAVAN_ROOT` names, says which one runs. Moving the link is
+the delivery. The controller sees it, ends once its proxy's state file shows no request
+running (ten minutes at the most), and whatever keeps it running starts the new one: in a
+container its restart policy, with no new image. `/healthz` then names the commit. A machine's scout takes that
+release from its ⋯ menu on the board, **Update the scout**.
 
 ## Features
 
@@ -511,13 +586,13 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   reserves its share of the card, Strata takes the card's free VRAM and needs
   6 GB of it, GR00T holds the 7.5 GB its policy was measured at. A running cell shows its **measured** usage (per-process
   `nvidia-smi`) carved out of the used bar instead of a double-counted estimate.
-- Cells run on the controller or on any scout host — the GPUs and CPUs of
+- Cells run on any scout host — the GPUs and CPUs of
   scout hosts are first-class; models are cached and shipped from the
   controller.
-- Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; proxies get
-  their own block at `23001+` via CARAVAN_PROXY_BASE_PORT) — the controller's own web
-  port (`LLAMACPP_ADMIN_PORT`, default `7990`) sits inside that numbering and is
-  held out of the pool automatically; cells are scout-managed processes on
+- Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; clients of
+  the entry are numbered in their own block at `23001+` via CARAVAN_PROXY_BASE_PORT) — the
+  controller refuses to start with its own web port (`LLAMACPP_ADMIN_PORT`, default
+  `7990`) inside either block; cells are scout-managed processes on
   the machines with a scout, the controller's own machine included (they
   survive scout restarts).
 - Per-cell schedule windows (start/stop by time of day and weekday), autostart,
@@ -525,6 +600,10 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - llama.cpp lifecycle: fleet-wide update button, build archive with informed
   one-click restore, a sticky crash watchdog with a server-dismissed banner,
   and a franken-build guard (stale CUDA build dirs are wiped automatically).
+- vLLM weights in RAM: `CPU_OFFLOAD_GB` keeps that many GiB of the weights of each card in RAM and brings them to the
+  card for every pass (`--cpu-offload-gb`): the card computes all of it, and each pass takes longer for the trips. On the
+  machine's page, a model larger than a card's share gets what it must in RAM when dropped on the card, and a handle on
+  the RAM sets it; the plan says the price before anything starts.
 - vLLM lifecycle: pinned provisioning into its own venv on first start,
   update/rollback driven by pip's own version history; a start removes a
   `flashinfer-cubin` that disagrees with `flashinfer`. The cell's panel has
@@ -538,18 +617,25 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   engine never masquerades as fine. A cell running an older copy of its
   server than the controller ships wears an ⇪ old-server chip (every speech
   cell reports a source hash on `/health`).
+- A cell's line opens its window: a coloured band that says what the cell does now, with one main
+  button (Start, Stop, Start again, Pick a model), and tabs — Overview, Memory, Settings, Log, and Talk
+  for a cell that talks. A button that cannot act now stays, shut, with the reason on hover. A
+  llama.cpp cell's settings are edited right in the window — its fields searched in the Settings tab,
+  its placement map in the Memory tab, what is not applied at the foot with Discard and Apply; the Log
+  tab reads the server's own log from its machine, and a chat cell's Talk tab has a text chat — a
+  model's cell in Ollama or LM Studio too.
 - Hosts can be rebooted, powered off or let go (their scout disconnected)
   right from the board — each behind a type-the-hostname confirmation: the
   button stays off until the machine's name is typed, a click is not enough.
   Poweroff warns you first: the board can turn a machine off, not back on.
-- Routing (`/routing`) is four columns joined by cables — the clients, their
-  sets of models, the pools and the models — and a strip under them that says
-  the details of the card the pointer is on or a click pinned (hidden while
-  there is none). A client's one cable leads to a set, the set's cables lead to
-  pools, and a pool is a list of rows — subscriptions' models and cells —
-  tried from the top. The main board shows, in three columns of one width,
-  the clients, the Routing card (how many clients have a set, how many pools
-  there are), and the machines with the cloud providers; the head of Machines
+- Routing (`/routing`) is three columns — the clients, the pools with «Direct»
+  on their top, and the models — and a strip under them that says the details
+  of the card the pointer is on or a click pinned (hidden while there is none).
+  Every client sees every pool and every model that runs, but what is blocked
+  for it; a pool is a list of rows — subscriptions' models and cells — tried
+  from the top. The main board shows, in three columns of one width, the
+  clients, the Routing card (how many clients, how many pools there are), and
+  the machines with the cloud providers; the head of Machines
   opens with two wide buttons, to the Models and Hugging Face pages.
 - Each machine shows its load at a glance under Machines — CPU and RAM, each
   GPU and their history; a click on its card shows the machine in a window of
@@ -563,12 +649,21 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 **Routing & proxies**
 
 - One entry with keys: the OpenAI API on one address, a key per client (shown
-  once, a new one replaces it), the set of models its cable leads to (`model`
-  picks the pool), `/v1/models`, errors in OpenAI's shape; a robot policy
+  once, a new one replaces it), every pool and every model that runs but what is
+  blocked for it (`model` picks one), `/v1/models`, errors in OpenAI's shape; a robot policy
   answers `POST /v1/robot/predict`
-  ([docs/robot-policy-api.md](docs/robot-policy-api.md)). Stable proxy ports
-  for agents of the older kind, which still go through their router's graph as
-  it was saved; Routing no longer draws that graph.
+  ([docs/robot-policy-api.md](docs/robot-policy-api.md)).
+- Open WebUI built in (1.3.667): the caravan makes the client itself at its
+  first start — and opens the entry for it — first in the clients column, under
+  a line from the other clients. It sees what every client sees (each machine
+  model with a running copy, each model added to an account that can be called,
+  and the pools); one model in two places is two models, the place in brackets.
+  It is not deleted, and its card says how to connect Open WebUI until it first
+  calls.
+- opencode built in too (1.3.673), after Open WebUI. opencode reads no model list
+  from the entry, so its card gives the key once (`/connect` → Other → `caravan`)
+  and copies a ready `opencode.json`: every pool, named with the models it tries
+  in turn, then every model the caravan knows that chats.
 - Pools of rows: a pool is a list of rows, each a subscription's model or a
   machine's cell (two ChatGPT subscriptions, then a local cell). The proxy
   takes the first row that fits and moves on at a limit — the model's own two
@@ -598,8 +693,9 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   ssh.
 - Usage & spend statistics per agent and per backend; `/metrics` for
   Prometheus (clients, cells, GPU, routes).
-- System page: controller services, cells, git/python versions, models-disk
-  usage with a cleanup modal; a models page for the library on disk.
+- System page: controller services, cells, git version, models-disk
+  usage with a cleanup modal; a models page for the library on disk, which says
+  what each model is for and the context its weights were trained with.
 - Orphaned cells — running units the config no longer knows about — surface
   as a red ☠ strip with a Stop button, and their ports stay guarded; a
   machine whose scout went silent says so on its node, and its ✕ removes the
@@ -607,16 +703,16 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 
 **Platform**
 
-- Web UI in **20 languages** with a CI guard that keeps every key translated.
-- Sign-in: SQLite accounts + sessions, a fleet token for the scouts. A fresh
+- Web UI in **6 languages** (English, Chinese, Spanish, German, Russian, Arabic) with a CI guard that keeps every key translated.
+- Sign-in: accounts + sessions in one file, a fleet token for the scouts. A fresh
   install asks for its first account at `/setup` before anything else
   (see [docs/security.md](docs/security.md)).
 - Built-in onboarding tours (the floating `?` button) on the board, Routing
   and the HF browser; with the editor open the same button explains every
   llama.cpp config field.
 - Light, dark, and black LLM-focused themes.
-- A living brook behind every page, if you want one: water seen from above, trout, leaves and a
-  calm sound made in the browser. One header switch turns it on and off everywhere; it is off until
+- A living brook behind every page, if you want one: water seen from above, trout, frogs of Adjara
+  and their tadpoles, leaves and a calm sound made in the browser. One header switch turns it on and off everywhere; it is off until
   you turn it on, and the browser remembers the choice.
 - **Legible without sight, testable by contract.** Landmark regions, machine
   cards as named groups, one `<h1>` per page, unique accessible names on
@@ -628,7 +724,8 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - Comfortable to watch from several browsers at once: HTTP/1.1 keep-alive,
   gzip (~10× on the big payloads), deep accept queues, incremental monitor
   deltas, per-language dictionaries loaded on demand.
-- Docker controller-only mode for evaluation; stdlib-only Python everywhere.
+- A controller in a locked-down container: read-only root, no capabilities, no
+  Python in the image. A new version comes as files, with no new image.
 
 ## Speculative decoding
 
@@ -714,8 +811,7 @@ cell starts from — is kept between:
 # END LLAMA CONFIG
 ```
 
-in `~/llama.cpp/start-server.sh` (`config/start-server.sh` on the data volume in
-the Docker image). Saving it rewrites that script whole, from the command
+in `config/start-server.sh` on the data folder. Saving it rewrites that script whole, from the command
 builder that starts the cells, and keeps no backup copy: export the settings
 file first (System page) when a change is worth being able to take back — it
 carries the script as `controller-config`, and an import keeps a copy of what it
@@ -735,9 +831,8 @@ The full endpoint reference (the admin surface and the proxy surface) lives in
   for a route (timings, error kinds) without touching ssh.
 - `POST /api/agent-proxy-entry` — open, move or close the entry for keys.
 - `POST /api/consumers/create` — a client of the entry: a name; answers its
-  key, this once. `POST /api/consumers/set` cables it to a set of models;
-  `POST /api/sets/create`, `/api/sets/add-pool` and the other `/api/sets/*`
-  doors make the sets and fill them with pools.
+  key, this once. `POST /api/consumers/deny` sets what is blocked for it: pools,
+  models, or an account or a machine whole.
 - `POST /api/topology/client-heartbeat` — heartbeat receiver for
   `caravan-scout` on the hosts that share hardware.
 - `GET /metrics` — Prometheus metrics: clients, cells, GPU, routes.
@@ -750,19 +845,19 @@ redirect: `/` → `/board`, `/router` → `/routing`; `/kanban`, the page's name
 | page | what it is |
 |---|---|
 | `/board` | the main board in three columns: the entry's address and its clients with their recent requests, agents of the older kind; the Routing card with its counts; the machines (two wide buttons to Models and Hugging Face over the scouts' buttons) and the cloud providers at a glance — cables lit by traffic between them |
-| `/machine?host=<id>` | one machine's page, opened in the same tab from the board: its servers, engines, models and cells with lifecycle controls, GPU telemetry |
-| `/routing` | Routing: clients, ID sets, ID (pools) and models in four columns joined by cables — a pool's name is the model id a client puts in `model` — and under them a strip with the details of the card under the pointer |
-| `/models` | the GGUF library on disk: sizes, which cells use what, cleanup |
+| `/machine?host=<id>` | one machine's page, opened in the same tab from the board: where its memory goes — a lane per card and one for the RAM with the cells that hold it — the cells on their way, and the list of models with every cell under its model — what each does now, and where a standing one would go — a llama.cpp cell by the cell window's own plan, its weights and its cache apart on the lanes; a click chooses a cell, or it is dragged up onto a lane, and its panel opens its window and starts or stops it; at their right the machine's engines, its model disk, the incidents and its activity |
+| `/routing` | Routing: clients, ID (pools) with «Direct» on their top, and models in three columns — a pool's name is the model id a client puts in `model`; the cables show for a pinned card and while requests run — and under them a strip with the details of the card under the pointer |
+| `/models` | the model library on disk and in the libraries: what each model is for and the context it was trained with, sizes, which cells use what, cleanup |
 | `/system` | controller services, llama.cpp builds, accounts, diagnostics |
 | `/hf` | the HuggingFace GGUF browser |
 
 `/login` and `/setup` are separate pages — a fresh controller bounces to the
 first-run wizard, an enabled one to sign-in.
 
-Topology state is stored in the admin state file:
+Topology state is stored in the admin state file on the data folder:
 
 ```text
-~/.local/state/llamacpp-easy-admin/admin.json
+state/admin.json
 ```
 
 Hosts that share hardware run `caravan-scout` and heartbeat into:
@@ -774,24 +869,23 @@ POST http://<controller-ip>:7990/api/topology/client-heartbeat
 The graph model is:
 
 ```text
-client (its key) -> the entry -> its set -> the pool `model` names -> a row: a subscription's model | a machine's cell -> GPU(s)
+client (its key) -> the entry -> the pool `model` names -> a row: a subscription's model | a machine's cell -> GPU(s)
+client (its key) -> the entry -> the model `model` names (a pool of one row) -> a machine's model | an account's model
 ```
 
-A client of the entry is served by the pools of the set its cable in
-Routing leads to, the one its request's `model` names; a model the set has not,
-or a key with no cable yet, is 404. An agent of the older kind comes in
-by its own proxy port (or by the entry, with that port's key) and goes through
-its router's graph, as it was saved. Clients and agents are owned by the admin server and
+A client of the entry is served by the pool or the model its request's `model`
+names — any but what is blocked for it in Routing (403); a name the caravan has
+not is 404, a model that does not run now 503. Clients are owned by the controller and
 made on the board. Scouts report machines — never clients or agents — and run
 the cells the controller configures.
 
 ## Install llama.cpp
 
-Run the install script on the target host (builds the CUDA server on
-Linux/NVIDIA hosts and exits harmlessly elsewhere):
+The scout's installer does this on a machine it comes to. To do it by hand, run the
+install script on the target host, from a clone of this repository (builds the CUDA
+server on Linux/NVIDIA hosts and exits harmlessly elsewhere):
 
 ```sh
-cd ~/lama-caravan
 bash scripts/install-llama.sh
 ```
 
@@ -809,9 +903,6 @@ bash scripts/install-llama.sh --llama-tag b9101
 
 # Force rebuild even if the binary already exists
 bash scripts/install-llama.sh --force
-
-# Skip service restart
-bash scripts/install-llama.sh --no-restart
 ```
 
 To update llama.cpp to the latest release on an already-built host:
@@ -865,7 +956,7 @@ cell server + launcher into `$HOME` (`~/<runner>_server.py`, `~/run_<runner>.sh`
 | 📝 transcribe.cpp (STT) | `scripts/install-transcribe.sh` | `bash ~/run_transcribe.sh $PORT <model>.gguf` | the ordinary **MODEL_FILE picker** — ASR GGUFs download through the same `/hf` browser as LLMs |
 | 🌐 seamless (speech→translated text) | `scripts/install-seamless.sh` | `bash ~/run_seamless.sh $PORT <model dir> rus` | the **MODEL_FILE picker** — download `facebook/seamless-m4t-v2-large` (FP32 safetensors artifact) from `/hf`. Weights are **CC-BY-NC-4.0**: non-commercial. Outputs the target language only, with no source transcript |
 | 🔄 NLLB (text translation) | none — shares the seamless venv | `bash ~/run_translate.sh $PORT <repo id> eng_Latn rus_Cyrl` | the model is an **HF repo id** and downloads itself (2.5 GB for the distilled 600M), so nothing goes through `/hf`. Weights are **CC-BY-NC-4.0**. Serves `POST /v1/translate` — not a chat model |
-| 🗣️ TTS (voice clone) | `scripts/install-tts.sh` | `bash ~/run_tts.sh $PORT xtts\|f5\|cosyvoice` | each engine self-installs its venv + weights on first start |
+| 🦜 voice clone (TTS) | `scripts/install-tts.sh` (system ffmpeg) | `bash ~/run_tts.sh $PORT xtts\|cosyvoice\|f5`, built from the tab's engine | each engine self-installs its venv + weights on first start |
 
 Every cell sets `HEALTH_PATH: /health`. What each `/health` answers is a small
 contract: `engine`, `model` and a `source` hash while ready, or a
@@ -913,15 +1004,34 @@ says why; the `voice-chat` chip on a card and on the model's row says it talks.
 
 | runner (tab) | model it takes | launcher | speaks | how you talk to it | GPU memory | licence |
 |---|---|---|---|---|---|---|
-| PersonaPlex | `nvidia/personaplex-7b-v1` | `run_personaplex.sh` | English | a live conversation (it listens while it speaks) in a page of its own, or its websocket | 20 GB | NVIDIA Open Model License |
+| PersonaPlex | `nvidia/personaplex-7b-v1` | `run_personaplex.sh` | English | a live conversation (it listens while it speaks) in a page of its own, which the card's 🌐 opens at the https address the cell names (`PAGE_URL`), or its websocket | 20 GB | NVIDIA Open Model License |
 | LFM2.5-Audio | `LiquidAI/LFM2.5-Audio-1.5B` | `run_lfm_audio.sh` | English | `POST /v1/audio/speech` (text to speech) and `/v1/chat/completions` (a spoken or written question, answered in text and a wav) | 7 GB | LFM Open License v1.0 |
 | Step-Audio 2 | `stepfun-ai/Step-Audio-2-mini` | `run_vllm_omni.sh` | English, Chinese | `/v1/chat/completions` with the recording in and `message.audio` out | 25 GB | Apache-2.0 |
 | Qwen3-Omni | `cyankiwi/Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit` | `run_vllm_omni.sh` | 10 languages, Russian among them | the same; text, images and video go in too | 31 GB — the whole card | Apache-2.0 |
-| llama.cpp-omni | `openbmb/MiniCPM-o-4_5-gguf` (any file of it) | `run_minicpm_omni.sh` | English, Chinese | a websocket, `ws://<host>:<port>/backend` (turn by turn, or full duplex); no OpenAI API, no page | 12 GB | Apache-2.0 |
+| Qwen3-TTS | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` or `-1.7B-CustomVoice` (the 0.6B ones and VoiceDesign too) | `run_vllm_omni.sh` | 10 languages, Russian among them | `POST /v1/audio/speech` (text to speech): CustomVoice in its nine voices; Base in the voice of a sample, sent with a request or kept on the cell (`POST /v1/audio/voices`) | about 8.5 GB | Apache-2.0 |
+| Voice clone | none from the library: the engine's own, fetched at the first start (XTTS-v2, CosyVoice2-0.5B, F5-TTS) | `run_tts.sh` | XTTS-v2: 17 languages, Russian among them; CosyVoice2: Chinese, English, Japanese, Korean; F5-TTS: English, Chinese | `POST /v1/audio/speech` in the voice of a sample sent with a request or kept on the machine (`POST /v1/audio/voices`); the voice app's `/v1/audio/speech-clone` | not measured yet; with nothing pinned it takes the CPU when the card is short | XTTS-v2 and F5-TTS weights non-commercial; CosyVoice2 Apache-2.0 |
+| llama.cpp-omni | `openbmb/MiniCPM-o-4_5-gguf` (any file of it) | `run_minicpm_omni.sh` | English, Chinese | a websocket, `ws://<host>:<port>/backend` (turn by turn, or full duplex), which the board's 📞 live window speaks through the controller; no OpenAI API, no page | 12 GB | Apache-2.0 |
 
-Step-Audio 2 and Qwen3-Omni are one engine (vLLM-Omni) with a runner each: the family has its own recipe, its own
-stages' budgets of the card and its own footprint. A server that is not on the row is added to it, not started by a
-typed command: [docs/adding-a-runner.md](docs/adding-a-runner.md).
+Step-Audio 2, Qwen3-Omni and Qwen3-TTS are one engine (vLLM-Omni) with a runner each: the family has its own recipe,
+its own stages' budgets of the card and its own footprint. A server that is not on the row is added to it, not started
+by a typed command: [docs/adding-a-runner.md](docs/adding-a-runner.md).
+
+**Talk to them from the board.** A running cell of LFM2.5-Audio, Step-Audio 2, Qwen3-Omni, Qwen3-TTS or Voice clone has 🎙 on
+its card: a window records your question in the browser, sends it through the controller and plays the voice
+that comes back, with its words and its time. The window keeps the talk (LFM2.5-Audio answers one message at
+a time, and the window says so), offers the model's voices and its system prompt. A Qwen3-TTS cell is asked its
+own voices; on a Base cell, which has none of its own, record a sample of a voice with its words, tick that the
+voice is yours or its owner agreed, and the text is read in it — or keep it on the cell under a name, and it is one
+of the cell's voices from then on. A voice-clone cell has no voices of its own either, and is talked to the same way.
+PersonaPlex and llama.cpp-omni talk in both directions at once over a WebSocket of their own. llama.cpp-omni (MiniCPM-o)
+has 📞 Live on its card: a window that streams the microphone a second at a time and plays the voice as it comes — both
+at once, or turn by turn — through the controller (`wss://<board>/api/cell-live`, admins only). The reverse proxy in
+front of the board must pass WebSocket (Upgrade and Connection headers): when it does not, the window says so. Wear
+headphones in full duplex: through speakers the model hears itself. PersonaPlex talks in a page of its own, which
+finds its WebSocket at the root of the name it is opened at — so not under a path of the board's: its card has 🌐 Page,
+which opens that page in the same tab at the https address the cell's settings name (`PAGE_URL`), a name of its own on
+the reverse proxy in front of the cell. The address is checked for its form at the save: https, a name, a port and a
+path or none.
 
 What to know before the first start:
 
@@ -929,14 +1039,35 @@ What to know before the first start:
   text is `choices[0].message.content` and its voice is `choices[0].message.audio.data`, a base64 wav (24 kHz, mono).
   Qwen3-Omni takes `"speaker": "ethan"` (or `chelsie`, `aiden`) and wants its system prompt ("You are Qwen, a virtual
   human …"); a bare digit is spoken badly, so ask it to answer in full sentences with numbers in words.
+  Step-Audio 2 speaks only when the answer begins with its cue: the last message is the assistant's
+  `"<tts_start>"`, with `"continue_final_message": true` and `"add_generation_prompt": false` (vLLM-Omni's own
+  client does so); without it the words come and the voice does not. Its words carry its speech codes
+  (`<audio_1463>`): a reader takes them out. The board's 🎙 window does both.
 - **The first spoken answer is slow.** Step-Audio 2's second stage (Token2Wav) loads at the first request: about a
   minute, then 1.5 s for a 2 s answer. Qwen3-Omni answers a 15 s story in 1.5 s once started.
 - **The first start reads the checkpoint from the library**, 26 GB for Qwen3-Omni: at 20–50 MB/s from a NAS that
   is 8–20 minutes. The launcher gives the engine 40 minutes; the next start finds the files in the page cache.
 - **Qwen3-Omni holds the whole card.** Its three stages take 92 % of the GPU memory by their budgets: stop every other
   GPU cell first, or it starts with whatever is left and fails.
+- **Qwen3-TTS: one checkpoint a cell.** Base speaks in the voice of a sample, CustomVoice in its own nine (`aiden`,
+  `dylan`, `eric`, `ono_anna`, `ryan`, `serena`, `sohee`, `uncle_fu`, `vivian`), VoiceDesign in a voice described in
+  words; the server cannot switch, so a cell of each. Its two stages are given 6 and 2.5 GiB of whatever card it runs
+  on (vLLM-Omni's own file takes 0.3 of the card each), and a cell held 7.9 to 8.3 GB with four requests at once: three
+  fit one 32 GB card. A voice kept on a
+  Base cell is named by its name: Open WebUI's text to speech (the OpenAI engine, through a pool of the cell) reads its
+  answers in it. Kept voices live in the machine's `~/.cache/vllm-omni/speakers`, past a restart.
+- **Voice clone: one engine a cell.** A voice kept through any voice-clone cell lives in the machine's
+  `~/.cache/caravan-tts/voices`, past a restart, and every voice-clone cell of the machine speaks it. A request that
+  names no `language` is read in the language of its letters (Cyrillic — Russian, kana — Japanese, Latin — English:
+  name a Spanish text's language). XTTS-v2 refuses a language it does not read, CosyVoice2 a sample longer than 30 s;
+  the answer is a WAV (or `pcm`, 24 kHz), not mp3. The voice app's `/v1/audio/speech-clone` is answered as before.
+- **Any model name goes.** A vLLM-Omni cell calls its model by the recipe's name (`qwen3-omni`, `qwen3-tts`, …) and
+  takes whatever name a request gives it — a pool's, for instance: one cell serves one model, and the caravan routes
+  by the port.
 - **A microphone needs a secure page.** PersonaPlex serves its page over plain http, and a browser lets a page use the
-  microphone only on `localhost` or https. From the machine you are sitting at:
+  microphone only on `localhost` or https. Give the page an https name of its own on the reverse proxy in front of the
+  cell, passing WebSocket (Upgrade and Connection headers) on to the cell's port, and write it in the cell's `PAGE_URL`:
+  the card's 🌐 opens it. With no reverse proxy, from the machine you are sitting at:
   `ssh -N -L <port>:localhost:<port> <the GPU machine>`, then open `http://localhost:<port>`.
 - **MiniCPM-o builds its server.** `llama-omni-server` (llama.cpp-omni, one pinned commit) is compiled at the first
   start, 2 to 8 minutes by how busy the machine is, with `cmake`, `git` and the CUDA toolkit installed, for the
@@ -949,68 +1080,81 @@ What to know before the first start:
   and llama.cpp-omni are not our servers and report no stamp.
 - **The jobs.** PersonaPlex and llama.cpp-omni are `voice-chat` and nothing else (a page and a websocket): a pool of
   them is refused any request the entry has a path for. Step-Audio 2 and Qwen3-Omni are `llm` and `voice-chat`: the
-  entry serves them as chat models. LFM2.5-Audio says `tts` itself.
+  entry serves them as chat models. LFM2.5-Audio says `tts` itself; Qwen3-TTS is `tts`, and so is a voice-clone cell.
+
+### Voice in Open WebUI, through the caravan
+
+Open WebUI listens and reads aloud through any server of OpenAI's audio API, and the caravan's entry is one. The chat's
+model stays as it is; the two audio settings name pools of the entry.
+
+1. Start a cell that hears (transcribe.cpp with GigaAM for Russian, whisper, moonshine) and one that speaks (Qwen3-TTS,
+   Voice clone, LFM2.5-Audio). Open WebUI is the caravan's built-in client (1.3.667): it sees every model that runs, by
+   the model's own name — no pool to make, as every client does.
+2. In Open WebUI, **Admin Panel → Settings → Audio**:
+   - **Speech-to-Text** — engine *OpenAI*; API Base URL the entry's (`https://<entry>/v1`); API Key the built-in client's
+     key; STT Model the hearing model's name as Open WebUI's model list shows it.
+   - **Text-to-Speech** — engine *OpenAI*; the same URL and key; TTS Model the speaking model's name; TTS Voice a voice
+     of that cell: one of a CustomVoice checkpoint's nine (`vivian`, `ryan`, …), or one kept on a Base cell — or on the
+     machine of a Voice clone cell — from its 🎙 window.
+3. In a chat, 🎤 dictates a message and 🔊 under an answer reads it aloud; the call button does both, turn by turn.
+
+Before Open WebUI, the path can be tried from the client's card in Routing, under **Test as the client**: its
+`audio/transcriptions` sends half a second of silence, and its `audio/speech` asks a word as WAV in the first voice of
+the pool's cell (1.3.615).
+
+What it rests on: the recognisers read what the browser records (webm) through ffmpeg (1.3.610), a vLLM-Omni cell
+answers to whatever name a pool gives its model (1.3.608), and a Voice clone cell answers OpenAI's speech request and
+reads no model name at all (1.3.611).
 
 ## Install On the controller
 
-**This is the primary deployment.** The [Docker quick start](#quick-start-docker)
-above is for evaluation (or a GPU-less controller box); a real fleet controller
-runs native under systemd. It runs no cells itself: to put the controller's
-own GPUs to work, install a scout on its machine and pair it from the board,
-as on any other machine.
+A controller is a release, a data folder and something that keeps it running. It runs no
+cells itself: to put the controller's own GPUs to work, install a scout on its machine
+and pair it from the board, as on any other machine.
 
-Copy this directory to:
+1. Build a release as in the [quick start](#quick-start). `git archive` writes the commit
+   into `VERSION`, and `/healthz` names it from there.
 
-```text
-~/lama-caravan
-```
+2. Put the scout in it, for the command of ＋ Add scout and the ⋯ menu's **Update the
+   scout**. It is the program, built static so that it runs on any Linux machine, and its
+   scripts, in one file, and a second file that says what the first one is. From the
+   clone, with the musl target and `musl-tools` installed:
 
-Install or update the launcher template if needed:
+   ```sh
+   (cd rust && cargo build --locked --release --target x86_64-unknown-linux-musl -p scout)
+   cd ~/caravan/release
+   tar -czf scout-bundle.tar.gz -C <clone>/rust/crates/scout scripts \
+       -C <clone>/rust/target/x86_64-unknown-linux-musl/release caravan-scout
+   printf '{"commit": "%s", "sha256": "%s", "bytes": %s}' "$(git -C <clone> rev-parse --short HEAD)" \
+       "$(sha256sum scout-bundle.tar.gz | cut -d' ' -f1)" "$(wc -c < scout-bundle.tar.gz)" > scout-bundle.json
+   ```
 
-```sh
-cp scripts/start-server.sh ~/llama.cpp/start-server.sh
-chmod +x ~/llama.cpp/start-server.sh
-```
+3. Start it, under whatever restarts it on your system. A new release relies on that
+   restart: the controller ends when `CARAVAN_ROOT`, a link, comes to name another folder.
+   The settings:
 
-Create the venv:
+   | Variable | What it says |
+   |---|---|
+   | `CARAVAN_ROOT` | the release |
+   | `CARAVAN_DATA_DIR` | the data folder |
+   | `LLAMACPP_ADMIN_HOST`, `LLAMACPP_ADMIN_PORT` | where the board listens; `0.0.0.0:7990` by default |
+   | `AGENT_PROXY_HOST` | where the entry listens; `0.0.0.0` by default. Its port is set on the board |
+   | `LLAMA_TOPOLOGY_SERVER_IP` | the address the fleet reaches this controller at |
+   | `LLAMA_TOPOLOGY_SERVER_URL` | its name, when the fleet reaches it through a reverse proxy |
 
-```sh
-cd ~/lama-caravan
-python3 -m venv .venv
-.venv/bin/python -m py_compile app.py agent-proxies.py $(find caravan -name '*.py')
-.venv/bin/python scripts/test_queue_node.py
-```
+4. Check:
 
-Install the user services (the admin UI and the per-agent proxy daemon):
+   ```sh
+   curl -fsS http://127.0.0.1:7990/healthz
+   ```
 
-```sh
-mkdir -p ~/.config/systemd/user
-cp systemd/lama-caravan.service systemd/lama-caravan-proxies.service ~/.config/systemd/user/
-loginctl enable-linger $USER
-systemctl --user daemon-reload
-systemctl --user enable --now lama-caravan.service lama-caravan-proxies.service
-```
-
-Make sure no legacy crontab launcher is still present:
-
-```sh
-crontab -l | grep -E 'llamacpp-easy-admin|lama-caravan'
-```
-
-The command above should print nothing. If it shows an `@reboot` loop for this
-admin, remove that line before relying on the systemd user service.
-
-Check:
-
-```sh
-systemctl --user status lama-caravan.service lama-caravan-proxies.service --no-pager -l
-curl -fsS http://127.0.0.1:7990/api/state
-```
+In a container the image is the system alone, and a release comes into it as files:
+[docs/operations.md](docs/operations.md#controller-in-a-container).
 
 ## Notes
 
-This service is intended for the trusted local network. Sign-in (SQLite
-accounts + sessions) and a fleet token for the scouts are built in, and a fresh
+This service is intended for the trusted local network. Sign-in (accounts +
+sessions) and a fleet token for the scouts are built in, and a fresh
 install opens on its first-run page `/setup`: nothing else answers until the
 first account exists ([docs/security.md](docs/security.md)). If the UI is ever
 exposed outside the LAN, put it behind a reverse proxy with TLS.

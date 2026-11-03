@@ -1,0 +1,26 @@
+[package]
+name = "admin"
+description = "The caravan's controller in Rust: the board's server, its documents and its fleet, in place of caravan/admin."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "caravan-admin"
+path = "src/main.rs"
+
+[dependencies]
+files.workspace = true
+miniz_oxide.workspace = true
+net.workspace = true
+os.workspace = true
+plumbing.workspace = true
+regex.workspace = true
+rules.workspace = true
+serde_core.workspace = true
+serde_json.workspace = true
+wire.workspace = true
+
+[lints]
+workspace = true

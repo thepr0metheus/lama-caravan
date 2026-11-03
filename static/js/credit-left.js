@@ -4,7 +4,7 @@
 // The provider does not tell. Anthropic's Console shows "Organization credits" and its API has no call for it; OpenAI's keys read no
 // balance either. So the account holds the figure the operator typed — what the console shows NOW — and the moment it was typed
 // (`creditUsd`, `creditAsOf`), and the controller counts what went through the caravan since (`sinceCredit` in the spend reading,
-// caravan/admin/cloud_api.py). What stands here is an estimate, and every line of it says so: what the same key spent anywhere else is
+// rust/crates/admin/src/cloud/api.rs). What stands here is an estimate, and every line of it says so: what the same key spent anywhere else is
 // not in it.
 //
 // "Not read" is its own state. A credit with no spend reading — or one made for another figure than the account's now — draws the

@@ -48,14 +48,13 @@ import gc
 import io
 import json
 import os
-import re
 import sys
 import threading
 import wave
 from collections import OrderedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cell_base import CellServer   # noqa: E402
+from cell_base import CellServer, Form, Recording   # noqa: E402
 
 _lock = threading.Lock()
 _transcriber = None
@@ -149,30 +148,16 @@ class MoonshineCell(CellServer):
 
         if _transcriber is None:                          # ---- STT ----
             return 503, json.dumps({"error": "model loading"}).encode(), "application/json"
-        wav = _extract_file(body, headers.get("Content-Type", ""))
-        if not wav:
-            return 400, json.dumps({"error": "need multipart file=wav"}).encode(), "application/json"
-        audio, sr = _wav_to_floats(wav)
+        raw = Form(body, headers.get("Content-Type", "")).file()
+        if not raw:
+            return 400, json.dumps({"error": "need multipart file: a recording"}).encode(), "application/json"
+        # WAV or anything ffmpeg reads; a recording it cannot read is the reader's refusal, with its status.
+        rec = Recording.decode(raw)
         with _lock:                          # one CPU inference at a time
-            res = _transcriber.transcribe_without_streaming(audio, sr)
+            res = _transcriber.transcribe_without_streaming(list(rec.samples), rec.rate)
         text = " ".join(
             l.text for l in (getattr(res, "lines", None) or [])).strip()
         return 200, json.dumps({"text": text}).encode(), "application/json"
-
-
-def _wav_to_floats(data: bytes):
-    """wav bytes -> (list[float] mono, sample_rate). 16-bit PCM expected."""
-    wf = wave.open(io.BytesIO(data), "rb")
-    sr = wf.getframerate()
-    ch = wf.getnchannels()
-    raw = wf.readframes(wf.getnframes())
-    wf.close()
-    import array
-    a = array.array("h")
-    a.frombytes(raw)
-    if ch > 1:                                   # downmix to mono
-        a = a[::ch]
-    return [s / 32768.0 for s in a], sr
 
 
 def _synthesize(text: str, lang: str, voice: str | None = None):
@@ -233,18 +218,6 @@ def _wav_bytes(samples, sr: int) -> bytes:
         for s in samples))
     wf.close()
     return buf.getvalue()
-
-
-def _extract_file(body: bytes, ctype: str):
-    m = re.search(r'boundary="?([^";,]+)"?', ctype or "")
-    if not m:
-        return None
-    for part in body.split(b"--" + m.group(1).encode()):
-        if b'name="file"' in part.split(b"\r\n\r\n", 1)[0]:
-            payload = part.split(b"\r\n\r\n", 1)
-            if len(payload) == 2:
-                return payload[1].rstrip(b"\r\n-")
-    return None
 
 
 if __name__ == "__main__":

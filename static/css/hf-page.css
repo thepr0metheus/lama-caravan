@@ -279,6 +279,8 @@ main.hfp {
 .hfp-files th { text-align: left; padding: 6px; font-size: 10.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
 .hfp-files td { padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hfp-files td:last-child { text-overflow: clip; }
+/* A file we already have cannot be ticked for download: the box is shut and says so on hover (hf-repo-view.js, HfRepoView.haveIt). */
+.hfp-files .hfp-check:disabled { cursor: not-allowed; opacity: .4; }
 .hfp-files .r { text-align: right; font-variant-numeric: tabular-nums; }
 .hfp-files td.q { font-family: var(--mono, monospace); font-weight: 700; }
 .hfp-files td.fn { font-family: var(--mono, monospace); font-size: 11.5px; color: var(--muted); }

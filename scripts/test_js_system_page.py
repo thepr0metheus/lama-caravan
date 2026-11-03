@@ -7,7 +7,7 @@ the tab list is read FROM THE MARKUP (a hand-written list once turned a new
 tab into a "dead button"), an unknown tab falls back to the first one,
 deep-linking via hash and back, clicking a tab button; the summary tiles
 (version, git with a warn on dirty, cells good when running, disk warn below
-50 GB, models, python) and the footer; refreshAll — two requests, a failed
+50 GB, models) and the footer; refreshAll — two requests, a failed
 controller-info writes the reason into the panel and sets
 `data-t-state=error`, success sets ready; the settings file: export with no
 password is a GET with a flag, with a passphrase it's a POST body (the URL
@@ -31,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("system-panels,dialogs,dialog-llamas,polling,canvas,topology-dnd,topology-render,charts,cables,cloud,history,"
          "favorites,config-locator,onboarding,onboarding-tours,usage-stats,models-page,memory,command-preview,"
@@ -65,7 +65,7 @@ const F = () => globalThis.__fields;
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body === null ? null : JSON.parse(c.body) }));
 const settle = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r)); };
 const panelCalls = () => globalThis.__panelCalls;
-const INFO = () => ({ projectGit: { branch: "main", head: "abc1234", dirtyCount: 0 }, cells: { running: 3, total: 5 }, disk: { totalGb: 900, freeGb: 120 }, models: { count: 12, totalGb: 340 }, python: "3.12" });
+const INFO = () => ({ projectGit: { branch: "main", head: "abc1234", dirtyCount: 0 }, cells: { running: 3, total: 5 }, disk: { totalGb: 900, freeGb: 120 }, models: { count: 12, totalGb: 340 } });
 const boot = async (extra = {}) => {
   globalThis.__fetchReply["/api/state"] = { config: {}, appVersion: "1.3.306", projectGit: { branch: "main", dirtyCount: 2 } }; globalThis.__fetchReply["/api/controller-info"] = INFO(); Object.assign(globalThis.__fetchReply, extra);
   for (const fn of docListeners.DOMContentLoaded) await fn(); await settle(); globalThis.__fetchCalls.length = 0;
@@ -96,15 +96,15 @@ PINS = [
     ("first_load_failure_is_error", '', 'globalThis.__firstLoad', '{"tState":"error","detail":"controller-info unavailable","panel":"<span class=\\"muted\\">first boot: scout down</span>"}', "первая загрузка без controller-info — страница честно в состоянии error с причиной (пробуется один раз при старте процесса)"),
     ("tab_click_and_hashchange", '', 'await (async () => { await boot(); F().sysTabs.listeners.click[0]({ target: { closest: () => tabs[3] } }); const a = [activeTab(), globalThis.history.hash]; F().sysTabs.listeners.click[0]({ target: { closest: () => null } }); const b = activeTab(); globalThis.location.hash = "#diag"; winListeners.hashchange[0](); return [...a, b, activeTab(), globalThis.history.hash]; })()',
      '[["settings"],"#settings",["settings"],["diag"],"#settings"]', "клик по вкладке переключает и пишет hash; клик мимо кнопки — ничего; hashchange переключает без записи"),
-    ("hero_tiles", '', 'await (async () => { await boot(); const h = F().sysHeroStats.innerHTML; return [h.includes("<span>lama-caravan</span><strong title=\\"v1.3.306\\">v1.3.306</strong>"), h.includes("sys-stat \\"><span>git</span><strong title=\\"main @ abc1234\\">"), h.includes("server cells"), h.includes("sys-stat good\\"><span>models disk</span><strong title=\\"120 GB free\\">"), h.includes("<strong title=\\"12 · 340 GB\\">"), h.includes("<span>Python</span><strong title=\\"3.12\\">"), F().sysFoot.textContent]; })()',
-     '[true,true,false,true,true,true,"lama-caravan v1.3.306"]', "плитки: версия, git контроллера (чистый — без warn); negative: плитки ячеек нет, даже если прислан cells (своих ячеек у контроллера нет с шага 6.9); диск good, модели, python; подвал с версией"),
+    ("hero_tiles", '', 'await (async () => { await boot(); const h = F().sysHeroStats.innerHTML; return [h.includes("<span>lama-caravan</span><strong title=\\"v1.3.306\\">v1.3.306</strong>"), h.includes("sys-stat \\"><span>git</span><strong title=\\"main @ abc1234\\">"), h.includes("server cells"), h.includes("sys-stat good\\"><span>models disk</span><strong title=\\"120 GB free\\">"), h.includes("<strong title=\\"12 · 340 GB\\">"), h.includes("Python"), F().sysFoot.textContent]; })()',
+     '[true,true,false,true,true,false,"lama-caravan v1.3.306"]', "плитки: версия, git контроллера (чистый — без warn); negative: плитки ячеек нет, даже если прислан cells (своих ячеек у контроллера нет с шага 6.9); диск good, модели; negative: плитки Python нет; подвал с версией"),
     ("hero_warns_and_fallbacks", '', 'await (async () => { await boot({ "/api/controller-info": { projectGit: { branch: "main", dirtyCount: 3 }, cells: { running: 0, total: 2 }, disk: { totalGb: 100, freeGb: 10 } } }); const h = F().sysHeroStats.innerHTML; return [h.includes("sys-stat warn\\"><span>git</span>"), h.includes("0 / 2"), h.includes("sys-stat warn\\"><span>models disk</span>"), h.includes("Python")]; })()',
-     '[true,false,true,false]', "git с грязными файлами — warn; negative: плитки ячеек нет; диск ниже 50 GB — warn, без python плитки нет"),
-    ("refresh_all_calls_and_ready", '', 'await (async () => { await boot(); return [panelCalls().filter((c) => c[0] !== "bindModelGc" && c[0] !== "refreshSecurity").map((c) => c[0]), panelCalls().find((c) => c[0] === "renderControllerInfo")[1].python, document.body.dataset.tState, st.state.appVersion, [...globalThis.__timers]]; })()',
-     '[["renderLlamaCpp","renderKnownProblems","renderProjectGitBranch","renderControllerInfo"],"3.12","ready","1.3.306",["interval:30000"]]', "refreshAll: состояние применено и три панели перерисованы, controller-info передан в чипы, страница ready, автообновление каждые 30 с"),
+     '[true,false,true,false]', "git с грязными файлами — warn; negative: плитки ячеек нет; диск ниже 50 GB — warn; плитки Python нет"),
+    ("refresh_all_calls_and_ready", '', 'await (async () => { await boot(); return [panelCalls().filter((c) => c[0] !== "bindModelGc" && c[0] !== "refreshSecurity").map((c) => c[0]), panelCalls().find((c) => c[0] === "renderControllerInfo")[1].models.count, document.body.dataset.tState, st.state.appVersion, [...globalThis.__timers]]; })()',
+     '[["renderLlamaCpp","renderKnownProblems","renderProjectGitBranch","renderControllerInfo"],12,"ready","1.3.306",["interval:30000"]]', "refreshAll: состояние применено и три панели перерисованы, controller-info передан в чипы, страница ready, автообновление каждые 30 с"),
     ("refresh_all_controller_info_failure_keeps_last_info", '', 'await (async () => { await boot(); await boot({ "/api/controller-info": { __status: 502, error: "scout down" } }); return [F().controllerInfo.innerHTML, document.body.dataset.tState, document.body.dataset.tStateDetail ?? null, F().sysHeroStats.innerHTML.includes("v1.3.306"), F().sysHeroStats.innerHTML.includes("12 · 340 GB")]; })()',
      '["<span class=\\"muted\\">scout down</span>","ready",null,true,true]', "as-is: отказ controller-info на повторном обновлении — причина в панели, но страница остаётся ready и сводка строится из ПРЕЖНИХ данных (первую загрузку без данных снимок не изолирует — состояние модуля)"),
-    ("refresh_all_state_failure_keeps_going", '', 'await (async () => { await boot({ "/api/state": { __status: 500, error: "boom" } }); return [document.body.dataset.tState, panelCalls().some((c) => c[0] === "renderControllerInfo"), F().sysHeroStats.innerHTML.includes("Python")]; })()',
+    ("refresh_all_state_failure_keeps_going", '', 'await (async () => { await boot({ "/api/state": { __status: 500, error: "boom" } }); return [document.body.dataset.tState, panelCalls().some((c) => c[0] === "renderControllerInfo"), F().sysHeroStats.innerHTML.includes("12 · 340 GB")]; })()',
      '["ready",true,true]', "отказ /api/state не мешает controller-info: страница ready, сводка из info"),
     ("export_without_passphrase_is_get", 'globalThis.__fetchReply["/api/settings/export?secrets=0"] = { ok: true, bundle: { files: { "agent-proxies.json": { content: "{}" } } } };',
      'await (async () => { await boot(); await F().settingsExportBtn.listeners.click[0](); await settle(); const a = globalThis.__created.find((e) => e.tag === "a"); return [calls()[0].path, calls()[0].method, /^caravan-settings-\\d{8}-\\d{4}\\.json$/.test(a.download), a.href, a.clicked, a.removed, F().toast.textContent, F().settingsBundleInfo.innerHTML.includes("<code>agent-proxies.json</code> <span class=\\"muted\\">2 chars</span>")]; })()',
@@ -165,9 +165,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

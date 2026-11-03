@@ -2,37 +2,55 @@
 
 A pool is what a client's requests go to (the owner, 2026-10-12): built in Routing, an ordered
 list of **rows**. Each row is an output, cabled to a model in Routing's right column — a
-subscription's or a key's model (an account and one model), a model of a machine's entry (`mm:<id>`,
-1.3.506), or a machine's cell or engine's model (a local output, `srv:<port>` or `eng:<id>`). A row
+subscription's or a key's model (an account and one model), a model of a machine — "machine + model"
+by name, `mm:<id>` (1.3.506; every row of a machine's cells since 1.3.655) — or an engine's model
+(`eng:<id>`); a cell by its port (`srv:<port>`) only on a machine whose scout lists no models. A row
 with no cable yet is open. The proxy tries the rows
 from the top. One pool may mix a cell and a subscription. A pool's name is the model id its clients
 see in `/v1/models`, so two pools cannot share a name, compared without case: the board refuses a
 name another pool carries, and "＋ New pool" names a new pool "Pool", "Pool 2"… until the operator
 types one.
 
-A client of the entry is cabled to **one set** of models (the owner, 2026-10-12: "only one cable goes
-on from a client", and a set between it and the pools, since 1.3.497), and the set to pools — chat,
-speech, embeddings, each a pool. One set may serve several clients. The client's `GET /v1/models`
-lists the set's pools by name, and a request's `model` picks one, as OpenAI's API does: a name the set
-has not is 404 `model_not_found`, a request with no model is 400 (caravan/common/entry_models.py,
-caravan/admin/model_sets.py, operations.md "One entry with keys"). A client no cable reaches calls
-nothing: its requests are refused with 404 `model_not_found`.
+A client of the entry sees **every pool and every model that runs**, but what is blocked for it (1.3.675; the owner,
+2026-10-27: "every client we make has every model and every pool; the pools pass for models of their own; sets seem not to be
+needed; on a client we set which models or pools it may NOT have"). The client's `GET /v1/models` lists the pools by name, then
+each model that runs under its own name — a machine model one of whose copies runs, a model added to an account that can be
+called; one name in two places is two models, with the place in brackets — and a request's `model` picks one, as OpenAI's API
+does. A model under a pool's name is the pool's: the pool's name wins. A request with no model is 400, a name the caravan does
+not have is 404 `model_not_found`, a model it knows that does not run is 503 `model_unavailable`, and a pool or a model blocked
+for the client is 403 `model_not_allowed` (`rust/crates/rules/src/client_deny.rs`, `ClientDeny`; operations.md "What a client sees"). A
+model blocked for a client that one of its pools calls is still reached through that pool: the pool works whole (the owner's
+choice).
+
+What is blocked for a client is a list of keys: a pool, a model (a machine's or an account's), or a whole source — an account or
+a machine. A new client blocks nothing ("everything, at once"); at the move to this form every client dropped its set and started
+with nothing blocked, and Routing showed the move once, offering to delete the pools that became twins of their model. The
+built-in clients, Open WebUI and opencode (the owner, 2026-10-27), are clients like any other: made at install, they stand first on
+the main board and in Routing (`rust/crates/admin/src/common/entry.rs`, `BuiltinClient`; `rust/crates/rules/src/entry_models.rs`, `LiveEntry`).
 
 ## In Routing
 
-Routing (`/routing`, pool-board.js) is four columns joined by cables: the clients, the sets ("ID sets"), the
-pools ("ID (Pools)": a pool's name is the id of a model that a client puts in `model`, and its card says `id:` before the name) and the models. A card says its name and what is news about it (a client refused, a row serving,
+Routing (`/routing`, pool-board.js) is three columns (1.3.675; of the mockups the owner chose В2): the clients, the
+pools ("ID (Pools)": a pool's name is the id of a model that a client puts in `model`, and its card says `id:` before the name; only
+the pools' column and cards carry the word, 1.3.591) with **«Напрямую»** (Direct) on their top, and the models. The cables show only
+for a card pinned by a click, for a cable being drawn, and while requests run (the owner, 2026-10-27: "the cables only when we draw
+them, OR when a block is selected, OR when requests run"), with drops running along them; none crosses a column. A card says its name and what is news about it (a client refused, a row serving,
 a cell off) and no more: the rest stands in **the strip** under the columns (1.3.531–538; the owner,
 2026-10-13: "crowded and motley", and of three mockups he chose "details in a strip below"). The strip
-says what the pointer is on — or the card pinned by a click: its name, its route across the four
-columns (the clients that reach it, its set, its pools, its models) and its details. It is there only
+says what the pointer is on — or the card pinned by a click: its name, its route across the columns (the clients that called
+it, its pools, its models) and its details. It is there only
 while a card is pointed at or pinned; with none it is hidden (2026-10-14: "do not show the bottom strip
 when nothing is pointed at or selected"). Pointed at, it is for reading and lets the pointer through, so
 a card under it can still be pinned; pinned, it is for using, and Esc or a click on the card lets it go.
 
-- **A client's card** is its name, the tail of its key, "Models: N" and a badge "⚠ N" — how many times
-  it was refused in the last 30 days. The entry's address stands once under the Clients head, with ⧉.
-  Its strip has the links to what the client gets there by GET — `/v1/models` and each model of its set —
+- **A client's card** is its name, the tail of its key, how many models it sees ("Sees all 20", "Sees 17 of 20"), a badge
+  "⚠ N" — how many times it was refused in the last 30 days —, a chip "⊘ name" for each thing blocked for it and "＋ Block". "＋
+  Block" opens the window of what can be blocked for the client: each source — an account, a machine — with a box that blocks all
+  of it and its models under it, then the pools; listed at once are the models that run and the ones blocked already, a search
+  finds the rest (a stopped model can be blocked before it runs); a model blocked for the client that a pool still calls says so;
+  each tick is saved at once. A model or a source blocked for some clients says for whom on its own card ("⊘ Bot"). The entry's
+  address stands once under the Clients head, with ⧉. A click on a client's card draws its cables to what it called over the last
+  three days. Its strip has the links to what the client gets there by GET — `/v1/models` and the model chosen beside it —
   asked by the controller with the client's key (a browser opening the entry's address itself has no
   key and is refused), the buttons that send a short test as the client for each kind of work by POST —
   chat, responses, speech to text, text to speech, pictures, embeddings; a window shows what went out
@@ -40,31 +58,37 @@ a card under it can still be pinned; pinned, it is for using, and Esc or a click
   30 days: what it asked, the answer's status, how many times and when.
 - **A pool's strip** has its rows as the proxy says them — the rank, the model and where it stands,
   the state in words, and under a row when the pool goes on to the next one — then "＋ row", "Pool
-  settings" and "Switch history" (below). **A set's strip** has the models it gives its clients and "＋
-  model". An empty pool or set keeps its "＋" on its card.
+  settings" and "Switch history" (below). An empty pool keeps its "＋" on its card.
+- **«Напрямую»** stands on the top of the pools' column and stays there while the pools scroll: a row for each model a client
+  calls by its own name, without a pool, while such a request runs — all of them, however many (the owner: "let all be seen") —
+  with who calls it, and, while a client or a model is pinned, the models called straight over the last three days. A client's
+  cable runs to the row, the row's on to its model, so no cable crosses the pools.
 - **A model's strip** has its levels (below) and, for a machine's cell, its state in words.
 
 "＋ New pool" makes an empty pool, its name chosen in the field; "＋ row" (in the pool's strip) adds an
-open row; a row's output is cabled by dragging from its dot onto a model on the right; a client by
-dragging from its dot onto a set; a pool goes into a set by dragging from the dashed dot of the "＋
-model" row (in the set's strip) onto the pool, and "＋ New set" makes an empty set. A cable pulled out of
-the strip comes out of its top edge. A click on a cable cuts it after one question that names both ends.
+open row; a row's output is cabled by dragging from its dot onto a model on the right. A cable pulled out of the strip comes out
+of its top edge. A click on a row's cable cuts it after one question that names both ends; a client's cables are what it called,
+not links to cut.
 ⠿ carries a row to another place (the order is the pool's order); ✕ removes a row or deletes the pool —
 when old cables or rules on a router still lead to the pool, the window asks where they go, onto
-another pool or disconnected.
+another pool or disconnected. ⧉ (1.3.682) copies a pool: its rows in their order and its settings, right
+under it, named after it with " copy" (" copy 2"… when taken), the name chosen in its field to type over. A pool's name is what
+clients call it by, so no client asks for the copy until it is named.
 
 **Where the cables go** (1.3.503; the owner, 2026-10-12: "it is hard to see where the cables go; a
 cable cannot be drawn to a cell off the screen; pools of one model and of several look the same"):
 
-- The pointer over a card lights its path — up to the clients that reach it and down to the models it
-  reaches, never sideways — and the rest of the board steps back. A click on a card's free place pins
-  the path; a click on it again, or Esc, lets it go.
+- The pointer over a card lights its path — up to the clients that called it and down to the models it
+  reaches, never sideways — and takes nothing away. A click on a card's free place pins the path: the
+  rest of the board steps back and the path's cables are drawn; a click on it again, or Esc, lets it go.
+  Until 1.3.676 pointing dimmed the rest too (the owner, 2026-10-27: "do not make the other blocks
+  transparent when I only point at a block — only when I chose one").
 - The cables and the frames are one quiet colour, and only the lit path has the accent. Pools had a
   colour of their own from 1.3.503 to 1.3.530 (the owner, 2026-10-12: "to see where the cables go"); on
   an eleven-pool board three of them shared one, and the lit path shows it better (2026-10-13: "motley").
   A card's tools — ✕, a row's ✕, the grips ⠿ — show while the pointer is on the card.
 - A click on an output — a dot, a "＋" row, a model's ⠿ — opens a list of the places its cable can go,
-  with a search: a client's sets, a set's pools, a row's models (every account's models on their cards
+  with a search: a row's models (every account's models on their cards
   and every machine's cells), a model's pools. A place a cable goes to now is ticked and cannot be
   picked again — for a row, every model its pool holds. A press that travels more than 5 px is a cable,
   as before.
@@ -83,10 +107,10 @@ cable cannot be drawn to a cell off the screen; pools of one model and of severa
   its turn, or that the proxy has not asked yet, is a bare dot (filled, hollow), with the words in its title and, in
   full, in the strip. A silent proxy and a reason nobody knows keep their word: they are not "no news". The row's
   grip and ✕ take no room until the row is pointed at, so the model's name and place are not cut for them.
-- "⇅ Arrange" puts the pools in the order the sets name them and each account's models in the order the
-  pools' rows name them: the cables then run alongside one another more than across.
-- The cards of Clients, Sets and Pools are carried to another place by the ⠿ in their head (Alt+↑/↓
-  moves a focused one a place). The pools' and the sets' order is the file's own; the clients' is kept
+- "⇅ Arrange" puts each account's models in the order the pools' rows name them: the cables then run alongside one another more
+  than across.
+- The cards of Clients and Pools are carried to another place by the ⠿ in their head (Alt+↑/↓
+  moves a focused one a place). The pools' order is the file's own; the clients' is kept
   in the board's layout, beside the server cards' order, and the main board's clients follow it.
 
 **Pool settings** in the pool's strip set the window the pool states to its clients in
@@ -99,15 +123,43 @@ clients", or that it states none. Nothing stated is the default: a client then k
 of the window. The figure in the "＋ model" list beside each model is the provider's own window
 for that model, read from its catalogue — not the pool's.
 
-Beside the pool's name stands what its rows do together (1.3.502, caravan/common/model_kinds.py):
+Beside the pool's name stands what its rows do together (1.3.502, `rust/crates/rules/src/model_kind.rs`):
 💬 a chat, 🖼 beside it when every row takes pictures, 🎧 speech to text, 🎧🌐 speech to a
 translation, 🔊 speech, 🧬 embeddings — the languages in the hint — and ⚠ when the rows do different
-work. The same stands on every set row that names the pool. It is what `GET /v1/models` tells the
+work. It is what `GET /v1/models` tells the
 pool's clients: OpenRouter's `architecture` (`modality`, `input_modalities`, `output_modalities`) and
 the caravan's `caravan` (`jobs`, an ear's `languages`, its longest recording `max_audio_ms`). A pool
 promises only what every row that may serve does; a row that says nothing of itself makes the kind
 unknown, and a mixed pool tells its clients nothing. A request for work the model does not do — a
 chat to an ear, a recording to a chat model — is refused 400 before it is sent.
+
+**Subscriptions with a key** (1.3.687; the owner, 2026-10-31: "popular variants with subscriptions, the Chinese ones too"). Beside the ChatGPT subscription, which signs
+in, the provider picker has a group of plans that sell a flat month and give a key: Kimi Code, GLM Coding Plan, MiniMax M Plan, Qwen Token Plan and OpenCode Go
+(`CloudSources.PLANS`, addresses from their documentation on that day). To the proxy each is a key account at an OpenAI-compatible address, the plan's own and not the
+provider's pay-per-use one: a plan's key works nowhere else. The window says a plan's rules before its key is typed and links its page, because none of their documentation
+names an address that reports the limits, so there are no meters. The rules are the providers' own (1.3.692; the window says them: `cloudNoteKimi` and its neighbours in `static/js/i18n/`), and they bind the
+owner, not the proxy: Kimi and Qwen are for interactive use only, with no scripts or batch runs; GLM only in its listed tools, and the caravan is not one of them; MiniMax
+designs its plan for individual interactive use. Its spend reads as
+what it would cost at API prices, and no dollar credit is asked. DeepSeek is not among them: it sells no subscription, and stands with the keys, saying its balance.
+
+**What a provider hears** (1.3.692, `rust/crates/rules/src/client_name.rs`). By default, each client as the client named itself: its `User-Agent` and session headers go on as they
+came, and one that names itself nothing stays unnamed. The head of Routing's Clients column can set one name for all of them (`clientName` in the proxy's policy, `rust/crates/rules/src/client_name.rs`; the
+owner, 2026-10-31: "let us present ourselves as one; it is purely for the home, and if they ban us, let them"). It replaces the `User-Agent` and the headers that name a client (`HTTP-Referer`, `X-Title`,
+`X-OpenRouter-Title`), on the requests and on the caravan's own calls, and no more than that: a session header stays, and so does what a client's library sends of itself. It is off unless set, because
+Kimi calls altering a client's name a violation that may suspend the membership, while several tools on one account are normal to it. The ChatGPT subscription's `originator: pi` stays what it was: whether
+ChatGPT takes a request without it can be tried only on a real subscription. The calls to `auth.openai.com` keep what they had, since a failed renewal would stop the subscription: sign-in by code and sign-out say
+`lama-caravan/<version>`, while trading a code and renewing a token name no `User-Agent` (until 2026-11-02 they went as urllib's own `Python-urllib/3.x`), and all of them carry the `client_id` of OpenAI's Codex. Nothing of the home goes to a provider, with a
+name or without one: not `X-Forwarded-For`, `X-Real-IP` and `X-Forwarded-Proto`, which the NAS's nginx adds and the caravan reads (`KEPT_OUT`, `rust/crates/proxy/src/provider_request.rs`), and not the client's label on its route.
+
+An account's row says what its model does (1.3.631). A ChatGPT subscription's, an Anthropic key's and a DeepSeek key's
+models chat: their type serves nothing else. A key of another type — OpenAI, OpenRouter, Ollama, a
+custom one — serves a chat, an ear and a voice at one address, and its list says nothing of a model's
+work, so the operator says it: **What it does** in the model's strip — 💬 a chat, 🧬 embeddings, 🎧
+speech to text, 🎧🌐 speech to a translation, 🔊 speech, or "not said". It holds in every pool whose row
+names the model, and its card wears the marks. A key's model nobody said a word of wears a quiet "?":
+its pool's kind is unknown, the list says nothing of its work, and the provider decides what it
+serves. Until 1.3.631 every account's row was a chat, and a pool of one key row with a recogniser
+behind it was refused every recording.
 
 Each row says the proxy's word on it, never a guess: serving now, switch level reached, stop level
 reached, limit reached, payment needed, sign-in refused or missing, model not listed, chat only,
@@ -115,6 +167,10 @@ limits unknown, switched off, a cell that is off, a model that is gone, busy (gi
 (next row). A row whose model or cell is gone says so in red and has no cable. A row whose cell does
 not run now says so before the proxy's word (1.3.504): "cell off", starting or stopping — and failed,
 in red — as the controller sees the cell at this moment; its cable stays.
+
+The right column's cards — the accounts and the machines, in one list — change places by their ⠿ (1.3.683); a machine may stand above
+a subscription. The order is one for every browser, kept on the controller with the machines' places (`layout.serverOrder`), and while it
+names none of them the accounts stand first.
 
 The right column lists each account's models — only the ones added to it (the owner, 2026-10-12:
 "only the ones I added"), never its whole catalogue. "＋ model" in an account's head (quiet until the card is
@@ -124,7 +180,8 @@ and stays when the cable goes; ✕ (on hover) takes a model no row names off the
 stay for when it comes back. The models the rows named before 1.3.491 were added once, at the first
 start. The column also lists each machine's cells, the stopped ones no row names folded under one
 button. A machine's head says how many of its cells are in which state ("3 running · 5 stopped").
-A model's card is a line — its name and, at the right, what is news: its switch level ("switch 20% (7d)"),
+A model's card is a line — its name and, at the right, what is news: what a key's model does (its marks, or "?" while
+nobody said it), its switch level ("switch 20% (7d)"),
 a chip when its pool has stepped aside ("↓ yielding") or stopped it ("■ stopped"), its ⏱ while a schedule is on,
 "in no pool" when none uses it; its ⠿, ✕ and a quiet ⏱ show when the line is pointed at. The pools that use it are its
 route in the strip. An account's card in Routing sets nothing of the account up (the owner, 2026-10-12): it says the
@@ -164,7 +221,7 @@ says until when, and so does every pool's row of it. A schedule switched off kee
 the model is open at any time; a model with no schedule is open at any time, as before 1.3.498.
 
 A schedule is the model's, the same in every pool whose row names it — a model of an account
-(`acc:<account>/<model>`) or a machine's cell (`out:srv:<port>`). A pool needs no schedule of its
+(`acc:<account>/<model>`), a machine's model (`out:mm:<id>`) or a cell (`out:srv:<port>`). A pool needs no schedule of its
 own: it passes over the row of a model closed now and takes its next row (below). A pool whose every
 row is closed answers 503 with the time the first of them opens. Step 1 of the scheme: a cell's
 server is not started or stopped by its schedule yet — the pools keep to it, and the window says so
@@ -174,7 +231,7 @@ its schedule, as its levels.
 
 ## The rules the proxy keeps
 
-The proxy chooses per request (caravan/proxy/pool_steps.py). A row is passed by when it is switched
+The proxy chooses per request (`rust/crates/proxy/src/pool_steps/mod.rs`). A row is passed by when it is switched
 off or open, or when its model is closed by its schedule (no connection is tried); a subscription's or key's row when its account has no sign-in or key, cannot speak a
 Responses request (an OpenAI-compatible key provider speaks chat only), is asked for anything but a
 chat while it is a subscription (a recording, a text to embed: 1.3.501 — a pool of subscriptions alone
@@ -194,7 +251,7 @@ proxy answers itself — 429 when every row is held by a limit or switched off b
 otherwise — and names each row's reason and the earliest reset or opening; a pool with no row says
 "add one". A client of the entry gets the same status in OpenAI's shape, with a `Retry-After` until
 the earliest reset or opening and without the rows and accounts behind the pool
-(caravan/proxy/openai_errors.py). A pool whose every row is closed by its schedule tells the client
+(`rust/crates/rules/src/openai_error.rs`). A pool whose every row is closed by its schedule tells the client
 when it opens: "The model `Chat` is closed by its schedule until 2026-10-17 19:00 UTC+04:00". A Responses
 request that refers to an earlier response (`previous_response_id`) is refused with 400 before a row is
 chosen when the pool has more than one row: the conversation lives with one account.
@@ -206,32 +263,56 @@ the rests; the next request reads the limits and chooses again.
 ## The file
 
 `cloud-providers.json` keeps `accounts`, `pools`, `levels` and `schedules` — every key beside the
-accounts and pools named in one table for its readers and writers (caravan/common/cloud_file_keys.py:
+accounts and pools named in one table for its readers and writers (`CloudFileKeys`, `rust/crates/admin/src/common/misc.rs`:
 until 1.3.498 three lists named them, and a key one list lacked was dropped by the next save). A pool is `id`, `name`, `steps` (the
 rows, kept under their old name: each `id` and `enabled`, and `accountId` with `model`, or `output`,
 or neither for an open row), `contextAuto` and an optional `contextLength`. `levels` keeps the models'
 pairs by account and model: `{"<accountId>": {"<model>": {"stopAt": {"<seconds>": pct}, "switchAt":
 {…}}}}`. `schedules` keeps them by model key: `{"<key>": {"enabled": bool, "windows": [{"days":
 [0..6], "from": "HH:MM", "to": "HH:MM"}]}}`, Monday 0, no days every day. A pool's id is its first name's slug; a row's id is its account's (`-2`, `-3` for the same
-account again), or `r1`, `r2`… for a row made open. A client's pool is `pool` on its route in
-`agent-proxies.json`. Credentials stay in `provider-secrets.json`, outside the topology and the logs.
+account again), or `r1`, `r2`… for a row made open. What is blocked for a client is `deny` on its route in
+`agent-proxies.json` (`pool:<id>`, `model:<place>`, `account:<id>`, `host:<hostId>`); a route written before 1.3.675 kept `set`,
+`pool` or `models`, which the controller drops once at its start (operations.md, "What a client sees"). Credentials stay in
+`provider-secrets.json`, outside the topology and the logs.
 
 A row may name a model of a machine's entry (`mm:<id>`, 1.3.506): the machine's scout serves its
 models at one address by OpenAI's API and picks a running copy of the model a request names
-(caravan/admin/machine_models.py). The id holds no port, so a cell moved to another port, or a second
+(`rust/crates/admin/src/fleet/machine_models.rs`). The id holds no port, so a cell moved to another port, or a second
 copy started, leaves such a row as it is. A model with no running copy answers 503 at once, and the
 pool goes on to its next row; a busy one gives way like a cell, by the places its scout says
-(docs/backend-proxy.md). In Routing a machine's card lists its models first, by name — no port —
-with the state its scout says and how many copies serve it (×2), then its cells. A model's name there
-is its cell's `MODEL_NAME` — the cell editor's row under the runner, for every runner (1.3.507) — else
-the cell's `ALIAS`, else one made of its model; two cells with one name are one model's copies. A new
-name applies at the cell's next start, when its scout learns it.
+(docs/backend-proxy.md). A model none of whose copies runs or starts is marked as standing still on its
+output, and a pool passes its row by without asking (1.3.655, as a stopped cell's since 1.3.645). In
+Routing a machine's card lists its models, by name — no port — with the state its scout says and how
+many copies serve it (×2); its cells by port only where a row still names one. A model's name there is
+its cell's `MODEL_NAME` — the cell editor's row under the runner, for every runner (1.3.507) — else the
+cell's `ALIAS`, else one made of its model; two cells with one name on one runner are one model's copies,
+and one name on two runners is two models, `<name>@<runner>` each (scout 2.39). A new name applies at the
+cell's next start, when its scout learns it. "＋ Add model" does not say the port it takes: a model is
+called by its name, and its cell's port stands in the cell's window (1.3.655).
 
-A row names a machine's cell by its port (`srv:<port>`). When the cell moves to another port, swaps
-ports with another cell or starts on another port, its rows follow it, with its schedule and the
-routers' cables (caravan/admin/cell_outputs.py) — until 1.3.499 only the routers did, and after a
-swap a pool sent its requests to the other model. A deleted cell's rows lose their cable and stay in
-their place, open: a new cell on that port is another model, and the row waits for a cable of its own.
+Step 3 of the owner's plan (Papyrus caravan-scout-openai, 2026-10-26): the rows name the machines' models,
+not their cells' ports (`rust/crates/admin/src/fleet/machine_rows.rs`). At the controller's start and on each machine's
+report, a row cabled to a cell whose port one machine's entry lists moves to that machine's model; two rows
+of one pool that come to name one model — its two copies — become one, switched on when either was; a
+schedule kept for the cell moves with it. A row whose port no machine lists (a machine with no entry, a
+scout older than 2.37) or two machines list stays on the port. The file is copied before each rewrite
+(`cloud-providers.json.bak-machine-rows-<stamp>`, the newest 10 kept) and the log names each row moved. A
+renamed model is followed: a model the entry no longer lists whose every port now carries one other name
+is the same cells under another name — its rows and schedule move to it. A model gone with its cells, or
+split between two names, is followed nowhere, and its row says its model is gone.
+
+The spare way (the owner's decision 3 of 2026-10-12): a machine's model goes through its machine's entry,
+and when the entry does not answer — the scout restarting, its update — the proxy sends the request
+straight to a running copy on its own port, each copy once, before the pool's next row (`UpstreamCall::next_spare`,
+the proxy's event `machine_entry_spare`). A refusal of the entry (404, 503) is its answer: no spare way then.
+
+A row that names a cell by its port (`srv:<port>`) follows the cell when it moves to another port, swaps
+ports with another cell or starts on another port, with its schedule and the routers' cables
+(`rust/crates/admin/src/fleet/cell_outputs.rs`) — until 1.3.499 only the routers did, and after a swap a pool sent its
+requests to the other model. A deleted cell's rows lose their cable and stay in their place, open: a new
+cell on that port is another model, and the row waits for a cable of its own. A deleted cell that was its
+model's only copy takes the rows of the model with it the same way; a cell of two copies leaves the rows to
+the other (1.3.655).
 
 Until 1.3.486 a step kept its own levels, and a client kept the pools it might call (`models`). The
 controller moves them once at start: the steps' levels onto their models (`PoolDesk.migrate_rows`,
@@ -253,11 +334,10 @@ the file's one writer (`scripts/check_oauth_owner.py`).
 
 Admin APIs: `POST /api/pools/create`, `/api/pools/add-row`, `/api/pools/connect-row`,
 `/api/pools/remove-step`, `/api/pools/save`, `/api/pools/level`, `/api/models/schedule`, `/api/pools/delete`,
-`/api/consumers/set`, the sets' doors (`/api/sets/create`, `/api/sets/rename`, `/api/sets/add-pool`,
-`/api/sets/remove-pool`, `/api/sets/delete`), `GET /api/pools/refs` and `GET /api/cloud-accounts/catalogue`; see
+`/api/consumers/deny`, `/api/entry-move/seen`, `GET /api/pools/refs` and `GET /api/cloud-accounts/catalogue`; see
 [HTTP API](http-api.md) for fields and errors. A pool has no port of its own since 1.3.487: every
 client comes in through the entry with its own key, and a file that still had such a port loses it
-at the controller's start (`caravan/admin/pool_ports.py`).
+at the controller's start (`rust/crates/admin/src/cloud/pool_ports.rs`).
 
 ## Saved usage-limit resets
 

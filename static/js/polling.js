@@ -56,11 +56,28 @@ export async function refreshLiveState() {
   }
 }
 
-export function scheduleLiveRefresh(delay = LIVE_REFRESH_MS) {
+// Routing's beat: the topology alone, as it has no git chip to keep. Its board is drawn from the topology and its cables from the monitor,
+// and until 1.3.691 nothing read the topology again once the page was open: a row's "Serving now" and a cell's state held what the page opened
+// with while the cables showed the requests moving on, after a row carried up or a limit reached alike (the owner, 2026-10-31: the words stay
+// on the row until the page is reloaded). A reading that moves nothing the board draws redraws nothing (applyTopologyUpdate): 19 readings over
+// 30 s on the live board, 129 ms each at the median, redrew it not once.
+export async function refreshRoutingState() {
+  if (liveRefreshInflight) return;
+  liveRefreshInflight = true;
+  try {
+    await refreshTopology();
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    liveRefreshInflight = false;
+  }
+}
+
+export function scheduleLiveRefresh(delay = LIVE_REFRESH_MS, read = refreshLiveState) {
   clearTimeout(liveRefreshTimer);
   liveRefreshTimer = setTimeout(async () => {
-    await refreshLiveState();
-    scheduleLiveRefresh();
+    await read();
+    scheduleLiveRefresh(LIVE_REFRESH_MS, read);
   }, delay);
 }
 

@@ -2639,20 +2639,14 @@ document.addEventListener("click", (e) => {
   e.stopPropagation();
   editTopologyProxy(btn.dataset.cvPortEdit);
 });
-// A consumer's row: the key it lacks, its port to close or reopen; the entry: its address
-// to copy, to set up, to turn off (consumer-access.js). One listener for the panel the render rebuilds.
+// The entry: its address to copy, to set up, to turn off (consumer-access.js). One listener for the panel the render rebuilds.
 document.addEventListener("click", (e) => {
   const hit = (sel) => e.target.closest && e.target.closest(sel);
-  const give = hit("[data-cv-port-key]"), close = hit("[data-cv-port-close]");
-  const reopen = hit("[data-cv-port-reopen]"), entry = hit("[data-cv-entry-copy]");
-  const setup = hit("[data-cv-entry-setup]"), off = hit("[data-cv-entry-off]");
-  if (!give && !close && !reopen && !entry && !setup && !off) return;
+  const entry = hit("[data-cv-entry-copy]"), setup = hit("[data-cv-entry-setup]"), off = hit("[data-cv-entry-off]");
+  if (!entry && !setup && !off) return;
   e.stopPropagation();
   if (setup) CONSUMER_ACCESS.setupEntry();
   else if (off) CONSUMER_ACCESS.turnOffEntry();
-  else if (give) CONSUMER_ACCESS.giveKey(give.dataset.cvPortKey);
-  else if (close) CONSUMER_ACCESS.closePort(close.dataset.cvPortClose);
-  else if (reopen) CONSUMER_ACCESS.reopenPort(reopen.dataset.cvPortReopen);
   else CONSUMER_ACCESS.copyEntry();
 });
 // ── Function faces: the old names, kept for the callers and the snapshot ───────

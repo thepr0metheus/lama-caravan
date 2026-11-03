@@ -27,12 +27,12 @@ class NewTabSites:
     """Every place of the page that asks for a tab or a window of its own, and which of them may."""
 
     #: Where the page's behaviour lives. The dictionaries (static/js/i18n) and the tour texts are words, not behaviour.
-    TREES = ("static", "caravan")
+    TREES = ("static", "rust/crates/admin/src/web")
     SKIP = ("static/js/i18n/", "static/js/onboarding-strings.js")
     #: An attribute target="…" (a named window too), a property .target = "…", setAttribute("target", …), window.open(.
     ASK = re.compile(
         r"""(?:\starget=["'`]|\.target\s*=\s*["'`]|setAttribute\(\s*["']target["']|\b(?:window|globalThis|self|top)\.open\()""")
-    SUFFIXES = (".html", ".js", ".py")
+    SUFFIXES = (".html", ".js")
     HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 
     #: (file, a text of the line, how many such lines, why this place may ask for another tab) — none, since the
@@ -46,8 +46,8 @@ class NewTabSites:
         for tree in self.TREES:
             for path in sorted((self.root / tree).rglob("*")):
                 rel = path.relative_to(self.root).as_posix()
-                if (path.suffix in self.SUFFIXES and path.is_file() and "__pycache__" not in path.parts
-                        and not rel.startswith(self.SKIP) and not (tree == "caravan" and path.suffix != ".py")):
+                if (path.suffix in self.SUFFIXES and path.is_file()
+                        and not rel.startswith(self.SKIP)):
                     yield rel, path
 
     @classmethod

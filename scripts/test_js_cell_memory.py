@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _css_rules import CssRules  # noqa: E402
-from _node import find_node  # noqa: E402
+from _node import find_node, probe_args  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGS = sorted(p.stem for p in (ROOT / "static" / "js" / "i18n").glob("*.js"))
@@ -50,6 +50,11 @@ const of = (f) => CellMemory.of(f).html();
 eq([0, 0.5 * GB, 0.04 * GB, 0.05 * GB, 31 * GB, 63.4 * GB, 1536 * GB].map((b) => CellMemory.gb(b)), ["0", "0.5G", "<0.1G", "0.1G", "31.0G", "63.4G", "1536.0G"],
    "a size says gigabytes with one place, \"0\" for nothing and \"<0.1G\" for what one place would round to nothing — the unit the board prints (GiB)");
 eq([-1, NaN, "x", null, undefined, Infinity].map((b) => CellMemory.gb(b)), ["", "", "", "", "", ""], "negative: a size that is negative, not a number, or missing says nothing — never \"0\" or \"NaN\"");
+
+// ── which phases hold memory: one list for the card's badges and the machine's map (machine-head.js) ──
+eq(["running", "warming", "broken", "stopped", "reserved", "error", "downloading", "", null, undefined].map((p) => CellMemory.holds(p)),
+   [true, true, true, false, false, false, false, false, false, false],
+   "a process holds memory while it runs, warms up or is broken; negative: stopped, reserved, failed, still copying its model, or no phase at all — holds none");
 
 // ── a cell that runs: two measured badges ──
 eq(badges(of({ live: true, gpuKnown: true, ramBytes: 4.2 * GB, vramBytes: 31 * GB })),
@@ -93,6 +98,18 @@ eq(badges(of({ fileBytes: 4.7 * GB, plannedGb: 12.5 })).map((b) => b[3]), ["RAM 
    "the runner's own measured figure wins over the file's size (llama.cpp-omni's GGUF is 4.7 GB, its cell takes 12.5)");
 eq(titles(of({ fileBytes: 4.7 * GB, plannedGb: 12.5 })).map((t) => t.replace(/&#39;/g, "'")), [en.cellMemIdleTitle, en.vramPlanChipTitle], "…and its tip says it is a measure of the engine, not the file");
 eq(titles(of({ fileBytes: 7.5 * GB })).map((t) => t.replace(/&#39;/g, "'")), [en.cellMemIdleTitle, en.vramEstChipTitle], "…and the estimate's tip says it is from the file's size");
+eq(badges(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: 31.4 * GB })).map((b) => b.slice(1)),
+   [["mem-unknown", "idle", "RAM —"], ["vram-est", "expected", "GPU ≈31.4G"]],
+   "defect-history (2026-10-26): a runner that takes its card's free memory (Strata) is expected to hold that room less its reserve, as the "
+   + "bench lays it — not its files: an 87 GB pack read \"GPU ≈87.2G\" on a 32 GB card");
+eq(titles(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: 31.4 * GB })).map((t) => t.replace(/&#39;/g, "'"))[1], en.machineSizeFree,
+   "…and its tip says so in the bench's own words");
+eq(badges(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: null })).map((b) => b.slice(1))[1], ["mem-unknown", "idle", "GPU —"],
+   "negative: its card's room is not known (or the card lacks its floor) — a dash, not the files' size and not a 0");
+eq(badges(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: 0 })).map((b) => b[2])[1], "idle",
+   "negative: a room of nothing is no figure to expect — a dash");
+eq(badges(of({ cpu: true, takesFree: true, freeBytes: 31.4 * GB, fileBytes: 13 * GB })).map((b) => b[3]), ["RAM ≈13.0G", "GPU 0"],
+   "negative: a CPU cell says what a CPU cell says, whatever its runner's plan");
 eq(badges(of({})).map((b) => b.slice(1)), [["mem-unknown", "idle", "RAM —"], ["mem-unknown", "idle", "GPU —"]],
    "negative: a parked cell of which nothing is known — both dashes, \"not running, nothing says how much\": no estimate made up");
 eq(badges(of({ live: false, gpuKnown: true, ramBytes: 5 * GB, vramBytes: 9 * GB })).map((b) => b[3]), ["RAM —", "GPU —"],
@@ -185,7 +202,7 @@ def main():
     probe.write_text(PROBE)
     try:
         harness = ROOT / "scripts" / "_js_harness.mjs"
-        result = subprocess.run([node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');", str(probe)], cwd=ROOT,
+        result = subprocess.run(probe_args(node, harness, probe), cwd=ROOT,
                                 env={**os.environ, "JS_ROOT": str(ROOT / "static/js"), "JS_STUBS": "i18n", "LANGS": json.dumps(LANGS), "KEYS": json.dumps(KEYS),
                                      "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"},
                                 capture_output=True, text=True, timeout=90)

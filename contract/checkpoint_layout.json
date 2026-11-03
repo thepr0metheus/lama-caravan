@@ -1,0 +1,76 @@
+{
+ "cases": [
+  {
+   "repo": "nvidia/GR00T-N1.7-3B",
+   "label": "BF16",
+   "path": "model-00001-of-00002.safetensors",
+   "name": "model-00001-of-00002.safetensors",
+   "lies": "GR00T-N1.7-3B/nvidia/BF16/model-00001-of-00002.safetensors",
+   "why": "a file at the top lies in the folder of the checkpoint"
+  },
+  {
+   "repo": "nvidia/GR00T-N1.7-3B",
+   "label": "BF16",
+   "path": "experiment_cfg/conf.yaml",
+   "name": "conf.yaml",
+   "lies": "GR00T-N1.7-3B/nvidia/BF16/experiment_cfg/conf.yaml",
+   "why": "defect-history: a file keeps its folder of the repository (the runtime reads experiment_cfg/)"
+  },
+  {
+   "repo": "nvidia/GR00T-N1.7-3B",
+   "label": "BF16",
+   "path": "a/b/c/deep.json",
+   "name": "deep.json",
+   "lies": "GR00T-N1.7-3B/nvidia/BF16/a/b/c/deep.json",
+   "why": "folders of any depth are kept"
+  },
+  {
+   "repo": "org/m",
+   "label": "FP8",
+   "path": "a/../b/./c.json",
+   "name": "c.json",
+   "lies": "m/org/FP8/a/b/c.json",
+   "why": "\".\" and \"..\" steps are dropped, not followed"
+  },
+  {
+   "repo": "org/m",
+   "label": "FP8",
+   "path": "../../up.json",
+   "name": "up.json",
+   "lies": "m/org/FP8/up.json",
+   "why": "negative: a path of \"..\" steps does not lead out of the folder"
+  },
+  {
+   "repo": "org/m",
+   "label": "FP8",
+   "path": "a//b.json",
+   "name": "b.json",
+   "lies": "m/org/FP8/a/b.json",
+   "why": "an empty step is dropped"
+  },
+  {
+   "repo": "solo",
+   "label": "safetensors",
+   "path": "x/w.safetensors",
+   "name": "w.safetensors",
+   "lies": "solo/unknown/safetensors/x/w.safetensors",
+   "why": "a repository that names no author lies under \"unknown\""
+  },
+  {
+   "repo": "a/b/c",
+   "label": "BF16",
+   "path": "f.json",
+   "name": "f.json",
+   "lies": "c/a/BF16/f.json",
+   "why": "the model is the LAST part of the id, the author the first"
+  },
+  {
+   "repo": "nvidia/Cosmos-Reason2-2B",
+   "label": "SAFETENSORS",
+   "path": "tokenizer.json",
+   "name": "tokenizer.json",
+   "lies": "Cosmos-Reason2-2B/nvidia/SAFETENSORS/tokenizer.json",
+   "why": "the label is whatever the page gave: a different label is a different folder"
+  }
+ ]
+}

@@ -1,0 +1,51 @@
+{
+  "of": [
+    {
+      "output": {
+        "upstreamType": "llama"
+      },
+      "word": "llama"
+    },
+    {
+      "output": {
+        "upstreamType": "engine"
+      },
+      "word": "engine"
+    },
+    {
+      "output": {
+        "upstreamType": "machine"
+      },
+      "word": "machine"
+    },
+    {
+      "output": {
+        "upstreamType": "cloud"
+      },
+      "word": "cloud"
+    },
+    {
+      "output": {
+        "upstreamType": " Machine "
+      },
+      "word": "machine"
+    },
+    {
+      "output": {
+        "upstreamType": "something else"
+      },
+      "word": "llama",
+      "why": "a type outside the table reads as a cell, as the file has always been"
+    },
+    {
+      "output": {},
+      "word": "llama"
+    },
+    {
+      "output": {
+        "upstreamType": null
+      },
+      "word": "llama"
+    }
+  ]
+}

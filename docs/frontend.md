@@ -1,15 +1,15 @@
 # Frontend module reference
 
-**A note on names.** Since 1.3.575 the UI calls the page of clients, sets, pools and models **Routing**; in code it is
+**A note on names.** Since 1.3.575 the UI calls the page of clients, pools and models **Routing**; in code it is
 still the *Routing*: `routing.html`, `/routing`, `data-t-page="routing"`, the `routing-*` test names, the `pb-*` classes and
-this document's "Routing" all mean that page. Only what a person reads was renamed (strings in 20 languages, the
+this document's "Routing" all mean that page. Only what a person reads was renamed (strings in every language, the
 `<title>`, the `<h1>`, the prose docs); a rename of the identifiers would break the testability contract
 (docs/testability.md) for nothing a person sees.
 
 The UI is 46 native ES modules under `static/js/`; six of them (`hf-*.js`) are the `/hf` page.
 There is no bundler, no framework, no npm and no build step: the browser loads `/js/main.js` as a
 `type="module"` script and follows real `import` statements from there. The core was split out
-of a single 26,720-line `static/app.js` (the split tooling survives in `scripts/refactor/`).
+of a single 26,720-line `static/app.js`.
 
 Six pages share the code:
 
@@ -19,12 +19,12 @@ Six pages share the code:
 | `static/index.html` | `/machine?host=<id>` | `/js/main.js` | one machine's window: the same page, which shows that machine's whole card alone (board-view.js) |
 | `static/routing.html` | `/routing` (`/router` redirects) | `/js/main.js` | standalone router workspace; an inline classic script sets `window.ROUTER_STANDALONE = true` — it runs immediately, before the (deferred) module executes, so `main.js` sees the flag. Deep-link a router with `?id=<routerId>` (default `router:default`) |
 | `static/hf.html` | `/hf` | `/js/hf-page.js` | HuggingFace model browser: search and filters over the list on the left, the repository on the right, the selection and downloads in a dock along the bottom; imports only `utils.js` and `onboarding.js` from the shared code |
-| `static/models.html` | `/models` | `/js/models-page.js` | places (this disk, libraries), filters and the model tree in columns: sizes here and in the library, cells, downloads, moves, cleanup |
+| `static/models.html` | `/models` | `/js/models-page.js` | places (this disk, libraries), filters and the model tree in columns: what a model is for and its trained context, sizes here and in the library, cells, downloads, moves, cleanup |
 | `static/system.html` | `/system` | `/js/system-page.js` | Controller / llama.cpp / Security / Diagnostics tabs (the former System modal) |
 
-Serving: the Python backend (`caravan/admin/routes.py`) serves every static file through
-`Handler.send_file`, which sets an mtime+size `ETag` and `Cache-Control: no-cache` — the browser
-revalidates every load and gets a 304 when unchanged, so a redeploy is picked up immediately and
+Serving: the controller (`rust/crates/admin/src/routes/pages.rs`) serves every static file through
+`Exchange::send_file`, which sets an mtime+size `ETag` and `Cache-Control: no-cache` — the browser
+revalidates every load and gets a 304 when unchanged, so a new release is picked up immediately and
 **no cache-busting `?v=` params are needed** (the favicon's `?v=2` is the one deliberate holdout).
 `/js/<name>` and `/css/<name>` are prefix routes; adding a module is just adding a file.
 
@@ -36,10 +36,14 @@ linked last and only on `/hf`: the page's own layout, written for it rather than
 rules across files would reorder equal-specificity rules and change the cascade. Add new rules to
 the file whose range they belong to; never move existing rules between files (some slices even
 start mid-topic — `form.css` opens with a comment referring to a rule in the previous slice).
+Files written later for one subject sit among the slices (`cables`, `columns`, `fold`, `pool-board`, `river`), and `machine.css`
+(1.3.630, the machine page's head) is linked last on the board's page. `ui.css`
+(1.3.627, the parts below) is linked second on every page, right after `base`: its classes are all `ui-*`, so no slice's rule
+names them, and a screen moved onto the parts keeps its own layout in its own file, linked after it.
 
 ## State model
 
-`static/js/state.js` (35 lines) carries the two central objects:
+`static/js/state.js` (66 lines) carries the two central objects:
 
 - `state` — the `/api/state` payload (controller service, runtime, CPU/GPU, config).
 - `topology` — the `/api/topology` payload (clients, nodes, servers, proxies, routers, cloud).
@@ -52,7 +56,7 @@ Under ES modules, assigning to an imported binding is a runtime `TypeError`:
 import { topology, setTopology } from "./state.js";
 
 topology = await api("/api/topology");    // WRONG — TypeError: assignment to imported binding
-setTopology(await api("/api/topology"));  // right — rebinds inside state.js, every importer sees it
+setTopology(res.topology);  // right — rebinds inside state.js, every importer sees it
 
 ui.usageStatsModalOpen = true;            // fine — property write on an imported object, no setter needed
 ```
@@ -94,7 +98,7 @@ history filters in history, the account window's busy flag in cloud.
   stack plus every modal shell, the nodes lane, GPU cards. It then re-binds all delegated handlers
   (`bindTopologyDragAndDrop()`) and per-render buttons. A full rebuild resets CSS animations and
   drops an in-progress drag, so it must not run on every background tick.
-- `refreshTopology()` — `GET /api/topology` → `setTopology()` → `applyTopologyUpdate()`, which decides:
+- `refreshTopology()` — `GET /api/topology` → `TOPOLOGY_READINGS.land()` (a reading older than what the page holds is dropped: `state.js`) → `applyTopologyUpdate()`, which decides:
   1. user mid-interaction (`topologyPointerDrag`, proxy form open, canvas drag) → set
      `_topologyRenderPending` and do nothing; `flushPendingTopologyRender()` runs when the
      interaction ends;
@@ -118,7 +122,7 @@ Poll cadences:
 |---|---|---|
 | `/api/state` | once, when the page opens | `polling.js` `loadState()` |
 | `/api/project-git` | 1.5 s — the live beat (self-rescheduling timeout) | `polling.js` `scheduleLiveRefresh()` |
-| `/api/topology` | piggybacks each live beat on the main board; also refetched after most POSTs | `refreshLiveState()` → `refreshTopology()` |
+| `/api/topology` | piggybacks each live beat on the main board; on Routing the beat reads it alone (`refreshRoutingState`, 1.3.691: until then nothing read it again once the page was open); also refetched after most POSTs | `refreshLiveState()` → `refreshTopology()` |
 | `/api/models/rows` | only when the topology's `modelsStamp` differs from the page's — a model downloaded, moved or deleted since the page opened | `model-list.js` `MODEL_LIST.follow()` in `refreshTopology()` |
 | `/api/topology` (start watch) | every 2 s while a remote server is resolving/downloading/loading; stops itself | `remote-cells.js` `startRemoteStartWatch()` |
 | `/api/system-monitor` | 1 s while a monitor runs; feeds `ui.latestSystemMonitor`; the standalone Routing's only recurring poll (drives its live stats) | `polling.js` `startTopologyMonitor()` / `startSystemMonitor()` |
@@ -148,11 +152,10 @@ both shapes.
   would bring the port back.
 
 Standalone Routing init (`main.js` `initRouterStandalonePage()`), in order: `refreshTopology()` →
-set the ui canvas ids (`ui.topologyRouterDetailId`, `ui.topologyCanvasRouterId`,
-`ui.topologyRouterNodeCfgId = ""`) →
-`cvSetViewport(canvasOpenPositions(routerId), canvasInitialView(routerId))` → `renderTopology()` →
-`startTopologyMonitor()`. This page never calls `loadState()` — topology loads once and the 1 s
-system-monitor poll keeps the queue/schedule nodes live.
+`renderTopology()` → `startTopologyMonitor()` → `scheduleLiveRefresh(LIVE_REFRESH_MS, refreshRoutingState)`.
+This page never calls `loadState()`. The beat reads the topology alone, as the page has no git chip, and it is what
+moves "Serving now" and a cell's state on a row; the 1 s monitor runs the drops along the cables. Until 1.3.691 there
+was no beat here, and the words stayed as they were until the page was reloaded.
 
 **Core**
 
@@ -199,20 +202,26 @@ floating fallback if no header button exists). `onboarding.js` is the
 dependency-free engine (spotlight overlay + card, keyboard nav, skips steps
 whose anchor is missing/hidden, auto-start once per page via
 `caravanTourSeen:<page>` in localStorage, single active tour) — the /hf page
-reuses it without pulling i18n-data. The welcome step embeds an interface-language
-picker (`setLang` from i18n.js; on /hf the page's own list of all twenty). `onboarding-tours.js` declares the board, config
-editor (te-/tr- modal, picked automatically when one is open) and Routing
-tours; `onboarding-strings.js` holds the EN/RU texts and is merged into
-`messages` at import (other languages fall back to English via `t()`).
+reuses it without pulling i18n-data. A step's target is the first element its anchor matches that is on screen, not the first
+match (1.3.672): a page draws one of several alike, and a selector list names where each kind of form keeps the same thing. The
+ring keeps to the window, and a target as tall as the window gets the card beside it — right, else left, else at the foot — not
+over it. The welcome step embeds an interface-language
+picker (`setLang` from i18n.js; on /hf the page's own list of all twenty). `onboarding-tours.js` declares the main board, a
+machine's page (`BOARD_VIEW.isMachine`; its own steps since 1.3.672 — it ran the main board's tour, with nothing of its own and a
+ring round the whole page), the config editor (the tr- modal, picked automatically when it is open) and Routing tours, and exports
+them by page (`TOURS`) for the tests that hold every anchor to what its page draws: `test_js_onboarding_tours.py` (the machine's
+page rendered by `MachineHead`; the board's and the editor's against index.html, as a browser finds them, and no step on a
+`select` hidden behind its picker), `test_js_pool_board.py` (Routing's, with `scripts/_tour_anchors.mjs`). `onboarding-strings.js`
+holds every language's texts (`scripts/check_tour_i18n.py`) and is merged into `messages` as each language loads.
 
-- Key exports: `createTour`, `mountTourButton`, `autoStartOnce` (engine); `initOnboarding` (tours).
+- Key exports: `createTour`, `initTourButtons`, `autoStartOnce` (engine); `initOnboarding`, `TOURS` (tours).
 
 ## state.js
 
-See "State model" above. 35 lines; read them.
+See "State model" above. 66 lines; read them.
 
-- Owns: `state`, `topology`, `ui`.
-- Key exports: `state`, `topology`, `setState`, `setTopology`, `ui`.
+- Owns: `state`, `topology`, `ui`, and which reading of the topology the page holds (`TopologyReadings`, 1.3.691: a reading numbered as it sets out and older than what the page holds is dropped; `setTopology`, the answer to a write, outdates those on their way).
+- Key exports: `state`, `topology`, `setState`, `setTopology`, `TOPOLOGY_READINGS`, `ui`.
 
 ## utils.js
 
@@ -221,10 +230,259 @@ DOM/format/HTTP helpers with zero app-state and **zero i18n** dependencies: `$` 
 `/login` only after `signedOutForSure()` — a plain GET of `/api/auth/me` that says `authenticated:
 false` — so one 401 that the server meant as "try again" does not throw the owner out), `toast`,
 `pill`, byte/MiB formatters, tooltip positioning. The /hf modules import from it (`escapeHtml`,
-`markPageState`) — keep it i18n-free so the HF page never pulls the translations module.
+`markPageState`) — keep it i18n-free so the HF page never pulls the translations module. The toast
+(`#toast`, form.css) stands over every layer of the board and takes no clicks (1.3.625): without a
+layer it was drawn under an open dialog and under a cell's window, and a refusal's words were read
+dimmed (`scripts/test_toast_css.py`).
 
 - Owns: nothing mutable.
-- Key exports: `$`, `escapeHtml`, `api`, `toast`, `pill`, `formatMemoryMiB`, `bindTooltips`.
+- Key exports: `$`, `escapeHtml`, `api`, `toast`, `pill`, `formatMemoryMiB`, `formatSizeGb` (here since 1.3.634, from memory.js,
+  which still re-exports it: the start rules that moved to placement.js write their bar's note with it), `bindTooltips`.
+
+## ui-parts.js / ui.css
+
+The parts every screen is built from (1.3.627, step 0 of the screens' redesign; the owner chose variant А with the memory
+map of В on 2026-10-25): the button, the switch, the segmented choice, the filter pill, the badge, the status band, the
+row, the meter, the lane of a memory map (`Lane`, 1.3.632: a card or the RAM as one wide bar of named blocks, a cell's a button
+that chooses it — the meter's shares, `Meter.cut` and `Meter.look`; an estimate in dashes, its cache in paler ones —
+`estimate-cache`, 1.3.635), the tabs, the address, the "⋯" menu (`Menu`, 1.3.630;
+brought alive by ui-menus.js) and the window frame —
+a window's, or a page's own head (`Frame({kind: "page"})`: the same passport and band without a window's edge, the name the
+page's `<h1>`). The screens had grown a look each — a new function came with its own buttons, heights and colours — so a
+part now has one home: its markup and accessibility in `ui-parts.js`, its look in `ui.css`. The screens move onto them one by
+one: the machine's page first (its head since 1.3.630, machine-head.js; variant В «Карта памяти» since 1.3.632). A band
+said in a head's line beside a name is the same part, `inline` (`ui-band--inline`): the dot and the words, no frame.
+
+- A part decides nothing about what it shows. The caller hands it its words, already translated, and the attributes its
+  handlers bind by (`attrs`, `open`); the part writes the classes, the roles (`role="switch"`, `aria-pressed`,
+  `aria-selected`, `role="status"`) and escapes every word. `ui-parts.js` imports only `escapeHtml` and no i18n, like
+  `utils.js`, so any page can take it.
+- A kind it does not know is refused (`Button: no kind "hush" (plain, main, …)`), not guessed: the kinds are the code's,
+  never the data's. A button that is only an icon needs a label, a row that opens needs one too.
+- Absence is not drawn as a value: a meter whose total is not known draws no bar (not an empty one), its non-positive parts
+  are left out rather than drawn as zero, and an unknown series is refused.
+- The tokens (`--ui-*` in `ui.css`'s `:root`) build on the theme's own (`--bg`, `--panel`, `--text`, `--good`, … in
+  `base.css`), so the `llm` theme recolours the parts with the rest of the page. The series colours of a meter (`--ui-series-1`
+  … `6`, one per cell holding memory) are the only colours of their own.
+- `scripts/check_ui_tokens.py`: the rules of `ui.css` take colours, font sizes and radii from the tokens only; a
+  `var(--ui-…)` must be declared; every `ui-` class the parts draw — node draws every part in every kind — must be styled;
+  no colour in an inline style a part writes. A screen moved onto the parts joins its `UI_CSS` list and takes no colour of
+  its own either. Its breakages are in `test_guards_fail.py`; the parts' values in `scripts/test_js_ui_parts.py`.
+- `docs/ui-parts.html` shows every part in every state, on the board's own stylesheets, in both themes. It is a
+  developer's page, not served by the controller: open it through a static server started at the repository's root
+  (`python3 -m http.server 8768`, then `http://localhost:8768/docs/ui-parts.html`).
+
+- Owns: nothing mutable.
+- Key exports: `Icon`, `Button`, `Switch`, `Seg`, `Pill`, `Badge`, `Band`, `Row`, `Meter`, `Tabs`, `Addr`, `Menu`, `Frame`.
+
+## ui-menus.js
+
+The parts' "⋯" menus come alive here, for every screen at once (1.3.630): one listener on the document, bound once by main.js.
+A menu opens by its button (`[data-ui-menu-toggle]`, `aria-expanded`) and closes by its button again, by Escape — the focus back
+on its button, and that Escape the menu's: `stopImmediatePropagation`, so no listener after it sees it —, by a click outside
+it, and when one of its items is chosen (the item's own listener, the board's, runs too: the menu only steps aside). One menu is
+open at a time. An open menu is a layer over a cell's window (`FoldPeek.LAYERS`, card-fold.js), so Escape over a window closes
+the menu first. Pinned by `scripts/test_js_ui_menus.py`.
+
+- Owns: `UI_MENUS` (whether it is bound).
+- Key exports: `UiMenus`, `UI_MENUS`.
+
+## machine-head.js / machine-models.js
+
+A machine's page, `/models` and `/system` have no frame since 1.3.699 (the owner, 2026-11-01: variant Р2, "as on /hf"): panes from edge to
+edge with a line between them, each scrolling by itself. On a machine's page the panes lie inside what the board draws anew, and
+`MachinePanes.replace` (machine-head.js) keeps their place; a drag moves its pane when the pointer leans on an edge
+(`PaneLean`, machine-plan.js). The rack stays in sight on a window of 780 px or more (machine.css), and the chosen cell's row is
+brought into view whichever way it was chosen (`MachinePick.bringRow`). Narrower than 1100 px (a machine's page) or 900 px (the other two), they are one column and the page scrolls.
+
+The head of a machine's page — variant В «Карта памяти» of the screens' redesign (1.3.632; the owner's choice of 2026-10-25, after
+1.3.630 drew variant А «Пульт» with the memory map of В). It replaces the machine card's header and its compute column on that page
+— the main board's glance keeps its own (`nodeComputeHtml`). Its parts:
+
+- `MachineHead` — the passport (`Frame({kind: "page"})`): the name as the page's heading, what it is (role, platform, address,
+  the scout's version), the old-scout chip and, in the same line (`.machine-tools`), what the machine does now (`MachineBand`),
+  the "⋯" `Menu` of what is rare and what cannot be undone — reboot, the power-off schedule, power off, letting the scout go (a
+  host only) — and Add model. The items carry the attributes the board's listeners already bind by (`data-reboot-host`,
+  `data-power-schedule-host`, `data-poweroff-host`, `data-scout-disconnect`) and the hooks they had (`node-reboot`, …), so they do
+  what the card's buttons did and ask the same typed confirmation. Add model is `data-caravan-add`, the card's own attribute,
+  shut while a cell is reserved (`_reservingCells`); its hook is `machine-add`. Under the line, the map.
+- `MachineBand` — what the machine does now, said in the head's line (`Band({inline: true})`): bad (the scout is silent, how
+  long, in `data-live-hostage`), busy ("Starting n · running m of k": a cell copies its model, starts or loads its weights),
+  good (cells running: n of m, a port with no model not counted), idle (none runs, or no cells yet). The use of the cards and
+  the RAM is the lanes' to say.
+- `MachineMap` — «What lies where»: a lane per card and one for the RAM (the `Lane` part), each the cells that hold it by their
+  measured share, named inside while the block is wide enough (":22001 Qwen3-Embedding-0.6B", 3.0 GB) — one colour per cell on
+  every lane, by port, six colours in turn —; what else holds it hatched: a card's outside owners by name (`gpuOutsideOwners`,
+  passed in by topology-nodes.js — the head importing it back would be a cycle) and the rest of its use as "other processes";
+  beside the label the card's name, size and temperature, at the right how much is free. The cells that hold memory are the
+  ones whose phase holds it (`CellMemory.holds`: running, warming, broken — one list with the card's badges). The RAM's lane
+  draws only the cells that hold no card: a cell on a card maps its model file, the scout's RSS counts those pages and the
+  machine's "used" (MemTotal − MemAvailable) does not — drawn, they would fill the free RAM; a runner that keeps its weights in RAM
+  (`keepsRam`: Strata) is the exception, its RSS is its own piece. A cell is never drawn past what the
+  machine uses. A cell that holds memory and is on no lane — nobody measured it — is named under the lanes
+  (`machine-map-unplaced`), so none that runs is missing from the map. A lane whose size the scout does not report draws no bar
+  and says why.
+- The lanes stand as a rack (`MachineRack`, the owner's choice К1 of 2026-10-31: "which part of the cards is taken by which model, and by which
+  part of it"; thin rows Д1 and the list П3 of 2026-11-02: 429 px of lanes for two cards, and the names beside them read as a heap). A lane is one row of
+  26 px: its name, how much is free, its bar, on one scale for every device (`RackScale`; a RAM that would not fit the row on that scale takes the row on its
+  own). Beside the lanes `RackLegend` says what lies on them, each holder once: the name, how much in all, where (`GPU 1–4 + RAM`), what is to come first,
+  then the cells the largest first (`machine-map-legend`, which chooses and can be dragged like a block). A piece's own words — which part of the cell it is,
+  which layers, the price of RAM — are in the hovers of its block and its row. A line sews one cell's pieces together, passing a lane it has nothing on; only
+  the lines of what is to come, of the chosen cell and of the holder under the pointer are drawn (`MachinePick.light`, in the page, no drawing of the board).
+  Before a lane's name stands the picture of its device (`LanePicture`, the owner's choice «заливка» of 2026-11-02: a graphics card, a memory stick, filled, in the page's colours,
+  `aria-hidden`, one box lower than the lane, so a rack of six cards is as thin as it was; where the row is short the words after it are cut, and whole in their hover).
+  At the end of a lane's row are the device's own figures (the owner's choice Ш1 of 2026-11-02): load, memory and power, each a value and a little chart, written by the
+  monitor's tick (`drawNodeTelemetry`, keys `gpu:<index>`, `mem:<index>`, `power:<index>`, `cpu`, `ram`) through one rule of words (`CardFigures`); all the cards together in the map's
+  head; a press opens the machine's chart. The list says how fast a model generates while it answers. The rack stands across the whole page above the list of models and the
+  column, which scroll by themselves; on a window too low for that, the page scrolls as one. Narrower than 1180 px the little charts go, under 860 px the list goes under the lanes, under 620 px a lane's bar goes under its name.
+- A plan on the rack (`machine-plan.js`, 1.3.695). A cell's row in the list of models, a block or a row of the list beside the lanes dragged onto a lane lays a plan: the fields of
+  its config that would change. `CellMove` knows them per family of runners: llama.cpp by `DEVICE` and `--fit-target` (`ComputeFields`,
+  the form's own rule, and `PlacementPlan.fields`), a one-card server by its ENV's pin (`CardPin`), vLLM by its pin and what it then
+  asks; where a cell cannot lie it is refused by name. `MachineMap` draws the machine as the plan would leave it (`MachineRoom.without`:
+  what the cells that give way hold is free) through the same `CellFit` that draws a chosen stopped cell. A handle (`machine-map-grip`)
+  sets a card's share by pointer or arrow keys (`RackShares`): the whole is kept, more here comes from RAM first and from the last
+  card next, less here goes to the cards in use first, RAM next and an unused card last. A model that fits leaves the block under the
+  pointer alone; one that does not takes its place. A running cell dropped on the list of models gets its own Stop. The panel's buttons
+  (`machine-place`) lay the same plan for a keyboard or a touch screen. Nothing changes on the
+  machine before the plan's Start (`MachinePlanStart`): it stops those that give way, waits until they have let go, saves the config
+  and starts the cell; a step that fails says so and the plan stays, as a plan for a cell that stands once those that gave way are
+  gone (`act` answers whether the cell was asked: `cellServiceAction` says its own reason and returns false, 1.3.696). While a start
+  carries a plan out, the plan is drawn on the machine the operator was shown (`MachinePlan.begin`): a stop reaches the topology before
+  the cards' next reading does. It goes when the topology shows the start, at most after `SEEN_MS`. The right column of the page is as
+  it was. All of this is checked end to end on the stand (`docs/stand.md`).
+- vLLM's weights in RAM (`CPU_OFFLOAD_GB`, 1.3.697). `VllmPlacement` counts them: what a card holds (`weightsOnCardGb`), what stays in RAM
+  (`ridesGb`), what must stay for the rest to fit (`offloadNeededGb`). `CellMove`'s vLLM move lays that much on a drop, never less than
+  the operator left, and its one handle, on the RAM, sets it (`canSet`): a card's share is its `GPU_MEMORY_UTILIZATION`. `AsksFit` answers
+  the verdict `rides`, a fit whose price the panel names; the hover of the piece says it comes to the card (`machineNoteRides`), the
+  opposite of llama.cpp's "the processor computes it". The KV cache is not in this count, as it is not in `weightsOver`.
+- Under the lanes, the cells on their way (`machine-map-coming`, 1.3.634): a chip per cell that copies its model, starts, loads
+  or stops, saying so — a copy with its file and its figures (`ModelCopy`, the card's own line); a line for the ones starting
+  ("Starting:") and one for the ones stopping ("Stopping:"), 1.3.657 — the one line said "On their way:", and the band "Starting
+  1" named no cell; one cell on its way is named in the band now (`MachineBand.nameOf`, the head's own name of a cell). `MachineMap.groupOf(phase)` is
+  the one rule of where a cell stands on the page — on the lanes while it holds memory, under them on its way, else only in the list (`bench`) —
+  and the board's builder hands each cell's group to the head with the rest.
+- `CellFit` — where a cell that stands would go if it started now (part 2 of В, 1.3.634, by size; the exact plan, 1.3.635). A
+  llama.cpp cell whose model the library knows (its header gives its layers) is weighed whole — its files, its KV cache and its
+  buffers under its stored fields (cell-plan.js) — and laid by the cell window's own plan, `PlacementPlan.from`, against the
+  cards' free room now: way "plan". Its weights and its cache and buffers are told apart on every card and in RAM, and the
+  dashes on the lanes draw them so — the weights in the estimate's dashes, the cache paler (`estimate-cache`); its size says
+  "≈64.0 GB with the cache", a cache sent to RAM by KV_OFFLOAD says so ("kvRam"), and a plan that does not fit — a card given
+  more than its room, more in RAM than the machine has free — says "won't fit now" and draws nothing. Any other cell is weighed
+  by what its runner takes — the figure measured for it, vLLM's share of its cards (its weights cut evenly over them, the rest
+  of the share its cache) — or by its files, and then the page says "without the cache". Where it lays it is its runner's, a
+  way per kind, each a class of its own over the rules the cell form follows: "ram"
+  (a CPU cell); "spread" (llama.cpp, over its DEVICE cards by the room past its `--fit-target` margin — `PlacementPlan.devices`,
+  `PlacementPlan.limitsFrom`, the window's own — the rest to RAM when it is left to fit itself; a split set by hand on the cards or
+  nowhere; a hand-set layer count or experts sent to the CPU not guessed); "card" (a one-card runner on the card its ENV pins,
+  else card 0 — `CardPin`, the server's rule — whole or not at all, to RAM when it picks its device itself, the registry's
+  `autoDevice`; a size nobody said is "unsized" for a server that runs on one card, the registry's `oneCard`, not "unknown": its
+  card is known before its size — "goes to GPU 0" —, the lane says the cell starts on it in words and draws no block, 1.3.668;
+  any other runner's card would be a guess until it has a size); "free" (Strata: its card's free room less its reserve, while it has its floor — `FreeVramStart`); "asks" (vLLM:
+  the share of each card it takes, worked out by the builder with the form's `VllmPlacement.from`). A size, a card or a RAM
+  nobody said is "unknown", never a guess that it fits; a machine that cannot hold the cell now says "none".
+  `CellFit.facts` is what the builder reads off a cell's stored config (through `CellFields.ofConfig`, with the controller's
+  config behind an empty field), its runner's registry row and the library's rows by path (form.js `modelsByPath`) for it.
+- The list of models (`MachineModels`, machine-models.js, under the map; the owner's choices М1 and Н1 of 2026-11-02: "we still have that block
+  of cells for some reason. Move all that is useful into Models, and the cell rows there, and take nothing from them"; the bench of cards that stood
+  there, 1.3.634, is gone, and "bench" is left only as the code's word for the cells of the machine and those that stand): a row per model's folder,
+  those with a cell here first, then by name. Neither a mark nor being open sorts: a row never moves under a press. A row says the model's name;
+  under it, in small print, the repository on Hugging Face its first cell's path names (`author/repo`, 1.3.677; the owner, 2026-10-27: "on the
+  cells themselves, in small print, ISTA-DASLab and Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF") — read by `LibraryPath.hfRepo` off the same path as the cell
+  window's /hf link, so a model whose cells name none has one line rather than a guessed author; its work, each with its mark (`jobWords`: `JOB_MARKS`,
+  one source); its sizes, or that it is not in the library; its count in a column of one width (`cellMarks`: a 📦 per cell, four fit, more is three
+  and `+N`, none a quiet dash, not a zero; the words in its hover and label); and the like and the dislike of the model (1.3.688; the owner,
+  2026-10-31: "likes or dislikes on the models, so that where we choose them and in the store these marks are seen"): 👍 and 👎, buttons of their
+  own beside the row's. The mark is the model's, one for all its quants, kept by its folder (`ModelRating`, `POST /api/model-rating`,
+  `topology.modelRatings`), so a press shows at once (`MachinePick.rate`), pressed again it is taken away, and refused it goes back and the reason is
+  said. A file with no folder has none. The mark also stands in the model picker and the new-cell wizard's rows, on the model's row at /models, and
+  on a repository's row at /hf, by the folder its files land in (`HfDownloads.modelOf`).
+
+  What is shown is one rule, `MachineModelsChoice.keeps`: the filters (all, with a cell here, 👍), the work and the words typed, all at once, in place,
+  with no drawing; the word says when none is left. The work (`job`, `narrowJob`) is the second row under the head: the pills of the works the
+  machine's cells do (`benchJobs`), with their counts; a row stays when its model does the work, and inside an open row a cell that does not do it is
+  hidden. A work none of the cells does (chosen on another machine) narrows nothing — no pill would be left to let it go (`jobShown` at a drawing,
+  `jobOn` in place). Which rows stand open is `opens`: what the owner pressed (`pressed`, per model), and with no press a row with a cell working or
+  on its way (`MachineMap.works`) or with the chosen cell, so a click on a block in the rack shows its row, brought into sight in its pane
+  (`MachinePick.bringRow`; a press in the list moves nothing). Several stand open at once, and a press closes one even then.
+
+  A cell's row (`launchHtml`) stands on two lines between its port and its buttons: its runner, its build, the window it is set to and the most its
+  model was trained for (the line's own chip, `CellContext`, 1.3.648), what else it sets (`moreOf`); then (`benchSize`, `benchVerdict`, kept current by the
+  live patch, `data-machine-bench-size` and `-fit`) what a working cell holds and that it runs, loads its weights or is broken; what one on its way does, the
+  copy's figures included; what one that stands weighs and by what, and where it would go; a failed one says so with its reason in the hover, a port with no
+  model says it has none; a working cell says its trouble too, that the controller does not reach it or that it crashed, in red or amber. The whole row says it too (1.3.671; the owner: "let the running cells be pleasantly greenish, or clear not only by the label"), and
+  so does the dot at its port: a running cell's row is tinted green, one loading or on its way has an amber edge, a broken or failed one a red edge — machine.css
+  reads the verdict's `data-t-state` with `:has()`, so the live patch, which keeps that state, keeps the row's look too, with no second copy of it. The dot is green,
+  amber or grey for running, on its way or standing, and red for a broken or failed cell, which is none of them. A click anywhere on the row chooses its cell
+  (`data-machine-pick`; the port is the same as a button, for a keyboard), and the chosen stopped cell is drawn dashed on the lanes where it would go
+  (`ui-lane-blk--estimate`); Window, Start and Stop only do that (`data-machine-own`, `MachineDrag.taken`, one rule for the click and the drag). The row can be
+  dragged up onto a lane, and a working cell dropped on the section stops.
+
+  The chosen cell's row is where it is planned (`MachineMap.choiceHtml`, the owner, 2026-11-02: "remove that strip, and give its data and its functions to the row
+  below it, taking nothing from the row"): a third line with the places it can be laid on without a drag (`machine-place`), a failed cell's whole reason, and, with a
+  plan in hand, where it would lie (`→ GPU 1`), what that costs and changes, the plan's Cancel and Start here. The plan's Start stands in for the row's own by a rule
+  of machine.css, since the row's own would start the cell as it was; a working cell keeps its Stop. Every row has the line, hidden unless chosen, and the live
+  patch writes it whole when a plan changes (nothing in it is bound at a drawing; the row's own buttons are, so they are not written). So that the line can always be
+  reached, the chosen cell's row stands whatever the list is narrowed to (`MachineModelsChoice.keeps`, `keepsCell`, `keepsRest`), and a new choice lets go of a press
+  that closed its model (`chose`). It can be pressed closed again.
+
+  A model's row also says the longest context it was trained for (`MachineModels.contextHtml`): the rule of /models (`ModelFacts.windowSaid`), in the short figures and
+  under the 🎓 of its cells: a range when its builds differ, what a cell's own model says when the library lists none, "not known" for a model that takes a window nobody
+  stated, a dash for work with no window in tokens.
+
+  The cells with no row of their own (`restHtml`) stand among the rows with a cell, before the models with none: a model named by its runner's own word or on
+  a disk of the machine, an engine's, said by their ports, and a port with no model yet. Each is a row like the others, with its name and work said as well,
+  since no model's row is over it: while it stands, there is nowhere else to choose it, start it or open its window. The work narrows them; words typed and 👍
+  take them away (`keepsRest`), as they have no model to find or mark.
+
+  Under a row's cells: what its makers recommend, as the owner keeps it on /models (read once and again as a row opens; nothing when it says nothing, a word when
+  it could not be read), and a new cell from the model.
+- The panel of the chosen cell, under the lanes: a click on a block, a chip or a cell's row in the list chooses the cell, and its panel
+  (`Band`) says what it does and holds — in the lanes' own figures: on the cards, else its RSS, else "memory not measured" — or,
+  standing, what it weighs and where it would go, or what it is doing on its way. "Cell window" (`data-cell-window-open`, opened by
+  card-fold.js `openFrom`, Escape giving the focus back to it); Stop (`halt`, the line switch's own `data-node-cell-stop`
+  attributes) for a cell that runs or is on its way, Start (`main`, the card's own `data-node-cell-launch` attributes) for one
+  that stands — the same question, the same start or stop; closed and saying why when the cell cannot act. A panel per cell the
+  page shows, drawn with the board and hidden but the chosen one; with nothing chosen stands "Choose a cell". What the panel and
+  the list act with comes from the board's builder: `nodeServerCardHtml(…, {picks})` hands each cell's window key, name, group,
+  start and stop, work, runner, repository, model and its mark, and `CellFit.facts`. The machine's page shows every cell on its map and in its list of models, so the board's list of cells
+  hides none (no eye, no launcher chips) and draws no line (machine.css): the lines stay in the page, hidden, and the windows open
+  from there. Every cell folds there whatever the board's density — a cell in trouble (unreachable, crashed, being deleted) too,
+  since 1.3.653: as a full card it had no window, and a Strata cell the scout's watchdog brought back after a crash ran with no
+  way to its Talk tab (2026-10-26). Its window says the trouble (its band, its log, its overview's alerts), and so does its panel
+  on the page, so that trouble does not read as calm: a cell the controller does not reach is red and says so, one that crashed
+  since it was last started by hand is amber and says how many times ("💥 crashed 2× since it was last started by hand").
+- `MachineSide` — the column at the right of the list of models, under the map (part 4 of В, 1.3.636; the owner chose "Б" for the charts: in
+  the column, always in sight, a line per chart). Four parts with their titles: the engines — the caravan's strip with llama.cpp's
+  build and its update (`nodeCaravanStripHtml`) and each engine's group with the models it holds that no cell serves, as on the
+  board's card — the model disk (the model cache's line, model-cache.js, or the words that the scout does not report it), the
+  incidents, and the activity (charts.js `nodeTelemetryRowsHtml`, a metric a line by the main board's glance rules,
+  topology-board.css); the driver's warnings over them, the controller machine's server stats under the charts. The incidents are
+  the board's own: the count lives in its `[data-board-incidents-count]`, which charts.js writes, a dash until the monitor has
+  answered, and "Open" (`SideIncidents` / `SIDE_INCIDENTS`, bound once by main.js) opens them as the bar's "⚠" does. The board's
+  builder draws the parts (topology-nodes.js `machineSideHtml`) and hands the column to the head (`side`); the live patch keeps it
+  as drawn — its figures move by the board's own data-live places. The old column of the machine's servers is gone from the page.
+- `MachinePick` / `MACHINE_PICK` — the choice and what the builder said of the cells (`know`),
+  held here and not on the page, as the open window's key is (card-fold.js): the board draws the page anew with every change. A
+  click shows the choice in place (`show`: blocks, chips and rows ringed, `aria-pressed` on those that are buttons, one panel, and the list hears,
+  `listed`, to open the chosen cell's model) without a drawing. The board is drawn again when the choice puts a stopped cell's dashes on the
+  lanes or takes them off (`standing`), or when the chosen cell's window is not in the page; the keyboard goes back to the same
+  block, chip or port. Choosing the chosen cell again lets it go. Bound once by main.js.
+
+`machineHeadOf(n)` (topology-nodes.js) builds the head with what only that module knows; the page and the live patch draw it
+alike. Between two drawings of the board `MACHINE_HEAD_LIVE.patch` (syncTopologyLive, topology-render.js) keeps the head current.
+The lanes' blocks are buttons, and the RAM's use moves with every reading: lanes written whole with every tick took the focus and
+the hover off the block under the pointer (1.3.633). So while the lanes hold the same blocks — `shapeOf` the page against `shape`
+of the figures: a cell by its port, another holder by its kind, the chips under them by their hook and port — their widths, words,
+hovers, the chosen one and the chips' words move in place (`fill`, by the part's own `Meter.cut` and `Lane.inner`); they are
+written whole only when the blocks change. The panels' words and the rows' sizes and verdicts change in place too (a failed cell's and a
+port's with no model left as drawn), the band drawn whole only when its tone changes. The layout is machine.css (on the tokens, in check_ui_tokens.py's `UI_CSS`). Pinned by
+`scripts/test_js_machine_head.py`, `scripts/test_js_machine_models.py` and, as drawn on the page, by `test_js_topology_nodes.py` (`machinepage_*`).
+
+- Owns: `MACHINE_HEAD_LIVE` (the lanes it last wrote, by element), `MACHINE_PICK` (the chosen port, the builder's
+  word on the cells), `SIDE_INCIDENTS` (whether its listener is bound); machine-models.js `MACHINE_MODELS` (the filters, the work, the words typed, the
+  rows pressed, the makers' texts).
+- Key exports: `MachineHead`, `MachineBand`, `MachineMap`, `LanePicture`, `CellFit`, `MachineSide`, `SideIncidents`, `SIDE_INCIDENTS`, `MachinePick`,
+  `MACHINE_PICK`, `MachineHeadLive`, `MACHINE_HEAD_LIVE`; machine-models.js `MachineModels`, `MachineModelsChoice`, `MACHINE_MODELS`.
 
 ## dialogs.js
 
@@ -290,7 +548,9 @@ The board marks which board it is first (`BOARD_VIEW.mark()`, board-view.js), bi
 machine's glance once on the static machines lane — the card itself opens the machine's window, no
 "↗ Open" since 2026-10-12, a window a machine; a history chart and a button on it keep their own
 click, a click with a modifier and a window the browser refuses follow the machine's name, which is
-the card's link — and hides the loader when the page says it is ready
+the card's link: its text under the pointer — only the card's border answers the pointer, the name is
+underlined on keyboard focus alone (1.3.650; the owner: a name lighting up on its own read as a
+second way somewhere else) — and hides the loader when the page says it is ready
 or why it is not (`body[data-t-state]`, set by refreshTopology's first render). It waited for a
 cell's card, and a board without cells — a first run, and the main board since the machines' windows
 (2026-10-11) — kept the loader up for the whole 15 s.
@@ -351,12 +611,33 @@ longer matches the code fails too.
 - Owns: `BOARD_VIEW` (the page's own reading).
 - Key exports: `BoardView`, `BOARD_VIEW`.
 
+## model-facts.js
+
+What a model on `/models` does and how long a context its weights were trained with (1.3.637) — the owner's "on the models
+page I want to see at once what context a model supports and what it is for". Read, never guessed: a GGUF's job and window
+from its own header through the cell editor's rows (`/api/models/rows`: `detectedFamily`, `ggufMeta.sttVariant`,
+`ggufMeta.contextLength`), a checkpoint folder's from its `config.json` through the page's listing (`/api/models/unused`
+rows of kind `safetensors` carry `arch` and `contextLength`, `rust/crates/admin/src/models/checkpoints.rs`), the job by the picker's rule
+(`model-jobs.js jobsForArtifact`). A branch says the jobs of its models in the vocabulary's order and one window or a range;
+"not known" is a model that takes a window in tokens and states none, a dash a job with no window in tokens (a recognizer,
+a voice), nothing a row with no model (a projector, a draft). A later part of a split GGUF says what its first part says
+(`ModelCopy.part`): its own header names nothing, and fifteen of them read "LLM · not known" on the live page (2026-10-26);
+a later part whose first part is not listed is a fragment and says nothing. A translator's HF cache (`kind` translate in the
+page's listing) does translation, with the window its main snapshot's config states; a GGUF that is no model of its own (an
+importance matrix, a vocoder) is in no row (`rust/crates/admin/src/models/listing.rs`), and says nothing either.
+
+- Owns: nothing between drawings — one is made for every drawing from the last answers.
+- Key exports: `ModelFacts` (`of(rows, files)`, `take(branch, path)`, `keeps(path, {job, window})`, the two cells and
+  the side column's two groups).
+
 ## models-page.js
 
 `/models` page entry: every model this controller can serve, wherever it lies — the tree of model
 files (model → author → quant → files) with which cells use each file, downloads, moves and
 deletion of the unreferenced ones. Data: `/api/models/unused` (this disk), `/api/model-stores/files`
-(the libraries), `/api/models/freshness`, `/api/hf/download/jobs`; deletion goes through
+(the libraries), `/api/models/freshness`, `/api/hf/download/jobs`, `/api/model-notes` (the comments on the
+models, below), `/api/models/rows` (the cell editor's rows: what each GGUF does and its trained window, model-facts.js);
+deletion goes through
 `/api/models/gc`, which refuses referenced files server-side too. A model branch and an author
 branch carry 🤗 to `/hf`: an author branch is a repository (`/hf?q=<author>/<model>` opens it), a
 model branch searches its name; folders not laid out as `<model>/<author>/<quant>` have none.
@@ -364,10 +645,15 @@ model branch searches its name; folders not laid out as `<model>/<author>/<quant
 The page is a side column and a main column. The side steers the list: the PLACES (drawn by
 `model-stores.js` — "All models", this disk, each library, with what it holds and its room), the
 FILTERS (on their way, unused, used by cells, newer on Hugging Face — each with the count of what it
-would keep in the chosen place), and the Hugging Face check with its settings in one box. The main
+would keep in the chosen place), WHAT FOR and CONTEXT UP TO (model-facts.js: the jobs of the place's models and the
+windows they reach, each with its count), and the Hugging Face check with its settings in one box: "Check Hugging
+Face" looks now, and "Look once a day, when the main board is opened" lets the board's first opening of a day start the
+day's look in the background (1.3.678, model_watch.DailyCheck; until then it was an hour of the day, in a field of its
+own). Without the check on, nothing compares the files with Hugging Face, and the tree has no ⇪ at all: the box's stamp
+says "never checked". The main
 column is the chosen place's summary (also `model-stores.js`), a line with how much lies unused
 beside the button that picks exactly those, everything on its way and the name filter, then the tree
-in columns — name, status, size here and in the library (one size column once a single place is
+in columns — name, what for, context up to, status, size here and in the library (one size column once a single place is
 chosen), age, ⇢. Nesting is indentation inside the name cell, so every size stays under its header.
 The selection bar floats over the list only while something is picked.
 
@@ -394,6 +680,19 @@ The selection bar floats over the list only while something is picked.
   question sends nothing.
 - Hands the panel what this disk holds and the model families of every place (`holds`): the tree
   already counted them, and a second measurement would be a second number that can disagree.
+- Carries three texts on each model and a mark, one of each for all its quants (the owner, 2026-10-19: "a comment on every model of the list,
+  one for all the quants, seen when it is opened"; 2026-10-31: that comment is its description, and beside it "recommended launch parameters from the
+  developer" and "my own comment"; `NOTE_FIELDS`). A model is the first level of the tree, the top folder of
+  `<model>/<author>/<quant>/<file>`; the texts are kept by the controller (`/api/model-notes`, `rust/crates/admin/src/models/notes.rs`, up to
+  the `limits` that GET answers — 1000 characters, 4000 for the parameters, which the box reads from the answer and does not repeat). A folded model with a
+  description has a 💬 (the words in its tooltip) and its 👍 or 👎; an opened one reads each text above its authors, under its name, with a pencil, and
+  offers the ones it lacks (`＋ Description`, `＋ Recommended parameters`, `＋ My comment`) in one line with its like and dislike.
+  The box (`noteEdit`) keeps what is typed in the page and not in the markup, because the tree is drawn anew after every answer; a
+  redraw puts the words and the cursor back. Save sends the model and the words in one POST and draws what the server says it kept
+  (an empty box removes the comment); a refusal is said in the toast and the box stays open; Cancel and Escape let it go. The
+  row of the files lying straight in the models folder ("(root)") is many models and has none. A page that could not read the
+  comments offers no box at all — a box that opened empty over a comment it did not read would save over it — and says so under
+  the list; a refresh that fails keeps the comments read before it. Pinned by `test_js_models_page.py`.
 - Draws the libraries' files in the same tree: a file only a library holds takes its place marked
   "📚 <library>" and has no checkbox (it is not here to delete); a file here that a library holds too
   gets a 📚 and its bytes in both size columns. It carries ⇢ like any other row, with its library as
@@ -413,7 +712,7 @@ files, bytes and model families, what is inside a library, and its room. Data: `
 adding and removing: `/api/model-stores/add` and `/api/model-stores/remove`. A library that is not
 mounted draws no numbers: they would be the local disk's, under the bare mount point. The page never
 looks inside a store itself — the server does, from a child process with a deadline
-(`caravan/admin/model_stores.py`).
+(`rust/crates/admin/src/models/stores.rs`).
 
 - Owns: the panel's copy of the last answer (`null` until the first one arrives), the chosen place
   (`scope`: `all` or a store id; a place that disappears hands the list back to `all`), the open
@@ -454,7 +753,7 @@ of the picked items are folders, since one row can be thousands of files on the 
 Data: `/api/model-stores/moves`, polled every 1.2 s while something moves; starting:
 `/api/model-stores/move`; stopping: `/api/model-stores/moves/cancel`. Starting and stopping ask
 first, and Stop says so when the move carries more than its own file. The job runs on the server
-(`caravan/admin/store_moves.py`), so its progress survives a reload and shows in a second tab.
+(`rust/crates/admin/src/models/moves/runner.rs`), so its progress survives a reload and shows in a second tab.
 
 - Owns: the last answer (`null` until the first one), each open job's speed, the hidden notes, and
   the shape it last drew — bytes move the bars in place; a file arriving or staying redraws the tree.
@@ -484,8 +783,17 @@ recommendations, Qwen template autofill. `readConfigForm(pfx)` reads the DOM bac
 object — the read path of the cell editor (`tr-`). The prefix stays a parameter, so tests drive the
 same code with any prefix; the classic form's Gemma modes, raw view and static fields went in 6.9.
 
+`ModelChoices.items(pfx)` (1.3.638) is the list the model picker offers — the library's GGUF files, the safetensors folders,
+whisper's sizes, moonshine's languages, NLLB's checkpoints — each with its `window` where the model states the one its
+weights were trained with; the picker draws it ("up to N") and the new-cell wizard lists the same choices.
+
 - Owns: no cross-module state (form state lives in the DOM).
-- Key exports: `readConfigForm`, `renderFields`, `renderModelSelects`, `makeModelCombobox`, `modelsByPath`, `renderChatTemplateOptions`, `syncToggleLabel`.
+- Key exports: `readConfigForm`, `renderFields`, `renderModelSelects`, `makeModelCombobox`, `modelsByPath`, `renderChatTemplateOptions`, `syncToggleLabel`, `ModelAlias`.
+- `ModelAlias.of(path, artifact)` is the alias a model gets while the operator gives none — what its server answers
+  with and, unless the operator names the model (`MODEL_NAME`), what the machine's entry lists it by: a GGUF file
+  without `.gguf` and the part a split adds, a safetensors artifact by its model folder, a folder of HF's cache
+  (`whisper/models--Systran--faster-whisper-large-v3-turbo`) by its repository's name (1.3.629: it was the whole
+  cache folder's name), all in lower case. A saved alias is not rewritten when the form opens.
 - A file only a library holds is offered like any other picker row, in its place among the files
   of this disk, marked `📚 <library>` (`model-in-library`).
 - A word that only the repository's name has — the first folder of the path — is a chip on the name's line:
@@ -496,7 +804,8 @@ same code with any prefix; the classic form's Gemma modes, raw view and static f
   lacks them.
 - A model pick writes more than `MODEL_FILE`: the runner follows the artifact (a listener of
   llama-edit.js), then `maybeAutofillModelHelpersPfx` writes `ALIAS`, the projector and the draft.
-  A split model is one choice, its first part: the later parts are not listed (`laterPart`), and the row says
+  A split model is one choice, its first part: the later parts are not listed (`laterPart`, by model-copy.js
+  `ModelCopy.part` — the rule /models reads too), and the row says
   the size of the WHOLE model and how many parts it has ("68 GB ×2"; a part the list did not find — "×1/3" — is
   said, since that model cannot start and must not look whole). The estimate reads the same size.
   The pickers offer a model's companions as the SERVER lists them (`ModelCompanions`: `compatibleMmprojs`,
@@ -518,7 +827,7 @@ The models the cell editor offers (`state.models`), kept current on an open boar
 `/api/state` brings them once, when the page opens, and the live beat reads only the
 topology: until 2026-09-26 the caravan's shelf on a machine's card never showed a model
 downloaded after the page opened. The topology carries the list's stamp (`modelsStamp`,
-`ModelList` in `caravan/admin/models.py`); `ModelListFollower.follow(stamp)` fetches
+`ModelList` in `rust/crates/admin/src/models/model_list.rs`); `ModelListFollower.follow(stamp)` fetches
 `/api/models/rows` when the page's stamp differs — once, however many beats ask while the rows
 are on their way — and puts the rows and the reply's stamp on the page. Nothing is fetched while
 the page has no state yet (the router page never loads `/api/state`) or when the topology has no
@@ -533,30 +842,90 @@ fingerprint, so the new list rebuilds the cards.
 
 VRAM/RAM estimation for the launch form: KV-cache size per cache type, batch buffers, total
 runtime estimate, and fit checks. Sizing is done against **free** VRAM (`gpuFreeMiB` prefers
-nvidia-smi's `memory.free`, falls back to total−used), not total. Also resolves the compute target
+nvidia-smi's `memory.free`, falls back to total−used — `CardRoom.freeMiB`, placement.js; a card that says
+neither gives nothing here), not total. Also resolves the compute target
 (which GPUs, or CPU cores/RAM) for a form prefix. Pure functions over `state`/`topology`.
+
+The rules the machine page reads too live in placement.js since 1.3.634, and stay importable from
+here: `CardPin` (the card a one-card start lands on), `CardRoom` (what a card has free) and `FreeVramStart`
+(what a Strata start takes), and the DEVICE reading (`PlacementPlan.devices`, which
+`computeSelectedGpuIdx` calls). Since 1.3.635 the KV cache, the compute buffers and the reading of a cell's
+fields are cell-plan.js's (`KvCache`, `BatchBuffers`, `CellFields`): `estimateKvCacheGb`,
+`estimateBatchBuffersGb`, `kvLayout`, `kvCells`, `cacheBytesPerElement` and the rest keep their names here and
+read the form through `formFields(pfx)`, and the placement map's plan is `PlacementPlan.from` over that reading.
+The machine page weighs a stopped cell by the same rules as the form, from its stored config, and a copy that drifted
+would say "fits" on one page and "does not" in the cell's own window.
 
 The KV cache of a layer is `key_length × head_count_kv` per token (and the same for the value):
 `attention.key_length` is the width of ONE head, and the estimate once used it alone — 0.08 GB
 shown for a 70B at 4k where 0.66 GB is held. Without `key_length` in the header the width comes from
 `embedding / head_count × head_count_kv`, and the two roads give one number.
 
+**Layers of different kinds.** `kvLayout(ggufMeta)` adds the layers up by kind, as llama.cpp does
+(`llama-hparams.cpp`, `llama-kv-cache-iswa.cpp`): the KV heads of each layer when the header lists them
+(`headCountKvLayers`), the layers that attend through a window (`slidingWindowLayers`, `slidingWindow`)
+with their own head width (`keyLengthSwa`, `valueLengthSwa`), and the last `sharedKvLayers` layers, which
+keep no cache of their own. `kvCells(ctx, window, …)` gives the cells of the two caches: the whole-context
+one has `ctx` cells (in slots of their own unless the cache is unified), the windowed one a window for each
+slot and the physical batch on top, or the whole context where that is less, or where `--swa-full` asks;
+both are rounded up to 256. An empty PARALLEL is 4 slots in one cache (`AUTO_SLOTS`, server.cpp). Cell :22007
+(Gemma 4 12B, 180000 tokens, 3 slots, f16) was "277 GB" in the form, 264 GB of it cache, because the file keeps
+its KV heads as a list of 48 (8 or 1) and its flags as another, and the form took the 16 query heads for every
+layer; it is 5.6 GB with the cell's physical batch of 2048 (4.2 GB with the engine's own 512), and the whole estimate 19.3 GB
+instead of 277.4. A header that lists no windowed layers (Gemma 2 and 3 keep theirs in the engine's code)
+leaves every layer over the whole context: more than the engine takes, never less. A hybrid's recurrent layers
+keep no cache at all (1.3.620): most hybrids give such a layer no KV heads, which the heads of each layer say;
+the Qwen3-Next family names its attention layers instead — `attention.recurrent_layers` flags, else one layer
+in `full_attention_interval`, 4 when the file names none (`RECURRENT_BY_INTERVAL`, as llama.cpp's
+src/models/qwen3next.cpp, qwen35.cpp and qwen35moe.cpp read it). Qwen3-Coder-Next attends in 12 of its 48
+layers: its 262144 tokens of q8_0 were 12.75 GB counted over all 48, and are 3.19 GB as llama.cpp keeps them.
+The recurrent state those layers keep instead (some 2 MB a layer for each slot) is not counted.
+
 **A running cell's own memory is free for it.** Changing a cell's settings is applied by a restart,
 which gives its memory back before it asks again; `cellHolds(pfx)` reads what the edited cell holds
 on each card (its slot's `gpuMem`, only while it runs or warms up) and `cellFreeMiB` adds it to the
-card's free memory. The "Over VRAM" pill (`vramFitForPfx`), where "auto" lands (`offloadSplit`) and
-the share of each card all use it; the estimate bar on the right reads the same `cellHolds` to draw
-"this cell". `offloadSplit.autoLayers` is the one place "auto" is worked out — the plan panel reads
-it. Under a tensor split ("Tensor + KV") there is no fitting in llama.cpp and "auto" puts every
-layer on the cards, so it says that; with no `--tensor-split` that mode cuts equal parts, the others
-follow the cards' room. A number that reaches every layer (a new cell opens with 999) lights
-"all on GPU", not "manual".
+card's free memory. The "Over VRAM" pill (`vramFitForPfx`), the placement map below and the line
+above the tabs (`offloadSplit`) all use it; the estimate bar on the right reads the same `cellHolds` to
+draw "this cell".
+
+**Where the model lives** (`placement.js`, 1.3.616; the owner, 2026-10-24, after two cells died four
+times each on "failed to allocate CUDA buffer": "fill the 5090, all or part of the 3090, keep something
+in RAM"). Under the GPU tile of a llama.cpp cell a map: the model as one bar cut by the device each
+part lands on, then a lane per card and one for RAM, each as long as its device — other processes
+hatched, the weights, the KV cache, the buffers, the free rest. A lane's colour is its device's — the colour of that device's
+share in the model's bar — so the weights on two cards are two colours, and each part says in words what it is and how much
+(1.3.657, the owner: "if it fits, label it — the model or the KV cache"; `PlacementPanel.wordsHtml`): the stylesheet lays the
+words on the part's one line and hides what wraps below it, so a narrow part says only what it is and a narrower one nothing —
+the browser measures each word in its own language, no width is guessed (form.css; the model's bar wrote its words past 14%
+of its width until then). A card's handle is the most of it the
+model may take; it becomes the card's `--fit-target` margin, and the map follows the drag at once.
+Under the lanes: where the KV cache lives (`--no-kv-offload`), the verdict in the house's colours
+(fits, a part in RAM, does not fit, not known) and the flags the map writes. `PlacementPlan` places
+the model as llama.cpp's fitting does (common/fit.cpp, b1141): every layer dealt by the cards' free
+memory when that keeps each card within its handle, otherwise the cards filled from the LAST one back
+and the first layers left over in RAM. An MoE model's experts go before whole layers (1.3.620,
+`fittedExperts`): the rest of every layer and its cache stay on the cards, the cards before the ones
+holding them take layers back whole from the first on, and RAM keeps the experts of the layers still
+without theirs — or, when not even the rest of every layer fits, the first layers whole and every expert.
+What the experts weigh comes from the file's tensor list (`rust/crates/admin/src/models/gguf_header.rs`, the tensors llama.cpp's
+fitting moves; summed over a split model's parts); an MoE model whose header did not give it is drawn as
+a dense one, whole layers in RAM. Qwen3-Coder-Next on the 3090 and the 5090: the map used to put about
+five whole layers in RAM, the start held everything on the cards; now the map says so. llama.cpp fits only
+what is not set: `FIT` off, `N_GPU_LAYERS` a number or "all", a `TENSOR_SPLIT` in a layer split, or
+`N_CPU_MOE`/`CPU_MOE` stop it ("… already set by user, abort") and the cell loads as written. The map
+then says which one holds it, draws the load as written (every layer for -ngl auto), and offers "Fit
+by the handles"; a hand-set expert override it cannot count, and says so. A tensor split has no fitting
+and nothing in RAM. RAM the machine has not reported is not known, and no shortage is claimed of it.
+`offloadSplit` reads the panel's own plan: the map and the line above the tabs are one estimate. No map
+for a CPU cell, another runner, or the row split. `mountPlacementMap(pfx, box)` draws it in any box —
+the dialog's (`refreshPlacementMap`) or the cell window's Memory tab (cell-settings.js) — by that one
+rule; false, and the box emptied, for a cell that has none.
 
 **A runner that keeps its weights in the machine's memory has a plan on the RAM scale too** (1.3.574; the owner, 2026-10-18:
 "for Strata I do not see the planned amount of RAM on the scale on the right"). The estimate bar draws two pools; the cell's
 cost lands on one of them — VRAM for a GPU cell, RAM for a CPU one — and the other showed only what was in use. Strata keeps
 every expert of its pack in RAM, so the registry row says `keepsRam` (true for the runner that overrides `ram_reservation`, and
-for no other: `test_cell_ram_plan.py` names a new one), and `refreshAsidePanels` asks the controller what a cell of the config in
+for no other), and `refreshAsidePanels` asks the controller what a cell of the config in
 the form promises (`POST /api/cell-ram-plan`, `CellRamPlan`: the runner's own `ram_reservation`, the figure a start sends the
 scout). The asking is `RamPlanAsk` (ram-plan.js, one per form prefix: a moment after the last change, an answer for a config the
 form has left dropped, a failed request not repeated) and the answer a `RamPlan`; `renderAsideVramBar` draws it on the RAM pool by
@@ -569,21 +938,24 @@ picked**, how the model is divided between them (`split-mode.js`). With one card
 to divide, so the row is absent rather than inert. Choosing a mode that cuts equal parts without a
 split ("Tensor + KV") also writes `TENSOR_SPLIT` from the cards' sizes (`24,32` for a 3090 and a
 5090), and the next mode takes it back — a split the operator typed is theirs and is left alone.
+Under the tile three lines say what the chosen mode does, what it gives and what it costs, with the
+fleet's own measurements; a fold beside them sets all three modes side by side (`SplitMode.details`).
 
 **vLLM on a machine with several cards** (`VllmPlacement`). vLLM has no chips: `TENSOR_PARALLEL` says how many
 cards it takes — the first N, numbered from 0 — and with 1 it takes the one the ENV's `CUDA_VISIBLE_DEVICES`
-pins, else card 0 (the server's rule, `runner.py` `vram_reservation`). Each card is asked `GPU_MEMORY_UTILIZATION`
+pins, else card 0 (the server's rule, `rust/crates/admin/src/domain/runner/mod.rs` `vram_reservation`). Each card is asked `GPU_MEMORY_UTILIZATION`
 (0.9) × its memory; under tensor parallel every card takes what the SMALLEST asks, because the workers size one
 KV cache (measured: 22.8 and 23.2 GB held on a 24.6 and a 32.6 GB card). The tile, the estimate bar (only those
 cards, by the exact rule) and `computeFitRuntimeGb` read it; the form drew util × EVERY card for any value, so a
 25.7 GB checkpoint on the default of 1 showed "50.3 of 55.8 GB" for a start that cannot hold its weights on one 24 GB
-card. When the picker names a checkpoint, its size is cut over the cards and held against what a card may give less
+card. `VllmPlacement.from(config, gpus, weightsGb)` is that rule over a stored config (the machine page, 1.3.634);
+`of(pfx)` reads the form's fields into it. When the picker names a checkpoint, its size is cut over the cards and held against what a card may give less
 1 GB for activations and graphs: if it does not fit, a line under the bar says so (`vllmWeightsOver`). A
 hand-typed repo id has no size here, so nothing is claimed. A `TENSOR_PARALLEL` larger than the machine's cards, and
 a pin read under tensor parallel (vLLM sees only the pinned card then), are not checked — vLLM refuses those by
 itself.
 
-A server that runs on ONE card (`oneCard` in the registry: Strata, GR00T and the five voice runners) has no card
+A server that runs on ONE card (`oneCard` in the registry: Strata, GR00T, the five voice runners, whisper and seamless) has no card
 chips of llama.cpp's kind. On a machine with two cards or more it gets one chip a card under the tile
 (`data-t="cell-remote-card"`), and the one lit is the card the cell is pinned to. The chip writes
 `CUDA_VISIBLE_DEVICES=<n>` into the ENV box — the box these runners do not show — through `CardPin`, the one place
@@ -593,7 +965,24 @@ then measures the model against THAT card's memory, as the scout will when it ch
 names the machine's cards for the form's title ("RTX 3090 + RTX 5090", "2 × RTX 3090").
 
 - Owns: `_computeGpuDdOpen` (the multi-GPU dropdown's open state across re-renders).
-- Key exports: `estimateKvCacheGb`, `estimateRuntimeMemoryGb`, `gpuFreeMiB`, `cellHolds`, `cellFreeMiB`, `computeSelectedGpus`, `VllmPlacement`, `vramFit`, `ramFit`, `applyComputeTarget`, `refreshComputeTarget`, `CardPin`, `machineGpuLabel`.
+- Key exports: `estimateKvCacheGb`, `estimateRuntimeMemoryGb`, `gpuFreeMiB`, `cellHolds`, `cellFreeMiB`, `computeSelectedGpus`, `VllmPlacement`, `vramFit`, `ramFit`, `applyComputeTarget`, `refreshComputeTarget`, `refreshPlacementMap`, `mountPlacementMap`, `CardPin`, `machineGpuLabel`.
+
+## cell-plan.js
+
+What a llama.cpp cell takes, out of its fields and its model's header (1.3.635): the KV cache as llama.cpp keeps it
+(`KvCache`: the header's layout of full and windowed layers, the recurrent layers that keep none, the cells of each
+cache by context, slots and batch, the bytes of each cache type), the compute buffers (`BatchBuffers`) and the model's
+weight (`CellModel`: its file and its projector, its layers, its experts and what they weigh). The fields come through a
+reader, `CellFields` — `text` as a field holds it (a box as "1"/"0"), `value` with the controller's default behind an
+empty one, `checked` for a box — which the form builds over its inputs (memory.js `formFields`) and the machine page's
+machine page over a cell's stored config (`CellFields.ofConfig`: a box by what it says, unsaid on for the optional toggles that
+are on unless turned off — form.js `toggleChecked` is its face). One rule for both: the owner asked for "the
+exact size, and in colour where the model is and where the cache", and the cell window already counted them; two copies
+would drift as the form's and the server's once did. Pinned by `scripts/test_js_cell_plan.py`, and the agreement of the two
+readers on one cell by `scripts/test_js_memory.py`.
+
+- Owns: nothing mutable.
+- Key exports: `CellFields`, `KvCache`, `BatchBuffers`, `CellModel`.
 
 ## card-fold.js
 
@@ -605,8 +994,8 @@ controller had 24 cells of which 6 ran, and 14 client routes of which one had a 
 `cellQuiet` (running with nothing to report, or parked) and `agentQuiet` (has a route, not
 stale, no incident). A card in motion or in trouble never folds quietly: a cell that FAILED (`cellFailed`: its
 start ended in an error, or its process lives around a dead engine) folds into a RED line — the same thin line,
-`failed` class and word, `--cell-accent` red, its switch still starts or stops — and its window opens on the
-reason, over the card (`CellWindow` `notice`; the card inside leaves its own copy out). The owner, 2026-10-17,
+`failed` class and word, `--cell-accent` red, its switch still starts or stops — and its window's band is red, its
+Overview opens on the reason (`CellWindow` `overview.notice`) and the band leads to the Log tab. The owner, 2026-10-17,
 shown the big card of a cell that could not load its projector: "red, but thin, like the usual one — and the
 description of the error when the window opens". A cell that crashed and runs or is out of reach keeps its full
 card. A cell being STARTED — its model copied, loaded or warmed up — stays a line too (`cellFoldable` with
@@ -625,7 +1014,13 @@ port came, taking the fallback "+" with it). The lane switches hide over a lane 
 the pointer and keyboard side: an agent's full card floats over the lane after the pointer
 rests 300 ms on its line (at once on keyboard focus), a click on the line or 📌 pins it, ▴
 folds it back; a cell's line opens its window on a click (Enter, Space), and ✕, a click on the
-dimmed board or Escape closes it, giving the keyboard back to the line. Nothing floats or
+dimmed board or Escape closes it, giving the keyboard back to the line. Inside the window the
+same delegate switches its tabs, opens and shuts its ⋯ menu (Escape shuts the menu before the
+window) and copies the address. A dialog over the window — a confirm (the window's Apply asks one),
+the launch command, the cell editor, a talk window (`FoldPeek.LAYERS`) — takes its own Escape, and
+the window under it stays (1.3.626: the window closed under it, and the launch command, which had no
+Escape of its own, was left over the bare board). The tab chosen is kept per cell (`windowTab`, `chooseWindowTab`),
+so a repaint while the window is open draws it on the same tab. Nothing floats or
 opens while a cable is dragged. Delegated on the document once — the lanes are repainted
 wholesale.
 
@@ -643,13 +1038,14 @@ over the chips, under any of them, and a chip that would hide the new cell gives
 engine's; «all» shows it already and stays.
 
 - Owns: `CARD_FOLD` (densities, pinned set, `peekKey` so a float survives a repaint,
-  `openKey` so an open window does, the machines whose eye is shut, each machine's chosen
+  `openKey` so an open window does, `windowTabs` so its chosen tab does — not stored, the
+  machines whose eye is shut, each machine's chosen
   launcher); densities, pins, eyes and chips persisted in `localStorage` (`boardCardDensity`,
   `boardCardPinned`, `boardCellsHideIdle`, `boardCellsLauncher`)
   as a per-browser convenience — a cell's pin saved before the window came is ignored.
 - Key exports: `CardFold` (`OPENS`, `density`, `toggleDensity`, `togglePin`, `hidesIdle`,
   `toggleHideIdle`, `launcherOf`, `setLauncher`, `reveal`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellFoldable`, `cellIdle`,
-  `agentQuiet`), `FoldPeek` (`bind`, `openWindow`,
+  `agentQuiet`, `windowTab`, `chooseWindowTab`), `FoldPeek` (`bind`, `openWindow`,
   `closeWindow`), `CARD_FOLD`.
 
 ## cell-memory.js
@@ -663,11 +1059,14 @@ solid: green for the GPU, blue for RAM), what it is **expected** to hold when it
 parked one with nothing to expect: a dash). A zero and a dash are never the same: "0" says the cell holds none, "—" says nobody measured.
 
 The RAM is the scout's (2.35: `ramBytes` on each cell of `llamaNodes`, the RSS of its processes; `EngineReport.size` cleans it into the host
-record, `topology.py` carries it to the card): a scout older than 2.35 does not say it, and a running cell shows "RAM —". RSS counts memory-mapped
+record, `rust/crates/admin/src/topology/server/live.rs` carries it to the card): a scout older than 2.35 does not say it, and a running cell shows "RAM —". RSS counts memory-mapped
 model files the process has touched — a CPU cell's weights are in it, and a file two cells map is in both — and the badge's tip says so. The GPU
 is the controller's own sum of the compute apps by pid (`gpuMem`); a machine whose cards were not read (no NVIDIA driver, macOS) gives a running
 cell "GPU —", not 0. A parked cell shows the estimate where the card knows one: the runner's own measured figure, else the model file's size (a
-CPU cell's file is RAM, and its GPU is 0), else a dash. An engine cell (Ollama, LM Studio) says what its engine reports: the card's share, and
+CPU cell's file is RAM, and its GPU is 0), else a dash. A runner that takes its card's free memory (Strata: `vramPlan.takesFree`) is expected to
+hold what the machine page lays it at — its card's free room less its reserve (`CellFit` "free", machine-head.js) — and a dash where its
+card or the card's room is not known; its files are no measure of it (it keeps its weights in RAM: an 87 GB pack read "GPU ≈87.2G" on a 32 GB
+card, 2026-10-26). The cell window's Video memory tile reads the same part. An engine cell (Ollama, LM Studio) says what its engine reports: the card's share, and
 the rest of the total in RAM; parked, both are dashes. A port with no model yet has no badges. Hooks `cell-ram` and `cell-gpu`
 (`data-t-state`: held, expected, none, unknown, idle); styles `.mbadge-ram`, `.mbadge-ram-est`, `.mbadge-mem-zero`, `.mbadge-mem-unknown` in
 modals.css, and fold.css greys a parked line's estimates. Pinned by `test_js_cell_memory.py`.
@@ -679,7 +1078,7 @@ modals.css, and fold.css greys a parked line's estimates. Pinned by `test_js_cel
 
 `CellSpeed` — whether a cell's line is working, and which speed it shows (1.3.588; the owner, 2026-10-18, shown a Strata cell: the ring round the switch
 pulsed with both video cards at 0 %, and the line said "211.3 t/s"). A cell is **working** while it answers a request: its scout says how many
-(`requestsProcessing` — llama.cpp's own count, vLLM's `num_requests_running`, Strata's; `topology.py` carries it into the entry of every cell, `None`
+(`requestsProcessing` — llama.cpp's own count, vLLM's `num_requests_running`, Strata's; `rust/crates/admin/src/topology/server.rs` carries it into the entry of every cell, `None`
 when the scout does not say), and the switch of the line breathes (`.cell-row.busy`, fold.css) on a number above 0, even before there is a speed (a
 request reads its prompt). The speed is another fact: the scout holds the last request's rate while the cell is idle, so a speed above 0 is no sign of
 work. A held speed stays on the line, quiet (`.fr-tps.held`, the muted colour) and with `last` before it (`tpsLastLabel`; hovering it says
@@ -693,13 +1092,113 @@ Pinned by `test_js_cell_speed.py` (the class), `test_js_topology_nodes.py` and `
 from one table of cases, `scripts/cell_speed_cases.py`) and `test_cell_speed_css.py`; `check_board_live_patch.py` keeps the count read in cell-speed.js
 alone.
 
+A cell whose server keeps no metrics (1.3.658: the scout 2.41 heard 404 or 501 on its `/metrics`, `noMetrics`) is `unmeasured`: no speed and no count can
+come, and the window's speed tile says so (`cwSpeedNoMetrics`) — with the words that a restart brings them (`cwSpeedNoMetricsNext`) when the controller
+says the cell's next start has them (`metricsNext`, by the builder's own `metrics_on`). It said "no request measured yet" on Hermes while Hermes answered.
+
+## model-copy.js: ModelLoad
+
+`ModelLoad` — how far a loading cell has read its model, as its scout measures it (1.3.662, scout 2.43; the owner, 2026-10-26:
+"at what speed it loads into memory — do it, I want it to work"). The scout says what the cell's processes have read
+(`readBytes`: for each process the larger of rchar and read_bytes in /proc/<pid>/io, summed — a model read into memory counts
+in the first, the pages of a mapped one, llama.cpp's default, only in the second), how fast over the run's last seconds
+(`readBytesPerSec`) and what its files weigh (`modelBytes`, measured by its start). `ModelLoad.now(s)` is `{done, total, pct,
+rate}` in the copy's own shape — done capped at the whole — or null while nothing is to be said: no reading told, or less than
+`SHOWN` (1 %) of the model that does not move (a mapped model already in memory costs no read and loads in seconds).
+`ModelLoad.words(s, phase)` is the label of a cell on its way (`label`: into VRAM, into RAM for a CPU cell, loading, starting
+with its log's note) and the figures in `ModelCopy.line`'s words. The card's status rows of a warming and a starting cell carry
+them with `data-live-load` and a bar at the share (looping while there is none); `_liveLoad` (topology-render.js) patches the
+words and the bar of the card and of the folded line between paints, for the phases `ModelLoad.ON_ITS_WAY`; the machine page's
+chips and verdicts say them too (`comingWords`, `benchVerdict`). Pinned by `test_js_start_strip.py`, `test_js_topology_nodes.py`,
+`test_js_cell_speed_live.py`, `test_js_machine_head.py`.
+
+## library-path.js
+
+`LibraryPath` — where a model of the library is shown in the caravan's own pages (1.3.660; the owner, 2026-10-26: "a link to the model in our
+storage, and to our page on HF"). The library lays a download out as `<model>/<author>/<quant>/<file>`, as /hf names the folders; `links()` gives
+the models page asked for the quant's folder (`/models?q=…/`, every file of it — a GGUF of several parts and a model that is a folder alike) and
+/hf asked for the repository the first two folders name (`/hf?q=<author>/<model>`). A path not laid out so asks the models page for itself and
+gives no /hf; a path of the machine's own disk, one that climbs out (`..`) and none give nothing. `LibraryPath.hfQuery` is the rule of the 🤗 on
+the models page's branches too. The cell window draws the two under what is said of the model (`CellWindow.modelLinksHtml`), in this tab as
+everything of the caravan (`check_same_tab_links.py`); the models page reads `?q=` when it opens. Pinned by `test_js_library_path.py`, `test_js_cell_window.py`, `test_js_topology_nodes.py`
+and `test_js_models_page.py`.
+
 - Owns: nothing mutable.
 - Key exports: `CellSpeed`.
 
+## voice-talk.js
+
+The voice window (1.3.606): talk to a running cell by voice or by text from its card. `TalkCell` is
+the cell as the window sees it — its machine and port, the card's name for it, its runner, and
+whether its running server said it hears (`modalities.audio` from `/props`; not said is not yes).
+What it can do is its runner's to say (`state.runners[].talk`: the modes, the voices of each mode,
+the system prompt, how many messages a request carries) and its modes' (`state.talkModes`, the
+controller's table in `rust/crates/admin/src/fleet/cell_talk/mode.rs`): the module keeps no list of runners and no
+paths. The window takes only the modes with a voice in them (`TalkCell.voiced`: a recording asked
+or a voice answered); a typed question answered in words (text-chat, 1.3.624) is the cell window's
+Talk tab (cell-chat.js) — offered here, it would put 🎙 on every chat cell, an embedding server's
+included. `TalkCell.buttonHtml(running)` is the card's 🎙 (`cell-talk`): open on a running cell that
+can talk, shut with its reason on a stopped one whose runner always talks, none otherwise (a
+stopped llama.cpp cell says nothing of hearing). `WavRecorder` records the microphone into a wav in
+the page — an AudioContext's samples, brought down to 16 kHz mono by `WavFile` — so no cell ever
+gets the browser's own format; it names why there is no microphone before asking (a page of
+plain http gets none) and lets the microphone go on every way out. `TalkWindow` is its own element
+on the page, not a card's: the board repaints its cards every few seconds and the talk must
+outlive a repaint. One exchange is one `POST /api/cell-talk`: the recording or the text, the talk
+so far of the same mode (the runner's `turns - 1` messages; a failed answer carries nothing), the
+system prompt and the voice; the answer's words and voice become the next message, with the time
+until the cell's answer began, in all, and until its voice was heard. A refusal of the cell and a
+failure of the controller are messages too. An answer for a window closed meanwhile lands nowhere.
+A cell that keeps voices (`talk.asksVoices`, `talk.clone`: Qwen3-TTS, 1.3.608; Voice clone, 1.3.611) is asked its voices
+when the window opens (`GET /api/cell-talk/voices`; the list is said while asked, failed or empty,
+never drawn empty) and gets a part of its own: a sample of a voice recorded in the window, its
+words, the operator's tick that the voice is theirs or its owner agreed, and a name to keep it
+under on the cell (`POST /api/cell-talk/voice`, the name checked by the runner row's
+`talk.voiceName`). With a sample and the tick a text is read in the sample's voice; without the
+tick it is not sent — the window says what is missing rather than read it in another voice. The
+microphone records one thing at a time (`recordingFor`: the talk or the sample).
+Styles: `static/css/modals.css`.
+
+- Owns: `TalkWindow.current` — the open window; cleared by its close.
+
+## voice-live.js
+
+The live window (1.3.612): talk with a running cell both ways at once over the cell's own WebSocket, from its card's 📞
+(`LiveCell.buttonHtml`, `cell-live`: open on a running cell whose runner says `live`, shut with its reason on a stopped
+one, none otherwise). The page opens `wss://<board>/api/cell-live?hostId=…&port=…` and the controller passes the
+WebSocket on (`rust/crates/admin/src/fleet/cell_live.rs`): a secure page may not open a plain cell's `ws://`, and a microphone needs a
+secure page. Before dialling, the window asks the same path as a plain GET whether the cell answers its health; a cell
+that does not is said, and a talk that then fails to open is said as a door that drops WebSocket (the reverse proxy in
+front of the board must pass it) — never as a silent hang. What a cell speaks there is its runner's `live.protocol`;
+`LIVE_PROTOCOLS` holds the window's protocols, one so far: `MiniCpmOmniTalk`, MiniCPM-o's on llama.cpp-omni's `/backend`
+— `session.init` with the mode first (the models load then, 30–90 s the first time, and the window says so), the voice
+in as base64 float32 at 16 kHz and back at 24 kHz. Full duplex (`full_duplex`, the default): `MicStream` hands on a
+second of the microphone at a time, and while muted a second of silence in its place — the model decides once a second
+to listen or speak, and speaks on only while seconds come; its words grow into one line until it listens again, its
+voice plays in the order it comes (`VoiceQueue`, back to back on one AudioContext woken in the operator's click).
+Turn by turn (`turn_based`): Speak records, Send sends the utterance whole and the answer's first sound is timed. Each
+end is said by why: the cell's `session.closed` reason, a cell busy with another talk (it closes without a word),
+a talk broken off, the operator hanging up. `PcmCodec` writes the samples with `btoa` — the server's base64 reader dies
+on any other character. Styles: `static/css/modals.css` (the voice window's frame, and `live-*`).
+
+- Owns: `LiveWindow.current` — the open window; cleared by its close.
+
+## cell-page.js
+
+The page a running cell serves itself (1.3.613, PersonaPlex's), from its card's 🌐 (`PageCell.buttonHtml`, `cell-page`):
+a link, in the same tab, to the https address the cell's config names in its runner's field (`state.runners[].page.field`,
+`PAGE_URL`) — never to the cell's own plain http, where a page gets no microphone. The link is drawn only to an address
+of the form the registry row carries (`page.pattern`, `rust/crates/admin/src/domain/runner/specs.rs` `PageSpec`, matched whole and ignoring case), the form the
+save checks; otherwise, and on a stopped cell, the 🌐 is shut and says why — no address yet, an address that is not a
+page's, a cell to start. A runner without `page` gets no 🌐. The cell form's page panel (`tr-pageFields`, `tr-PAGE_URL`)
+shows for such a runner alone, and opens on the cell's own address or none. Styles: `static/css/nodes.css`
+(`a.node-action-btn`).
+
+- Owns: nothing mutable.
+
 ## card-rows.js
 
-The folded line of a board card, the slot that holds the line and the card, and the window a
-cell's card opens in. `CellRow` and
+The folded line of a board card and the slot that holds the line and the card. `CellRow` and
 `AgentRow` only lay out facts the card computed — the name, the memory chip, the ▶ start and
 ⏹ stop attributes with the words saying why, the route values — so the line and the card
 cannot disagree. A cell's line carries a switch in place of ▶ and a dot: on while the cell
@@ -708,9 +1207,8 @@ runs, off while it is parked, disabled with its reason when neither is possible;
 cable's handle while folded: cables and drops find handles by `querySelector` and read their
 rectangle, and a copy inside a hidden card would hand them zeros. `FoldSlot` holds the line
 (which never moves) and the full card — an agent's floats over the lane, and pinned it stands
-in place with ▴; a cell's sits in a `CellWindow`: the card itself under a title bar (the
-line's own name from `CellRow.shownName`, :port, the machine's address when the report has
-one) and a ✕, over a dimmed board, shown only while the slot is open. An agent's line shows
+in place with ▴; a cell's opens a `CellWindow` (cell-window.js) over a dimmed board, shown
+only while the slot is open. An agent's line shows
 only what is set — no dash placeholders, no empty fallback. The dot before an agent's name
 (`AgentRow.dot`, on the line and on the full card alike) is lit with the time of the last request
 through its ports, hollow while none has come — it was lit for every agent (2026-10-08). In an
@@ -719,6 +1217,11 @@ full card, where they always were. A cell whose model runs inside an engine give
 its window the class `engine-<runner>` (`CellRow.launcher` admits only a lowercase word), so
 they wear the launcher's colour; its window adds where the requests go — the engine's
 `127.0.0.1:<port>` (`cell-window-via`).
+
+`CellContext` is a token cell's context as a chip: 🪟 the window it is set to (served while it runs, its config's while it
+stands) / 🎓 the most its model was trained for, the whole numbers in its title, a window past the training warned as stretched
+(YaRN), a number nobody knows left out. One rule for the line (`cell-row-ctx`) and a cell's row on a machine's page
+(`machine-model-ctx`, 1.3.648): the owner asked for both, and two drawings of one fact drift apart.
 
 `nodeServerCardHtml(node, s, { fold })` and `topologyAgentCard(…, { fold })` take the lane's
 request; without it the card is drawn byte for byte as before. Styles: `static/css/fold.css`.
@@ -740,7 +1243,202 @@ is a `ShelfLine`: the cells' line, dashed, with «+» where a cell's switch stan
 makes a cell with that model; it is `disabled` with its reason when no cell can be made now, and
 keeps its test hook. Both only lay out what topology-nodes.js computed.
 
-- Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `CellFilter`, `EngineStrip`, `ShelfLine`, `FoldSlot`.
+- Key exports: `CellRow`, `AgentRow`, `CellEye`, `CellFilter`, `EngineStrip`, `ShelfLine`, `FoldSlot`.
+
+## cell-window.js
+
+A cell's window, variant Г (1.3.621). The owner chose it on 2026-10-24 from four mockups:
+"variant A seems the most beautiful and functional so far" — A's passport and tabs, with the
+status band of C. `CellWindow` only lays out what topology-nodes.js computed for the card, so
+the window, the line and the full card cannot disagree.
+
+- **The head**: the line's own name (`CellRow.shownName`), :port, what the model is (its jobs,
+  runner, quantization, parameters, file size), the machine's address that copies itself, where
+  the model is placed (split mode, cards, autostart, schedule), ⋯ and ✕.
+- **The band**: the state in a few words, coloured by its tone (`CellWindow.STATES`: good, busy,
+  idle, bad), its second line — a running cell says whether it answers and its speed — and ONE
+  main button: Stop while the
+  process is up or on its way, Start for a parked or failed cell, «Pick a model» for a port with
+  none, shut and spinning while it stops or is deleted. A Start or Stop that may not be pressed now
+  stays, shut, with the line's reason as its tip — Stop of a cell whose start was only just asked
+  for says it starts, not a spinning «Stopping…». The button carries the card's own ▶/⏹
+  attributes, so `bindServerSlotControls` binds it as it binds the card's. A band in trouble leads
+  to the Log tab. The speed's figure, its line (`CellWindow.speedSub`: the prompt's speed, or that
+  no request was measured — only while there is no speed at all) and the band's words are patched
+  in place by `syncTopologyLive`, by the same rules the builder uses. It finds them under the
+  window's own mark, `data-cell-window-live`: `data-cell-live` is the 📞 button's, and the lane
+  binds a live call to every element that wears it (remote-cells.js) — on the window's wrapper it
+  would turn every click on a tab into a call.
+- **The tabs**: Overview — the figures (speed — only for a cell that generates tokens, not an
+  embedding server or a transcriber, or once a speed came; context or a speech model's audio
+  window; video memory and RAM: the same figures as
+  the badges, `CellMemory.figure`), the error or broken-engine notice, the chips worth knowing, the
+  model's notes, the slots — and for a port with no model, words that there are no figures yet,
+  not a row of dashes; Memory — what it holds, per card,
+  and the placement the settings name; Settings — the main fields of a llama.cpp cell, the full
+  form, the port, the launch command; Log — what the cell reported went wrong (a failed start with
+  its reason and, on a line of its own, the advice; a broken engine, the previous attempt, crashes),
+  and an empty log says so in words; Talk — only for
+  a cell that talks: voice, live, its own page.
+- **The ⋯ menu**: autostart (a switch), copy the address, change the port (a parked cell only),
+  the launch command, delete. An item that cannot act now is disabled, with the reason as its tip.
+
+Phase 2 (1.3.623 on): the Log tab shows the server's own log (cell-log.js, below), the Talk tab
+of a chat cell a text chat (cell-chat.js, 1.3.624), and a llama.cpp cell with a model that may be
+configured now has its settings edited inside the window (cell-settings.js, 1.3.625; a port with no
+model picks one in the dialog first): the Settings tab's `editor`
+stands where the summary of the main fields stood, the Memory tab's `place` where the summary of the
+saved placement stood — beside the map it would tell another story while edits are not applied —
+and the window's `foot`, after the panels where no scrolling hides it, says what is not applied.
+`CellWindow.place(key)` reads a cell's machine and port out of its key, for the log, the chat and
+the settings to ask by.
+
+- Owns: nothing mutable. The chosen tab lives in `CardFold.windowTabs` (card-fold.js): the board
+  repaints the lane wholesale, and a choice kept only in the DOM would be gone on the next report.
+- Key exports: `CellWindow` (`TABS`, `STATES`, `STOPPABLE`, `HOOKS`, `speedWords`, `speedSub`, `tabs`, `html`).
+
+## cell-log.js
+
+The server's own log in a cell window's Log tab (1.3.623), under what the cell reported going
+wrong: the last lines of a run and the runs there are to read, as the machine's scout reads them
+(2.36, `GET /api/llama-node/log`) and the controller passes them on (`GET /api/cell-log`) — the
+board is https and the scout plain http, so the page never asks the scout itself. The scout
+scrubs keys out of the lines and reads no file but the cell's own logs.
+
+`CellLog` keeps what was read by cell, outside the window: the board repaints the lane wholesale,
+and a log read into the window would go with the next repaint. The builder (topology-nodes.js)
+draws the section from it (`html(key, {live})`; none for a port with no model or a cell in an
+engine, whose model's log is the engine's). It is read when the Log tab opens — the tab or the
+band's way to it (`bind`, once, on the document) — by its buttons and its choice of a run, and on
+the poll's tick (`tick`, from `syncTopologyLive`) every five seconds while the cell runs and its
+present run is shown: an earlier run does not change. A read under way is not doubled; a refusal
+keeps its own words; the section is drawn again where it stands (`paint`), the reader kept at the
+end unless they scrolled up.
+
+- Owns: `CELL_LOG` — the reads by cell (`cells`), and whether it is bound.
+- Key exports: `CellLog` (`HOOKS`, `EVERY_MS`, `of`, `place`, `present`, `html`, `load`, `paint`, `tick`, `bind`), `CELL_LOG`.
+
+## cell-chat.js
+
+A text chat with a cell from its window's Talk tab (1.3.624): a typed question, the model's words
+back, and under them what they cost — the tokens written, how fast it wrote and read, how long it
+took — as far as the server and the controller said it; a part nobody said is not drawn. It is
+offered to a chat cell: its runner answers `text-chat` (llama.cpp, PrismML, vLLM, Strata, and since
+1.3.643 a model in Ollama or LM Studio) and its job is a chat — an embedding server of the same
+runner is not (`CellChat.offered`). A cell in an engine says its job itself (the engine's type of
+the model, learned at load): a stopped one, or one that has not said, has no Talk tab. The page asks
+the controller (`POST /api/cell-talk`, mode `text-chat`) and the controller the cell's one chat path
+(`TextChat`, `rust/crates/admin/src/fleet/cell_talk/mode.rs`): the board is https and the cell plain http. An engine
+cell's port names the cell's model in the request, so the engine's answer is the cell's model's;
+the engines count tokens (`usage`) and say no speeds, so none are drawn.
+
+`CellChat` keeps the talk by cell, outside the window — the board repaints the lane wholesale, and
+the typed draft is kept on every keystroke for the same reason. What goes with a question is the
+last question-and-answer pairs that fit in the runner's `turns - 1` messages: whole pairs only (an
+answer without its question reads as the model's words out of nowhere), and a question whose
+answer failed goes with its failure. Enter sends, Shift+Enter is a new line, and a word an input
+method is still composing is not sent. While an answer is awaited nothing else is sent and the
+talk is not cleared. The talk is held with the cell's model (`heldWith`): a cell made anew on a
+deleted cell's port starts a talk of its own. The model is the cell's path or name, and for a cell
+in an engine — whose record names neither — its `ENGINE_MODEL` (1.3.646). A stopped cell shows
+its talk and says how to start it. llama.cpp's own page
+(`http://<machine>:<port>/`) stands beside a running llama.cpp cell unless its config turned it off
+(`ENABLE_WEBUI` 0) — a link followed in this tab, as the cell's 🌐 page is — and only where the machine's
+firewall lets everyone reach the port, or nobody read it (`CellReach.everyone`, 1.3.656): under the owner's
+variant B the cells' ports answer the controller alone, and from this browser the page leads nowhere. The
+cell's address in its details is then plain text, its hover saying why; and the line under a cell the
+controller cannot reach names the controller's own rule for the cells' range (`CellReach.controllerRule`:
+from `topology.server.ip` to `topology.cellPortRange`), not `sudo ufw allow <port>`, which opened the port
+to everyone.
+
+- Owns: `CELL_CHAT` — the talk by cell (`cells`: messages, draft, whether an answer is awaited),
+  and whether it is bound.
+- Key exports: `CellChat` (`HOOKS`, `MODE`, `offered`, `of`, `history`, `meta`, `html`, `draft`, `send`, `clear`, `paint`,
+  `bind`), `CELL_CHAT`.
+
+## add-model.js
+
+The new-cell wizard — «＋ Add model» on a machine's card and page (1.3.638). The owner chose variant А of the canvas with three
+changes: first what the model is for and what it must be able to do; every setting of llama.cpp within reach, the important
+ones in sight; the largest context a model takes, said on the model — then "А2 with the stars of А3". Three steps:
+
+1. **What for, and the model** — a tile a job (model-jobs.js's vocabulary, with how many models of it the list has and the
+   runners they would run on), what a chat model must be able to do (a projector, a context from 262 144, a cell of it here
+   already), a search, and the list: each model with the window its weights were trained with ("not known" for one that takes
+   a window in tokens and states none, a dash for a job that takes none — model-facts.js's rule), what it weighs with its cache
+   at the window proposed and where it would go — the machine page's rule and words (machine-head.js `CellFit`, `MachineMap.sizeOf`,
+   `fitWords`) against the machine's cards now.
+2. **How it runs** — the runner made for the model (llama-edit.js `runnerNaming`, the form's own jump) with its words, the
+   others that can run it (`runnerAvailability`; not a runner that takes nothing from the model list — `sharedPicker`
+   "ignored": a voice clone, a command) and its projector and draft as the form offers them.
+3. **Where, and the settings** — the eight main fields of a llama.cpp cell beside the cell window's placement map: the window
+   (the usual ones up to the trained one, it marked "max", one stretched by YaRN, and one's own), the requests at once, the
+   cache's type (both fields), where it computes (memory.js `applyComputeMode`, the compute target's own rule), flash
+   attention; the reasoning, the temperature and the name for clients; then the starred fields. A smaller window is offered
+   when the one set does not fit whole. Under them all the settings of llama.cpp — the cell window's editor of the same form
+   (cell-settings.js), folded; any other runner is set in the full form.
+
+A llama.cpp model picked into a form that pins no card gets "every card" written by the compute target's rule (`auto`, the
+cards' split): the wizard shows that choice, and a new cell's own `N_GPU_LAYERS` 999 — every layer forced onto the cards —
+made the map open the third step on its "set by hand" warning (2026-10-26). A card or the processor chosen is left alone.
+
+`WindowPick` lists the usual windows a model is offered, up to the one it was trained with; none is written by itself — an
+empty field starts the cell at the trained window (AskedWindow, 1.3.651), and a smaller one is a tip with a button. The wizard
+does not say the port it takes (1.3.655): a model is called by its name, and its cell's port stands in the cell's window; a
+model already run here says how many cells run it, not their ports (`amRowCell`). The wizard is no second
+form: it drives `CELL_FORM` filled for the next free port without its dialog — `pickModel` is the picker's own pick, a runner
+is `chooseRunner` (the tabs' own), every field `CELL_FORM.set` — so the checks, the companions, the command and the Apply stay
+the dialog's. Create is the dialog's Apply without its question (`save({confirmed: true})`), Create and start then the cell's
+own start (`cellServiceAction`); «Full form…» shows the dialog itself with everything set. Its parts come in through `deps`
+(the real modules by default, put together at first use — the board's modules import one another in a ring); a test gives its
+own (scripts/test_js_add_model.py).
+
+- Owns: the step, the job and the abilities chosen, the words typed, the folded list's state, what each model of the list was
+  figured to weigh this opening, and the layer over the page (`#addModelOverlay`).
+- Key exports: `AddModel`, `ADD_MODEL`, `WindowPick`.
+
+## cell-settings.js
+
+A llama.cpp cell's settings edited in its window (1.3.625): the Settings tab lists the fields by the
+dialog's own tabs (constants.js `advancedTabDefs`, EXTRA_ARGS closing the first), with a search by a
+field's name or its help and "only those set" (on by default); the Memory tab draws the placement
+map of the cards and RAM. Both edit the cell editor's form itself — `CellForm` (remote-cells.js),
+filled for the cell without its dialog — so the checks, the map's arithmetic and the command the
+cell will run stay the dialog's, in one place. A field is drawn as the form draws it: an optional
+toggle the config does not state shows the server's default and says "default", a cell's port is
+not typed in (it is moved on the board), the closed choices are offered beside free text. A write
+is the form's own (`CellForm.set`: the value, then `input` and `change`), so the form's listeners
+redraw what reads it; a field they wrote as well is drawn again, the focus and caret kept. Leaving
+EXTRA_ARGS hands its flags with fields of their own to those fields, as leaving it in the dialog does.
+Each row carries a star (1.3.638): the starred fields are the favorites (favorites.js, given at `bind` as `favorites`) — one
+list for the dialog's Favorites tab, these rows and the new-cell wizard's main fields; EXTRA_ARGS has none, it is always there.
+The new-cell wizard (add-model.js) fills the form for a cell that does not exist yet and hands it here with `adopt(key)` — what
+the form holds is the start, the list opens full — and `release(key)` when it closes.
+
+What differs from what the form was filled with is said at the window's foot, by name (four, then
+"and N more"), with Discard (the form filled again) and Apply (the dialog's own, its question and
+its save; a running cell keeps its old settings until it restarts, and the foot says so). The config
+sent becomes the new start: a field typed while the save was on its way stays not applied. The form
+is one, and holds one cell: the window is the keeper of its edits (`CellForm.keepBy`). The dialog of
+the same cell shows them as they stand; the form is filled for another cell — from its window, its
+dialog, or «＋ Add model» — only when the operator lets them go (`cwDirtyLeave`). A tab of another
+cell's window does not fill the form while edits here are not applied: its Open button asks. When
+the form is filled for another cell by any hand, the window held before is drawn idle — an editor
+left over from it writes nothing into a form that holds another cell.
+
+The map is a second `PlacementPanel` drawn from the form into the Memory tab (memory.js
+`mountPlacementMap`, the dialog's rule of which cell has one): a cell on the CPU or split by rows
+says it has none. The board repaints the lane wholesale, so the cell, the search, the group and the
+edits are kept here, and the map is drawn again after every repaint (`remount`, from
+topology-render.js). The form's filling, saving and its dialog closing — by its ✕, Escape, the
+backdrop or a save, each only setting `hidden` — are heard through `CellForm.on`.
+
+- Owns: `CELL_SETTINGS` — the cell the form holds for its window (`key`), the config it was filled
+  with (`base`) and what it says now (`values`), the search, "only those set", the group, whether a
+  save is under way, and whether it is bound.
+- Key exports: `CellSettings` (`HOOKS`, `NAMED`, `groups`, `note`, `changed`, `keepFocus`, `open`, `refill`, `settle`,
+  `keeps`, `leave`, `set`, `sync`, `apply`, `discard`, `html`, `footHtml`, `placeHtml`, `mountMap`, `remount`, `bind`),
+  `CELL_SETTINGS`.
 
 ## split-mode.js
 
@@ -788,7 +1486,8 @@ dispatching its events. Drag-to-reorder included.
 Live llama-server command preview. The command is built by the single source of truth on the
 controller (`build_llama_args`): `renderCommandPreview(pfx)` debounces 160 ms, POSTs the current
 form to `/api/llama-command-preview`, discards stale responses via a per-prefix sequence counter,
-then LCS-diffs the returned tokens against a baseline — the cell's own current command set
+then LCS-diffs the returned tokens (the environment the start sets first, as `NAME="value"`, then the
+binary and its arguments) against a baseline — the cell's own current command set
 through `setEditCurrentCommand()`; a form that set none diffs against nothing. Changed tokens
 highlight, removed flags strike through, and the editor's Apply button gets `cmd-dirty`.
 
@@ -798,8 +1497,8 @@ highlight, removed flags strike through, and the editor's Apply button gets `cmd
 ## kv-cache.js
 
 Which pair of flash attention and V cache type llama.cpp starts with — the twin of
-`caravan/common/kv_cache.py`; `scripts/test_kv_cache.py` and `scripts/test_js_kv_cache.py` run both
-against one table of cases (`scripts/fixtures/kv-cache-cases.json`). `KvCache.refusedType(config)` is
+`KvCache` in `rust/crates/rules/src/cell_config.rs`; `rust/crates/admin/tests/contract.rs` and `scripts/test_js_kv_cache.py` run both
+against one table of cases (`contract/kv_cache.json`). `KvCache.refusedType(config)` is
 the quantized V cache type a config pairs with flash attention stated OFF, `""` when the pair starts.
 `submitRemoteLlamaStart` (remote-cells.js) says it at Apply — "The V cache type q8_0 needs flash
 attention…" — before the confirm, for the llama.cpp runners only: the fields mean nothing to the
@@ -814,16 +1513,29 @@ model`): damaged, not a projector, of another model or a newer kind than this ll
 by rows this build cannot do ("This llama.cpp cannot split a model by rows": `device CUDA0 does not support split
 buffers`), whose hint names the tiles as the page does ("Pipeline", "Tensor + KV").
 
-Apply of a vLLM cell says what is missing by what the page shows: with a model picked in the list and `VLLM_MODEL`
-empty it asks for the path ("VLLM_MODEL is empty. Type the model's path on this machine…") — the field is derived
-from the pick only on the controller's own machine, a scout does not report where it keeps the library — and with
+Apply of a vLLM cell needs a model: a pick in the list is written to `VLLM_MODEL` as its place among the controller's models
+(`Qwen/nvidia/NVFP4`), which means the same on any machine, for the scout brings that model or shows it. With
 nothing picked it says "Select a model". Saving a cell that runs says that it keeps its old settings until it
 restarts ("Saved. The running cell keeps its old settings until it restarts.").
+
+## asked-window.js
+
+The window a cell is started with — the twin of `AskedWindow` in `rust/crates/rules/src/cell_config.rs`;
+`rust/crates/admin/tests/contract.rs` and `scripts/test_js_asked_window.py` run both against one table of cases
+(`contract/asked_window.json`). `AskedWindow.of(field, trained)` is the field's number, and for a
+field left empty (or `"0"`) the window the model was trained for — the owner's word of 2026-10-26; `null` when
+neither is known or the field is not a number. The form's memory estimate and the cell window's plan count the KV
+cache of that window (`KvCache.gb`, cell-plan.js): counted as 0, a cell that starts with 262144 tokens was drawn
+keeping no cache. The add-model wizard weighs a model at it and only offers a smaller window the cards hold whole,
+as a button — it wrote that window into the field, a number nobody typed. `modelWindowFor(pfx)` (form.js) is the
+most a form's model takes, which every window field shows as its placeholder: the dialog's (`CTX_SIZE` by
+`updateCtxYarnHint`, the others by `syncWindowPlaceholder`, llama-edit.js) and the cell window's
+(`CellForm.windowField`/`modelWindow`).
 
 ## draft-file.js
 
 Which speculative type a draft file is for, read from its path — the twin of
-`caravan/common/draft_file.py`; `scripts/test_draft_file.py` runs both against one table of cases.
+`rust/crates/admin/src/common/draft.rs`; `scripts/test_draft_file.py` runs both against one table of cases.
 `DraftFile(path).sidecarType` is the type the first word of the name says (`mtp`, `dflash`,
 `dspark`, `eagle3`), else `draft-mtp` for a file under a folder named `mtp`, else `""` — no sidecar,
 said rather than guessed; `launchType` adds the `draft-simple` a plain second model runs as.
@@ -915,10 +1627,7 @@ window, as the controller lists them (`windowLinks`): the model list, retrieve-m
 port, `/props` and `/v1/props` on a cell's. `MODEL_CARD_LINK_TIPS` gives each question its tooltip.
 On the route row, the model's window figure (🪟) is a button: it opens that window on the Model card.
 A port's address is the controller's (the row's `endpoint`, ConsumerAddress): where the ports have
-no door it is empty, and `routeAddressTip` says why instead of a bare ":23001". `announceNewPort`
-copies the new port's row address — the page's own name was copied before, and a board opened by a
-name in front of another machine handed over that machine's port — and where there is no address
-copies nothing and says how the client gets in: a key through the entry (2026-10-08, the NAS).
+no door it is empty, and `routeAddressTip` says why instead of a bare ":23001".
 `keepAgentCardOpen` holds an agent's card open after a port is given (CardFold.hold). The wait chip
 says whose number it shows: the route's own, or the port's (`routeWaitPortTip`) — it claimed a sync
 from the client's config that no code does any more.
@@ -971,7 +1680,7 @@ sorting, connect actions (proxy→llama, proxy→cloud), the per-group cloud-fal
 Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `topologyProxyEditingId`).
 
 - Owns: nothing mutable.
-- Key exports: `topologyAgentCard`, `clientLaneAgentCards`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `saveProxyRoutes` (every whole-list port save: the form, a move to a llama server — sent with `topology.proxyRevisions.routes`, built again once on a stale refusal), `sortedTopologyRoutes`, `feedsRouters` (a client of the entry never feeds a router — its cable leads to a set of models, since 2026-10-12: the route rebuild sends it unbound, and Routing never counts it as a client), `isEntryClient` (kind `consumer`: free until a router takes it — the rebuild sends its binding as it is, and an absent one free, never the default Routing).
+- Key exports: `topologyAgentCard`, `clientLaneAgentCards`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `saveProxyRoutes` (every whole-list port save: the form, a move to a llama server — sent with `topology.proxyRevisions.routes`, built again once on a stale refusal), `sortedTopologyRoutes`, `feedsRouters` (a client of the entry never feeds a router — it calls the pools and the models by their names, since 2026-10-12: the route rebuild sends it unbound, and Routing never counts it as a client), `isEntryClient` (kind `consumer`: free until a router takes it — the rebuild sends its binding as it is, and an absent one free, never the default Routing).
 - A route rebuild (`topologyProxyRoutes`) keeps an explicit empty binding — a port detached from every
   Routing on purpose — and only a port with no binding at all gets the default. The port form changes
   only what it shows (`PROXY_FORM_FIELDS`: name, port, upstream address, mode, key); the rest of an
@@ -1010,11 +1719,22 @@ value, sparkline, its descriptor the hover word — opening under it on hover an
 the CPU and its RAM, each GPU, the history charts (`nodeComputeHtml`, the one drawing for both cards,
 which the live patch finds in either). The machine's window draws the whole card of that machine
 alone (`nodesLaneHtml(id)`), or says the board does not have it (`machineMissingHtml`), with the way
-back. `nodeRoleWord` / `nodeGroupName` are the head's role word and the card's name for a screen
+back. Since 1.3.630 that page leads with the head of machine-head.js (`machineHeadOf`) in place of the card's header and its
+compute column — since 1.3.632 variant В's map of its memory, a cell chosen on it with its panel, the list of models with its cells
+(machine-models.js, 2026-11-02), and since 1.3.636 the column at their right (`machineSideHtml`: the engines, the model disk, the incidents, the
+activity). Under them the page keeps only its cells' list, for their windows — a cell in trouble's too (`node-body machine-cells`). `nodeRoleWord` / `nodeGroupName` are the head's role word and the card's name for a screen
 reader, one reading for both cards.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `machinesLaneHtml`, `nodeComputeHtml`, `machineMissingHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `llamaBuildChipHtml`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanModelsWithoutCell`, `nodeDriverWarningsHtml`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `machineHeadOf`, `machineSideHtml`, `nodeCaravanStripHtml`, `machinesLaneHtml`, `nodeComputeHtml`, `machineMissingHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `llamaBuildChipHtml`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanModelsWithoutCell`, `nodeDriverWarningsHtml`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
+- The words on a cell's card are two, each in its own line under the body (`topology.cellNotes` and `topology.cellModelNotes`, both by
+  the cell's key `host:port`). 💬 is the cell's own note, written in its window (up to 280 characters). 📖 is the comment on the cell's MODEL
+  (the owner, 2026-10-19): one for every quant of it, written at `/models` (`rust/crates/admin/src/models/notes.rs`) and read here by the folder the cell's
+  model file lies in, so every cell that runs the model has it. The cell's own note comes first. The same words on both are said once, as the
+  cell's own. A cell whose model path names no model (a file in the root of the models folder, a path elsewhere) has none. The card clamps
+  each line to two lines with the whole text in its tooltip; the cell's window reads the model's comment whole (`cell-model-note-full`) under
+  its NOTE box. Both maps are in the board's structure fingerprint (`notes`), so a comment written on another page is on the card at the next
+  answer. Pinned by `test_js_topology_nodes.py` and `test_js_topology_render.py`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
@@ -1065,9 +1785,8 @@ reader, one reading for both cards.
   (`ClientLlamaUpdate`, client-llama-update.js, 2026-10-17: «to the controller's build» on a
   controller that has none was the words of one thing over the action of another). The reading is
   taken at the click; until the controller has said what it runs (no `state.llamaCpp.git`) ⇪ is not
-  drawn. Its second line: 📦 Models
-  and 🤗 Hugging Face (`node-caravan-models`, `node-caravan-hf`), the bar that stood over the
-  machines — Hugging Face took the strip's «download»; the header keeps only the machine's power.
+  drawn. Its second line held 📦 Models and 🤗 Hugging Face until 2026-10-24; they are in the
+  bar of every page now (below), and the header keeps only the machine's power.
   Under all the machine's launcher groups a divider, «Cells» (`node-cells-divider`, 2026-09-27,
   the operator's ask), parts what can be started from what is made — the chips and the cells.
   Under the strip stands the machine's model cache (`ModelCacheLine`, model-cache.js, 1.3.576; the owner,
@@ -1081,10 +1800,20 @@ reader, one reading for both cards.
   number and size (`node-cache-foreign`) and a button (`node-cache-delete`) that asks in the confirm window
   and sends the size the window named (`expectBytes`, taken before the window opened): the scout deletes
   only if the files are still that size. A machine whose scout reports no `modelCache` (older than 2.34)
-  has no such line. The setting and the foreign files are in the board's structure fingerprint; what the
+  has no such line. A scout that says `off` (the owner, 2026-11-02: clear it, and turn it off) gets two more buttons: **Clear** (`node-cache-clear`,
+  while the cache holds something; the window names how much goes, then `.../cache-clear`) and **Turn off…** (`node-cache-off`: where the library lies on
+  that machine, then a window that says what a start will cost and what goes, then `.../cache-off`). Off, the line says so, says where it reads from and
+  offers **Turn on** (`node-cache-on`, no question: nothing goes); no limit and no folder stand there then. The setting and the foreign files are in the board's structure fingerprint; what the
   cache holds and the disk's free space move with every download and are patched in place
-  (`[data-live-cachefigures]`). The class reads the node's `modelCache`, which the controller cleaned
-  (model_cache.py, `ModelCacheFacts`) and refreshes after each call, so a read a moment later shows the
+  (`[data-live-cachefigures]`). A scout of 2.38 keeps a budget in GB instead (1.3.649; the owner,
+  2026-10-26: «in GB, not in models»): the box is a number of GB then (`node-cache-budget`, empty while
+  none is chosen — the last N models rule; a change goes to `.../cache-budget` in bytes, 2^30 to a GB as
+  the figures beside it), and the folder the cache is in stands on a line of its own (`node-cache-dir`)
+  with a button (`node-cache-dir-change`) that asks the new folder (the present one in the box) and then
+  asks again naming what goes — what the caravan downloaded into the old folder, with its size: the
+  library's copies, which a cell's start brings into the new folder — before `.../cache-dir`. A scout
+  older than 2.38 keeps the count's box and has no folder line. The class reads the node's `modelCache`, which the controller cleaned
+  (`rust/crates/admin/src/fleet/model_cache.rs`, `ModelCacheFacts`) and refreshes after each call, so a read a moment later shows the
   new figures. The same figures give a sign in the machine's head — the main board's glance and the
   machine's own card, after the scout-old chip (`node-disk-low`, 1.3.577; the owner, 2026-10-18: «yes,
   a sign "disk almost full" on the machine's card»): «⚠ disk 94% full» when the cache folder's disk is
@@ -1093,8 +1822,8 @@ reader, one reading for both cards.
   measure draws no sign. The sign coming or going redraws the head (the fingerprint); the percent is
   patched in place (`[data-live-diskpct]`); the tip says the rule, not the moving figures.
   Under it, not the list of the caravan's models
-  but one line, «＋ Add model» (`node-caravan-add`). It opens the cell editor on the next free port
-  with the model list already open (`openCaravanModelEditor`), shut while a reserve on the machine
+  but one line, «＋ Add model» (`node-caravan-add`). It opens the new-cell wizard on the next free port
+  (add-model.js `ADD_MODEL`), shut while a reserve on the machine
   is taking the port the editor would offer, and counts the models the cell editor offers
   (`state.models`: this controller's and its libraries' — any machine runs any of them, its scout
   fetches the file) less the ones a cell of this machine names (`caravanModelsWithoutCell`). An empty
@@ -1109,6 +1838,34 @@ reader, one reading for both cards.
   «wants a token» or «does not answer», what the server or a download refused last in its words, a
   download under way (`engineDownloadText`, patched live), «run by another user». An engine's state
   and what it has loaded are in the board's structure fingerprint; its memory is not.
+
+  A cell's note (cell-note.js, 2026-11-03; the owner: "sign the cells, a comment of my own, visible here") is the one
+  the cell always had — kept by the controller in its slot (`set_note`, `POST /api/topology/server-slot/note`, at most
+  280 characters) and carried by the topology as `cellNotes` — drawn now in its row on the machine's page as well, under
+  its two lines (`machine-model-note`, 💬 as on its card; a press asks for it again) or, for a cell with none, a ✎ by its
+  buttons (`machine-model-note-add`). A cell a start moves to another port keeps it. Pinned by scripts/test_js_cell_note.py
+  and scripts/test_js_machine_models.py.
+
+  On the machine's own page the same facts are drawn by `ModelDisk` (model-disk.js, 2026-11-03; the owner: "make it
+  prettier", and a folder for Strata's files of its own): the cache's head with its state and buttons, the disk as a bar
+  (`Meter`: other files hatched, the cache in its colour; no bar while the disk was not measured), then a row per folder —
+  its name and buttons on one line, its path whole under them. `node-cache-work` is Strata's folder: red (`data-t-state`
+  `unset`) while none is chosen, when the controller starts no Strata cell (`RunnerRow.work_folder`, `ModelCache::
+  refuse_without_work`); `node-cache-work-set` chooses or changes it, `node-cache-work-remove` and `node-cache-dir-remove`
+  remove a chosen folder. A change asks first the folder, then — when the old folder holds something — whether the files
+  go with it or are deleted (`appConfirmChoice`); the actions live in `ModelCacheLine` (moveFolder, removeFolder,
+  chooseWork, removeWork), so the board's card asks the same. A move under way (`node-cache-moving`) and the words of one
+  that failed (`node-cache-move-error`) come from the scout's report; the bar and a move's progress are patched in place
+  (`ModelDisk.patch`, from the render's live patch), never redrawn. Strata's folder is a shelf of its own (the owner,
+  2026-11-03: its models stay there after a stop, up to a limit he changes): its row says what its models take, with
+  their names in the tip, and has the limit's box (`node-cache-work-budget`, `ModelCacheLine.setWorkBudget`, empty for the
+  folder's own 300 GB); it says to choose an SSD (`node-cache-work-fast`, also while none is chosen) and what Strata
+  writes to the disk (`node-cache-work-wear`), and warns in red when the system says the disk spins
+  (`node-cache-work-hdd`) or when the disk has less free than the limit still leaves (`node-cache-work-short`). What the
+  folder holds moves with a copy and is patched in place; its limit, its disk's kind, its models' names and the warning
+  are in the fingerprint. It is a card of its own (`node-strata`) under the cache's, not a row under the cache's switch:
+  Turn off and Clear are the cache's and never touch it; a move stands in the card of the folder that moves, and the last
+  move's failure under both. Pinned by scripts/test_js_model_disk.py.
 - The shelf lists the models the engine holds that no cell of this engine serves (a cell's
   `ENGINE_MODEL`): held outside any cell first (they take memory now), then a model still a router
   output, then up to six others and «+N more installed»; the caption counts them all. A line: «+»,
@@ -1145,7 +1902,7 @@ reader, one reading for both cards.
   llama-server) — and `cellJobs(runner, cellMeta, cfg)` — what the cell does (an embedding server
   first, then the live kinds over the runner table). Both live in model-jobs.js since 1.3.502, beside
   the vocabulary, and topology-nodes.js re-exports them: the controller tells the proxy what each cell
-  does by their Python twins (`cell_runner_id`, `cell_jobs`), one table of cases for both in
+  does by their twins in `rust/crates/admin/src/common/model_jobs.rs` (`cell_runner_id`, `cell_jobs`), one table of cases for both in
   scripts/test_model_jobs.py. The card, its detail window and the
   Routing's rows (output-cells.js) read these two; the card and the window each held a copy of the first.
   A cell this controller holds no settings for (made by the controller that ran on the machine before)
@@ -1199,6 +1956,9 @@ same flex line (fold.css `.cell-row` wraps; test_cell_strip_css.py), the card wa
 
 ## model-copy.js
 
+`ModelCopy.part(path)` — a part of a split GGUF by its name (`index`, `count`, `first`), or null for a whole file: the picker
+offers first parts only by it and /models gives a later part its first part's facts.
+
 `ModelCopy` — how far the copy of a cell's model onto its machine has got, said for the WHOLE model and in the pages' own
 gigabytes (`2 ** 30` bytes, like the model list, the estimate and `/hf`). The scout reports the file it is on, so a model of
 two parts read "28.5/29.6 GB · 96%" for its first part and began again at 0 for the second; and the figures were decimal
@@ -1237,11 +1997,15 @@ pool's output without its card still is. A machine's window draws no cable at al
 other end on that page.
 
 A client of the entry has a cable too (the owner, 2026-10-11: a client's activity on the cables, as
-the agents' was; 2026-10-12: one cable goes on from a client, to its set of models, and the sets and
-pools stand in Routing). It leaves from the handle on its card (`data-topology-proxy-output`,
-consumers.js) and comes into Routing's card, when the client has a set (`set`, the controller's
-reading); it lights with any request of the client (`topologyItemsActivity` on the client's port) —
-whichever pool of its set and row of the pool serves it, a cell's too. A client with no set has no cable.
+the agents' was; 2026-10-12: one cable goes on from a client, and the pools stand in Routing). It leaves from the handle on
+its card (`data-topology-proxy-output`, consumers.js) and comes into Routing's card — every client's since 1.3.675, when each
+came to see every pool and every model that runs (the owner, 2026-10-27, of these cables: "there are few of them, let them
+stay"); it lights with any request of the client (`topologyItemsActivity` on the client's port) — whichever pool and row
+serve it, a cell's too, or a model called straight.
+From Routing's card a cable goes on to each machine and provider the pools reach (`PoolReach`); a machine's lights while a
+request runs on it — any leg but a cloud one whose output is the machine's: a cell, a model of its entry, an engine's model
+(1.3.665; before, only a cell's leg lit it, and since 1.3.655 the pools' rows lead to the machine's models: the owner,
+2026-10-26, "I don't see the right part of the active lane").
 
 One look with Routing's (1.3.549; the owner, 2026-10-14: "make the main board's connections like Routing's, and keep
 how an active one is shown"): a cable ends in a 12 px dot on the card's edge (`.topology-handle`; on a machine's head and a
@@ -1262,7 +2026,7 @@ cloud providers its pools lead to (the owner, 2026-10-12): to a machine one of w
 row, to an account a pool's row calls (`PoolReach`, provider-glances.js) — a row switched off leads
 nowhere. The rows themselves stay in Routing; here a cable says only that requests can go there. It
 ends at the card's head and lights while a request runs there: a cell's leg names its output
-(`routedOutputId`), a provider's its account (`cloudAccountId`, caravan/proxy/handler.py). No pool, no
+(`routedOutputId`), a provider's its account (`cloudAccountId`, `rust/crates/proxy/src/record.rs`). No pool, no
 such cable; one whose card is missing is named in `cableDrops`.
 
 - Owns: `_cableHighlightClearTimer`, `CableEnds.marked` (the heads that have the dot).
@@ -1288,7 +2052,7 @@ gradient (`linearGradient`, in the board's own coordinates) that is clear at bot
 (900 ms: `fading`, from 1 to 0, `ease-in`, and it stays at nothing). The board redraws its cables many times a second and
 the element does not outlive a drawing, so the story is kept here, by the cable's `key` (the same at every drawing:
 `main:route:<client>/<agent>/<role>`, `main:router:<machine|provider …>`, `main:consumer:<proxy>`; Routing's
-`pb:client:<port>`, `pb:set:<set>/<pool>`, `pb:row:<pool>/<row>`): `seen` has what each cable that carried a request was
+`pb:client:<port>/<pool>`, `pb:row:<pool>/<row>`, `pb:direct:<pool of one row>`): `seen` has what each cable that carried a request was
 at its last drawing. A drawing is `round()` — what the last one drew is forgotten — then `twin()` for each cable that carries
 now, then `ghosts()`, which is the markup of every cable that was drawn before and is not now: the same pair, fading, from where
 `FALL_MS` had got to (the delay says it). A cable seen carrying more than `GRACE_MS` (3 s) ago stopped long ago: no ghost, and
@@ -1303,17 +2067,87 @@ keys, points, round, ghosts) and `test_cables_css.py` (the stylesheet it leans o
 
 ## pool-flow.js
 
-`PoolFlow.of({clients, pools}, agents, now)` — which of Routing's cables carry a request now, read from the monitor's rows
+`PoolFlow.of({pools}, agents, now)` — which of Routing's cables carry a request now, read from the monitor's rows
 (`ui.latestSystemMonitor.latest.agentProxies.agents`): `active` (a request is served) and `recent` (one finished in the last
 8 s, as `topologyItemsActivity` reads the same rows for the main board), as the keys the board's cables are named by
-(`client:<port>`, `set:<set>/<pool>`, `row:<pool>/<row>`), and a `signature` the board decides a drawing by. A request names its
-own way down the chain: the port it came in by, and the pool and the row that serve it (`cloudPoolId`, `poolStepId`,
-caravan/proxy/handler.py). A queued request is not served yet; a client with no set has no cable of its own to light; a pool
-the board does not draw lights nothing of itself; a cable that is lit is not also recent. No page in it: pinned by value in
-`test_js_cable_flow.py`.
+(`client:<port>/<pool>`, `row:<pool>/<row>`, `direct:<pool of one row>`), `direct` — the models called straight, by their
+pool of one row (`live:…`), each with the clients whose requests go there and whether one runs now (the rows of «Напрямую»,
+1.3.675) — and a `signature` the board decides a drawing by. A request names its own way down the chain: the port it came in
+by, and the pool and the row that serve it (`cloudPoolId`, `poolStepId`, `rust/crates/proxy/src/record.rs`). A queued request is not
+served yet; a pool the board does not draw lights nothing; a cable that is lit is not also recent. No page in it: pinned by
+value in `test_js_cable_flow.py` and `test_js_pool_board.py`.
 
 - Owns: nothing mutable.
 - Key exports: `PoolFlow`.
+
+## model-queue.js
+
+`ModelQueue` — a local model's queue as Routing draws it (1.3.663; the owner, 2026-10-26: "several pools may go to one local model, so the
+queue is to be made on the model, not in the pool"; the mockups on canvas Wo63Az2b3Vc7C6sv6h3vyj). `ModelQueue.of(agents, keyOf, slots, now)`
+reads the monitor's rows of requests — the rows `PoolFlow` reads — into one queue per model, by the board's key of the model a request is on
+now (`PoolBoard.queueKey`: a pool's row names it, so a request that went on is the next row's; a direct route names its cell's output; a
+subscription's row has none): who holds the slots (`slotAt`, a served one) and who waits (`phase` queued with `queue.since`), the waiting in
+the proxy's order (`queue.position`). Each waiting request carries what the proxy decided for it (`rust/crates/rules/src/model_queue.rs`,
+`QueueLeave`): when it leaves (`leaveAt`) and where to (`leaveTo`: `next` — the pool's next ready row, `refuse` — a 503). Nothing of that is
+worked out here: a request that says no leave is drawn as one that does not leave by itself ("no limit", no bar, no end), a slot count
+nobody said (`slotTotals`) is "?". A request is named by its client and its pool's name (`html(rowOf, poolName)`, `PoolBoard.poolName`):
+the pool's id beside another model's queue read as the model the request was for (`gpt-6-1-sol` at qwen3.8's, 1.3.665); a request of the
+built-in client is named by the model, as Open WebUI calls it — its pool of one row is not in the file, and `PoolBoard.poolName` finds it in
+the client's `catalog` by its `pool` (1.3.670: the strip said "Open WebUI · live:mm:3a5…"). A slot says how long it has been held and how
+long its client still waits — the moment the proxy says on the record (`clientDeadline`, 1.3.666) — and since 1.3.670 stands on its
+client's scale (`runSpan`): from the moment the proxy received it to that deadline, amber for its wait in the queue, stripes for its work,
+the rest what its client still waits (the owner, 2026-10-27: "why is the end unknown? we know when the request came and where it is cut
+off"). The model never says how long its answer is, so the bar ends where the client stops waiting, not where the answer will; a record
+without a deadline keeps the stripes with no end. A model no request is on finds its slots by the name of its queue on its output (`slotGroup`, which
+the controller gives each output of a cell or of a machine's model — `capacity.slot_groups`; `PoolBoard.slotsOf`): before 1.3.664 an idle
+model's strip said "0 of ?". `chip()` is the model's line ("1 of 1 · 2 waiting", amber while someone waits, nothing while nothing
+happens); `rowWait(pool, row)` the words of a pool's row whose request waits ("waiting in the queue · 25 s left"); `html(rowOf)` the queue in
+the model's strip — the slots on their clients' scales, each waiting request with its position, "next for the slot" on
+the first, how long it waited and how long is left, a bar on a scale of round steps (`QueueScale`: ticks and labels, minutes or seconds,
+the unit at the end) and a mark of its end — "→ row 2" by the number of the pool's next ready row (`PoolBoard.rowOf`, from the proxy's word
+on each row) or "→ 503". `QueueTime` says the times ("1:05"; what is left rounded up). The board draws the three into its markup and,
+every time the monitor is read (`ACTIVITY_SEEN`, one listener with the cables' drops), in place (`PoolBoard.paintQueue`, by the
+`data-pb-queue-chip`, `data-pb-row-wait` and `data-pb-queue-live` marks): what would read the same is not touched. The list scrolls in
+the `data-pb-queue-live` holder, which stays while the list in it is written anew, and takes the strip's height (pool-board.css): the list
+was a scroller of its own, 112px high — the second of two waiting requests was cut in half over an empty foot, and a scroll went back to
+the top with every reading (1.3.670). Pinned by `test_js_model_queue.py` and `test_js_pool_board.py`.
+
+- Owns: nothing; the board's `queueDrawn` keeps what each mark holds.
+- Key exports: `ModelQueue`, `QueueScale`, `QueueTime`.
+
+## client-name-settings.js
+
+`ClientNameSettings` — the one name every client goes to the cloud providers under (1.3.692; the owner, 2026-10-31: "let us present ourselves as one; it is purely for the home, and if they ban us, let
+them"). The head of Routing's Clients column carries `buttonHtml` ("Seen as: own names", or the name that is set), which opens `panelHtml` at the top of the column: the field, and what filling it means. A field
+let go is saved as the proxy's policy (`POST /api/agent-proxies/policy`, `clientName`) as it was typed: the rule of what can be a name is the server's alone (`rust/crates/rules/src/client_name.rs`), so what it refuses
+comes back in its words and the field goes back to what it keeps. The field holds the board's drawing while typed in (`PoolBoard.typing`).
+
+- Owns: `open` (the field shown), `saving`.
+- Key exports: `ClientNameSettings`.
+
+## model-queue-settings.js
+
+`ModelQueueSettings` — the settings of the models' queue, one for every model (the owner, 2026-10-26: "let us first make one for all";
+"let it be seconds and minutes"): `queueYieldSec` — how long a request waits for a busy model while its pool has a ready row further on
+(0: it gives way at once, as before) —, `queueLimitSec` — how long it waits with nowhere to go before its client gets 503 (0: no limit,
+it waits until the client gives up, as since 2026-06-07) — and `clientTimeoutSec` — how long the clients wait for an answer, 60 min
+unless said, from 1 min (1.3.666; the owner: "I plan to give all agents this waiting period"). `FIELDS` is the twin of the proxy's `ModelQueuePolicy.FIELDS`
+(names, defaults, bounds), held to it by `test_js_model_queue.py`; all three are typed in minutes and kept in seconds (`per`). The
+patience goes by half a minute and is no longer than a limit that is set (1.3.681; the owner, 2026-10-29: "not in seconds but minutes, and
+no more than the value in 'wait up to'"): the form refuses more, `ModelQueuePolicy.values` cuts it, so a limit lowered under the patience
+takes the patience with it. The head of
+the Models column carries `buttonHtml` ("Queue: 1.5 min · 25 min", "at once" and "no limit" for the zeros), which opens `panelHtml` — the two
+fields at the top of the column; a model's strip says them in words with the legend of its scales (`sideHtml`) and a "Change" that opens
+the same fields. The words end with how long the clients wait — the timeout to give the agents (`pbQueueClientWaitSaid`; the owner,
+2026-10-26: "write 'set this for your agent' so they match"). The strip's settings begin at its top, beside the model's state and its
+queue (`.pb-queue-main`), 340px wide, in a strip 204px tall: measured on the live strip in all twenty languages, the tallest (French)
+ends 14px above the strip's foot, Russian 17px, English 49px. A field let go is saved as the proxy's policy (`POST /api/agent-proxies/policy`), refused before it is sent when it is
+no whole number in bounds; the board then draws with the policy the controller keeps. The fields hold the board's drawing while typed
+in (`PoolBoard.typing`).
+
+- Owns: `open` (the fields shown), `saving`.
+- Key exports: `ModelQueueSettings`.
+
 
 ## server-order.js
 
@@ -1325,7 +2159,7 @@ class on it any more. What follows about the pools' cards, `#topologyCloudProvid
 `#boardServerCards` describes code no page draws until it is removed with the old Routing. `ServerOrder`
 keeps that order and places by it. The order lives on the controller (`POST
 /api/topology/server-order`, read back as `topology.layout` — `serverOrder` and `serverOrderRev`,
-caravan/admin/board_layout.py), so every browser and account sees the same board.
+`rust/crates/admin/src/board_layout.rs`), so every browser and account sees the same board.
 
 A card alone has nowhere to go: `apply` hides its ↑ ↓ (`.server-order`) — two dead arrows in the
 corner of the only card read as a broken control (2026-10-08).
@@ -1454,7 +2288,7 @@ resolved to one model. An end nobody can name (a rule node with no report yet) s
 - Key exports: `cvSetViewport`, `canvasOpenPositions`, `canvasInitialView`, `drawCanvasConnectors`, `bindCanvasInteractions`, `queueNodeLiveStats`, `syncQueueNodesLive`.
 
 The clients panel (`InputsBlock`) lists the ports that feed this Routing. A client of the entry is
-none of them: since 2026-10-12 its one cable leads to a set of models, and no router decides for it.
+none of them: since 2026-10-12 it calls the pools and the models by their names, and no router decides for it.
 `InputsBlock.portName` names a client by its name — the history panes said `:05`, the tail of its
 record number, which it never called.
 
@@ -1494,15 +2328,24 @@ values for spill markers and reservation bars; no node owns timing overrides.
 Routing's card on the main board (`renderTopologyRouterCard`, 2026-10-12): the clients' cables come
 into it on its left; from its output on its right, cables go to the machines and the cloud providers its
 pools lead to (cables.js). It is small (the owner, 2026-10-13: "without listing everything inside"): its name,
-a help tip, and "Clients 4/4 · Pools 11" — how many of the clients have a set, how many pools there are. It
+a help tip, and "Clients 6 · Pools 11" — how many clients there are, every one of which goes on to Routing since 1.3.675 (it was
+"4/6", the clients with a cable of all, 1.3.669), and how many pools there are. It
 does not name the pools: they stand in Routing, which a click on the card opens. It lights while a
-client's request runs. The caravan's two model pages are not on it: they stand in the head of Machines (index.html,
-`div.board-pages`; 1.3.540, the owner, 2026-10-14: "two wide buttons in the Machines group, a row of their own over the scouts'
-buttons"): 📦 Models (the models in its folder) and 🤗 Hugging Face (to download more), halves of a row, links of the Add scout kind
-(one rule gives both their look, topology-board.css), each opening in this tab (2026-10-17; they opened a new one). They stood on each machine's caravan strip, then
-in this head among the board's tools (until 1.3.536), then under the card as quiet links (1.3.537–539, `renderBoardPageLinks`, gone);
-a model belongs to the caravan, not to a machine. A machine's own window hides the row and has them on its caravan strip.
-`scripts/test_board_model_pages.py` keeps the two pages reachable from the board, in that place, drawn once.
+client's request runs. The caravan's two model pages are in the bar of every page (1.3.617; the owner, 2026-10-24: "move them
+into the row where the language switches"): 📦 Models (the models on the disks and in the libraries) and 🤗 Hugging Face (to
+download more), the first two pills of the bar's row, from its one template (scripts/gen_header.py, `BAR_PAGES`), each opening
+in this tab (2026-10-17); on its own page a link is lit (`aria-current="page"`). They had four homes: two wide buttons in the
+head of Machines (1.3.540), the same two on each machine's caravan strip, a "🤗 HF" link in the bar of /models and a "📦 on disk"
+one in the bar of /hf; before those, the board's tools and Routing's card (1.3.537–539). A model belongs to the caravan, not to a
+machine or a page. /hf, which does not load the shared dictionary, names the Models link from its own table with the shared
+word. `scripts/test_header_model_pages.py` keeps the pair in every bar, one link each per page, drawn nowhere else.
+After them stand 🔀 Routing and 🖥 Machines ▾ (1.3.684; the owner, 2026-10-29: "buttons to /routing and to all the connected machines, by a
+drop-down list is fine"). The button opens the machines, each a link to its page, the one a machine's page shows lit and one that does not
+answer said so (`static/js/header-machines.js`, `HeaderMachines`, started by each page's own script). The list is the controller's, read when
+the button is pressed by `GET /api/machines`, so a page nobody opens the list on asks nothing; reading, no machines, a refusal and an answer with
+no list each say what they are. On /hf the words come from its own table, the same keys with the same words (held by the same test). The row
+holds the words from 1430 px (measured on the six views of the pages in 20 languages; the owner's window is 1440 px); under that only the icons
+stay, each with its hover. The acronym under the brand wraps: as one line of 81 letters it pushed the language picker out of the window on the board.
 The heads of Clients and Machines start on one line, and a title is as far from its first row of buttons in one column as in the
 other (1.3.540: the Machines head had a margin over it, from the days it stood under the pools in one column);
 `scripts/test_board_heads.py` reads the stylesheets and names a margin over one of them. The router detail popover and the router's
@@ -1513,7 +2356,7 @@ dropped on 2026-09-27, nothing called it): local llama servers plus the pools, e
 carrying one shared default radio. The groups — a machine's, a pool's — stand in the order of the
 server cards (server-order.js), one list with no Local and Cloud headings;
 a kind with no group says so after them ("no pools"). A pool is one output, `cb:<pool id>`, on the
-Routing for as long as the pool is (caravan/admin/proxies_config.py, `pool_output`): there is nothing
+Routing for as long as the pool is (`rust/crates/admin/src/proxies/config/outputs.rs`, `pool_output`): there is nothing
 to tick and nothing to fold. Its row says the pool's name and how many
 steps it has — "steps: 3", their names in order in the hint (`_poolMarks`) — and a ⚠ when a request
 to it cannot be served as drawn: no step enabled (it is refused, "add one"), or an enabled step whose
@@ -1535,7 +2378,7 @@ cell's own, led by its job marks; twins say what sets them apart. A machine's st
 leads to stand under one row, "N stopped, no cables" (`routing-quiet-cells`, folded until opened —
 `topologyQuietShown`), which names their outputs (`data-cv-group-outs`) so a cable that comes to one
 before the next render still has an end. The head's "N unassigned" badge counts only ports that can feed a router
-(`feedsRouters`: a client of the entry cannot — its cable leads to a set of models). It
+(`feedsRouters`: a client of the entry cannot — it calls the pools and the models by their names). It
 is a `<details>` (`routing-unassigned`) whose list names the ports and binds one on a click.
 `topologyOutputActivity(out, router)` — an output's traffic: with the router, only the requests its own
 ports brought (`router.inputs`) count. A pool also serves the entry's clients directly, and their
@@ -1563,10 +2406,13 @@ topology-dnd wires their buttons.
 ## llama-edit.js
 
 The cell editor's shared parts (the `tr-` form; its opening and saving live in remote-cells.js):
-applying a saved config to the form, the runner tabs and what each runner can launch, command
-presets, the command-cell preview and the script it names, the running-cell beam, and the
+applying a saved config to the form, the runner tabs and what each runner can launch, the
+command-cell preview and the script it names, the running-cell beam, and the
 preview baseline via `setEditCurrentCommand()` so the diff compares against the cell's own
-command. Also closes the shared confirm modal (`closeConfirmModal`, resolving through
+command. A field of a runner panel opens on the cell's own value or, where the cell's config does not name it, on
+its own default in the markup (`PanelField`: the option marked selected, a box as drawn, an input's value
+attribute) — never on what the cell opened before left in it (1.3.614); a box reads "1", "true", "yes", "on" as
+ticked and nothing else. Also closes the shared confirm modal (`closeConfirmModal`, resolving through
 `ui.pendingConfirm`). The controller's own cell editor (`te-`), its start-server.sh backups and
 snapshots, and the classic single-server confirmations went with its cells in step 6.9.
 
@@ -1583,9 +2429,16 @@ writes goes to a status line of its own (`tr-purgeCacheStatus`, cleared when the
 note is never rewritten and every number is said by a key with `{n}` and `{gb}` (`topologyPurgeCacheResult`,
 `cacheTotal`).
 
-- Owns: `_editCmdSeq`, `COMMAND_PRESETS` (whisper and the TTS engines: a server is a runner, not a preset).
+An optional toggle (`optionalToggleFields`) reads back as stated only while it is marked in
+`dirtyOptionalToggles` (form.js `readConfigForm`); since 1.3.625 the config that fills the form sets
+the marks — a cell's stated "0" or "1" is marked, an unstated toggle is not. The marks lived from
+whatever the page touched last: a cell saved with `KV_OFFLOAD` "0" lost it at its next Apply from a
+page just loaded, and a toggle touched for one cell came stated into the next one opened.
+
+- Owns: `_editCmdSeq`. The command tab has no presets (1.3.611): whisper and the TTS engines are runners, and a server
+  is a runner, not a preset.
 - Key exports: `applyConfigToForm`, `applyCellKindUI`, `wireCellKindToggle`, `renderRunnerTabs`, `closeConfirmModal`, `setEditCurrentCommand`, `renderCellPreviews`, `buildLauncherCommandPreview`, `launcherModelFolder`.
-- The runner tabs read everything of a runner from the registry (`state.runners`, `runner.py` `as_dict`): its words
+- The runner tabs read everything of a runner from the registry (`state.runners`, `rust/crates/admin/src/domain/runner/row_json.rs`): its words
   (`labelKey`, `benefitsKey`, `minusKey` — the costs in the tab's tip — and `needsKey` — why the tab is grey), whether it
   has llama's flags (`llamaConfig`), a CPU mode (`gpuOnly`), whether it runs on one card (`oneCard`), and for a launcher runner (`LauncherCellMixin`) its
   preview: `launcher`, `launcherArgs` and `folderRule` are all `buildLauncherCommandPreview` needs. The tables of runner
@@ -1611,15 +2464,15 @@ stops itself when nothing is starting, with a 240 s timeout turning placeholders
 `formOnControllerMachine(pfx)` says whether the cell form's machine is the controller's own (its
 node's `controllerMachine`), whose cells run through its scout since step 6.8: then its files are
 the controller's — the models tree it lists and the home it reads scripts from. Only there does the
-form offer what only that tree backs: a safetensors folder in the picker, the seamless runner and
-its language, a vLLM path derived from the picked folder, and the content of a script its command
+form write a vLLM model as a path of that tree (anywhere else the pick is its place among the models), and offer the seamless runner and
+its language, and the content of a script its command
 names; any other machine keeps them held back.
 
 `reserveEngineCell(hostId, kind, model)` is the «+» on a model's line under an engine's cells:
 nothing is asked — the line names the engine and the model — and the port is the next free one;
 one reserve at a time on a machine. It sends through `postReserve` (the machine's spinner until the
 new cell is on the board, its flash, the controller's refusal as the toast —
-`caravan/admin/engine_cells.py` holds the words). The Reserve-cell stub under a machine's cells,
+`rust/crates/admin/src/fleet/engine_cells.rs` holds the words). The Reserve-cell stub under a machine's cells,
 with its "where does the new cell run" dialog (`reserveServerCell`, `reserveEngines`), left in
 1.3.393 (the operator's call): a caravan cell begins at «＋ Add model», an engine's at its shelf. `actOnEngineModel`
 unloads a model (confirmed like a stop) or deletes it (the danger look, the machine named); it sends
@@ -1627,23 +2480,26 @@ no other act — no model is loaded from the board. `cellServiceAction` asks whe
 `short` — a cell in an engine whose model would not fit into the cards' free memory: the numbers
 ("≥" when the need is the model's file alone), and on "start anyway" the same start with `force`.
 
-`openCaravanModelEditor(hostId)` is «＋ Add model» on a machine's card (2026-09-27, the operator's
-choice A of round 10): the `tr-` editor opens on the next free port, and once the dialog is on
-screen its model list opens (`mcOpen` in form.js, a click on the field as a hand makes it), so the
-model is the first thing picked; the field's own change listeners bring the projector, the MTP
-draft, the runner and the insight. Until then the pick is awaited (`mcAwaitPick`): the field is
-empty, and `modelChoiceOf` — the form's one word on what is chosen, which the selects' redraw and
-memory.js's `selectedModelRows` both ask — answers "no model" for the model, projector and draft
-while the mark stands, so neither the machine's cached list arriving nor the estimate brings the
-config's model back; the hidden select keeps an empty option selected (a browser picks the first
-option of a list rebuilt with none selected), and the memory bar says "select a model". The first
-model picked lifts the mark; Apply without one says so before any confirm. Its Apply makes the cell — `save-config` creates a cell that
-does not exist yet, checking its port as a reserve does; the button alone makes nothing. A saved
-cell reveals the caravan's cells on its machine's chips (`CARD_FOLD.reveal`), so the new cell is
-not saved out of sight.
+«＋ Add model» on a machine's card and page opens the new-cell wizard since 1.3.638 (add-model.js, below): it fills the `tr-` form
+for the next free port without its dialog and drives it. The form's own pick still awaits a model the way the dialog opened
+for it did (`mcAwaitPick`): the field is empty, and `modelChoiceOf` — the form's one word on what is chosen, which the selects'
+redraw and memory.js's `selectedModelRows` both ask — answers "no model" for the model, projector and draft while the mark
+stands; the first model picked lifts it, and Apply without one says so before any confirm. Its Apply makes the cell —
+`save-config` creates a cell that does not exist yet, checking its port as a reserve does. A saved cell reveals the caravan's
+cells on its machine's chips (`CARD_FOLD.reveal`), so the new cell is not saved out of sight.
 
-- Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveEngineCell`, `reserveEngineButton`, `openCaravanModelEditor`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
+`CellForm` (`CELL_FORM`, 1.3.625) is the `tr-` form for the cell window's Settings and Memory tabs
+(cell-settings.js): `fill` (the cell's saved config, with or without the dialog), `holds`, `read`,
+`set` (as typing would), `checked`, `locked`, `settle` (what leaving a field does), `save` (the
+dialog's Apply, true when saved — `submitRemoteLlamaStart` answers it; `{confirmed: true}` skips its question when the
+button that called it asked it already — the wizard's Create), `show` (the dialog with the
+form as it stands), `placeMap`, and the events `filled`, `saved` (with the config sent) and `hidden`
+(the dialog closed by any hand, heard by its `hidden` attribute). `openRemoteFormForHost` asks its
+keeper first: the dialog of the cell whose edits the window keeps comes up as it stands, another
+cell's form is filled only when the operator lets those edits go.
+
+- Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state, and `CELL_FORM` (its hearers and keeper).
+- Key exports: `reserveEngineCell`, `reserveEngineButton`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `openRemoteFormForHost`, `bindServerSlotControls`, `formOnControllerMachine`, `CellForm`, `CELL_FORM`.
 
 ## cloud.js
 
@@ -1665,7 +2521,7 @@ and the ports to `POOL_CARDS`, and wires the pieces only this module reads: a st
 the step's own switch levels (`subscriptionUsageHtml(owner, { step })`, usage-stats.js), the saved
 resets (`SubscriptionResetCards`), the step model's share of the spend (`cloudStepSpend` — the cost
 at API prices, `cloudMoney`, or the request count, never "$0"), what a key account's provider says
-about it (OpenRouter its key's limits, the OpenAI API its spend), the breaker's tripped endpoints and
+about it (OpenRouter its key's limits, the OpenAI API its spend, DeepSeek its balance: `KEY_REPORTS`), the breaker's tripped endpoints and
 the routed errors. The lane redraws when its key moves: the accounts, the pools, the readings, the
 ports — and the proxy's word as `poolsRuntimeKey` says it, which drops the second a choice was made
 (a lane redrawn on every request took the tooltip from under the pointer). Live sync calls it on
@@ -1693,7 +2549,7 @@ board is a pale tile not to press, "already on the board"; a window waiting for 
 window) marks nothing and opens the new account's window, as before. The windows' × is a quiet icon:
 the window's rule for buttons had made it a framed 32px box. A subscription's window names the plan
 its limits' last reading named (Plus, Pro; none read — no word), and a key's window carries its
-provider's word — OpenRouter its key's limits, the OpenAI API its costs — which stood under the
+provider's word — OpenRouter its key's limits, the OpenAI API its costs, DeepSeek its balance — which stood under the
 Routing's ⋯ until 2026-10-12. The account window is one of
 nine plain states, a pure function of the form and the account (`cloudAccountWindowState`, pinned
 by value; `data-t="cloud-account-window"` carries it in `data-t-state`): `connect` (a new
@@ -1738,7 +2594,7 @@ column, each provider a block of its accounts — ChatGPT subscriptions, OpenRou
 the sign-in code, "＋ API key" (an address, for a custom provider) opens the new key's window — and the
 same sign-in may be added twice. An empty block says so and has a ✕ that takes it off; a block with
 accounts has none. Which provider an account stands under, and in what order the providers stand, is
-the controller's word (`topology.boardProviders`, caravan/admin/board_providers.py); the board works
+the controller's word (`topology.boardProviders`, `rust/crates/admin/src/cloud/board_providers.rs`); the board works
 none of it out. `ProviderGlances` draws each block: the provider's sign in its colour, its name, how
 many accounts; each account a row — its name and whether it can serve, a signed-in subscription's
 small "↺ N" (`SubscriptionResetCards.chipHtml`, a button while a saved reset can be spent: the window
@@ -1783,57 +2639,88 @@ says a request can go there. cables.js draws Routing's card's cables by it.
 
 ## pool-board.js
 
-Routing page (the owner, 2026-10-12): clients, sets, pools and models in four columns (titled "Clients", "ID sets",
-"ID (Pools)" and "Models" from 1.3.540, the owner: a pool's name is the id of a model a client puts in `model`; the keys
-`pbSetsSection` and `pbPoolsSection` are the columns' own, the plain "Pools" of the main board's card and its counters is
-`topologyLlamaServersSection` still, and the strip's path names the columns by the same two keys; a pool's card says `id:` in
-front of its name, a quiet label (`pb-pool-id`), and `scripts/test_routing_titles.py` keeps all of it in the 20 languages) — the sets a
-little narrower, the clients 30% narrower than a pool (1.3.500: "the whole scene on a laptop's screen",
-1395px of board in the narrowest window) — their heads on one line, joined by cables; the mockup the owner approved had three,
-the sets came the same day (step 2 of the visumap scheme caravan-model-sets). In a column that width an account's head puts its note on a second line and a
-subscription model's row its pools under its name, so the bars keep their room. `PoolBoard` draws the controller's reading and works out
-nothing of its own; `POOL_BOARD` is the page's one board, drawn by `renderTopology` into
+Routing page (the owner, 2026-10-12): clients, pools and models in three columns since 1.3.675 (titled "Clients",
+"ID (Pools)" and "Models" — a pool's name is the id of a model a client puts in `model`; the key `pbPoolsSection` is the
+column's own, the plain "Pools" of the main board's card and its counters is `topologyLlamaServersSection` still, and the
+strip's path names the columns by the same keys; a pool's card says `id:` in front of its name, a quiet label
+(`pb-pool-id`), and `scripts/test_routing_titles.py` keeps all of it in the 20 languages) — the clients 30% narrower than a
+pool (1.3.500: "the whole scene on a laptop's screen", 1070px of board in the narrowest window) — their heads on one line.
+The owner, 2026-10-27: "every client we make has every model and every pool; the pools pass for models of their own; sets
+seem not to be needed; on a client we set which models or pools it may NOT have; the cables show only when we draw them, OR
+when a block is selected, OR when requests run" — and of the mockups (canvas 6PnTgz3rT3827iJCWCNWSt) he chose В2: «Напрямую»
+pinned on the top of the pools' column, its rows coming and going with the paths that run straight, all of them shown. So
+no cable stands at rest, and none crosses a column. In a column that width an account's head puts its note on a second line
+and a subscription model's row its pools under its name, so the bars keep their room. `PoolBoard` draws the controller's
+reading and works out nothing of its own; `POOL_BOARD` is the page's one board, drawn by `renderTopology` into
 `#topologyProxies` in place of the router's workspace (`html(topology)`, then `mount(container)`).
 
 - **Clients** — the clients of the entry (`ConsumerCards.of`), in the operator's order (1.3.503,
-  `topology.layout.clientOrder`; the clients it does not name after them, by name): the name, the key's
-  last four characters, and one output dot. A client's cable leads to its set (`set`); a client with none
-  says "no set", its dot a dashed ring. Clients are made on the main board, and the column has no ＋
-  of its own (the owner, 2026-10-12); with none, it says where they are made. Under the name, what
-  the client calls and what it gets there (`linksHtml`; the owner, 2026-10-12): the entry's address
-  without its scheme — the hint names it whole — with ⧉ (`copyUrl`, the whole address), then its questions by GET — `/v1/models` and `/v1/models/<model>` for each model of
-  its set (`models`) — each
-  a link to `GET /api/consumers/ask`, where the controller asks the entry with the client's key and
-  hands on the answer as it came (caravan/admin/proxy_entry.py `AsConsumer`). A link to the entry
-  itself would only be refused for want of the key, and the page never holds one. No entry, no links;
-  no set, no model to ask about. Then the client's work by POST, folded under one line, "Test as the
-  client", until it is opened (`probesHtml`, the open ones in `tests`; 1.3.500 — six buttons were four
-  lines of the narrow card), one button per kind
+  `topology.layout.clientOrder`; the clients it does not name after them, by name), the built-in ones first, in their
+  kinds' order, with no seat and no grip — they stand first whatever the order — and a chip saying what they are, but a
+  card as any other's (no line under them since 1.3.675). A card is the name, the key's last four characters, how many
+  models the client sees against what a client blocked for nothing sees (`ConsumerCards.seesText`, `topology.entryModels`:
+  "Sees all 20", "Sees 17 of 20", "Sees 0 of 20"; "not known" when either was not read), the badge of its errors, a chip
+  "⊘ name" for each thing blocked for it (`denyLabel`: a pool or a model by its name, an account or a machine by its
+  card's; a key whose pool, model or source the board no longer has is said as gone — it blocks nothing — and is taken
+  off in the window) and "＋ Block" (`data-pb-deny-open`), quiet until the card is pointed at. Its dot at the right edge
+  is where its cables leave from, a passive mark (`data-pb-anchor`): nothing is drawn from it by hand — a client calls what
+  it names. Clients are made on the main board, and the column has no ＋ of its own (the owner, 2026-10-12); with none, it
+  says where they are made. In the strip: the entry's address without its scheme — the hint names it whole — with ⧉
+  (`copyUrl`, the whole address), then the client's questions by GET — `/v1/models`, and `/v1/models/<model>` for the
+  model chosen in the list beside it, the one its tests name (`probeModelHtml`, `probeModelOf`: a link for each of twenty
+  models was a column) — each a link to `GET /api/consumers/ask`, where the controller asks the entry with the client's key
+  and hands on the answer as it came (`rust/crates/admin/src/proxies/as_consumer.rs` `AsConsumer`). A link to the entry itself would only be
+  refused for want of the key, and the page never holds one. No entry, no links; no model to see, no model to ask about.
+  Then the client's work by POST, folded under one line, "Test as the client", until it is opened (`probesHtml`, the open
+  ones in `tests`; 1.3.500 — six buttons were four lines of the narrow card), one button per kind
   (`topology.clientProbes`, the controller's table that sends them — chat, responses, speech to
   text, text to speech, pictures, embeddings): a press sends the shortest standard request of that
-  kind as the client (`runProbe`, `POST /api/consumers/probe`) — naming the model chosen beside the
-  buttons when the set holds more than one (`probeModelOf`) — and a window over the board
+  kind as the client (`runProbe`, `POST /api/consumers/probe`) naming the chosen model, and a window over the board
   (`probeHtml`) shows what went out and what came back — status, type, time, size, the body laid
   out, or a player for speech; ✕ or Escape closes it, and an answer for a window already closed
   lands nowhere. A picture may cost money: its button asks first. Under the links, the client's
-  errors of the last 30 days (`missesHtml`, `misses` from caravan/admin/client_misses.py): method
+  errors of the last 30 days (`missesHtml`, `misses` from `rust/crates/admin/src/cloud/misses.rs`): method
   and path, status, how many times and when last, the reason in the hover, the rest counted — a
   record from before 1.3.495 has no method and shows its path alone. No errors — no list.
-- **Sets** — the sets of models (`topology.sets`, caravan/admin/model_sets.py; the owner, 2026-10-12:
-  «Набор»): what clients see as their models. A client's cable comes into a set's card; its rows are
-  its pools by name, in its order — each one model the client sees — each with a cable on to its pool;
-  the "＋ model" row carries a new cable onto a pool, pressed on its dashed dot or anywhere
-  else on it (`newOutHtml`; the owner, 2026-10-12) (`POST /api/sets/add-pool`) — in the set's strip, and
-  on its card only while the set has no model (1.3.533) —, a click on a
-  set's cable takes the pool out of it after a question (`POST /api/sets/remove-pool`). The name is
-  edited in place (`POST /api/sets/rename`), ✕ deletes the set after a question that names the clients
-  it leaves without models (`POST /api/sets/delete`), "＋ New set" makes an empty one, its name chosen
-  in the field (`POST /api/sets/create`). One set may serve several clients.
-- **What a model does** (1.3.502) — beside a pool's name and beside each set row that names it
+- **What is blocked for a client** (1.3.675, option А of the mockups: "chips on the card, and a window to choose") —
+  "＋ Block" opens a window (`denyHtml`, `data-pb-deny`; `openDeny`, `closeDeny` — "Done", ✕, Esc or a click beside it):
+  the controller's `denyChoices` (`rust/crates/rules/src/entry_models/board.rs` `EntryModels::choices`), each source — an account, a
+  machine — with a box that blocks all of it and its models under it, then the pools, each box ticked while it is
+  blocked. Listed at once are the models that run and the ones blocked already; the rest are counted and found by the
+  search over names (`denyFind`, `data-pb-deny-query`) — a stopped model can be blocked before it runs. A model a blocked
+  source blocks is ticked and cannot be unblocked by itself ("blocked with Box"). A model blocked for the client that one
+  of its pools still calls says so ("Its pools still call it: …"): the pool works whole (the owner's choice "а"). A key
+  the board no longer has stands apart, to be taken off. Each tick is saved at once (`toggleDeny`,
+  `POST /api/consumers/deny`, the whole list), the board drawn with the answer and the box keeping the keyboard's focus;
+  not read — the window says so, not an empty list.
+- **«Напрямую»** (`directHtml`, `data-pb-direct-block`; option В2) — on the top of the pools' column, sticky while the
+  pools scroll: a row for each model a client calls by its own name, without a pool, while such a request runs or ran
+  a moment ago (`PoolFlow` `direct`) — one row a model, whatever number of clients, with its lamp, where it stands and
+  who calls it — and, while a client, a model or one of its rows is pinned, the models called straight over three days
+  (`calls`, `rust/crates/admin/src/cloud/misses.rs` `ClientTallies`): "12 in 3 days". Named by `topology.liveCatalog` (every model the
+  board knows, with its pool of one row and whether it runs); a call to a model the board no longer knows makes no row,
+  a request to one it does not know does, named by its pool's id. None — the head says "nobody now" and the block is one
+  line. It is drawn anew in place, before the cables are measured (`paintDirect`), as the paths come and go.
+- **The move** (`moveHtml`, `data-pb-move`; `rust/crates/admin/src/cloud/entry_move.rs`) — once after the move to clients without sets:
+  what each client had and what it sees now, the sets that went with their pools, and the pools that became twins of
+  their model — one row named as that model, which every client now calls straight by the same name — each ticked to
+  be deleted (the owner: "delete them"; `moveKept` holds the unticked, `paintMoveButton` says how many go). "Delete
+  ticked" deletes them one by one (`answerMove`, `POST /api/pools/delete` — a pool cables or rules hold stays, the toast
+  says why) and "Keep all" deletes nothing; either marks the move seen (`POST /api/entry-move/seen`), and the window
+  does not come back. Esc does not close it: it waits for its answer.
+- **What a model does** (1.3.502) — beside a pool's name
   (`kindHtml`), the controller's word on what the pool's rows do together (`pool.kind`,
-  caravan/common/model_kinds.py — what GET /v1/models tells the clients): the jobs' marks (model-jobs.js
+  `rust/crates/rules/src/model_kind.rs` — what GET /v1/models tells the clients): the jobs' marks (model-jobs.js
   `JOB_MARKS`), 🖼 for a chat that takes pictures, the jobs, pictures and languages in the hint; ⚠ when
   the rows do different work — the list then says nothing of the model. Unknown, nothing is drawn.
+  What a key's model does is the operator's word (1.3.631, `modelJobs` of the topology,
+  `rust/crates/rules/src/cloud_models.rs`; `workOf`): "What it does" in the model's strip
+  (`workFieldHtml`) — "not said" or one of the jobs the controller offers; several kept are named as
+  they are in one disabled line — saved by `saveWork` (`POST /api/pools/model-jobs`, an empty list
+  takes the word back), and held like a pool's name while the list is open (`typing`). The model's
+  card wears the marks, or a quiet "?" while nobody said it (`workChipHtml`). A subscription's and an
+  Anthropic key's or a DeepSeek key's models — their type says it (`modelJobs.fixed`) — and a controller that says
+  nothing of words get neither.
 - **Pools** — each pool a card: its name in place (saved on change, the pool cards' `save`), ✕ for its
   deletion (the pool cards' `remove`: what holds it, where it goes); its last switches (🕘 until 1.3.532),
   its settings and its "＋ row" are in its strip (1.3.533, `poolDetailsHtml`). Its rows in order (`pool-ladder`, carried by ⠿ — StepCarry, the order saved by the
@@ -1844,7 +2731,7 @@ nothing of its own; `POOL_BOARD` is the page's one board, drawn by `renderTopolo
   whose cell does not run now says so first, in the controller's word of the moment (`cellWord`,
   `CELL_LOOKS`, 1.3.504): "cell off", starting, stopping, failed in red — the proxy's last word may be
   from before the cell stopped. The
-  "＋ row" row, in the pool's strip (and on a pool with no row), is the sets' "＋ model" row (`newOutHtml`,
+  "＋ row" row, in the pool's strip (and on a pool with no row), is a row that starts a new cable (`newOutHtml`,
   1.3.500 — a button added an open row until then): carried from any point of it onto a model, it adds the
   row with its cable in one write
   (`POST /api/pools/add-row` with `target`); dropped elsewhere it adds nothing, and a click does nothing.
@@ -1854,12 +2741,19 @@ nothing of its own; `POOL_BOARD` is the page's one board, drawn by `renderTopolo
   left with the main board's pool cards in 1.3.486; under the rows until 1.3.532): the window the pool states to its clients, blank for
   "not stated", and "use the smallest window its steps' models report" (`contextAuto`), both saved
   together by the pool cards' `save` (`saveWindow`), a refusal putting back what the controller keeps.
-  Under them, what the pool states now: the controller's word, `window` (topology.py
+  Under them, what the pool states now: the controller's word, `window` (`rust/crates/admin/src/topology/windows.rs`
   `annotate_pool_windows`, the proxy's own rule), "states no window" when it states none, and no line at
   all when the reading lacks the word. While a pool's name or window is typed, the board's own drawing
   waits for the field to let go (`typing`, landed on `focusout`).
-- **Models** — each account: the models added to it (the owner, 2026-10-12: "only the ones I added",
-  `topology.addedModels`, caravan/admin/added_models.py), in their order, then any a pool's row names
+- **Models** — the accounts' and machines' cards, each in its seat with a grip, in the order `topology.layout.serverOrder` keeps for them
+  (1.3.683: `PoolBoard.sources`, a `ServerOrder` of its own, read at every drawing so a poll older than a save does not put the old order
+  back; `ORDERS.models` merges the carried order into the whole list, and the cards the column does not show keep their places). A model or a source blocked for some clients says for whom, in the colour of a refusal: "⊘ Bot" on a
+  machine's model or an account's model (`closedBy`, `denyKey`: `out:<output>` → `model:<output>`, `acc:<a>/<m>` →
+  `model:acc:<a>/<m>`), on an account's or a machine's head for the source whole (`hostsOf`: the machine a card's outputs
+  stand on), the clients named in its hover (the owner, 2026-10-27, of the mockups: "closed to: SpiderMonkey"). Until
+  1.3.675 the models a built-in client sees carried its kind's mark (OW, OC); every client sees every model now, and a mark
+  for each would say nothing. Then each account: the models added to it (the owner, 2026-10-12: "only the ones I added",
+  `topology.addedModels`, `rust/crates/rules/src/cloud_models.rs`), in their order, then any a pool's row names
   that the list lacks (`PoolBoard.shown`) — never the account's whole catalogue. "＋ model" opens the
   account's list in its card (`pickerHtml`): a search field and the chat models it finds there
   (`PoolBoard.candidates`, the catalogue read when it opens — `GET /api/cloud-accounts/catalogue`, read
@@ -1888,7 +2782,12 @@ nothing of its own; `POOL_BOARD` is the page's one board, drawn by `renderTopolo
   engine model (`localOutputGroups` of the router's outputs) a line — the mark of its first job (every job in the hover),
   its name, its port, and at the right "in no pool", a word when its state is news (starting, stopping, failed, unknown) and
   its lamp: lit while it serves, a ring while it does not run, amber on the way up or down, red when it failed; the
-  stopped cells no row names fold under one button (`PoolBoard.foldCells`). Subscriptions are added on the main board
+  stopped cells no row names fold under one button (`PoolBoard.foldCells`). A machine whose entry lists its models (scout
+  2.28+) stands by them, by name, with no port (1.3.655, step 3 of the owner's plan: the pools' rows name the machines'
+  models): its cells are their copies, and a cell stands on the card only while a row still names it by its port
+  (`PoolBoard.machines`, `byModels`); its head counts the models, and the fold says "+ 2 stopped models" (`pbMoreModels`).
+  A machine with no entry stands by its cells, as before. A row, the strip and the history find a cell off the card all the
+  same (`allMachines`). Subscriptions are added on the main board
   (provider-glances.js), so the column's head has no ＋: an account's own "＋ model" adds its models; it stands in the
   account's head, quiet until the card is pointed at (a card with no model shows it at rest).
   An account's card sets nothing of
@@ -1899,43 +2798,33 @@ nothing of its own; `POOL_BOARD` is the page's one board, drawn by `renderTopolo
   of the last day, where the rows that call it stand. The readings say when they land (`READING_LANDED`, usage-stats.js), and the
   board draws itself anew then; a read the cache skips lands nothing.
 
-The cables (`drawCables`) are measured from dot to dot after each drawing, in an SVG under the
-columns, 1px as the main board's (1.3.504; the serving row's and the lit path's 1.5px); the cable in the
-hand has an SVG of its own above them (`data-pb-live-layer`, 1.3.533: under the cards it would show in
-the gutters only, and a cable that leaves the strip starts under a column); each has a wide
-invisible twin the pointer finds, the key of its path (`data-pb-cable-key`)
-and, to a pool and from it, the pool's colour. A press on an output's dot that travels more than 5 px
-(`SLOP`) carries a new cable (`press`, `follow`, `release`; one that leaves the strip comes out of its
-top edge, `track`): a client's lands on a set
-(`POST /api/consumers/set`), a set's — from its "＋ model" row, in its strip — on a pool (`POST /api/sets/add-pool`),
-a row's on a model (`POST /api/pools/connect-row`), a pool's "＋ row" — in its strip — on a model
-(`POST /api/pools/add-row`), a model's — from its ⠿, drawn from the model's input — on a pool
-(`POST /api/pools/add-row`) or on the Pools column off any pool (`POST /api/pools/create` with its
-`target`). **Cables pulled from the right (1.3.587; the owner, 2026-10-18: "from the right block pull a link to the left block, even onto the part a link
-already leaves from — a new link, a new row")**: the input dot on a card's left edge is a handle too (`PoolBoard.pullHtml`, hooks `pb-pull-pool`,
-`pb-pull-set`, `pb-pull-model`, a hover hint in the page's language). A set that has a model has no "＋" on its card to carry from — only in the strip,
-once pinned — and until now a cable could only be carried from the left. A pool's input pulled onto a set (`pull-pool`) is one more model of it
-(`POST /api/sets/add-pool`), the pool going last; a set's onto a client (`pull-set`) is the set the client sees, in place of its own
-(`POST /api/consumers/set`, as a cable carried from the client does, without a question); a model's does what its ⠿ does. The cable is drawn from the
-pointer to the dot (`REVERSE`), which stays where it is; the whole card lands it — the part a link already leaves from too — and a click on the dot does
-nothing (it is not pinned either). A place that already has what the cable would give it, a set that holds the pool and a client that sees the set
-(`holds`), is no landing: it is marked `pb-holds` while the cable is in the hand (`markHolds`), lit by no outline, and a cable let go over it sends
-nothing. What each kind lands on is one table (`ONTO`), and what joining an output to a place asks of
-the controller one rule (`PoolBoard.ask`), the same for a cable and for the chooser; the model's name
-goes along as `nameAfter` — a pool under the board's name takes it (caravan/admin/pools.py). A "＋" row
-(`data-pb-grab`) is pressed anywhere: its cable leaves from its dot all the same. Near an edge of the
-board's box the cable leans on it (`edgeLean`, 56 px) and the board scrolls under it frame by frame
-(`lean`, `scrollStep`), the page when the board is at its end. Dropped elsewhere, cancelled or let go
-by Esc, it sends nothing; the click that ends a carried cable is swallowed (`swallowClick`). A press
-that does not travel is a click: a click on an output opens **the chooser** (`openChooser`) — the
-places its cable can go (`choices`: a client's sets, a set's pools, a row's models — `targets`, the
-accounts' models on their cards and every machine's cells — a model's own new pool first, then the
-pools), each with its line; where a cable goes now — for a row, every model its pool holds — ticked and
-disabled; a search over them (`found`,
-at most 60, the rest counted); Enter picks the first, Esc or a click elsewhere closes it. It stands
-under the output in the board's scrolled box (upward when there is more room above), put in without
-drawing the board anew (`showChooser`). A click on a cable cuts it after one question that names both
-ends. A cable that cannot be placed is named in `drops`.
+The cables (`drawCables`) are drawn only when there is something to show (1.3.675; the owner, 2026-10-27): the path of
+the card pinned by a click (`PoolBoard.path`) and every cable a request runs through now or ran through a moment ago
+(`PoolFlow`); none at rest — what a client may call is on its card, and a cable for each would be every client to every
+pool. Each is measured from dot to dot by its key (`cableOf`: a client's from its card's mark to a pool's input or to its
+row of «Напрямую», a «Напрямую» row's on to its model, a pool row's to its model), in an SVG under the columns, 1px as the
+main board's (1.3.504; the serving row's and the lit path's 1.5px); the cable in the hand has an SVG of its own above them
+(`data-pb-live-layer`, 1.3.533: under the cards it would show in the gutters only, and a cable that leaves the strip starts
+under a column). A pool row's cable has a wide invisible twin the pointer finds — a click on it cuts it after one question
+that names both ends; a client's and a «Напрямую» row's are what was called, with nothing to cut and no twin. A press on an
+output's dot that travels more than 5 px (`SLOP`) carries a new cable (`press`, `follow`, `release`; one that leaves the strip
+comes out of its top edge, `track`): a row's on a model (`POST /api/pools/connect-row`), a pool's "＋ row" — in its strip — on
+a model (`POST /api/pools/add-row`), a model's — from its ⠿ or its input dot (1.3.587, `PoolBoard.pullHtml`, hook
+`pb-pull-model`, drawn from the pointer to the dot, `REVERSE`) — on a pool (`POST /api/pools/add-row`) or on the Pools column
+off any pool (`POST /api/pools/create` with its `target`). A client draws no cable and a pool's input is no handle since
+1.3.675 (`source` starts nothing of another kind). What each kind lands on is one table (`ONTO`), and what joining an output to
+a place asks of the controller one rule (`PoolBoard.ask`), the same for a cable and for the chooser; the model's name goes
+along as `nameAfter` — a pool under the board's name takes it (`rust/crates/admin/src/cloud/pool_edits.rs`). A "＋" row (`data-pb-grab`) is pressed
+anywhere: its cable leaves from its dot all the same. Near an edge of the board's box the cable leans on it (`edgeLean`,
+56 px) and the board scrolls under it frame by frame (`lean`, `scrollStep`), the page when the board is at its end. Dropped
+elsewhere, cancelled or let go by Esc, it sends nothing; the click that ends a carried cable is swallowed (`swallowClick`). A
+press that does not travel is a click: a click on an output opens **the chooser** (`openChooser`) — the places its cable can
+go (`choices`: a row's models — `targets`, the accounts' models on their cards and every machine's cells — a model's own new
+pool first, then the pools), each with its line; where a cable goes now — for a row, every model its pool holds — ticked and
+disabled; a search over them (`found`, at most 60, the rest counted); Enter picks the first, Esc or a click elsewhere closes
+it. It stands under the output in the board's scrolled box (upward when there is more room above), put in without drawing the
+board anew (`showChooser`). A cable that cannot be placed is named in `drops`; one whose end is missing for a known reason —
+a row whose model is gone (said on the row), a port that is no client of the entry — is not (`quiet`).
 
 The strip below (1.3.532, `pool-dock.js`, `PoolDock`; of three mockups the owner chose "details in a
 strip below", 2026-10-13): the last thing in the board's box, `position: sticky; bottom: 0`, 156 px high,
@@ -1956,28 +2845,32 @@ by `closest("[data-pb-client]")` as it did on its card. A pool's (1.3.533, `pool
 as the proxy says them — the rank, the model and where it stands, the state in words (also the quiet
 ones), and under a row when the pool goes on to the next one (`turnText`) — then "＋ row", whose dot is
 pulled onto a model, "Pool settings" and "Switch history", all in a wrapper that carries the pool
-(`data-pb-pool`, `data-pool-id`). A set's (`setDetailsHtml`) are the models it gives its clients and
-"＋ model". An empty pool or set keeps its "＋" on its card: it is all it needs there. A model's
+(`data-pb-pool`, `data-pool-id`). An empty pool keeps its "＋" on its card: it is all it needs there. A row of «Напрямую»
+is about its model (`PoolDock.aim`: `direct:<pool>` → the model's details). A model's
 (1.3.534, `modelDetailsHtml`) are, for a subscription's, the account's two limit bars with the model's own
 levels and their handles — pressing a handle in the strip holds the board still as it did on the card
 (`switchDrag`) — and, under each bar, when its window resets (1.3.541: the card's meters say it in their hover only), and for an
 account with no limits to read, its state in words; for a cell, its state in
-words, "running" too, which its card says by its lamp alone. A client's card is a name, a key, "Models: N"
+words, "running" too, which its card says by its lamp alone. A client's card is a name, a key, how many models it sees
 and a badge "⚠ N" (`missBadge`: how many times the lines it keeps say it was refused, "+" when lines were
 cut off); the entry's address stands once under the column's head (`entryHtml`, with its ⧉).
 
-The path through a card (`PoolBoard.path`, 1.3.503): from a card's key — `client:<port>`,
-`set:<id>`, `setpool:<set>/<pool>`, `pool:<id>`, `row:<pool>/<row>`, `model:<key>` — up to the clients
-that reach it and down to the models it reaches, never sideways. The pointer over a card lights it
-(`hover`, `lightPath`: `tracing` on the board, `on-path` on its cards and cables); a click on a card's
-free place pins it (`pin`, `traced`), a click on it again or Esc lets it go (`escape`, bound on the
-window: the chooser closes first). A pinned path shows only its own cables (1.3.580, `path-alone`; the owner, 2026-10-18:
+The path through a card (`PoolBoard.path`, 1.3.503): from a card's key — `client:<port>`, `pool:<id>`,
+`row:<pool>/<row>`, `direct:<pool of one row>`, `model:<key>` — up to the clients that reach it and down to the models it
+reaches, never sideways. Since 1.3.675 a client reaches what it called over three days (`calls`): a pool, or a model
+straight through its row of «Напрямую» — every pool and model is open to it, and a path to each would light the whole board. The pointer over a card lights it
+(`hover`, `lightPath`: `tracing` on the board, `on-path` on its cards and cables) and takes nothing away; a click on a card's
+free place pins it (`pin`, `traced`), the rest of the board steps back and its cables are drawn (`drawCables`), a click on it again or Esc lets it go (`escape`,
+bound on the window: the window of a client's refusals closes first, then the chooser). A pinned path shows only its own cables (1.3.580, `path-alone`; the owner, 2026-10-18:
 "hide the other cables while blocks are selected, so they cannot be seen or clicked — they are hard to see anyway, and when I want
 to let the selection go I sometimes hit them"): the others are `display: none` (a click on a cable cuts it, and the wide twin of a
 cable is found by `pointer-events: stroke`, which `opacity` and `visibility` do not take away), so the click that lets the pin
 go lands on the board's ground. Only while a card of the path is on the board: a pin on a card that is gone dims everything, as
-before, and keeps the cables; during a drag the path is not lit and every cable is drawn. Pointing at a card, with no pin, still only dims
-them. A click that is on neither the pinned card nor the strip lets the pin go too (1.3.540, the
+before, and keeps the cables; during a drag the path is not lit and every cable is drawn. Pointing at a card, with no pin, leaves them
+as they are. What steps back is the stylesheets' rule, under `.pb.tracing.traced` — a pinned path that is lit (1.3.676; the owner,
+2026-10-27: "do not make the other blocks transparent when I only point at a block — only when I chose one"): until then pointing dimmed
+the rest as well, and a pointer crossing the board made the whole of it blink. Under `.traced` alone it would not do: while a cable is
+carried the pin stays and the path goes dark, and every card would dim (scripts/test_path_dim_css.py). A click that is on neither the pinned card nor the strip lets the pin go too (1.3.540, the
 owner: "I click another pool, or an empty place between the blocks, and the focus does not leave"): on an empty place of the board
 (`emptyPlace`: the columns with the gaps and heads between the cards, or the box that holds them — not the strip, the chooser or a
 window), or in a text field of another card (the field takes the keyboard's focus; `isField`). A click on another card's own
@@ -1995,10 +2888,10 @@ dot, filled or hollow, with the words in its title and, in full, in the strip. A
 (green on the serving row), not a circle; its grip and ✕ take no room at rest. A pool of one row is one
 line under its name (`single`: no box, no rank — it was "=" until 1.3.543); of two rows and more a ladder (`turns`: "N in turn"); what the pool does
 between its rows (`turnText` — a subscription's model at its switch levels, `levelsText`, a cell when busy
-or silent, else when it refuses) stands in its strip, with its settings, its history and its "＋ row". "⇅ Arrange" asks `POST /api/pools/arrange`. The cards of Clients, Sets and Pools stand in
+or silent, else when it refuses) stands in its strip, with its settings, its history and its "＋ row". "⇅ Arrange" asks `POST /api/pools/arrange`. The cards of Clients and Pools stand in
 seats (`seat`, `data-pb-seat`) in their columns (`data-pb-list`), carried by the ⠿ in their head
 (`cardCarry`, StepCarry with `CARDS`); the order a carry leaves is saved by its column's door
-(`ORDERS`: `POST /api/pools/order`, `/api/sets/order`, `/api/consumers/order`), and a refusal draws
+(`ORDERS`: `POST /api/pools/order`, `/api/consumers/order`), and a refusal draws
 the board again from what the controller keeps once the carry has let go (`redrawAfterCarry`; the
 rows' order the same, `sortRows`). While a cable, a row or a level's handle is held, the page is
 not drawn anew (`busy`, read by `topologyInteractionActive`); the drawing it waited for lands on the
@@ -2006,6 +2899,24 @@ release (`settled`). Opening a machine's "more", a pool's history or "＋ model"
 alone (`redraw`). The page draws the board whole after an action (a model added, a cable drawn), the
 scrolled box with it: `html` reads where the old box stood scrolled and `mount` gives it to the new
 one, so the columns do not jump back to the top.
+
+The path followed to what lies off the screen (1.3.592, `pool-reveal.js`, `PoolReveal`; the owner, 2026-10-18: "I hover a row whose cable
+leads to something beyond the edge of the screen, left or right, it makes no difference: scroll what is beyond the screen into view by
+itself, smoothly"). A path touches cards in three columns, each column scrolls on its own and, on a window narrower than the columns, the
+board's box scrolls across; what lies beyond the edge of a column, under the strip or beyond the window is not seen, and the lit path
+ends there. The pointer resting on a card for 220 ms (`scheduleReveal`; a pointer passing over cards on its way elsewhere moves nothing, and
+going on to another card or off the cards ends the wait) makes the board read where the cards of its path stand (`revealInput`: every card
+of `PoolBoard.path`, cut to what counts of it — the whole of a row, the head, 56 px, of a card — the room of each column's body, the box,
+the window and the strip's top) and `PoolReveal.plan` answer how far the box and each column must scroll; `bringIn` does it, smoothly, or
+at once for a person who asked for less motion. The rule, over plain rectangles (`scripts/test_js_pool_reveal.py` pins it by value): the card
+under the pointer and its column stay where they are; what is already in view is left alone, even when more of the path lies out of it;
+what is out of view comes in, the nearest column first (of two as near, the one the card's own cable goes to: `PoolReveal.side` — a
+row's, a set's row's and a client's go right, a model's comes from the left), as much of it as fits, with 12 px of clear room round it; the
+strip covers the columns' foot, so what stands under it is out of view too. Across, the card under the pointer must stay in view with what
+comes in, but is not chased. A click that pins a path follows it at once. The board does not fight the person: for 700 ms after a wheel
+or a finger it leaves the scrolling alone (`userScrolled`), nothing moves while a cable or a card is in the hand, and when the box
+scrolled across, the cards that pass under a pointer that has not moved are not pointed at (`settling`: the path stays on the card the person
+was on until the pointer goes 4 px).
 
 The board does not scroll down (1.3.548; the owner, 2026-10-14: "not the whole screen — each column by itself"): the
 four columns do, each on its own: the body of each (`.pb-col-body`, `overflow-y: auto`, marked `data-pb-scroll`, and
@@ -2043,8 +2954,9 @@ board's column titles still stick (columns.css). Pinned by `test_columns_scroll_
 The cables show a request (1.3.549; the owner, 2026-10-14: "carry how an active connection is shown to Routing too"), as
 the main board's do: one that carries a request now is lit and has drops run along it, both ways (`cableHtml`, `CableFlow.twin`) and its
 two dots have a ring (`.flowing`); one that did in the last 8 s is lit. Which cables a request runs through is read from the
-monitor's rows by `PoolFlow` (pool-flow.js) on this board's clients and pools: the client's own cable, its set's to the
-pool that serves the request, the pool's row that serves it. The board asks the monitor each time it was read
+monitor's rows by `PoolFlow` (pool-flow.js) on this board's pools: the client's cable to the pool that serves the request
+and the pool's row that serves it — or, for a model called straight, the client's cable to its row of «Напрямую» and the row's on
+to the model. Such a cable is drawn while it carries one, pinned or not. The board asks the monitor each time it was read
 (`ACTIVITY_SEEN`, topology-activity.js; `paintFlow`) and draws the cables anew only when the picture changed.
 
 Each model of the right column has a ⏱ beside its name (`schedule`, model-schedule.js): quiet while
@@ -2054,8 +2966,9 @@ may be from before the window closed (`status`). While the pointer paints the sc
 board is not drawn anew either.
 
 - Owns: `POOL_BOARD` — what the operator opened (`expanded`, `history`, `picking` — the
-  account whose "＋ model" is open and what is typed, `tests` — the clients whose tests are open),
-  the catalogues read, the cable being carried.
+  account whose "＋ model" is open and what is typed, `tests` — the clients whose tests are open, `denying` — the client
+  whose refusals' window is open and what is typed, `moveKept` — the twins the move's window keeps), the catalogues read,
+  the cable being carried, what «Напрямую» drew last (`directDrawn`).
 - Key exports: `PoolBoard`, `POOL_BOARD`.
 
 ## model-schedule.js
@@ -2079,13 +2992,13 @@ controller's words, and the window keeps what was edited.
 
 ## week-windows.js
 
-The browser's twin of caravan/common/week_windows.py: a window's days and times read as minutes of the
+The browser's twin of `rust/crates/rules/src/model_schedules.rs`: a window's days and times read as minutes of the
 week (`runs`, `mask`) by the same rule, held to one table of cases with the server
 (scripts/test_week_windows.py). The week the window paints is written back as windows one way for one
 week (`fromMask`): an open stretch of a day or less is one window, overnight if it crosses midnight, a
 longer one is cut at its midnights, and stretches with the same times are one window of their days.
 
-- Owns: nothing.
+- Owns: nothing mutable.
 - Key exports: `WeekWindows` (`runs`, `mask`, `share`, `paint`, `fromMask`, `minutes`, `hhmm`).
 
 ## pools.js
@@ -2093,7 +3006,7 @@ longer one is cut at its midnights, and stretches with the same times are one wi
 A pool is what an agent's cable goes to (the operator, 2026-10-10): an ordered chain of steps, each
 one account with ONE model and, on a ChatGPT subscription, its own switch levels on the 5H and WEEKLY
 windows. The proxy takes the first step that fits and moves on for limits only — the step's level,
-429, 402, 401 (caravan/proxy/pool_steps.py); a 500 or a timeout is the backup node's work. Another
+429, 402, 401 (`rust/crates/proxy/src/pool_steps/mod.rs`), and on a failure before the first byte (a 5xx, a failed connection). Another
 model is another pool. `PoolCards` draws each pool as its own card under Pools and acts on it.
 
 The card owns its whole top (`head()`): the card's ↑ ↓ in the list under Pools and the pool's mark
@@ -2120,7 +3033,7 @@ window lists them.
 
 The status pill (`status()`): serving only on the proxy's word; an account without its sign-in or key
 says so before the proxy does;
-otherwise the proxy's reason through `REASONS` — every reason pool_steps.py gives has its words, and
+otherwise the proxy's reason through `REASONS` — every reason `rust/crates/proxy/src/pool_steps/rows.rs` gives has its words, and
 an unknown one is "unavailable", never a guess. The word follows an edit (1.3.547; the owner, 2026-10-14:
 he carried luna above sol and "did not see it become the active one"): the proxy decides a pool again within
 a second of its file changing (`PoolWatch`, docs/backend-proxy.md), so the step carried to the top is the one
@@ -2208,21 +3121,17 @@ count of cables (`lines(refs)`), and the line under the question — those lines
 points there (`detail(lines)`). "Delete pool" (pools.js) reads it. It imports only `t`, so the pool
 card's snapshot loads it with `utils` stubbed.
 
-- Owns: nothing.
+- Owns: nothing mutable.
 - Key exports: `CloudRefWords`.
 
 ## consumer-access.js
 
 How a consumer reaches the caravan, as Routing's clients panel shows it (2026-10-07). Every
 consumer calls one address — the entry — with its own key; `ConsumerAccess.lineHtml(proxy)` draws
-a route's line in place of its port number: the key's last four characters (`keyTail`), "entry
-only" once the port is closed (↺ reopens it), "port :N open" with "Close port" for a consumer that
-had a key already, or "no key" with "Give a key" — which closes the port in the same step;
-and when the consumer last called. `entryHtml(topology.entry)` is the panel's line with the
-entry's address and a copy button, or "The entry is off". The actions ask first and call the
-controller: `giveKey` (`POST /api/agent-proxies/route-key`; the window shows the key once beside
-the address, and copies it on the operator's word), `closePort` (names the address the consumer
-must already call), `reopenPort`, `copyEntry`. The address is the controller's (`ConsumerAddress`),
+a route's line in place of its port number: the key's last four characters (`keyTail`) and
+"entry only", or "no key"; and when the consumer last called. A client has no port of its own
+(the owner, 2026-11-02): the ways to give a key to one, close it and open it again left with them. `entryHtml(topology.entry)` is the panel's line with the
+entry's address and a copy button, or "The entry is off". `copyEntry` copies it. The address is the controller's (`ConsumerAddress`),
 never built here. canvas.js draws the lines and binds the clicks in one document listener.
 The entry is set up here (2026-10-08; it was settable only through the API, and "The entry is off"
 led nowhere): `setupEntry` asks the public address (the board's own name with `-api` offered,
@@ -2233,8 +3142,7 @@ says it already: the reverse proxy must lead the public name to it, and it used 
 the second window of ✎ (the owner, 2026-10-11). ✕ (`turnOffEntry`, `data-t="routing-entry-off"`)
 turns the entry off after a question that names the port: `{port: 0, publicUrl: ""}`. The controller
 refuses while a client of the entry exists and names it; the board does not count the clients itself.
-`giveKey` with no entry address sets the entry up first and goes on with the key. "No address"
-is two cases: the entry is off, or it listens where only this machine reaches it and has no public
+"No address" is two cases: the entry is off, or it listens where only this machine reaches it and has no public
 name (`data-t-state="nameless"`). "no key" is red only where the ports have no door
 (`topology.portsReachable === false`): elsewhere an open port without a key is how consumers have
 always called. A port no client claims keeps its row (`InputsBlock.unclaimedRow`): its dot draws the
@@ -2247,22 +3155,19 @@ stands at the end of its name's line.
 ## consumers.js
 
 The consumers of the entry on the board (the owner, 2026-10-11: the caravan speaks the OpenAI API
-as a company's gateway does). A consumer is a route of kind `"consumer"`: a name, its own key and
-the set of models a cable in Routing leads it to (`caravan/admin/consumers.py`; 2026-10-12). The
+as a company's gateway does). A consumer is a route of kind `"consumer"`: a name and its own key; since 1.3.675 it
+sees every pool and every model that runs, but what is blocked for it in Routing (`deny`, `rust/crates/admin/src/cloud/consumers.rs`). The
 clients column draws them first, under the entry's address line (`ConsumerAccess.entryHtml`), and
 the client records of the old kind with their ports after them. A card says the name, the key's last
 four characters and when it last called, on one line with its three actions at the end — a new key,
 ✎, ✕ — quiet until the card is pointed at or holds the focus (`.consumer-acts`; the owner, 2026-10-12:
-as clean as Routing's card); and — when a cable leads it to a set — its recent requests under that
-line, one row of the activity chart (`activityHtml`, `data-t="consumer-activity"`; charts.js draws
-it): its set's name is not on the card, Routing's card names the sets. With no cable it says so in the alarm
-colour, with the words to draw one in Routing; "not known" when the controller said nothing
-(`setHtml`, `data-t="consumer-set"`, `data-t-state` none or unknown). A click on the row opens every
+as clean as Routing's card); and its recent requests under that line, one row of the activity chart
+(`activityHtml`, `data-t="consumer-activity"`; charts.js draws it). A click on the row opens every
 client's activity, ⤢.
 
 ＋ in the column's head is `create()`: the entry first when it is off (`setupEntry`), then the
-name, then `POST /api/consumers/create`, and the key shown once beside the address and the models —
-its set's, or the words that it has none yet. "Copy the key" copies it, "Done" loses it for
+name, then `POST /api/consumers/create`, and the key shown once beside the address and the models it
+sees — or the words that none runs yet (`consumerNoModels`). "Copy the key" copies it, "Done" loses it for
 good. `newKey` says first that the old key stops working at once (`POST /api/consumers/key`);
 `rename` and `remove` go through the route's own doors (`route-policy` with `label`,
 `route-delete`). `bind(lane)` catches the column's buttons — the entry's copy and setup among them —
@@ -2270,17 +3175,66 @@ with one listener, bound once: the cards are drawn anew on every render.
 
 A card lights while its client's request runs, as an agent's route row does: it carries
 `data-topology-proxy` and the client's proxy id, so the activity walk (topology-activity.js) sets its
-classes and a hover lights its cable. Its handle on the right is where its cable leaves from, to its
-pool (cables.js); a client with no pool has no handle.
+classes and a hover lights its cable. Its handle on the right is where its cable leaves from, to Routing
+(cables.js); every client has one (the owner, 2026-10-27: "the cables on the main board — there are few of them, let
+them stay").
+
+**A block for each program** (1.3.700; the owner, 2026-11-01, variant Б1: "opencode clients can be many: put them in one block and create them from it; Open WebUI the same, but one, without the plus"). `ConsumerCards.blockHtml` draws one `consumer-block` per kind of `EntryClients.KINDS`: the program's name, how many (a kind of `many`), what they all see and the opencode.json they all take (`blockFile`; said on the rows when they differ, since a closure changes a client's list), the ＋ (`data-client-add-kind`, a kind of `many` only), a row per client with its own key, ✕ and cable, and at the foot of a kind of `many` the way to move an older client in, which keeps its name and deletes nothing. ＋ asks a name, empty for the kind's numbered; the row of a client made here opens on how its program is connected (`howto`), and says its key was shown rather than offering a second one (`keyShown`). A row that never called keeps those steps behind a button: they took 315 px of a client nobody connected. Open WebUI stays one: `POST /api/consumers/create` with its kind answers 409 when it has its client.
+
+The built-in client, Open WebUI (the owner, 2026-10-27; `EntryClients.builtin`, entry-clients.js), stands
+first whatever the operator's order, right under the entry's line — which then has no ✕: the client is
+not deleted and calls only through the entry (`entryHtml(entry, { stays })`). Under it a line, "Other
+clients" (`data-t="consumer-divider"`), then the others; with none there and no client of the old kind
+below (`laneHtml(top, { others })`), the line says what the place is for. Its card (`builtinHtml`,
+`data-t-state="builtin"`) says what it is, its key and when it last called, a new key and ✎ — a ✕ only while another of its kind stands —
+and how many models it sees, in Routing's words (`liveHtml`, `seesText`: "Sees all 20", "Sees 17 of 20", "Sees 0 of
+20"; "not known" when it was not read, never "none"). Until its first request it says how Open WebUI is connected
+(`connectHtml`): where in Open WebUI, the entry's address with copy, and "Give a key" (`firstKey`, no
+question first: the key it was made with was shown to nobody). The built-in clients are a table,
+`EntryClients.KINDS` (the twin of the controller's `BuiltinClient.KINDS`): Open WebUI, then opencode (1.3.673; the
+owner, 2026-10-27: "let it work the same way"), each in its kind's place first. opencode's
+words are its own (`ConsumerCards.WORDS` by kind — each a `t()` the i18n guard finds). opencode reads no
+model list from the entry, so until its first request its card has two steps (`opencodeHtml`): "Give a key"
+— typed into opencode by `/connect → Other → caravan`, the file carries none — and "Copy opencode.json"
+(`copyOpencodeConfig`): opencode's own format (`opencodeConfig`: a provider `caravan` of
+`@ai-sdk/openai-compatible` at the entry's address, the models the controller `offer`s by name, each pool
+with what it tries in turn; no `limit` — its file wants the output's limit too, and a guessed one is worse
+than none), with how many models; none while the entry is off or the models were not read. The copy stays
+on the card after the first request too (`opencodeFileHtml`): the file changes when a model is added, and
+opencode does not learn of it by itself.
 
 - Owns: nothing (the instance `CONSUMER_CARDS` holds only its collaborators; the entry's desk is
   read when it is used, since this module, consumer-access.js and the renderer import one another).
 - Key exports: `ConsumerCards`, `CONSUMER_CARDS`.
 
+## entry-clients.js
+
+Two rules about the entry's clients, one place for the three readers — the main board's cards
+(consumers.js), its cables (cables.js) and Routing (pool-board.js): which client is a built-in one
+(`EntryClients.builtin`, `kind`, `rank`: its route's `builtin` names a kind of `EntryClients.KINDS`, the twin of
+the controller's `BuiltinClient.KINDS` — never its name), and what a client sees against what a client blocked for
+nothing sees (`EntryClients.sees(p, entryModels)`: "all", "some", "none", or "unknown" while either was not read).
+Every client's cable goes on to Routing since 1.3.675: each sees every pool and every model that runs.
+
+- Owns: nothing.
+- Key exports: `EntryClients`.
+
+## scout-release.js
+
+`ScoutRelease` is the machine's ⋯ menu item **Update the scout** (`node-scout-update`): one press. It reads
+`GET /api/fleet/scout-release?hostId=`, and `offer` decides from that value alone: no release on this
+controller, a scout that says no release and cannot replace itself, the same release already, or a new
+one. Only the last asks the operator; yes goes to `POST /api/fleet/scout-update`. "It took the release" and
+"it runs the release" are different words: the second comes only when the machine's next report says it,
+and a machine that does not report within a minute is named as such, not shown as done.
+
 ## scout-add.js
 
 The Add scout box under the Machines head: the one way a machine that lends its GPU or CPU joins the
-fleet. `ScoutAddForm` takes the address the scout's `./install.sh` printed and pairs it
+fleet. `ScoutInstallLine` shows the one command that puts a scout on a new machine, as the controller
+names it (`GET /api/fleet/scout-release`, read when the box opens), with a copy button; a controller
+that carries no scout says so and shows no command. Its state is on it (`data-t-state` idle, loading,
+ready, copied, none, error). `ScoutAddForm` takes the address that command printed and pairs it
 (`POST /api/topology/scout/connect`); the box is static markup beside the lane, so a typed address
 survives the lane's repaints. Its state is on the block (`data-t-state` idle, working, ok, error).
 It is closed until one of two buttons in the Machines head opens it — the section's main action
@@ -2288,7 +3242,7 @@ It is closed until one of two buttons in the Machines head opens it — the sect
 🔍 Find, which opens the box with the scan. A page without the head buttons keeps the box open.
 `ScoutFinder` is that 🔍 Find (the owner, 2026-10-11): it opens a field for the networks to
 scan — empty means the controller's own — and asks the controller to look
-(`POST /api/topology/scout/scan`, caravan/admin/scout_scan.py). Each found scout is a row with its
+(`POST /api/topology/scout/scan`, `rust/crates/admin/src/fleet/scout_scan.rs`). Each found scout is a row with its
 machine, address, version and state: free (with Connect, which fills the form and pairs it as if
 typed), already on the board, or held by another caravan. The networks typed last are remembered in
 this browser as a convenience; the panel's state is on it (`data-t-state` idle, working, found, none,
@@ -2379,7 +3333,7 @@ machine's venv through its scout (`/api/fleet/vllm*`).
 
 State loading and every polling loop: `loadState()` against `/api/state`; the self-rescheduling
 live-refresh chain (every `LIVE_REFRESH_MS`, 1.5 s — the git chip from `/api/project-git`, then
-the board; it fetched the whole `/api/state` for that chip until step 6.9); the
+the board; it fetched the whole `/api/state` for that chip until step 6.9; on Routing the topology alone, `refreshRoutingState`); the
 hover-driven monitor drawer (nvidia-smi with a localStorage-persisted interval, routable to a
 remote client); and the 1 s system/topology monitors that feed `ui.latestSystemMonitor` (which in
 turn drives activity classes, runtime panels and Routing queue nodes). A partial monitor answer
@@ -2387,7 +3341,7 @@ is appended to the samples, the incidents and the scouts' rows (`hosts`); the co
 token-speed series (`tokenGenSamples`) went with its cells in step 6.9.
 
 - Owns: every timer and inflight guard — `liveRefreshTimer`, `liveRefreshInflight`, `monitorState`, `systemMonitorTimer`, `topologyMonitorTimer`.
-- Key exports: `loadState`, `scheduleLiveRefresh`, `LIVE_REFRESH_MS`, `startTopologyMonitor`, `startSystemMonitor`, `bindMonitorDrawer`, `formatTps`, `formatCtxTokens`.
+- Key exports: `loadState`, `scheduleLiveRefresh`, `refreshRoutingState`, `LIVE_REFRESH_MS`, `startTopologyMonitor`, `startSystemMonitor`, `bindMonitorDrawer`, `formatTps`, `formatCtxTokens`.
 
 ## charts.js
 
@@ -2418,7 +3372,7 @@ owner, 2026-10-18: "clean the sum and the graph too"). With no cell answering a 
 and `held()` is true when one of them is above 0: `last` stands before the figures (`tpsLastLabel`, its hint `tpsLastHelp` on hover, 1.3.589). A request
 that has no speed yet is work and shows dashes — not a held figure of another cell. A cell that says no count (an older scout) cannot be called live
 beside one that does, and with no count anywhere the figures are summed as they were. The graph and its sparkline are drawn from the history ring the
-topology keeps for each cell (`tpsHistory`, caravan/admin/telemetry.py): a cell that says it answers no request records zeros, not the rates it holds
+topology keeps for each cell (`tpsHistory`, `rust/crates/admin/src/fleet/remote_cells.rs`): a cell that says it answers no request records zeros, not the rates it holds
 (`TokenRates`, one rule with `CellSpeed.count` — both run against the table `COUNTS` in `scripts/cell_speed_cases.py`), so the idle minutes lie on the
 baseline and not on a plateau at the last speed. Samples recorded before 1.3.590 are gone with the restart of the controller (the ring is in memory).
 The controller's own GPU/token/VRAM/power widget, its token series and the llama-clients panel went
@@ -2486,7 +3440,7 @@ stands on the ground with no card under it gets a dark halo, and /hf's two colum
 ripples the water, and a press on open space (no control, no painted card under it) drops a fly.
 Sound is synthesized (`river-sound.js`), a calm brook only, and off on every load: a browser starts
 sound only from a click. The scene is `river-scene.js` over `river-world.js`, `river-water.js`
-(WebGL, `river-gl.js`), `river-life.js`, `river-fish.js` and `river-art.js`.
+(WebGL, `river-gl.js`), `river-life.js`, `river-fish.js`, `river-frogs.js` and `river-art.js`.
 
 Words come from the shared dictionary through `i18n-data.js` (`translate`), not `i18n.js`: `i18n.js`
 imports form.js and with it half of the board. That makes `river.js` the one shared module /hf loads
@@ -2505,24 +3459,131 @@ before, and a trout's rise to a fly did until 1.3.546 (`Specks` is foam now). Pi
 a trout pressed at either bank, a fish turned away from a bank with its tail across the edge, the scares,
 a strider, the rings.
 
-The take and the drop (1.3.546; the owner, 2026-10-14: "the fish eats the moth while its mouth is still far from it",
-"remove the splashes", "let the sound be like a drop falling into water"). A trout takes a fly only when the fly's
-centre comes within `Trout.GAPE` (0.08 of its length) of the tip of its snout (`Trout.mouth()`: the painted nose,
-`Trout.NOSE`, ahead of the spine's first point) — somewhere along the way the tip went in the step, so that a slow
-frame cannot carry the mouth over a fly unseen (`Trout.takes`, `M.segmentGap`). It was 0.42 of its length from the
-head's first point: 0.39 from the nose, measured on the real fish. To get the mouth there the chase meets the fly where
-it will be (`Trout.meet`: the fish feels 0.35 of the current and the fly all of it), slows with the distance
-(`Trout.EASE`) and turns quicker than the other states (`Swimmer.AGILITY`, the chase's own). A take leaves a ring at the
-fly and no spray. The sounds of a fly landing, a trout's take and a hand's plop are one voice, `SoundKit.plink`: a
-sine whose pitch climbs 1.8 times as it dies away, a small drop high and short, a big one low and long. There is no
-noise burst left in the kit. Pinned by `test_js_river.py`: where the mouth is, what it takes and what it passes, the
-chase on the real fish, a take without spray, the voice of each sound.
+The rocks (1.3.603; the owner, 2026-10-20: "the fish run away but stop against a rock, instead of going
+round it as they come up to it"). A fish looks along the way it wants to go (`Swimmer.steer`): as far as
+it would swim in `LOOK` (0.7 s), never less than `LOOK_LEAST` (half its length), and no further than the
+place it goes to — a want made by `seek` or `Trout.meet` carries that place (`to`); a flight and a shoal's
+sum of pulls lead nowhere in particular and carry none. A rock whose outline, grown by `ROCK_ROOM` (a
+quarter of the fish's length) and by `TURN_LEAD` (0.08 s of its way: the room its turn needs), crosses that
+line is gone round on a line that grazes the grown outline (`pastRock`): a rock ahead along the stream by
+its side toward the middle of the stream (`Channel.middleSide`; the owner, the same day: "not the side
+nearer the goal — a fish at the bank would go between the bank and the rock and get stuck"), a rock on the
+middle line by the side the fish is on, a rock that lies more across the stream than along it by its end
+nearer where the fish goes. The side, once taken, is kept while that rock is in the way, and the way turned
+past it is looked along once more for another rock — never the same one: a way along a rock's outline
+touches it, and seen again it was gone round afresh, the goal jumping half a turn frame after frame. A
+place in the water about a rock (a lie, a hiding place, a fly drifting by the stone) is gone to straight,
+and that rock is in the way only when the line passes the stone itself. Inside the room it passes a stone
+with, a fish goes along the stone, and, come within `ROCK_ROOM` of the stone itself, out of the room too,
+the more the nearer: straight along, the current set the nose of a fish that had come close a little into
+the stone, and the brakes held it there. A fish never swims at a stone
+faster than it could stop short of its margin (`ROCK_TOUCH`, 0.12 of its length) in `STOP` (0.4 s): a fish
+brakes with its fins; it comes up to the stone itself only when where it goes is at the stone, so that a
+fly drifting by a stone can still be taken. No point of its body — snout, middle, tail — comes within the
+margin, and the way into the stone is lost (`stayInWater`, as at a bank). A startled trout turns at once,
+from rest too (the flight's own `agility`); turning as slowly as it swims about, it stood at the rock it
+holds behind while its way round was still ahead of it. Until 1.3.603 a rock only pushed a fish straight
+away from its centre within 0.9 of its length: head on that push braked the fish and steered it nowhere,
+and it kept the snout off the stone but not the body. Pinned by `test_js_river.py`: on which side the
+middle of the stream lies, how far a trout looks for its speed, the middle side of a rock ahead and the
+nearer end of one beside, the side kept, a rock beyond the place, a way along a rock that keeps its side
+whichever was taken, the way out close to a stone, which wants carry a place, the brakes, the whole body
+off a stone, and 45 trout
+startled behind the rocks of 18 streams (none touches a rock in its flight; with no look ahead and no
+brakes all 45 run into their rock).
+
+The chase and the drop (the owner, 2026-10-14: "the fish eats the moth while its mouth is still far from it", "remove the
+splashes", "let the sound be like a drop falling into water"; 2026-10-19: "return the behaviour to the very first version: the
+movements, the time the chase of the moth begins, all the behaviour"; and the same day, after 1.3.597: "again the fish can take
+the moth very far from the mouth, and as soon as it appears they swim after it; they used to think longer before they started to
+swim"). Since 1.3.597 a fish behaves as it did in the first version of the brook (1.3.528, 2026-10-13): the tail, the
+bend and the fins (`Swimmer.animate`), the one law of turning, the layout of the brook's stream. Two things of the first version are
+not back, because the owner took them for faults, twice. A trout **takes a fly at its mouth**: when the fly's centre comes within
+`Trout.GAPE` (0.08 of its length) of the tip of its snout (`Trout.mouth()`: the nose the outline draws, `TroutShape.NOSE`, ahead of the spine's first point),
+somewhere along the way the tip went in the step, so that a slow frame cannot carry the mouth over a fly unseen (`Trout.takes`,
+`M.segmentGap`); the first version took it 0.42 of the length from the head's first point, 0.39 from the nose. To get the mouth there
+the chase meets the fly where it will be (`Trout.meet`: the fish feels 0.35 of the current and the fly all of it), slows with the
+distance (`Trout.EASE`) and turns sharper than the other states (the chase's own `agility`, against `Swimmer.AGILITY`); measured on the real
+fish, a fly that drifts down to a trout is taken every time at 0.07 of its length from the snout's tip (95th percentile 0.08), a fly thrown beside it
+in 96 of 100 chases. And a trout **thinks a fly over** before it moves: it goes from `hold` to `notice` the step it sees one, makes the fly its own, keeps
+its lie as in `hold` with its eyes on the fly (`Trout.look`) for a time drawn between `Trout.THINK.least` and `.most` (0.8 and 1.8 s, a different one
+for each fly), and only then chases; a fly that is gone by then, or that another fish has made its own, is let go. The drawing comes from a stream of the trout's
+own (`thinkRng`), so the brook's stream keeps the order the first version drew it in (a trout takes 180 numbers from it, as it did with its 55 dots,
+`Trout.DOT_DRAWS`; a shoal of twelve takes 109, a minnow's pattern coming from a stream of its own), and every seed lays each trout where it was and
+sets when it goes roaming. From sight to the take a trout needs about 2.7 s, where the first version needed 0.9 s. Kept from 1.3.546, because they are the world's habits and not the fish's:
+the banks and the scares along the stream (above), a take that leaves a ring at the fly and no spray, and the sounds of a fly landing, a trout's take and a
+hand's plop, one voice, `SoundKit.plink`: a sine whose pitch climbs 1.8 times as it dies away, a small drop high and short, a big one low and long
+(there is no noise burst left in the kit). Pinned by `test_js_river.py`: where the mouth is, what it takes and what it passes, the chase on the real fish
+(40 flies of each kind, on a fast frame and on a slow one), the sharper turns of the chase and of the flight only, the thinking (when it starts, how long, in a stream of its own, a fly
+that goes, the eyes), the layout of the stream, a take without spray, the voice of each sound.
+
+The silver minnow (1.3.593; the owner, 2026-10-18: of three mockups of the shoal, drawn without the water from the old code, he chose the
+third). The old minnow was a beige oval with a dark one inside it, a dark wedge for a tail and no eyes. What it does stays in `river-fish.js`
+(`Minnow`, `MinnowShoal`; the first version's again since 1.3.597); how it looks is `river-minnow.js`: `MinnowShape` (a half width through twelve keys, eight segments, a blunt head and
+one steady taper into a thin stalk) and `MinnowArt` (nested outlines from the duller side to the dark back; blotches along each side and flecks on
+the back, which the fish is made with; a forked tail that grows out of the stalk at the stalk's width; two small fins; two eyes; the shade). The
+shade is read from `BROOK.sun`: the flank away from the sun darkens. Nothing shines (the owner, 2026-10-19: "remove the shine, they should be darker,
+these are river fish, they should blend with the bed"): the palette is of the bed's own tones and the eye has a faint catchlight and no more.
+A node of a fish's spine points half way between its two segments (`Swimmer.smooth`, `M.meanAngle`). `SoftShape` (an ellipse with a soft edge, its gradient built once for each table of stops) and
+`FinFan` (a fan of rays) in `river-art.js` are what the eyes and the fins are made of. A drawing leaves the canvas as it found it. Cost: 61
+canvas calls a minnow against 15, about 0.5 ms a frame for a shoal of 10 to 14 (measured on the mockup), no textures. Pinned by
+`test_js_river_minnow.py`: only what can break unseen; how it looks is the owner's eye.
+
+The living trout (1.3.595; the owner, 2026-10-18: of four mockups of the trout, drawn without the water, he chose the third and the fourth together,
+"the motion from the third, the light and the volume from the fourth", and then "yes, it suits, do it"). The old trout was a flat stick: an olive body
+with three darker bands, 55 round dots, two blades for fins, a wedge for a tail and a black dot for an eye. What the trout does (hold, chase, return, flee)
+stays in `river-fish.js` (`Trout`, `TROUT_STATES`). How its body moves is the first version's, since 1.3.597 (the owner, 2026-10-19: "return the movements from the
+very first version"; the third mockup's motion, with a table of beats, a flick of the tail and a slow sway, was in its place from 1.3.595): `Swimmer.animate` and
+`Swimmer.angleAt`, the same for a minnow. The tail goes round 1.4 times a second at rest and 1.3 more for every length a second, its reach is 0.08 at rest and grows with the
+speed and the turn, a turn bends the body and the fins row. `Trout.animate` adds only what the drawing reads: `eff`, how hard it swims (0 at rest, 1 at 1.4 lengths a second),
+the swing and the spread of the tail as the first version's tail had them, the gills breathing, and the eyes, which look at the fly while the trout thinks it over and at the one it chases when it is near. How it looks is `river-trout.js`:
+`TroutShape` (a half width through sixteen keys, sixteen segments, a rounded snout of 0.050 of the length across at its tip — 1.3.595 had 0.034, the first version 0.0527; the owner, 2026-10-19: "not such a sharp
+snout, rounder, like the first version's" — one steady taper into a thin stalk of 0.019 of the length, the nose), `TroutSkin` (the
+skin painted once for each trout on a canvas of 400 x 80 px, in the skin's own units: three noises and a grain, black spots with pale halos, red spots with
+a blue ring, flecks, the lateral line, a hint of scales), `TroutLight` (the grey map of each of 69 strips of the body from the brook's sun, `overlay` for the
+light, nothing composited with `screen`, no sparks, no specular map, the lightest grey 0.7; a map is made once for every 4 degrees of a strip's
+direction and shared) and `TroutArt` (tail, fins as fans of rays, the
+body with its skin and light, the head with an eye that looks at the fly, the dorsal and the adipose fin). The sun is `BROOK.sun`, nothing of its own. The
+skin and the maps need a page for their canvases (`TroutSkin.canvasOf`, `TroutLight.canvasOf`; a test names its own). `TopFishPainter` grows its buffer to
+the points a body has (a typed array drops what is written past its end without a word). Cost: about 100 canvas calls and 0.2 ms a trout (measured on the
+mockup). Pinned by `test_js_river_trout.py`: only what can break unseen; how it looks is the owner's eye.
+
+The frogs (1.3.605; the owner, 2026-10-21, of the mockups of the frogs of Adjara: "Д, all of them, a few of each", "the big ones twice
+smaller, all of them no bigger than the middle of the big ones", "the plop quiet", "tadpoles, yes"). Who lives by the brook is
+`FrogPond.CAST` in `river-frogs.js`: two marsh frogs (Pelophylax ridibundus) on stones that stand out of the water and one afloat in slow
+water by a bank, a long-legged brown frog (Rana macrocnemis) on the bank at the water's edge, two eastern tree frogs (Hyla orientalis) on
+fern fronds, two Caucasian parsley frogs (Pelodytes caucasicus) in the shallows, and five tadpoles in slow water by a bank
+(`TadpoleSchool`). No frog and no tadpole is longer than `FrogKinds.LARGEST`, 0.026 of the short side, half the mockup's marsh frog; a
+phone's narrow brook has room for fewer. A place is never under a fern frond or the alder branch (`FrogPond.covered`): the mockup put a
+frog and the tadpoles out of sight there. A frog sits most of the time, breathing and now and then blinking or turning a little. A fly in
+reach in front of it (`FrogPond.REACH`, 1.45 of its length from its middle) is taken with the tongue, even one a trout is rising to (the
+trout lets a fly that is gone go); one further off or to the side is turned to. A hand moving fast within 3.5 of its lengths, or a hand's
+plop within 0.4 of the short side, sends it into the water: a crouch, a jump (further, up to `FrogPond.FAR` times, when its stone is too
+big to clear), one ring and one quiet drop (`FrogPond.PLOP`: lower and longer than a trout's take, higher and shorter than a hand's plop,
+quieter than anything else on the water), the minnows near it scatter, kicks under the water, up again with only its eyes out, and back
+to its own place; a tree frog jumps to another frond in reach instead (clumps stand 0.6 of the short side apart, too far for a jump). A
+floater carried 2.5 of its lengths off its place swims back (the mockup's went 352 px down the stream in 45 s). In the brook's layers:
+the frogs on stones and on the bank, a floater's head and a wader's body are drawn before the ferns, the tree frogs after them
+(`drawTop` 'low' and 'high'); a floater's body and a wader's legs go under the surface, tinted by the water; every frog's shadow goes into
+the shade layer, so it shows where the sun falls. How a frog looks is `river-frog.js`: `FrogKinds` (outline, eyes, limbs and skin of each
+kind), `FrogPose` (the angles of the joints: sitting, crouching, in the air, landing, the three phases of a stroke, afloat), `FrogShape`,
+`FrogLimbs`, `FrogInk` (every table of stops of a kind, made once), `FrogLight` (the brook's sun as a grey map laid with `overlay`, the
+lightest grey 0.62, made once for every 4 degrees), `FrogSkin` (painted once a frog, 154 x 102 px, in body units, with every mark that
+stays put; `FrogSkin.canvasOf` as the trout's) and `FrogArt`; `TadpoleArt`. Nothing shines: a catchlight in the eye fainter than the
+trout's is all. A frog at rest (sitting, or afloat and still) is laid on the brook as a picture of its own (`FrogStill`, a `Sprite` as the
+leaves are; one for what is above the water and one for what is under it), painted once and again only when the sun falls across it
+another way (every 4 degrees of a turn); a frog that blinks, puts its tongue out or moves is drawn live, and the shadow of one at rest is
+its picture's silhouette. Drawn stroke by stroke (about 150 canvas calls a frog) the frogs cost the brook 2.6 ms a frame against its 10.4,
+the cost spread over the limbs, the body and the eyes alike; as pictures 0.5 ms (measured on the brook, 2026-10-21). The frogs draw from a
+stream of their own (`BROOK.layoutSeed + 21`) and are made last in `BrookLife.populate`, so every seed lays the rest of the brook out as
+before. Pinned by `test_js_river_frogs.py`: only what can break unseen; how they look is the owner's eye.
 
 - Owns: the switch (`RiverSwitch`), the brook while it runs (`RiverBackground`), its dock
   (`RiverDock`), the stored choice.
 - Key exports: `RiverSwitch`, `RiverPrefs`, `RIVER_LEVELS`, `RiverBackground`, `RiverDock`, `Stage`,
   `BrookScene`.
-- Pinned by `scripts/test_js_river.py`.
+- Pinned by `scripts/test_js_river.py`, `scripts/test_js_river_minnow.py`, `scripts/test_js_river_trout.py` and
+  `scripts/test_js_river_frogs.py`.
 
 ## hf-page.js / hf-catalog.js / hf-bench.js / hf-repo-view.js / hf-downloads.js / hf-text.js
 
@@ -2545,8 +3606,8 @@ repository; along the bottom the selection plan and the downloads. The header is
   scale — ticks in the list rows, the model between its two neighbours in the repository header,
   the full panel with group names and descriptions in the page's language.
 - **hf-repo-view.js** — `HfQuant` (rank, bits, low quants, the quant in a file name — the `-00003-of-00006`
-  tail of a split model's parts is cut off first, as `hf.py` cuts it for the files of the listing; both are run
-  against the one table `scripts/hf_quant_cases.py`) and
+  tail of a split model's parts is cut off first, as `rust/crates/admin/src/models/hf.rs` cuts it for the files of the listing; both are run
+  against the one table `contract/hf_quant.json`) and
   `HfRepoView`: quants grouped by bit depth with the low groups folded, a split quant as one row (until 1.3.565 only
   `BF16` and the `IQ…` quants were: every part of a `Q8_0` or `Q4_K_M` model read its own tail as its quant, so each part
   was a row of its own on the page and, as a quant names the folder a file lands in, a folder of its own on the disk),
@@ -2559,10 +3620,20 @@ repository; along the bottom the selection plan and the downloads. The header is
   for it is one line per copy under the checkpoint row — counts of what matched by hash, differs, is
   missing, has the wrong size, or was held by size only because the hub gave no hash (a gated
   repository hides it: that copy is "?", not "✓"); the file names are in its tooltip, not on the page.
+  A file we already have is not ticked again (1.3.594; the owner, 2026-10-18: "do not let the box be ticked on files that are already
+  downloaded here, so as not to download them twice"). `HfRepoView.haveIt` says where we have a file — "disk", "library" or none —
+  from the same comparison as the column beside the box: a copy that is the build HF has now (✓) or cannot be compared (?) is ours,
+  one that differs by size, by day or by a verify (⇪) is not, so a newer build can still be downloaded over it after the page's question.
+  The box on a file we have is `disabled`, empty, and says why on hover (`onDiskNoPick`, `inLibraryNoPick`); a row of parts keeps
+  its box open while a part is missing or another build, and the box takes only those parts (`rowOpen`, `rowOn`); a quant we have
+  whole is never "chosen", so it marks no companions. The page keeps the selection to the same rule at every repaint of the
+  repository on show (`pruneSelection`, `HfDownloads.unpickWhere`): a file that landed since it was ticked, or that a verify found the
+  same, leaves it. Files in a running job are not covered: the job's files are out of the selection, the box on them is not shut.
 - **hf-downloads.js** — `HfDownloads`: a selection across repositories and its plan (where each
   file lands as `<model>/<author>/<quant>/`, whether it fits with room to assemble a split file,
   what it would write over); one job per repository; jobs polled while they run or retry, Cancel
-  on the server, interrupted partials with Resume. A running row ends with the time left
+  on the server, interrupted partials with Resume and Delete (1.3.686: after a window that says how much goes, the partial, its manifest and
+  the folders left empty; a partial with no manifest has Delete alone). A running row ends with the time left
   ("~12 min left"): the bytes still to come over the job's `pace`, a speed that moves 0.05 a poll toward the
   last step (the speed on the row moves 0.3, and an estimate that follows every wobble of the line is none).
   The row says nothing — not "0 s", not "∞" — while the job does not run (a dropped connection), has no pace
@@ -2608,6 +3679,4 @@ is refused by the server (`code: "exists"`) until the page has asked and resent 
    functions, each defined exactly once. Keeping names unique keeps cross-module imports
    unambiguous and greps trustworthy.
 6. One-line-body functions (`function f(x) { return y; }`) are fine — the splitter bug that once
-   swallowed them into the preceding item is fixed. The split tooling in `scripts/refactor/`
-   (`list_top.py`, `extract_leaves.py`, `split_modules.py`, `split_css.py`) documents exactly how
-   the original file was sliced; it ran once and is not meant to run again.
+   swallowed them into the preceding item is fixed. The split tooling ran once and is gone.

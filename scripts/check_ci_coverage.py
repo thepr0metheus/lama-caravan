@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard: every guard and snapshot in scripts/ actually runs — in CI and at deploy.
+"""Guard: every guard and snapshot in scripts/ actually runs in CI.
 
 CI lists scripts by name, so a new file only gets in there by hand — and
 across one session that got forgotten FOUR times in a row. A test that isn't
@@ -42,44 +42,6 @@ for name in missing:
     problems.append(f"scripts/{name} есть на диске, но CI его не запускает")
 for name in stale:
     problems.append(f"CI зовёт scripts/{name}, которого на диске нет")
-# The deploy gate walks the disk with a glob — precisely because a
-# hand-written list there had gone stale: 25 names against 38 scripts,
-# thirteen never run before a rollout, including the self-test that runs
-# every guard.
-#
-# The first version of this check searched for the substring `for guard in
-# check_` and was easily defeated: a list written the way the file already
-# spells out paths — `for script in "scripts/check_a.py"
-# "scripts/check_b.py"; do` — matched nothing, while the glob
-# `scripts/check_*.py` sitting in a nearby comment satisfied the other half.
-# Review caught the workaround, a skeptic reproduced it. Now the LOOP ITSELF
-# is parsed: the words after `in` up to `; do` must include a glob over
-# scripts/, and must not include a literal scripts/<name>.py.
-DEPLOY = ROOT / "scripts" / "deploy.sh"
-if DEPLOY.exists():
-    deploy_text = DEPLOY.read_text(encoding="utf-8")
-    code_only = "\n".join(l for l in deploy_text.splitlines() if not l.lstrip().startswith("#"))
-    loops = re.findall(r"for\s+\w+\s+in\s+(.+?);\s*do", code_only)
-    gate_loops = [w for w in loops if "scripts/" in w]
-    if not gate_loops:
-        problems.append("scripts/deploy.sh: не нашёл цикла по scripts/ — гейт деплоя исчез или переписан")
-    for words in gate_loops:
-        toks = [t.strip("\"'") for t in words.split()]
-        # A literal is allowed only for something no glob would cover:
-        # testability_names.py is neither test_ nor check_, and it needs
-        # --check. But a literal test_*/check_* IS the hand-written list
-        # standing in for the glob; the first version of the rule forbade
-        # ANY literal and turned red on a clean tree over this one
-        # legitimate exception.
-        literal = [t for t in toks if re.fullmatch(r"scripts/(?:test|check)_[A-Za-z0-9_]+\.py", t)]
-        globs = [t for t in toks if "*" in t and t.startswith("scripts/")]
-        if literal:
-            problems.append("scripts/deploy.sh снова перечисляет скрипты руками ("
-                            + ", ".join(literal[:3]) + (", …" if len(literal) > 3 else "")
-                            + ") — такой список устаревает молча")
-        if not globs:
-            problems.append("scripts/deploy.sh: цикл гейта без глоба по scripts/ — новые скрипты не подхватятся")
-
 # This guard used to count ANY name mentioned in ci.yml — including one
 # written into a second `run:` of the same step. YAML doesn't tolerate two
 # identical keys in one mapping: the step is either invalid, or executes

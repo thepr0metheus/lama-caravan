@@ -33,6 +33,23 @@ class CssRules:
         return selector[ends[-1]:] if ends else selector
 
     @classmethod
+    def specificity(cls, selector):
+        """(ids, classes, types) of one selector, as the cascade weighs it: attributes and pseudo-classes count as classes,
+        a pseudo-element as a type, `:not(x)` and `:is(x)` as their argument, `:where(...)` as nothing."""
+        s = re.sub(r":where\([^()]*\)", "", selector)
+        inner = re.findall(r":(?:not|is)\(([^()]*)\)", s)
+        s = re.sub(r":(?:not|is)\([^()]*\)", "", s)
+        attrs = re.findall(r"\[[^\]]*\]", s)
+        s = re.sub(r"\[[^\]]*\]", "", s)
+        ids = len(re.findall(r"#[\w-]+", s))
+        classes = len(re.findall(r"\.[\w-]+", s)) + len(attrs) + len(re.findall(r"(?<!:):(?!:)[\w-]+", s))
+        types = len(re.findall(r"::[\w-]+", s)) + len(re.findall(r"(?:^|[\s>+~])([a-zA-Z][\w-]*)", s))
+        for argument in inner:
+            more = cls.specificity(argument)
+            ids, classes, types = ids + more[0], classes + more[1], types + more[2]
+        return (ids, classes, types)
+
+    @classmethod
     def px(cls, value):
         """A length in px as a number (`12px`, `-28`, `0`); None for anything else (`2em`, `auto`, `calc(...)`, nothing)."""
         match = cls.PX.fullmatch((value or "").strip())

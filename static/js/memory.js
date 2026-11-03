@@ -8,66 +8,48 @@ import { syncFavoriteMirrors } from "./favorites.js";
 import { _applyDeviceToEnv, _commandCellSlot, _envDeviceState, runnerFixedVramGb, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
 import { modelChoiceOf, modelsByPath, readConfigForm, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
+import { BatchBuffers, CellFields, KvCache } from "./cell-plan.js";
+import { CardPin, CardRoom, ComputeFields, FreeVramStart, PlacementPanel, PlacementPlan } from "./placement.js";
 import { RamPlanAsk } from "./ram-plan.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
 import { SplitMode } from "./split-mode.js";
 import { state, topology } from "./state.js";
-import { $, escapeHtml, pill } from "./utils.js";
+import { $, escapeHtml, formatSizeGb, pill } from "./utils.js";
 
-export function formatSizeGb(value) {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n) || n <= 0) return "n/a";
-  return `${n.toFixed(n >= 10 ? 1 : 2)} GB`;
-}
+// The rules the machine page's bench shares with this form live with the placement (placement.js) and the formatter with the
+// others (utils.js); their old names stay importable from here.
+export { CardPin, FreeVramStart } from "./placement.js";
+export { formatSizeGb } from "./utils.js";
 
-export function cacheBytesPerElement(cacheType) {
-  const normalized = String(cacheType || "f16").toLowerCase();
-  if (normalized.includes("q8_0")) return 34 / 32;
-  if (normalized.includes("q6_k")) return 0.8125;
-  if (normalized.includes("q5")) return 0.7;
-  if (normalized.includes("q4")) return 0.5625;
-  if (normalized.includes("iq4")) return 0.5625;
-  if (normalized.includes("f32")) return 4;
-  if (normalized.includes("bf16") || normalized.includes("f16")) return 2;
-  return 2;
+// The KV cache, the compute buffers and the reading of a cell's fields live in cell-plan.js since 1.3.635 — the machine page's
+// bench sizes a stopped cell by the same rule from its stored config. Their old names stay here, read off this form.
+export const AUTO_SLOTS = KvCache.AUTO_SLOTS;
+export const RECURRENT_BY_INTERVAL = KvCache.RECURRENT_BY_INTERVAL;
+export function cacheBytesPerElement(cacheType) { return KvCache.bytesPerElement(cacheType); }
+export function kvLayout(meta) { return KvCache.layout(meta); }
+export function recurrentLayers(meta, layers) { return KvCache.recurrent(meta, layers); }
+export function kvCells(ctx, window, opts) { return KvCache.cells(ctx, window, opts); }
+
+/** The form's fields as the estimate reads them (cell-plan.js CellFields): a box as "1"/"0", an empty field with the
+ *  controller's default behind it. */
+export function formFields(pfx = "") {
+  return new CellFields({
+    text: (key) => {
+      const el = $(pfx + key);
+      if (!el) return "";
+      return el.type === "checkbox" ? (el.checked ? "1" : "0") : String(el.value ?? "");
+    },
+    value: (key) => $(pfx + key)?.value || state.config?.[key] || "",
+    checked: (key) => !!$(pfx + key)?.checked,
+  });
 }
 
 export function estimateKvCacheGb(row, pfx = "") {
-  const meta = row?.ggufMeta || {};
-  const layers = Number(meta.blockCount || 0);
-  const headCount = Number(meta.headCount || 0);
-  const headCountKv = Number(meta.headCountKv || headCount || 0);
-  const embedding = Number(meta.embeddingLength || 0);
-  const keyLength = Number(meta.keyLength || 0);
-  const valueLength = Number(meta.valueLength || 0);
-  const fallbackKvWidth = headCount ? (embedding / headCount) * headCountKv : 0;
-  // key_length and value_length are the width of ONE head (attention.key_length), and a layer caches headCountKv of them for
-  // every token. Used as they stood they made the cache headCountKv times too small — 8 times for a Llama 3: "KV≈0.08 GB" for
-  // a 70B at 4k with q8_0, 0.66 GB held (2026-10-17). The fallback just above, which does multiply, was the only honest path;
-  // both now give one number for one model (the width of one head times the heads, or the embedding cut by the query heads).
-  const keyWidth = keyLength ? keyLength * headCountKv : fallbackKvWidth;
-  const valueWidth = valueLength ? valueLength * headCountKv : keyWidth;
-  const ctx = Number($(pfx + "CTX_SIZE")?.value || state.config.CTX_SIZE || 0);
-  if (!layers || !keyWidth || !valueWidth || !ctx) return 0;
-  const kBytes = cacheBytesPerElement($(pfx + "CACHE_TYPE_K")?.value || state.config.CACHE_TYPE_K);
-  const vBytes = cacheBytesPerElement($(pfx + "CACHE_TYPE_V")?.value || state.config.CACHE_TYPE_V);
-  const bytes = ctx * layers * ((keyWidth * kBytes) + (valueWidth * vBytes));
-  return bytes / (1024 ** 3);
+  return KvCache.gb(row?.ggufMeta, formFields(pfx));
 }
 
 export function estimateBatchBuffersGb(row, pfx = "") {
-  const meta = row?.ggufMeta || {};
-  const layers = Number(meta.blockCount || 0);
-  const embedding = Number(meta.embeddingLength || 0);
-  const batch = Number($(pfx + "BATCH_SIZE")?.value || state.config.BATCH_SIZE || 0);
-  const ubatch = Number($(pfx + "UBATCH_SIZE")?.value || state.config.UBATCH_SIZE || batch || 0);
-  if (!layers || !embedding || (!batch && !ubatch)) return 0;
-  const computeBytes = cacheBytesPerElement("f16");
-  const physicalBatch = Math.max(0, Math.min(ubatch || batch, batch || ubatch));
-  const logicalBatch = Math.max(0, batch);
-  const graphBytes = physicalBatch * layers * embedding * computeBytes * 2.5;
-  const schedulerBytes = logicalBatch * embedding * computeBytes * 4;
-  return (graphBytes + schedulerBytes) / (1024 ** 3);
+  return BatchBuffers.gb(row?.ggufMeta, formFields(pfx));
 }
 
 export function selectedModelRows(pfx = "") {
@@ -99,108 +81,101 @@ export function estimateRuntimeMemoryGb(pfx = "") {
   };
 }
 
-// How the weights divide between the card and RAM.
+// How the weights divide between the cards and RAM — the figures the line above the tabs says and the placement map draws.
 //
-// The estimate above sums the WHOLE model and compares it to VRAM, which is
-// only true when every layer is on the GPU. With a partial offload — the thing
-// that makes a 70B start on a 32 GB card — it reads "over" for a configuration
-// that fits perfectly well, and never says how much lands in RAM.
-//
-// llama.cpp's own fitting ('auto') decides this at load time from its real
-// accounting; this predicts the same shape so the operator can see the split
-// before starting, and is labelled an estimate because that is what it is.
+// The estimate above sums the WHOLE model and compares it to VRAM, which is only true when every layer is on a card.
+// With a part in RAM — the thing that makes a 70B start on two cards — it reads "over" for a configuration that fits, and
+// never says how much lands in RAM. llama.cpp decides that at load time from its own accounting; PlacementPlan
+// (placement.js) predicts the same shape, and this reads it in the form's words. One plan for both: the map and the line
+// above the tabs once kept two estimates of the same split, and they drifted.
 export function offloadSplit(pfx = "") {
   const { selected } = selectedModelRows(pfx);
   const est = estimateRuntimeMemoryGb(pfx);
-  // blockCount lives in ggufMeta, not on the row — reading it off the row gave
-  // 0, which this function treats as "layer count unknown", so the split simply
-  // never appeared. A quiet nothing rather than a visible wrong number, which
-  // is the harder kind to notice.
+  // blockCount lives in ggufMeta, not on the row — reading it off the row gave 0, which this function treats as "layer count
+  // unknown", so the split simply never appeared. A quiet nothing rather than a visible wrong number, which is the harder kind
+  // to notice.
   const layers = Number(selected?.ggufMeta?.blockCount || 0);
   const raw = String(($(pfx + "N_GPU_LAYERS")?.value ?? state.config?.N_GPU_LAYERS ?? "").trim() || "auto").toLowerCase();
-  const kvOnGpu = !!($(pfx + "KV_OFFLOAD")?.checked ?? true);
   const out = { layers, layersGpu: layers, vramGb: est.runtimeSize, ramGb: 0,
                 mode: raw, partial: false, known: layers > 0, perGpu: [], autoLayers: layers };
   if (!selected || !layers) return out;            // no layer count → no claim
-  const perLayer = est.fileTotalSize / layers;
-  const use = computeSelectedGpus(pfx);
-  const splitMode = new SplitMode($(pfx + "SPLIT_MODE")?.value);
-
-  // Where "auto" lands: as many layers as the room of the picked cards holds, after the caches. The room is what each card has
-  // FOR THIS CELL, so what the cell already holds, if it runs, counts as free (it is given back before the restart that applies
-  // the change). The one place this is worked out: the plan panel's "auto" tile reads it from here — it kept a copy of its own.
-  // A tensor split has no fitting (llama.cpp: "llama_params_fit is not implemented for SPLIT_MODE_TENSOR") and "auto" put every
-  // layer on the cards — measured, 42.5 GB of the 70B on two cards — so it says "all" and not a partial split it never makes.
-  const freeGb = use.reduce((sum, g) => sum + cellFreeMiB(pfx, g), 0) / 1024;
-  const forWeights = freeGb - (kvOnGpu ? est.kvSize : 0) - est.batchSize - 0.6;
-  out.autoLayers = splitMode.value === "tensor" ? layers
-    : (perLayer > 0 ? Math.max(0, Math.min(layers, Math.floor(forWeights / perLayer))) : 0);
-
-  let onGpu;
-  if (raw === "0") onGpu = 0;
-  else if (raw === "all" || raw === "max") onGpu = layers;
-  else if (/^\d+$/.test(raw)) onGpu = Math.min(layers, parseInt(raw, 10));
-  else onGpu = out.autoLayers;
-  out.layersGpu = onGpu;
-  // Anything short of "every layer on the card" is worth saying, INCLUDING the
-  // case where nothing fits and the whole model runs from RAM. Requiring at
-  // least one layer on the GPU hid exactly that: the card shows a comfortable
-  // "0 GB / 0.4 GB free" and the operator is never told the model went to RAM
-  // entirely — which is the difference between fast and very slow.
-  out.partial = onGpu < layers;
-  out.vramGb = onGpu * perLayer + (onGpu > 0 ? (kvOnGpu ? est.kvSize : 0) + est.batchSize : 0);
-  out.ramGb = (layers - onGpu) * perLayer + (onGpu > 0 && kvOnGpu ? 0 : est.kvSize);
-  // Which card holds what. With two cards llama.cpp splits the GPU-resident
-  // layers between them (--split-mode layer) by --tensor-split, defaulting to
-  // proportions that follow device memory. One summed VRAM figure hides the
-  // question the operator actually has with two cards in the box: does it fit
-  // THIS card, and how much still lands in RAM. Proportional to FREE memory,
-  // so a card already hosting another cell is not promised room it lacks.
-  //
-  // Said out loud: under a TENSOR split (-sm row/tensor) whole layers are not
-  // handed to a card at all — every weight is cut between them by the same
-  // proportions, so the per-card GB here still reads about right, but "layers
-  // on this card" would not, and with -sm row the KV lives on --main-gpu
-  // alone rather than spread. The bar prints only the GB, never the per-card
-  // layer count, which is why this stays honest for all three modes.
-  {
-    // An explicit TENSOR_SPLIT is the operator's own decision; follow it. Without one, the mode decides: a tensor split cuts
-    // equal parts (SplitMode.evenByDefault), the others follow the room each card has.
-    const manualSplit = String($(pfx + "TENSOR_SPLIT")?.value || "").trim()
-      .split(",").map((x) => Number(x)).filter((x) => Number.isFinite(x) && x > 0);
-    const weights = use.map((g, i) => (manualSplit.length === use.length
-      ? manualSplit[i]
-      : (splitMode.evenByDefault ? 1 : cellFreeMiB(pfx, g) / 1024)));
-    const sum = weights.reduce((a, b) => a + b, 0) || 1;
-    let left = onGpu;
-    const shares = use.map((g, i) => {
-      const share = i === use.length - 1 ? left : Math.min(left, Math.round(onGpu * weights[i] / sum));
-      left -= share;
-      return share;
-    });
-    // A card's GB is its weights PLUS its share of the caches — the KV of a
-    // layer lives on the card that holds the layer. Counting only weights made
-    // the per-card segments add up to less than the VRAM total, so the bar
-    // stopped short of full and the two views disagreed with each other.
-    const extra = Math.max(0, out.vramGb - onGpu * perLayer);
-    out.perGpu = use.map((g, i) => ({
-      index: Number(g.index),
-      name: shortGpuName(g.name),
-      layers: shares[i],
-      gb: shares[i] * perLayer + (onGpu > 0 ? extra * shares[i] / onGpu : 0),
-    }));
+  // The plan the placement map draws, read from the same fields by the same panel: one estimate of one split. The room of
+  // each card is what it has FOR THIS CELL — what the cell already holds, if it runs, counts as free.
+  const panel = new PlacementPanel({ form: placementForm(pfx), facts: placementFacts(pfx) });
+  const plan = panel.plan();
+  // No card to place it on: every layer is the CPU's.
+  if (!plan.cards.length) {
+    return { ...out, layersGpu: 0, vramGb: 0, ramGb: est.fileTotalSize + est.kvSize, partial: true, autoLayers: 0 };
   }
+  // An expert override the plan cannot count: no claim, rather than "0 layers on the cards".
+  if (!plan.counted) return { ...out, known: false };
+  // Where "auto" lands: llama.cpp's fitting, by the margins the cell names — and in a tensor split every layer, since llama.cpp
+  // does not fit there ("llama_params_fit is not implemented for SPLIT_MODE_TENSOR"; measured, 42.5 GB of the 70B on two cards).
+  out.autoLayers = panel.with(plan, { held: null, fixedLayers: null, parts: [] }).placed().layersOnCards;
+  // "0" is the CPU: every layer in RAM. A number or "all" fixes the layers; "auto" is the fitting, unless something holds it.
+  const placed = plan.placed();
+  out.layersGpu = placed.layersOnCards;
+  // Anything short of "every layer on the card" is worth saying, INCLUDING the case where nothing fits and the whole model
+  // runs from RAM — which is the difference between fast and very slow.
+  out.partial = out.layersGpu < layers;
+  out.vramGb = placed.cards.reduce((sum, c) => sum + c.totalGb, 0);
+  out.ramGb = placed.ram.totalGb;
+  // Which card holds what: a card's GB is its weights PLUS its share of the cache and its part of the buffers.
+  out.perGpu = placed.cards.map((c) => ({ index: c.index, name: c.name, layers: c.layers, gb: c.totalGb }));
   return out;
 }
 
-// FREE VRAM on a GPU (accounts for memory already in use by other processes).
-// Prefer nvidia-smi's memory.free; fall back to total-used, then total.
+/** What the placement map knows of the model and the machine — the facts the map and offloadSplit both read: the files, the
+ *  KV cache and the buffers as this module estimates them, the layer and expert counts of the model's header and what its
+ *  experts weigh (the bytes of its expert tensors, summed over a split model's parts by models.py), the picked
+ *  cards with the room each has for this cell, the machine's RAM and cores, and the split mode. */
+export function placementFacts(pfx = "") {
+  const { selected } = selectedModelRows(pfx);
+  const est = estimateRuntimeMemoryGb(pfx);
+  const cpu = computeTargetCpu(pfx);
+  const ramTotalGb = pfx === "tr-" ? Number(cpu?.ram?.totalGb || 0) : Number(state.memory?.totalMiB || 0) / 1024;
+  const ramFreeGb = computeTargetRamGb(pfx);
+  return {
+    model: { weightsGb: est.fileTotalSize, kvGb: est.kvSize, batchGb: est.batchSize,
+             layers: Number(selected?.ggufMeta?.blockCount || 0), experts: Number(selected?.ggufMeta?.expertCount || 0),
+             expertsGb: Number(selected?.ggufMeta?.expertBytes || 0) / (1024 ** 3) },
+    cards: computeSelectedGpus(pfx).map((g) => ({ index: Number(g.index), name: shortGpuName(g.name),
+                                                  freeGb: cellFreeMiB(pfx, g) / 1024, totalGb: Number(g.memoryTotalMiB || 0) / 1024 })),
+    // 0 is a machine that has not reported its RAM: not known, and no shortage is claimed of it.
+    ramFreeGb: ramFreeGb > 0 ? ramFreeGb : null, ramTotalGb, cores: computeTargetCores(pfx),
+    mode: new SplitMode($(pfx + "SPLIT_MODE")?.value).value === "tensor" ? "tensor" : "layer",
+  };
+}
+
+/** The cell's fields as the placement map reads and writes them: a box as "1"/"0", an input as its text; a write is announced
+ *  as typing would be, and the parts of the form that read the fields are drawn again. */
+function placementForm(pfx) {
+  return {
+    get: (key) => {
+      const el = $(pfx + key);
+      if (!el) return "";
+      return el.type === "checkbox" ? (el.checked ? "1" : "0") : String(el.value ?? "");
+    },
+    set: (key, value) => {
+      const el = $(pfx + key);
+      if (!el) return;
+      if (el.type === "checkbox") el.checked = value === "1";
+      else el.value = value;
+      el.dispatchEvent?.(new Event("input", { bubbles: true }));
+      el.dispatchEvent?.(new Event("change", { bubbles: true }));
+    },
+    changed: () => {
+      syncFavoriteMirrors(pfx);
+      renderModelInsight(pfx);
+      renderCommandPreview(pfx);
+    },
+  };
+}
+
+// FREE VRAM on a GPU (accounts for memory already in use by other processes): CardRoom's rule, which the machine page's
+// bench reads too; a card that says nothing has nothing to give here.
 export function gpuFreeMiB(row) {
-  const free = Number(row.memoryFreeMiB || 0);
-  if (free > 0) return free;
-  const total = Number(row.memoryTotalMiB || 0);
-  const used = Number(row.memoryUsedMiB || 0);
-  return Math.max(0, total - used);
+  return CardRoom.freeMiB(row) ?? 0;
 }
 
 // What the cell this form edits holds on each card right now, MiB by card index (its slot's per-process GPU memory), and
@@ -277,13 +252,7 @@ export function computeTargetCpu(pfx) {
   return pfx === "tr-" ? (_trClientCpu || {}) : (state.cpu || {});
 }
 export function computeTargetCores(pfx) {
-  const c = computeTargetCpu(pfx);
-  const avail = Number(c.availableCores || 0);   // affinity-aware: a pinned VM reports its slice
-  const phys = Number(c.physicalCores || 0);
-  // Respect cpuset/VM pinning, but cap at physical cores — hyperthreads rarely
-  // help compute-bound inference. Fall back gracefully on older reports.
-  if (avail && phys) return Math.min(avail, phys);
-  return avail || phys || Number(c.logicalCores || 0) || Number(c.ncpu || 0) || 1;
+  return ComputeFields.cores(computeTargetCpu(pfx));
 }
 export function computeTargetRamGb(pfx) {
   if (pfx === "tr-") {
@@ -302,31 +271,18 @@ export function computeIsCpu(pfx) {
 // DEVICE in GPU mode = all GPUs; CPU mode = none.
 export function computeSelectedGpuIdx(pfx) {
   if (computeIsCpu(pfx)) return [];
-  const all = computeTargetGpus(pfx).map((g) => Number(g.index));
-  const dev = ($(pfx + "DEVICE")?.value || "").trim();
-  if (!dev) return all;
-  const picked = dev.split(",").map((d) => Number(String(d).replace(/[^0-9]/g, ""))).filter((n) => !Number.isNaN(n));
-  return picked.length ? picked : all;
+  return PlacementPlan.devices($(pfx + "DEVICE")?.value, computeTargetGpus(pfx).map((g) => Number(g.index)));
 }
 export function applyComputeTarget(pfx, sel) {
   const set = (k, v) => { const el = $(pfx + k); if (!el) return; if (el.type === "checkbox") el.checked = (v === "1"); else el.value = v; };
   if (sel.mode === "cpu") {
-    set("N_GPU_LAYERS", "0"); set("DEVICE", ""); set("SPLIT_MODE", ""); set("TENSOR_SPLIT", ""); set("MAIN_GPU", "");
-    const cores = String(computeTargetCores(pfx));
-    set("THREADS", cores); set("THREADS_BATCH", cores);
+    for (const [key, value] of Object.entries(ComputeFields.cpu(computeTargetCores(pfx)))) set(key, value);
   } else {
     const all = computeTargetGpus(pfx).map((g) => Number(g.index));
     const idx = (sel.gpuIdx && sel.gpuIdx.length ? sel.gpuIdx : all).slice().sort((a, b) => a - b);
-    const isAll = idx.length === all.length;
-    // "auto", not 999. llama.cpp's -ngl defaults to auto: it puts as many
-    // layers on the card as fit and leaves the rest in RAM, which is exactly
-    // what makes a model larger than VRAM start at all. Writing 999 here meant
-    // "all layers on the GPU" — every cell this tile touched had the engine's
-    // own spill-to-RAM turned off, and an oversized model failed instead of
-    // running slowly. An exact number still works for pinning the split by hand.
-    set("N_GPU_LAYERS", "auto");
-    set("DEVICE", isAll ? "" : idx.map((i) => `CUDA${i}`).join(","));
-    set("MAIN_GPU", isAll ? "" : String(idx[0]));
+    // Writing 999 here meant "all layers on the GPU": every cell this tile touched had the engine's own spill-to-RAM turned off,
+    // and an oversized model failed instead of running slowly. An exact number still works for pinning the split by hand.
+    for (const [key, value] of Object.entries(ComputeFields.cards(idx, all))) set(key, value);
     // Pipeline by default on two cards or more (SplitMode.DEFAULT); a mode the
     // operator already chose survives re-picking a card, and brings its split
     // by the cards' sizes along when it cuts equal parts without one.
@@ -334,7 +290,6 @@ export function applyComputeTarget(pfx, sel) {
     set("SPLIT_MODE", mode.value);
     set("TENSOR_SPLIT", mode.suggestedSplit(computeTargetGpus(pfx).filter((g) => idx.includes(Number(g.index)))
       .sort((a, b) => Number(a.index) - Number(b.index))));
-    set("THREADS", "1"); set("THREADS_BATCH", "1");
   }
   refreshComputeTarget(pfx);
   syncFavoriteMirrors(pfx);
@@ -368,14 +323,17 @@ export function machineGpuLabel(gpus) {
 //   gpuOnly      : GPU only   (the registry says so — runner.py gpu_only: Strata's one CUDA card, GR00T's
 //                  CUDA policy, the voice servers; a list of ids here was one more thing to forget)
 //   transcribe   : CPU + GPU  (ggml: CUDA/Metal if the build has it, else CPU)
-//   custom       : CPU + GPU + auto  (generic managed process / TTS engines)
+//   autoDevice   : CPU + GPU + auto  (the registry says so — runner.py auto_device: a custom command, the voice-clone
+//                  TTS cell, which picks the card when it has the room and else the CPU)
 function _runnerOf(pfx) {
   const explicit = ($(pfx + "RUNNER")?.value || "").trim();
   if (explicit) return explicit;
   return ($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server";
 }
 export function runnerDeviceCaps(runner) {
-  if (runnerRegistry().find((r) => r.id === runner)?.gpuOnly) return { cpu: false, gpu: true, auto: false };
+  const row = runnerRegistry().find((r) => r.id === runner);
+  if (row?.gpuOnly) return { cpu: false, gpu: true, auto: false };
+  if (row?.autoDevice) return { cpu: true, gpu: true, auto: true };
   switch (runner) {
     case "vllm":      return { cpu: false, gpu: true,  auto: false };
     case "whisper":   return { cpu: false, gpu: true,  auto: false };
@@ -388,7 +346,6 @@ export function runnerDeviceCaps(runner) {
     // llama-server and would take this runner with it if it ever changed.
     case "seamless":  return { cpu: true,  gpu: true,  auto: false };
     case "translate": return { cpu: true,  gpu: true,  auto: false };
-    case "custom":    return { cpu: true,  gpu: true,  auto: true  };
     default:          return { cpu: true,  gpu: true,  auto: false };  // llama-server
   }
 }
@@ -404,7 +361,9 @@ export function currentComputeMode(pfx) {
   const st = _envDeviceState($(pfx + "ENV")?.value || "", $(pfx + "COMMAND")?.value || "");
   return caps[st] ? st : (caps.auto ? "auto" : caps.gpu ? "gpu" : "cpu");
 }
-function applyComputeMode(pfx, sel) {
+/** Where form `pfx` computes — the compute target's tiles and the new-cell wizard (add-model.js): {mode: "cpu" | "gpu",
+ *  gpuIdx}. A llama.cpp form writes its layers, devices and split; any other runner its ENV pin. */
+export function applyComputeMode(pfx, sel) {
   if (usesLlamaConfig(_runnerOf(pfx))) { applyComputeTarget(pfx, sel); return; }
   // command-path: device lives in ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES)
   const env = $(pfx + "ENV");
@@ -435,144 +394,26 @@ let _computeGpuDdOpen = false;
 // The sentence under the bar. Two cards get named individually — "19.4 GB
 // VRAM" across a 5090 and a 3090 is not an answer to "will it fit", since the
 // halves are not interchangeable.
-function planReadout(split) {
-  const args = { n: split.layersGpu, total: split.layers,
-                 vram: planGb(split.vramGb), ram: planGb(split.ramGb) };
-  if ((split.perGpu || []).length > 1) {
-    const cards = split.perGpu.map((g) => `GPU${g.index} ${planGb(g.gb)}`).join(" + ");
-    return t("offloadSplitMulti", { n: split.layersGpu, total: split.layers,
-                                    cards, ram: planGb(split.ramGb) });
-  }
-  return t("offloadSplitValue", args);
+// The placement map of a llama.cpp cell on the cards (placement.js): where the model lives, a handle per card for how much of
+// it the model may take, what that leaves in RAM. It replaced the "auto / all on GPU / manual" tiles (2026-10-24): those moved
+// one layer count, and the owner asked for the cards and RAM by name — "fill the 5090, all or part of the 3090, something in
+// RAM". Nothing for a CPU cell, another runner, or the row split, which this llama.cpp's NVIDIA build cannot start (the split
+// tile says so).
+export function refreshPlacementMap(pfx) {
+  mountPlacementMap(pfx, $(pfx + "placementMap"));
 }
 
-function planGb(value) {
-  return value > 0.05 ? formatSizeGb(value) : "0 GB";
-}
-
-export function refreshOffloadPlan(pfx) {
-  const box = $(pfx + "offloadPlan");
-  if (!box) return;
+/** The placement map of form `pfx` drawn in `box`: the dialog's own, or the cell window's Memory tab (cell-settings.js), each
+ *  reading and writing the same fields. False, and the box emptied, for a cell that has none. */
+export function mountPlacementMap(pfx, box) {
+  if (!box) return false;
   const runner = _runnerOf(pfx);
-  const split = offloadSplit(pfx);
-  const est = estimateRuntimeMemoryGb(pfx);
-  const fits = split.known ? split.layersGpu >= split.layers : true;
-  const raw = String(($(pfx + "N_GPU_LAYERS")?.value ?? "").trim() || "auto").toLowerCase();
-  // "all" is a deliberate choice the operator can make even when it will not
-  // fit, so the panel has to stay on screen while it is selected — otherwise
-  // choosing it makes the control that chose it disappear.
-  const forced = raw === "all" || /^\d+$/.test(raw);
-  if (!usesLlamaConfig(runner) || computeIsCpu(pfx) || !split.known || (fits && !forced)) {
+  if (!usesLlamaConfig(runner) || computeIsCpu(pfx) || new SplitMode($(pfx + "SPLIT_MODE")?.value).value === "row") {
     box.innerHTML = "";
-    return;
+    return false;
   }
-  const autoLayers = split.autoLayers;           // where "auto" would land: worked out once, in offloadSplit
-  // A number that reaches every layer IS "all on the card", whatever it is spelled: a new cell opens with 999, and the panel
-  // lit "manual — choose the split yourself" with the slider at its end for a split nobody had chosen.
-  const mode = (raw === "all" || (/^\d+$/.test(raw) && parseInt(raw, 10) >= split.layers)) ? "all"
-    : (/^\d+$/.test(raw) ? "manual" : "auto");
-  // One cell editor, one set of hooks (the controller's own editor and its
-  // cell-edit-* names went with its cells in step 6.9).
-  const tHook = "cell-remote-offload";
-  // Spelled out rather than `${tHook}-slider`: the testability guard derives
-  // only the "-picker" suffix, and a hook it cannot see is a hook the doc does
-  // not publish — a suite would then look for a name the page never announces.
-  const tSlider = "cell-remote-offload-slider";
-  // The RAM of the machine the cell runs on, as its scout reported it. It read
-  // the controller's own free RAM for every machine, so a cell that would
-  // spill past a small machine's RAM looked fine whenever the controller had
-  // room to spare.
-  const ramFree = computeTargetRamGb(pfx);
-  const ramShort = split.ramGb - ramFree;
-
-  const card = (id, active, icon, title, main, sub, warn) =>
-    `<button type="button" class="compute-card${active ? " active" : ""}${warn ? " warn" : ""}"` +
-    ` data-plan="${id}" data-t="${tHook}" data-t-id="${id}"` +
-    ` title="${escapeHtml([title, main, sub].filter(Boolean).join(" · "))}">` +
-    `<span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span>` +
-    `<span class="compute-card-name">${escapeHtml(title)}</span>` +
-    `<span class="compute-card-main">${escapeHtml(main)}</span>` +
-    `<span class="compute-card-sub">${escapeHtml(sub)}</span>` +
-    `${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span></button>`;
-
-  const cards =
-    card("auto", mode === "auto", "🎲", t("planAuto"),
-         t("offloadSplitShort", { n: autoLayers, total: split.layers }), t("planAutoSub"), false) +
-    card("all", mode === "all", "🎮", t("planAll"),
-         `${split.layers}/${split.layers}`, t("planAllSub"), true) +
-    card("manual", mode === "manual", "✋", t("planManual"),
-         mode === "manual" ? `${split.layersGpu}/${split.layers}` : "—", t("planManualSub"), false);
-
-  // The bar is the answer at a glance: how much of the model sits on the card
-  // and how much in RAM, in proportion.
-  const total = Math.max(0.001, split.vramGb + split.ramGb);
-  const multi = (split.perGpu || []).length > 1;
-  // One segment per card, then RAM. With a single card this is the same two-part
-  // bar as before; with two it shows which card carries what.
-  const bar = `<div class="plan-bar" aria-hidden="true">` +
-    (multi
-      ? split.perGpu.map((g, i) =>
-          `<span class="plan-bar-vram plan-bar-gpu${i % 2}" style="width:${(100 * g.gb / total).toFixed(1)}%"` +
-          ` title="GPU${g.index}"></span>`).join("")
-      : `<span class="plan-bar-vram" style="width:${(100 * split.vramGb / total).toFixed(1)}%"></span>`) +
-    `<span class="plan-bar-ram" style="width:${(100 * split.ramGb / total).toFixed(1)}%"></span></div>`;
-
-  const slider = mode === "manual"
-    // min 1, not 0: "0" is this codebase's CPU sentinel (computeIsCpu reads it),
-    // so a slider that could reach zero would silently flip the cell to CPU and
-    // take its own panel off the screen — which is what it did. No layers on the
-    // card is a real choice, and it already has a control: the CPU tile above.
-    ? `<input type="range" class="plan-slider" min="1" max="${split.layers}" value="${Math.max(1, split.layersGpu)}"` +
-      ` data-t="${tSlider}" aria-label="${escapeHtml(t("planManual"))}">`
-    : "";
-
-  box.innerHTML =
-    `<div class="compute-label">${t("planLabel")}</div>` +
-    `<div class="compute-cards">${cards}</div>${slider}${bar}` +
-    `<div class="plan-readout${ramShort > 0 ? " bad" : ""}">${escapeHtml(planReadout(split))
-    }${ramShort > 0 ? ` — ${escapeHtml(t("planRamShort", { n: formatSizeGb(ramShort) }))}` : ""}</div>`;
-
-  const write = (value) => {
-    const el = $(pfx + "N_GPU_LAYERS");
-    if (!el) return;
-    el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
-    syncFavoriteMirrors(pfx);
-    renderModelInsight(pfx);
-    renderCommandPreview(pfx);
-    refreshOffloadPlan(pfx);
-  };
-  box.querySelectorAll("[data-plan]").forEach((btn) => btn.addEventListener("click", () => {
-    const kind = btn.dataset.plan;
-    // Manual starts from where auto would have landed — the useful starting
-    // point to nudge from, rather than 0 or the whole model.
-    write(kind === "auto" ? "auto" : kind === "all" ? "all" : String(Math.max(1, autoLayers)));
-  }));
-  const range = box.querySelector(".plan-slider");
-  if (range) {
-    range.addEventListener("input", () => {
-      // Repaint the numbers on every drag step, but do not re-render the whole
-      // panel — that would replace the element under the operator's finger.
-      const el = $(pfx + "N_GPU_LAYERS");
-      if (el) { el.value = range.value; el.dispatchEvent(new Event("input", { bubbles: true })); }
-      const s2 = offloadSplit(pfx);
-      const tot = Math.max(0.001, s2.vramGb + s2.ramGb);
-      const segs = box.querySelectorAll(".plan-bar-vram");
-      if (segs.length > 1 && (s2.perGpu || []).length === segs.length) {
-        segs.forEach((el, i) => { el.style.width = `${(100 * s2.perGpu[i].gb / tot).toFixed(1)}%`; });
-      } else if (segs[0]) {
-        segs[0].style.width = `${(100 * s2.vramGb / tot).toFixed(1)}%`;
-      }
-      box.querySelector(".plan-bar-ram").style.width = `${(100 * s2.ramGb / tot).toFixed(1)}%`;
-      const short = s2.ramGb - ramFree;
-      const out = box.querySelector(".plan-readout");
-      out.classList.toggle("bad", short > 0);
-      out.textContent = planReadout(s2)
-        + (short > 0 ? ` — ${t("planRamShort", { n: formatSizeGb(short) })}` : "");
-    });
-    range.addEventListener("change", () => write(range.value));
-  }
+  new PlacementPanel({ form: placementForm(pfx), facts: placementFacts(pfx) }).mount(box);
+  return true;
 }
 
 export function refreshComputeTarget(pfx) {
@@ -685,7 +526,7 @@ export function refreshComputeTarget(pfx) {
     ? new SplitMode($(pfx + "SPLIT_MODE")?.value).html("cell-remote-split")
     : "";
   box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>${subPicker}${splitRow}`;
-  refreshOffloadPlan(pfx);
+  refreshPlacementMap(pfx);
   box.querySelectorAll(".compute-card:not(.disabled)").forEach((btn) => btn.addEventListener("click", () => {
     const kind = btn.dataset.compute;
     if (kind === "gpu" && mode === "gpu") return;   // already GPU — the sub-picker owns the card choice
@@ -757,7 +598,7 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
 //              one bounded utterance, so the file IS the footprint.
 //   custom    an opaque process — nothing to estimate, the bar shows use only.
 // A runner with a VRAM plan in the registry is drawn from the plan instead:
-// Strata's takes the free VRAM (FreeVramStart, below), GR00T's is a fixed figure
+// Strata's takes the free VRAM (FreeVramStart, placement.js), GR00T's is a fixed figure
 // the server measured (runner.py vram_plan).
 export function computeFitRuntimeGb(pfx = "") {
   const runner = _runnerOf(pfx);
@@ -770,37 +611,6 @@ export function computeFitRuntimeGb(pfx = "") {
   if (runner === "transcribe") return Number(selectedModelRows(pfx).selected?.sizeGb || 0);
   return 0;
 }
-// The card a one-card cell (Strata, GR00T, the voice servers: the registry's `oneCard`) is pinned to, in the cell's
-// ENV: its last CUDA_VISIBLE_DEVICES, numbered as the board and nvidia-smi number the cards (the controller starts
-// every engine with CUDA_DEVICE_ORDER=PCI_BUS_ID). The server reads the pin the same way (runner.py
-// Runner.pinned_card), and one table of cases holds the two copies together (scripts/test_js_memory.py). The ENV box
-// is hidden for these runners, so the pin is written by the card chips of the compute target.
-export class CardPin {
-  /** The card's index as text: the ENV's last CUDA_VISIBLE_DEVICES, else "0" (where an unpinned start lands);
-   *  "" when the pin names no single card (a list, nothing, a UUID) — the server reserves nothing then. */
-  static card(env) {
-    const pins = [];
-    for (const raw of String(env || "").split(/[\n,]/)) {
-      const at = raw.indexOf("=");
-      if (at > 0 && raw.slice(0, at).trim() === "CUDA_VISIBLE_DEVICES") pins.push(raw.slice(at + 1).trim());
-    }
-    const device = pins.length ? pins[pins.length - 1].replace(/^"+|"+$/g, "") : "0";
-    return /^\d+$/.test(device) ? device : "";
-  }
-
-  /** The ENV with the pin set to card `index`: every earlier CUDA_VISIBLE_DEVICES row goes (the pin is one card, and
-   *  the last row wins on the server), the cell's other rows stay as they were. */
-  static write(env, index) {
-    // The ENV is read by newline or comma (Runner.env_pairs): a pin written as a list ("0,1") is the pin "0" and a row
-    // "1" with no "=", which the server skips — and so does this: a row that sets nothing is not kept.
-    const rows = String(env || "").split(/[\n,]/).map((row) => row.trim()).filter(Boolean)
-      .filter((row) => row.includes("=") || row.startsWith("#"))
-      .filter((row) => !/^CUDA_VISIBLE_DEVICES\s*=/.test(row));
-    rows.push(`CUDA_VISIBLE_DEVICES=${Number(index)}`);
-    return rows.join("\n");
-  }
-}
-
 // vLLM on a machine with several cards: which cards it takes and what it asks of each. The server's rule (runner.py
 // vram_reservation) is util × the card's memory on the ONE card a single-card start lands on (the ENV's pin, else card 0)
 // and nothing for a tensor-parallel start ("vLLM places itself"); the form drew util × EVERY card of the machine for both. So
@@ -813,21 +623,54 @@ export class VllmPlacement {
   static MARGIN_GB = 1;
 
   static of(pfx) {
-    const raw = String($(pfx + "TENSOR_PARALLEL")?.value || "").trim();
-    const tp = /^\d+$/.test(raw) && Number(raw) > 1 ? Number(raw) : 1;
-    const util = Number($(pfx + "GPU_MEMORY_UTILIZATION")?.value) || 0.9;
-    const gpus = computeTargetGpus(pfx).slice().sort((a, b) => Number(a.index) - Number(b.index));
-    const pin = CardPin.card($(pfx + "ENV")?.value || "");
-    const cards = tp > 1 ? gpus.slice(0, tp) : gpus.filter((g) => String(g.index) === pin);
-    return new VllmPlacement(tp, util, cards, gpus.length, Number(selectedModelRows(pfx).selected?.sizeGb || 0));
+    const field = (key) => $(pfx + key)?.value;
+    const row = VllmPlacement.rowOf(pfx);
+    return VllmPlacement.from({ TENSOR_PARALLEL: field("TENSOR_PARALLEL"), GPU_MEMORY_UTILIZATION: field("GPU_MEMORY_UTILIZATION"),
+                                ENV: field("ENV"), CPU_OFFLOAD_GB: field("CPU_OFFLOAD_GB"), MAX_MODEL_LEN: field("MAX_MODEL_LEN"), KV_CACHE_DTYPE: field("KV_CACHE_DTYPE") },
+                              computeTargetGpus(pfx), Number(row?.sizeGb || 0), row || {});
   }
 
-  constructor(tp, util, cards, machineCards, weightsGb) {
+  /** The library's row of the model this cell serves. `VLLM_MODEL` says which, and on another machine than the controller's `MODEL_FILE` may name anything: a check on the
+   *  owner's machine said 36.6 GB of a 2 GB checkpoint, the weight of the first file in the list. Not in the library: none, no figures rather than another model's. */
+  static rowOf(pfx) {
+    const said = String($(pfx + "VLLM_MODEL")?.value || "").trim().replace(/\/+$/, "");
+    if (!said) return selectedModelRows(pfx).selected || null;
+    const rows = [...(state.artifacts || []), ...modelsByPath().values()];
+    return rows.find((one) => said === one.path || said.endsWith(`/${one.path}`)) || null;
+  }
+
+  /** The same out of a cell's config as it is stored, the machine's cards and what its checkpoint weighs, GB: the machine
+   *  page's bench reads a stopped vLLM cell so (topology-nodes.js), by one rule with the form. */
+  static from(config, gpus, weightsGb = 0, model = {}) {
+    const raw = String(config?.TENSOR_PARALLEL ?? "").trim();
+    const tp = /^\d+$/.test(raw) && Number(raw) > 1 ? Number(raw) : 1;
+    const util = Number(config?.GPU_MEMORY_UTILIZATION) || 0.9;
+    const sorted = (gpus || []).slice().sort((a, b) => Number(a.index) - Number(b.index));
+    const pin = CardPin.card(config?.ENV || "");
+    const cards = tp > 1 ? sorted.slice(0, tp) : sorted.filter((g) => String(g.index) === pin);
+    const offload = Number(config?.CPU_OFFLOAD_GB);
+    const place = new VllmPlacement(tp, util, cards, sorted.length, Number(weightsGb) || 0, offload > 0 ? offload : 0);
+    place.kvGb = VllmPlacement.kvGbOf(config, model, tp);
+    return place;
+  }
+
+  /** What one request of the longest length takes of KV cache on each card, GB: the length asked, else the one the model was trained with, which is what vLLM takes then. 0 when
+   *  the checkpoint does not say what a token weighs. An 8-bit cache takes half of what the model's own 16-bit numbers would. */
+  static kvGbOf(config, model, tp) {
+    const perToken = Number(model?.kvPerToken) || 0;
+    const length = Number(config?.MAX_MODEL_LEN) || Number(model?.contextLength) || 0;
+    const shrink = String(config?.KV_CACHE_DTYPE || "").trim().toLowerCase().startsWith("fp8") ? 2 : 1;
+    return perToken > 0 && length > 0 ? (perToken * length) / shrink / tp / 2 ** 30 : 0;
+  }
+
+  constructor(tp, util, cards, machineCards, weightsGb, offloadGb = 0) {
+    this.kvGb = 0;   // what the start's longest request takes on each card (VllmPlacement.kvGbOf)
     this.tp = tp;
     this.util = util;
     this.cards = cards;
     this.machineCards = machineCards;
     this.weightsGb = weightsGb;
+    this.offloadGb = offloadGb;   // CPU_OFFLOAD_GB: the weights of each card that stay in RAM and come to it for every pass
   }
 
   /** What vLLM asks of each card it takes, GB. A single card is asked util × its memory. Tensor-parallel workers size ONE KV
@@ -841,59 +684,48 @@ export class VllmPlacement {
   get totalGb() { return this.perCardGb.reduce((sum, gb) => sum + gb, 0); }
   get indexes() { return this.cards.map((g) => Number(g.index)); }
 
+  /** The weights one card holds at a time, GB: its cut of them less what stays in RAM. */
+  get weightsOnCardGb() {
+    return Math.max(0, this.weightsGb / this.tp - this.offloadGb);
+  }
+
+  /** What of the weights stays in RAM on all the cards it takes, GB. vLLM offloads what there is: no more than the card's cut of the
+   *  weights, when their size is known. */
+  get ridesGb() {
+    const each = this.weightsGb > 0 ? Math.min(this.offloadGb, this.weightsGb / this.tp) : this.offloadGb;
+    return each * (this.tp > 1 ? this.tp : 1);
+  }
+
+  /** How much of the weights of a card must stay in RAM for the rest to fit its share, GB, in half gigabytes: 0 when they fit, or when
+   *  their size or the card is not known. */
+  get offloadNeededGb() {
+    if (!(this.weightsGb > 0) || !this.cards.length) return 0;
+    const over = this.weightsGb / this.tp - (Math.min(...this.perCardGb) - VllmPlacement.MARGIN_GB);
+    return over > 0 ? Math.ceil(over * 2) / 2 : 0;
+  }
+
   /** Whether the weights, cut evenly over TENSOR_PARALLEL cards, leave less than the margin on any card the start takes. Not
    *  known — false — while no checkpoint is named (a hand-typed repo id has no size here) or no card is. */
   get weightsOver() {
     if (!(this.weightsGb > 0) || !this.cards.length) return false;
-    const each = this.weightsGb / this.tp;
-    return this.perCardGb.some((budget) => each > budget - VllmPlacement.MARGIN_GB);
+    return this.perCardGb.some((budget) => this.weightsOnCardGb > budget - VllmPlacement.MARGIN_GB);
+  }
+
+  /** Whether one request of the longest length does not fit what the weights leave: vLLM refuses to start then, in its own words, after minutes of loading. Not known — false —
+   *  while the checkpoint does not say what a token weighs or no card is named. */
+  get kvOver() {
+    if (!(this.kvGb > 0) || !this.cards.length) return false;
+    return this.perCardGb.some((budget) => this.weightsOnCardGb + VllmPlacement.MARGIN_GB + this.kvGb > budget);
   }
 
   /** The line under the estimate bar, when there is something to say. */
   note() {
-    if (!this.weightsOver) return "";
-    return t("vllmWeightsOver", { weights: formatSizeGb(this.weightsGb), budget: formatSizeGb(Math.min(...this.perCardGb)) });
-  }
-}
-
-// A start that takes its card's free VRAM (runner.py vram_plan: Strata sizes
-// its expert cache to what is free). Its card is the one runner.py
-// vram_reservation names, read off the cell's ENV the same way; its cost is
-// what is free there less the reserve it leaves to others, and it needs its
-// floor plus that reserve free. The scout refuses it below that, exactly
-// (starts.py: free >= reserved), so the bar's 1 GB grace for estimates is not
-// given. A class, not a function: the card, the reserve and the floor are read
-// once and answer four questions.
-export class FreeVramStart {
-  /** The card's index as text — CardPin's rule, which is the server's. */
-  static device(env) { return CardPin.card(env); }
-
-  /** The start, or null where the server reserves nothing: no such card, or a
-   *  reserve that is not a number of MiB (its Apply is refused, by name). */
-  static of(plan, { env = "", reserve = "", gpus = [] } = {}) {
-    const device = FreeVramStart.device(env);
-    const card = device ? (gpus || []).find((g) => String(g.index) === device) : null;
-    const raw = String(reserve ?? "").trim();
-    if (!card || (raw && !/^\d+$/.test(raw))) return null;
-    return new FreeVramStart(plan, card, raw ? Number(raw) : 0);
-  }
-
-  constructor(plan, card, reserveMiB) {
-    this.card = card;
-    this.floorMiB = Math.max(0, Number(plan?.floorMiB) || 0);
-    this.reserveMiB = reserveMiB;
-    this.freeMiB = gpuFreeMiB(card);
-  }
-
-  get needMiB() { return this.floorMiB + this.reserveMiB; }
-  get fits() { return this.freeMiB >= this.needMiB; }
-  /** What the bar plans for it: what it will take, or — when it will not
-   *  start — what it needs free. */
-  get addGb() { return (this.fits ? this.freeMiB - this.reserveMiB : this.needMiB) / 1024; }
-  /** How the bar draws it: on its card alone, overflowing exactly, saying how. */
-  bar() {
-    return { hard: true, cards: [Number(this.card.index)],
-             vramNote: t("vramTakesFree", { gb: formatSizeGb(this.needMiB / 1024) }) };
+    if (this.weightsOver) return t("vllmWeightsOver", { weights: formatSizeGb(this.weightsOnCardGb * this.tp), budget: formatSizeGb(Math.min(...this.perCardGb)) });
+    if (this.kvOver) {
+      const left = Math.max(0, Math.min(...this.perCardGb) - this.weightsOnCardGb - VllmPlacement.MARGIN_GB);
+      return t("vllmKvOver", { kv: formatSizeGb(this.kvGb), left: formatSizeGb(left) });
+    }
+    return this.ridesGb > 0 ? t("vllmRides", { gb: formatSizeGb(this.ridesGb) }) : "";
   }
 }
 
@@ -915,7 +747,9 @@ export function refreshAsidePanels(pfx = "", llamaGb = null) {
   if (runner === "vllm") {
     // The cards it takes and what it asks of each; its start refuses at the first GB short, like the scout's exact rule.
     const place = VllmPlacement.of(pfx);
-    renderAsideVramBar(pfx, place.totalGb, true, { hard: true, cards: place.indexes, vramNote: place.note() });
+    // Weights left in RAM are a promise there too, the controller's word as for any runner that keeps weights in RAM.
+    const promised = place.ridesGb > 0 ? RamPlanAsk.of(pfx).planFor(readConfigForm(pfx), () => refreshAsidePanels(pfx)) : null;
+    renderAsideVramBar(pfx, place.totalGb, true, { hard: true, cards: place.indexes, vramNote: place.note(), ...(promised ? { ramPlan: promised } : {}) });
     return;
   }
   const row = runnerRegistry().find((r) => r.id === runner);

@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node  # noqa: E402
+from _node import find_node, node_args  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -77,7 +77,7 @@ def main():
     probe = ROOT / "scripts" / ".probe_money.tmp.mjs"
     probe.write_text(PROBE)
     try:
-        result = subprocess.run([node, str(probe)], cwd=ROOT, env={**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"},
+        result = subprocess.run(node_args(node, probe), cwd=ROOT, env={**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"},
                                 capture_output=True, text=True, timeout=60)
         print(result.stdout, end="")
         print(result.stderr, end="", file=sys.stderr)

@@ -27,7 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("topology-render,topology-modals,cables,routers,cloud,history,dialogs,favorites,config-locator,system-panels,"
          "onboarding,topology-dnd,canvas,usage-stats,dialog-llamas,models-page,system-page,onboarding-tours")
@@ -121,6 +121,11 @@ PINS = [
      'le.buildVllmCommandPreview("te-")',
      '"$HOME/vllm-venv/bin/vllm serve Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port \\"$PORT\\" --served-model-name qwen2.5-7b-instruct"',
      'positive: served-model-name = последний сегмент пути в нижнем регистре'),
+    ('vllm_served_by_operators_name',
+     'F({ "te-VLLM_MODEL": { value: "Qwen/Qwen2.5-7B-Instruct" }, "te-ALIAS": { value: "from-another-file" }, "te-MODEL_NAME": { value: "mine" } });',
+     'le.buildVllmCommandPreview("te-")',
+     '"$HOME/vllm-venv/bin/vllm serve Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port \\"$PORT\\" --served-model-name mine"',
+     'positive: имя оператора важнее псевдонима: запрос по этому имени находит модель (проверка владельца, 2026-11-01)'),
     ('vllm_served_no_slash',
      'F({ "te-VLLM_MODEL": { value: "GPT-OSS" } });',
      'le.buildVllmCommandPreview("te-")',
@@ -497,7 +502,7 @@ PINS = [
      '["$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m --trust-remote-code","$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m","$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m"]',
      'positive: отмеченный TRUST_REMOTE_CODE печатает --trust-remote-code в самом конце, как у сервера; negative: неотмеченный и отсутствующий — без флага'),
     # The three flags a model's recipe asks for (Nemotron 3 Nano Omni), in the order VllmRunner.command writes them: the
-    # preview is the server's line, and test_vllm_shell_line.py pins the same strings on the server.
+    # preview is the server's line, and contract/runner_lines.json holds the same strings for the program.
     ('vllm_recipe_flags_in_the_servers_order',
      'F({ "te-VLLM_MODEL": { value: "m" }, "te-MAX_NUM_SEQS": { value: " 8 " }, "te-KV_CACHE_DTYPE": { value: " FP8 " },'
      ' "te-REASONING_PARSER": { value: " nano_v3 " }, "te-TENSOR_PARALLEL": { value: "2" }, "te-TRUST_REMOTE_CODE": { checked: true } });',
@@ -505,6 +510,13 @@ PINS = [
      '"$HOME/vllm-venv/bin/vllm serve m --host 0.0.0.0 --port \\"$PORT\\" --served-model-name m --tensor-parallel-size 2 --max-num-seqs 8 --kv-cache-dtype fp8'
      ' --reasoning-parser nano_v3 --trust-remote-code"',
      'positive: три флага рецепта — после --tensor-parallel-size и перед --trust-remote-code (он остаётся последним); значения обрезаны, тип KV — строчными, как у сервера'),
+    ('vllm_offload_flag',
+     'F({});',
+     '[{ "te-CPU_OFFLOAD_GB": { value: " 12 " } }, { "te-CPU_OFFLOAD_GB": { value: "7.5" } }, { "te-CPU_OFFLOAD_GB": { value: "0" } }, { "te-CPU_OFFLOAD_GB": { value: "" } },'
+     ' { "te-REASONING_PARSER": { value: "qwen3" }, "te-CPU_OFFLOAD_GB": { value: "12" }, "te-TRUST_REMOTE_CODE": { checked: true } }]'
+     '.map((fields) => { F({ "te-VLLM_MODEL": { value: "m" }, ...fields }); return le.buildVllmCommandPreview("te-").split(" --served-model-name m")[1]; })',
+     '[" --cpu-offload-gb 12"," --cpu-offload-gb 7.5","",""," --reasoning-parser qwen3 --cpu-offload-gb 12 --trust-remote-code"]',
+     'positive: веса в RAM — флаг в том порядке, что пишет сервер (contract/runner_lines.json); negative: 0 и пусто — флага нет'),
     ('vllm_recipe_flags_alone_and_empty',
      'F({});',
      '[{ "te-MAX_NUM_SEQS": { value: "16" } }, { "te-KV_CACHE_DTYPE": { value: "fp8_e5m2" } }, { "te-REASONING_PARSER": { value: "deepseek_r1" } },'
@@ -1088,27 +1100,12 @@ PINS = [
      'le.runnerFixedVramGb("llama-server")',
      '0',
      'boundary: реестр ещё не пришёл (встроенная пара) — плана нет, ноль, без ошибки'),
-    ('cp_table',
+    ('cp_gone',
      '',
-     'le.COMMAND_PRESETS.map((p) => [p.id, p.COMMAND, p.HEALTH_PATH])',
-     '[["",null,null],["whisper","bash ~/run_whisper.sh $PORT large-v3","/health"],["tts-xtts","bash ~/run_tts.sh $PORT xtts","/health"],["tts-f5","bash ~/run_tts.sh $PORT f5","/health"],["tts-cosyvoice","bash ~/run_tts.sh $PORT cosyvoice","/health"]]',
-     'positive: COMMAND_PRESETS: таблица [id, COMMAND, HEALTH_PATH]; у плейсхолдера COMMAND/HEALTH_PATH отсутствуют (JSON печатает null)'),
-    ('cp_placeholder_labelKey',
-     '',
-     'le.COMMAND_PRESETS[0].labelKey',
-     '"cmdPresetPlaceholder"',
-     'positive: COMMAND_PRESETS: плейсхолдер несёт labelKey cmdPresetPlaceholder вместо label'),
-    ('cp_labels',
-     '',
-     'le.COMMAND_PRESETS.map((p) => p.label)',
-     '[null,"whisper · faster-whisper (large-v3)","tts · XTTS-v2 (voice clone) — non-commercial","tts · F5-TTS (voice clone) — MIT code, NC base model","tts · CosyVoice2 (voice clone) — Apache-2.0"]',
-     'positive: COMMAND_PRESETS: подписи пресетов с лицензией в тексте; у плейсхолдера label отсутствует (null в JSON)'),
-    ('cp_no_voice_presets',
-     '',
-     'le.COMMAND_PRESETS.filter((p) => String(p.id).startsWith("voice-") || /personaplex|lfm|omni|step-audio|qwen3/i.test(String(p.COMMAND))).map((p) => p.id)',
-     '[]',
-     'negative: голосовых серверов среди пресетов командной ячейки нет — это раннеры (PersonaPlex, LFM2.5-Audio, Step-Audio 2, '
-     'Qwen3-Omni, llama.cpp-omni, 1.3.553), и «кнопка-команда» вместо сервера в списке — ровно то, что владелец отверг 2026-10-15'),
+     '[typeof le.COMMAND_PRESETS, typeof le.populateCommandPresets]',
+     '["undefined","undefined"]',
+     'the command tab has no presets (1.3.611): whisper and the TTS engines are runners of their own; negative: no button '
+     'that pastes a command stands in for a server — what the owner turned down on 2026-10-15 and 2026-10-21'),
     ('cap_h200',
      '',
      'le.gpuComputeCap("NVIDIA H200")',
@@ -1356,6 +1353,15 @@ PINS += [
      ' onMachine(false); const other = rc.formOnControllerMachine("tr-"); off(); return [own, noForm, other]; })()',
      '[true,false,false]',
      'форма ячейки на машине контроллера (controllerMachine её узла) — её файлы это файлы контроллера; negative: префикс, за которым нет формы ячейки, — нет (своей формы у контроллера нет с шага 6.9); другая машина — нет, даже если флаг у соседнего узла'),
+    ('form_keeps_a_model_its_list_does_not_offer',
+     _ON,
+     '(() => { const added = []; const sel = { tagName: "SELECT", options: [{ value: "a.gguf" }], value: "", dataset: {}, appendChild(o) { added.push(o.value); this.options.push(o); } };'
+     ' const made = document.createElement; document.createElement = () => ({ value: "", textContent: "" }); F({ "tr-MODEL_FILE": sel });'
+     ' try { le.applyConfigToForm({ MODEL_FILE: "not/offered/here" }, "tr-"); } catch (e) {} const first = [sel.value, [...added]];'
+     ' added.length = 0; try { le.applyConfigToForm({ MODEL_FILE: "a.gguf" }, "tr-"); } catch (e) {} const offered = [sel.value, [...added]];'
+     ' added.length = 0; try { le.applyConfigToForm({ MODEL_FILE: "" }, "tr-"); } catch (e) {} document.createElement = made; return [first, offered, [sel.value, added]]; })()',
+     '[["not/offered/here",["not/offered/here"]],["a.gguf",[]],["",[]]]',
+     'значение, которого нет в списке, остаётся значением поля: select принял бы его за пустоту; negative: то, что в списке, не дублируется, и пустое ничего не добавляет'),
     ('frcm_seamless_panel',
      _ON + ' const panel = (flag) => { onMachine(flag); F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
      ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: "seamless" }, "tr-seamlessFields": { style: {} } });'
@@ -1383,6 +1389,19 @@ PINS += [
      '[[false,false],[false,false]]',
      'defect-history: вкладка seamless открыта в форме любой машины — до 1.3.512 серой была везде, кроме машины '
      'контроллера, хотя скаут 2.30 приносит папку модели сам'),
+    ('optional_toggles_stated_by_the_config_that_fills_the_form',
+     '',
+     'await (async () => { const fm = await import(pathToFileURL(process.env.JS_ROOT + "/form.js").href);'
+     ' const boxes = () => Object.fromEntries(cst.toggleFields.map((k) => ["tr-" + k, { type: "checkbox", checked: false }]));'
+     ' cst.dirtyOptionalToggles.clear(); cst.dirtyOptionalToggles.add("WARMUP");'
+     ' F(boxes()); try { le.applyConfigToForm({ KV_OFFLOAD: "0", MMAP: "1", FIT: " " }, "tr-"); } catch (e) {}'
+     ' const marks = [...cst.dirtyOptionalToggles].sort(); const read = fm.readConfigForm("tr-");'
+     ' const r = [marks, [read.KV_OFFLOAD, read.MMAP, read.FIT, read.WARMUP], globalThis.__fields["tr-WARMUP"].checked]; cst.dirtyOptionalToggles.clear(); return r; })()',
+     '[["KV_OFFLOAD","MMAP"],["0","1","",""],true]',
+     'defect-history (1.3.625): необязательный переключатель читается заданным, только пока помечен, а метки жили от того, что '
+     'страница трогала последним: ячейка с KV_OFFLOAD "0" теряла его на следующем «Применить» со свежей страницы, а тронутый для '
+     'одной ячейки переключатель приходил заданным в следующую; теперь метки ставит конфиг, которым заполнена форма; negative: '
+     'не заданный конфигом (WARMUP, пробелы у FIT) — не задан, хотя коробка нарисована умолчанием сервера'),
     ('model_name_loads_the_cells_own',
      '',
      '(() => { const load = (config) => { F({ "tr-MODEL_NAME": { value: "left over" } }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
@@ -1410,11 +1429,12 @@ PINS += [
      'три поля рецепта vLLM получают (?) с подсказкой из словаря (_STATIC_TIP_FIELDS); negative: имя без подсказки в словаре метки не получает'),
     ('trust_remote_code_loads_the_cells_own',
      '',
-     '(() => { const load = (config) => { F({ "tr-TRUST_REMOTE_CODE": { checked: true } }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
-     ' return globalThis.__fields["tr-TRUST_REMOTE_CODE"].checked; };'
+     '(() => { const load = (config) => { const box = { id: "tr-TRUST_REMOTE_CODE", tagName: "INPUT", type: "checkbox", checked: true, defaultChecked: false };'
+     ' F({ "tr-vllmFields": { style: {}, querySelectorAll: () => [box] }, "tr-TRUST_REMOTE_CODE": box }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
+     ' return box.checked; };'
      ' return [load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "1" }), load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "true" }), load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "" }), load({ RUNNER: "vllm" }), load({ RUNNER: "vllm", TRUST_REMOTE_CODE: "0" })]; })()',
      '[true,true,false,false,false]',
-     'TRUST_REMOTE_CODE ячейки открывается как сохранён: «1» и «true» — отмечено; negative: пусто, нет поля и «0» — не отмечено, а не флажок, оставшийся отмеченным от другой ячейки (код авторов модели без слова оператора не запускается)'),
+     'TRUST_REMOTE_CODE ячейки открывается как сохранён: «1» и «true» — отмечено; negative: пусто, нет поля и «0» — не отмечено, а не флажок, оставшийся отмеченным от другой ячейки (код авторов модели без слова оператора не запускается). Флажок — в своей панели, как на странице: без неё цикл панелей до него не доходил, и пин был зелёным по везению'),
     ('runner_tab_not_for_engines',
      ' const tabsOf = (runners) => { st.setState({ ...st.state, runners }); const wrap = { innerHTML: "" };'
      ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
@@ -1429,8 +1449,16 @@ PINS += [
      ' "tr-RUNNER": { value: "vllm" }, "tr-MODEL_FILE": { value: "org/Qwen-ST" }, "tr-VLLM_MODEL": { style: {}, previousElementSibling: null } });'
      ' try { le.renderRunnerTabs("tr-"); } catch (e) {} off(); return globalThis.__fields["tr-VLLM_MODEL"].style.display; };',
      '[field(true), field(false)]',
-     '["none",""]',
-     'поле пути vLLM прячется, когда путь выводится из выбранной папки — в форме машины контроллера; negative: на другой машине оно видно, путь вводят руками'),
+     '["none","none"]',
+     'поле пути vLLM прячется, когда модель выбрана в списке, на любой машине: путь выводится из выбора (негативный случай — пустой выбор, HF-репозиторий — следующий пин)'),
+    ('frcm_vllm_field_shown_with_nothing_picked',
+     _ON + ' const field = (flag) => { onMachine(flag); st.setState({ ...st.state, runners: [{ id: "vllm", labelKey: "runnerVllm", artifacts: ["*"] }] });'
+     ' const wrap = { innerHTML: "" }; F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "vllm" }, "tr-MODEL_FILE": { value: "" }, "tr-VLLM_MODEL": { style: {}, previousElementSibling: null } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} off(); return globalThis.__fields["tr-VLLM_MODEL"].style.display; };',
+     '[field(true), field(false)]',
+     '["",""]',
+     'negative: ничего не выбрано — поле видно: туда вписывают HF-репозиторий или путь на машине'),
     ('frcm_vllm_path_from_folder',
      _ON + ' const pick = (flag) => { onMachine(flag); st.setState({ ...st.state, config: {}, paths: { modelsDir: "/m" },'
      ' artifacts: [{ path: "org/Qwen-ST", name: "Qwen-ST", format: "safetensors", arch: "qwen2" }], runners: [{ id: "vllm", labelKey: "runnerVllm", artifacts: ["*"] }] });'
@@ -1440,8 +1468,21 @@ PINS += [
      ' try { le.wireCellKindToggle("tr-"); } catch (e) {} try { onChange && onChange(); } catch (e) {}'
      ' const v = globalThis.__fields["tr-VLLM_MODEL"].value; off(); return v; };',
      '[pick(true), pick(false)]',
-     '["/m/org/Qwen-ST",""]',
-     'выбрана папка safetensors — путь vLLM выводится из неё в форме машины контроллера; negative: на другой машине путь не подставляется — её дерево другое'),
+     '["/m/org/Qwen-ST","org/Qwen-ST"]',
+     'выбрана папка safetensors — на машине контроллера это путь его дерева моделей; на другой машине — место среди моделей контроллера: скаут принесёт модель или покажет её, и строка возьмёт её оттуда. Пути на чужой машине форма не выдумывает'),
+    ('vllm_preview_says_where_a_placed_model_is_read',
+     'st.setState({ ...st.state, artifacts: [{ path: "org/Qwen-ST", name: "Qwen-ST" }] });'
+     ' const line = (said) => { F({ "tr-VLLM_MODEL": { value: said } }); return le.buildVllmCommandPreview("tr-").split(" ").slice(2, 3)[0]; };',
+     '[line("org/Qwen-ST"), line("org/Qwen-ST/"), line("Qwen/Qwen2.5-7B"), line("/mnt/x")]',
+     '["\\"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\\"/org/Qwen-ST","\\"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\\"/org/Qwen-ST/","Qwen/Qwen2.5-7B","/mnt/x"]',
+     'предпросмотр говорит то же, что настоящая строка: место среди моделей контроллера читается оттуда, куда их принёс скаут; negative: HF-репозиторий и путь на машине остаются как написаны'),
+    ('vllm_cell_opens_on_its_place_or_its_path_in_the_picker',
+     'st.setState({ ...st.state, paths: { modelsDir: "/m" }, artifacts: [{ path: "org/Qwen-ST", name: "Qwen-ST" }], runners: [{ id: "vllm", labelKey: "runnerVllm", artifacts: ["*"] }] });'
+     ' const opened = (said) => { const sel = { tagName: "SELECT", options: [{ value: "org/Qwen-ST" }], value: "", dataset: {}, appendChild() {} }; F({ "tr-MODEL_FILE": sel });'
+     ' try { le.applyConfigToForm({ RUNNER: "vllm", VLLM_MODEL: said }, "tr-"); } catch (e) {} return sel.value; };',
+     '[opened("org/Qwen-ST"), opened("/m/org/Qwen-ST"), opened("Qwen/Qwen2.5-7B")]',
+     '["org/Qwen-ST","org/Qwen-ST",""]',
+     'открытая ячейка vLLM показывает в списке свою модель, названную местом или путём; negative: HF-репозиторий не модель библиотеки — список пуст'),
 ]
 
 
@@ -1450,7 +1491,7 @@ PINS += [
 # The preview mirrors StrataRunner.command on the server; the expected text is
 # that method's own answer, so the two cannot drift apart unnoticed.
 sys.path.insert(0, str(ROOT))
-from caravan.domain.runner import get as _runner  # noqa: E402
+from _contract import Contract, RunnerLines  # noqa: E402
 
 _S_FIRST = "Q/I/IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf"
 _S_FULL = {"MODEL_FILE": _S_FIRST, "SPEC_DRAFT_MODEL_FILE": "Q/I/IQ2_XS/mtp-q2_0.gguf", "STRATA_CONTEXT": "65536",
@@ -1472,14 +1513,39 @@ PINS += [
     ('strata_preview_mirrors_server',
      _strata_fields(_S_FULL),
      'le._buildCommandExecPreview("tr-")',
-     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + _runner("strata").command(_S_FULL)),
+     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + RunnerLines.of("strata", _S_FULL)),
      'превью Strata — та же строка, что строит сервер (StrataRunner.command): обе части пути, черновик, окно, KV, '
      'словарь, запас VRAM, имя'),
     ('strata_preview_defaults',
      _strata_fields(_S_BARE),
      'le._buildCommandExecPreview("tr-")',
-     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + _runner("strata").command(_S_BARE)),
-     'пустые поля — те же значения по умолчанию, что у сервера: 131072, int8, cyrillic; без черновика, запаса и имени'),
+     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + RunnerLines.of("strata", _S_BARE)),
+     'пустые поля — те же значения по умолчанию, что у сервера: int8, cyrillic; без черновика, запаса и имени; окна модель '
+     'не назвала (её нет в библиотеке) — и --context нет: лаунчер возьмёт окно своей модели'),
+    ('strata_preview_trained_window',
+     'st.setState({ ...st.state, models: [{ path: ' + json.dumps(_S_FIRST) + ', ggufMeta: { contextLength: 262144 } }] }); '
+     + _strata_fields(_S_BARE),
+     'le._buildCommandExecPreview("tr-")',
+     json.dumps("export PORT=22009\n" + _S_NOTE + "\nexec " + RunnerLines.of("strata", _S_BARE, trained=262144)),
+     'пустое поле окна, модель в библиотеке обучена на 262144 — --context 262144, как у сервера (StrataRunner.command с '
+     'окном обучения); было 131072 — половина окна модели (владелец, 2026-10-26)'),
+    ('window_placeholder_is_the_models_most',
+     'st.setState({ ...st.state, runners: [{ id: "llama-server", labelKey: "runnerLlama", artifacts: ["llm-gguf"], modelField: "MODEL_FILE" },'
+     ' { id: "strata", labelKey: "runnerStrata", contextField: "STRATA_CONTEXT", modelField: "MODEL_FILE" },'
+     ' { id: "vllm", labelKey: "runnerVllm", contextField: "MAX_MODEL_LEN", modelField: "VLLM_MODEL" }],'
+     ' models: [{ path: ' + json.dumps(_S_FIRST) + ', ggufMeta: { contextLength: 262144 } }, { path: "Qwen/Qwen3-8B/BF16", contextLength: 40960 }] }); '
+     'F({ "tr-RUNNER": { value: "strata" }, "tr-MODEL_FILE": { value: ' + json.dumps(_S_FIRST) + ' }, "tr-STRATA_CONTEXT": { value: "65536", placeholder: "131072" },'
+     ' "tr-VLLM_MODEL": { value: "Qwen/Qwen3-8B/BF16" }, "tr-MAX_MODEL_LEN": { value: "", placeholder: "32768 — empty = model default" },'
+     ' "tr-CTX_SIZE": { value: "", placeholder: "4096" } });',
+     '(() => { const f = globalThis.__fields; const out = []; le.syncWindowPlaceholder("tr-"); out.push(f["tr-STRATA_CONTEXT"].placeholder);'
+     ' f["tr-MODEL_FILE"].value = "elsewhere/x-00001-of-00002.gguf"; le.syncWindowPlaceholder("tr-"); out.push(f["tr-STRATA_CONTEXT"].placeholder);'
+     ' f["tr-RUNNER"].value = "vllm"; le.syncWindowPlaceholder("tr-"); out.push(f["tr-MAX_MODEL_LEN"].placeholder);'
+     ' f["tr-RUNNER"].value = "llama-server"; le.syncWindowPlaceholder("tr-"); out.push(f["tr-CTX_SIZE"].placeholder);'
+     ' return out; })()',
+     '["262144","","40960","4096"]',
+     'подсказка поля окна — всегда максимум модели (владелец, 2026-10-26), даже когда в поле стоит число: Strata — окно из '
+     'заголовка GGUF (было «131072» в разметке), vLLM — из конфига чекпойнта (было «32768», ничьё число); negative: модель '
+     'библиотеке не известна — подсказки нет, а не выдуманное число; у CTX_SIZE своя синхронизация — её не трогают'),
     ('strata_gguf_kind',
      _S_REG,
      '[le.ggufKind({ sttVariant: "gigaam" }), le.ggufKind({ architecture: "qwen4exp" }),'
@@ -1520,6 +1586,15 @@ PINS += [
      ' f["tr-strataDraft"].textContent.includes("mtp-q2_0.gguf")]; })()',
      '["","none","",\"on\",true]',
      'раннер Strata: её панель видна, флаги llama.cpp скрыты, справа — превью команды; панель называет слой черновика'),
+    ('strata_keeps_its_models_by_its_folder',
+     _S_REG.replace('ggufArchs: ["qwen4exp"] }', 'ggufArchs: ["qwen4exp"], workFolder: true }')
+     + ' globalThis.__panel = (runner) => { F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-CELL_KIND": { value: "" }, "tr-RUNNER": { value: runner }, "tr-cacheRow": { style: {} }, "tr-cacheByFolder": { style: {} } });'
+     ' try { le.applyCellKindUI("tr-"); } catch (e) {} const f = globalThis.__fields; return [f["tr-cacheRow"].style.display, f["tr-cacheByFolder"].style.display]; };',
+     '[__panel("strata"), __panel("llama-server")]',
+     '[["none",""],["","none"]]',
+     'раннер, что держит модели в своей папке (workFolder, Strata): переключателя «хранить модель» нет, вместо него слова, где она лежит '
+     '(владелец, 2026-11-03); negative: у llama.cpp переключатель на месте, слов нет'),
     ('cache_switch_opens_on_cell',
      'globalThis.__open = (slot) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: slot ? [slot] : [] }] });'
      ' F({ "tr-cacheModels": { checked: false, type: "checkbox" } });'
@@ -1540,10 +1615,9 @@ PINS += [
      '54 GiB падал с «native (IQ) pack needs --spec»)'),
 ]
 
-from caravan.domain.runner import registry_json as _registry_json  # noqa: E402
 
 #: The server's registry, as the page receives it: the folder kinds come from its stArchs.
-_REG = "st.setState({ ...st.state, runners: " + json.dumps(_registry_json()) + " });"
+_REG = "st.setState({ ...st.state, runners: " + json.dumps(Contract.table("controller")["runners"]) + " });"
 _G_FULL = {"MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16/", "GR00T_BACKBONE": "/srv/models/Cosmos-Reason2-2B/nvidia/BF16",
            "GR00T_EMBODIMENT": "XDOF", "GR00T_DENOISING_STEPS": "8", "MODEL_NAME": "gr00t-n1.7"}
 _G_BARE = {"MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16"}
@@ -1559,13 +1633,13 @@ PINS += [
     ('gr00t_preview_mirrors_server',
      _gr00t_fields(_G_FULL),
      'le._buildCommandExecPreview("tr-")',
-     json.dumps("export PORT=22011\n" + _G_NOTE + "\nexec " + _runner("gr00t").command(_G_FULL)),
+     json.dumps("export PORT=22011\n" + _G_NOTE + "\nexec " + RunnerLines.of("gr00t", _G_FULL)),
      'превью GR00T — та же строка, что строит сервер (Gr00tRunner.command): папка чекпойнта без хвостового «/», '
      'своя основа, робот, шаги, имя'),
     ('gr00t_preview_defaults',
      _gr00t_fields(_G_BARE),
      'le._buildCommandExecPreview("tr-")',
-     json.dumps("export PORT=22011\n" + _G_NOTE + "\nexec " + _runner("gr00t").command(_G_BARE)),
+     json.dumps("export PORT=22011\n" + _G_NOTE + "\nexec " + RunnerLines.of("gr00t", _G_BARE)),
      'пустые поля — основа Cosmos из библиотеки и робот DROID, как у сервера'),
     ('st_kind_from_the_registry',
      _REG,
@@ -1582,8 +1656,8 @@ PINS += [
 ]
 
 # The five voice servers (1.3.553): the launcher runners. The preview is held to the server's line over the table the
-# runners' own test keeps (test_launcher_runners.py CASES), and the tabs to the kinds the registry names.
-import test_launcher_runners as _lr  # noqa: E402
+# program is held to (contract/runner_lines.json), and the tabs to the kinds the registry names.
+_LINES = [row for row in Contract.table("runner_lines")["lines"] if "name" in row]
 
 _L_NOTE = "# the launcher installs its engine at the first start (minutes); the scout brings the model's folder"
 
@@ -1593,7 +1667,7 @@ def _launcher_fields(runner, cfg):
     return "F({" + ", ".join(f'"tr-{k}": {{ value: {json.dumps(v)} }}' for k, v in pairs.items()) + "});"
 
 
-for _i, (_name, _rid, _cfg, _line) in enumerate(_lr.CASES):
+for _i, (_name, _rid, _cfg, _line) in enumerate((r["name"], r["runner"], r["config"], r["line"]) for r in _LINES if r["runner"] != "voice-clone"):
     PINS.append((f'launcher_preview_{_i}_{_rid.replace("-", "_")}', _REG + _launcher_fields(_rid, _cfg),
                  'le._buildCommandExecPreview("tr-")',
                  json.dumps("export PORT=22012\n" + _L_NOTE + "\nexec " + _line),
@@ -1709,6 +1783,116 @@ PINS += [
      'negative: not another runner\'s'),
 ]
 
+# The voice-clone runner (1.3.611): its preview is held to the line the server builds over the table the program is held to
+# (contract/runner_lines.json), and its panel is shown for it alone.
+
+_VC_NOTE = "# the first start makes ~/tts-<engine> and fetches the engine's weights (10–20 minutes)"
+for _i, (_name, _cfg, _line) in enumerate((r["name"], r["config"], r["line"]) for r in _LINES if r["runner"] == "voice-clone"):
+    PINS.append((f'voice_clone_preview_{_i}', _REG + _launcher_fields("voice-clone", _cfg),
+                 'le._buildCommandExecPreview("tr-")',
+                 json.dumps("export PORT=22012\n" + _VC_NOTE + "\nexec " + _line),
+                 f"the preview is the line the server builds (VoiceCloneRunner.command): {_name}"))
+
+PINS.append(('voice_clone_engine_loads', '',
+             '(() => { const load = (config) => { F({ "tr-TTS_ENGINE": { value: "cosyvoice" } }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
+             ' return globalThis.__fields["tr-TTS_ENGINE"].value; };'
+             ' return [load({ RUNNER: "voice-clone", TTS_ENGINE: "F5" }), load({ RUNNER: "voice-clone", TTS_ENGINE: "" }), load({ RUNNER: "voice-clone" })]; })()',
+             '["f5","xtts","xtts"]',
+             "the engine opens as saved, in the select's own case; negative: a config that names none opens on the launcher's "
+             "default, not blank and not the engine of the cell opened before"))
+_VC_PANELS = ' "tr-CELL_KIND": { value: "" }, "tr-llamaFields": { style: {} }, "tr-voiceCloneFields": { style: {} }, "tr-seamlessFields": { style: {} } });'
+PINS += [
+    ('voice_clone_panel', _REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "voice-clone" },' + _VC_PANELS + ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-voiceCloneFields"].style.display, f["tr-seamlessFields"].style.display,'
+     ' f["tr-llamaFields"].style.display]; })()',
+     json.dumps(["", "none", "none"]),
+     'the voice-clone tab shows its engine and no other runner\'s panel, and no llama.cpp flags'),
+    ('voice_clone_panel_not_for_others', _REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "seamless" },' + _VC_PANELS + ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-voiceCloneFields"].style.display, f["tr-seamlessFields"].style.display]; })()',
+     json.dumps(["none", ""]),
+     'negative: another runner\'s tab keeps the engine shut'),
+]
+
+# The page a cell serves itself (1.3.613): its address is shown for a runner whose registry row says it serves one, and
+# opens as the cell saved it — or empty, never as the cell opened before.
+PINS.append(('page_url_loads', '',
+             '(() => { const load = (config) => { F({ "tr-PAGE_URL": { value: "https://other.example.org" } }); try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
+             ' return globalThis.__fields["tr-PAGE_URL"].value; };'
+             ' return [load({ RUNNER: "personaplex", PAGE_URL: " https://personaplex.example.org " }), load({ RUNNER: "personaplex", PAGE_URL: "" }),'
+             ' load({ RUNNER: "personaplex" })]; })()',
+             '["https://personaplex.example.org","",""]',
+             "the page's address opens as the cell saved it, trimmed; negative: a config that names none opens empty — not "
+             "the address of the cell opened before, which the next Apply would have kept"))
+_PAGE_PANELS = ' "tr-CELL_KIND": { value: "" }, "tr-llamaFields": { style: {} }, "tr-pageFields": { style: {} }, "tr-voiceCloneFields": { style: {} } });'
+PINS += [
+    ('page_panel', _REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "personaplex" },' + _PAGE_PANELS + ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-pageFields"].style.display, f["tr-voiceCloneFields"].style.display,'
+     ' f["tr-llamaFields"].style.display]; })()',
+     json.dumps(["", "none", "none"]),
+     "PersonaPlex's tab shows where its page is reached — its registry row says it serves one — and no llama.cpp flags"),
+    ('page_panel_not_for_others', _REG + ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: () => null, querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "minicpm-omni" },' + _PAGE_PANELS + ' try { le.applyCellKindUI("tr-"); } catch (e) {}',
+     '(() => { const f = globalThis.__fields; return [f["tr-pageFields"].style.display, f["tr-voiceCloneFields"].style.display]; })()',
+     json.dumps(["none", "none"]),
+     "negative: a runner that serves no page keeps the address shut (MiniCPM-o is talked to in the board's own window)"),
+]
+
+# The runner panels as the page has them: each field inside its panel, as index.html draws it — an input with no value
+# of its own (its placeholder shows the launcher's default), a list with one option marked selected, a box unticked. The
+# fields are made once and live across opens, as the page's own do: a form opened on one cell and then on another.
+_PANEL_DOM = (
+    'const input = (id) => ({ id, tagName: "INPUT", type: "text", value: "", defaultValue: "" });'
+    ' const box = (id) => ({ id, tagName: "INPUT", type: "checkbox", checked: false, defaultChecked: false });'
+    ' const select = (id, values, d) => { const el = { id, tagName: "SELECT", type: "select-one",'
+    ' options: values.map((v) => ({ value: v, defaultSelected: v === d })), _v: d };'
+    ' Object.defineProperty(el, "value", { get() { return this._v; }, set(v) { this._v = this.options.some((o) => o.value === String(v)) ? String(v) : ""; } });'
+    ' return el; };'
+    ' const panel = (...els) => ({ style: {}, querySelectorAll: () => els });'
+    ' const G = { backbone: input("tr-GR00T_BACKBONE"), steps: input("tr-GR00T_DENOISING_STEPS"),'
+    ' kv: select("tr-STRATA_KV", ["int8", "q4_0", "k8v4"], "int8"), lang: select("tr-SEAMLESS_TGT_LANG", ["rus", "eng", "deu"], "rus"),'
+    ' trust: box("tr-TRUST_REMOTE_CODE") };'
+    ' F({ "tr-gr00tFields": panel(G.backbone, G.steps), "tr-strataFields": panel(G.kv), "tr-seamlessFields": panel(G.lang),'
+    ' "tr-vllmFields": panel(G.trust), "tr-GR00T_BACKBONE": G.backbone, "tr-GR00T_DENOISING_STEPS": G.steps, "tr-STRATA_KV": G.kv,'
+    ' "tr-SEAMLESS_TGT_LANG": G.lang, "tr-TRUST_REMOTE_CODE": G.trust });'
+    ' const open = (config) => { try { le.applyConfigToForm(config, "tr-"); } catch (e) {}'
+    ' return [G.backbone.value, G.steps.value, G.kv.value, G.lang.value, G.trust.checked]; };'
+)
+_SAVED = '{ RUNNER: "gr00t", GR00T_BACKBONE: "Cosmos-Reason2-2B/nvidia/BF16", GR00T_DENOISING_STEPS: "8", STRATA_KV: "q4_0", SEAMLESS_TGT_LANG: "eng", TRUST_REMOTE_CODE: "1" }'
+PINS += [
+    ('panel_fields_open_as_saved', _PANEL_DOM,
+     'open(' + _SAVED + ')',
+     json.dumps(["Cosmos-Reason2-2B/nvidia/BF16", "8", "q4_0", "eng", True]),
+     'positive: a cell opens on its own panel fields, as saved — text, number, a list, a box'),
+    ('panel_fields_not_left_from_the_cell_before', _PANEL_DOM,
+     '[open(' + _SAVED + '), open({ RUNNER: "gr00t" }), open({ RUNNER: "strata", STRATA_KV: "k8v4" })]',
+     json.dumps([["Cosmos-Reason2-2B/nvidia/BF16", "8", "q4_0", "eng", True], ["", "", "int8", "rus", False], ["", "", "k8v4", "rus", False]]),
+     "negative: a cell whose config does not name a panel field opens on the field's own default — an input empty (its "
+     "placeholder shows the launcher's), a list on its option marked selected, a box unticked — not on what the cell "
+     "opened before left in it, which the next Apply saved as its own (a new cell names none of them)"),
+    ('panel_box_reads_words', _PANEL_DOM,
+     '["1", "true", " Yes ", "ON", "0", "", "no", "false"].map((v) => open({ RUNNER: "vllm", TRUST_REMOTE_CODE: v })[4])',
+     json.dumps([True, True, True, True, False, False, False, False]),
+     'a box reads "1", "true", "yes", "on" (any case, any spaces) as ticked; negative: "0", "", "no", "false" are not — '
+     'a box saved as "0" opened ticked, and the next Apply ran the model\'s own code unasked'),
+    ('panel_field_restores_the_markup', '',
+     '(() => { const sel = (opts) => { const el = { tagName: "SELECT", type: "select-one", options: opts, _v: "zz" };'
+     ' Object.defineProperty(el, "value", { get() { return this._v; }, set(v) { this._v = String(v); } }); return el; };'
+     ' const a = sel([{ value: "x", defaultSelected: false }, { value: "y", defaultSelected: true }]);'
+     ' const b = sel([{ value: "x", defaultSelected: false }, { value: "y", defaultSelected: false }]);'
+     ' const c = sel([]);'
+     ' const t = { tagName: "INPUT", type: "text", value: "left", defaultValue: "drawn" };'
+     ' const u = { tagName: "TEXTAREA", type: "textarea", value: "left", defaultValue: "" };'
+     ' const k = { tagName: "INPUT", type: "checkbox", checked: false, defaultChecked: true };'
+     ' for (const el of [a, b, c, t, u, k]) new le.PanelField(el).restore();'
+     ' return [a.value, b.value, c.value, t.value, u.value, k.checked]; })()',
+     json.dumps(["y", "x", "", "drawn", "", True]),
+     "the markup's own default: the option marked selected, else the first, none for a list with none; an input's value "
+     "attribute, a textarea's text; a box as drawn"),
+]
+
 
 def main():
     if len(PINS) < 40:
@@ -1742,8 +1926,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(probe_path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, probe_path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         probe_path.unlink(missing_ok=True)
     if run.returncode != 0:

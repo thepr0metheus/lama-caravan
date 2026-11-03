@@ -10,6 +10,10 @@
 #              qwen3-omni   Qwen3-Omni-30B-A3B-Instruct as the AWQ 4-bit checkpoint of cyankiwi (the speech stages
 #                           stay bf16). Text, speech, images in; speech out in 10 languages, Russian among them.
 #                           About 30 GiB: the WHOLE card, and no other cell may hold GPU memory while it runs.
+#              qwen3-tts    Qwen3-TTS 12Hz (0.6B or 1.7B; Base, CustomVoice or VoiceDesign — one checkpoint a cell). A
+#                           text in, a voice out through POST /v1/audio/speech, in 10 languages, Russian among them; a
+#                           Base checkpoint speaks in the voice of a sample (ref_audio + ref_text, or one stored with
+#                           POST /v1/audio/voices). About 9 GiB of whichever card it runs on.
 #   model-dir  the checkpoint folder of the models library, as the /hf page lays it out
 #   --install-only  makes the venv and the deploy file, then exits (a first start downloads about 9 GB: minutes)
 #
@@ -30,6 +34,10 @@
 #  * The checkpoint of Step-Audio 2 mini has a `token2wav/` folder (.pt and .onnx files) which the /hf page's plan leaves
 #    out. Without it the engine starts and fails at the first request. The launcher links the library's files into a folder
 #    of its own and fetches that one folder, at the commit this recipe was proven on.
+#  * Qwen3-TTS's stages are given MiB, not shares of a card (2026-10-21): vLLM-Omni's own file gives each 0.3 of the card,
+#    19 GB of a 5090 for a model of 4 GB, so that two of them (a Base and a CustomVoice) did not fit one card together,
+#    and none fitted beside other cells on the 24 GB one. The engine takes shares, so the share is worked out here from
+#    the card the cell runs on. Its talker fills what it is given with its KV cache; its decoder takes what it needs.
 set -euo pipefail
 
 # The flag may stand anywhere: it is taken out first, and what is left is <port> <recipe> <model-dir>.
@@ -45,7 +53,7 @@ MODEL_DIR="${ARGS[2]:-}"
 say() { echo "vllm-omni: $*"; }
 die() { echo "vllm-omni: $*" >&2; exit "${2:-1}"; }
 
-[ -n "$PORT" ] && [ -n "$RECIPE" ] && [ -n "$MODEL_DIR" ] || die "usage: run_vllm_omni.sh <port> <step-audio2|qwen3-omni> <model-dir> [--install-only]" 2
+[ -n "$PORT" ] && [ -n "$RECIPE" ] && [ -n "$MODEL_DIR" ] || die "usage: run_vllm_omni.sh <port> <step-audio2|qwen3-omni|qwen3-tts> <model-dir> [--install-only]" 2
 
 OMNI_HOME="${OMNI_HOME:-$HOME/omni}"
 VENV="${OMNI_VENV:-$HOME/venvs/omni-$RECIPE}"
@@ -141,6 +149,69 @@ platforms:
 YAML
 }
 
+# vLLM-Omni 0.30's own qwen3_tts.yaml with two changes: the stages' budgets (TALKER_SHARE, DECODER_SHARE: worked out
+# from MiB below) and four requests at once where it takes 64.
+yaml_qwen3_tts() {
+  cat <<YAML
+# Two stages on one card: the talker (the words to speech codes; its KV cache fills its budget) and code2wav (the codes
+# to 24 kHz audio), chunk by chunk through shared memory. The first audio leaves after one codec frame.
+model_runner: v2
+async_chunk: true
+connectors:
+  connector_of_shared_memory:
+    name: SharedMemoryConnector
+    extra:
+      codec_streaming: true
+      connector_get_sleep_s: 0.01
+      connector_get_max_wait_first_chunk: 3000
+      connector_get_max_wait: 300
+      codec_chunk_frames: 25
+      codec_left_context_frames: 72
+      initial_codec_chunk_frames: 1
+      decode_batch_max_size: 4
+stages:
+  - stage_id: 0
+    max_num_seqs: 4
+    gpu_memory_utilization: ${TALKER_SHARE}
+    trust_remote_code: true
+    enable_prefix_caching: false
+    async_scheduling: true
+    max_num_batched_tokens: 512
+    max_model_len: 4096
+    devices: "0"
+    output_connectors:
+      to_stage_1: connector_of_shared_memory
+    default_sampling_params: {temperature: 0.9, top_k: 50, max_tokens: 4096, min_tokens: 2, repetition_penalty: 1.05}
+    silence_ban_frames: 0
+    subtalker_sampling_params: {do_sample: true, temperature: 0.9, top_k: 50, top_p: 1.0}
+  - stage_id: 1
+    dtype: bfloat16
+    max_num_seqs: 4
+    gpu_memory_utilization: ${DECODER_SHARE}
+    enforce_eager: false
+    trust_remote_code: true
+    enable_prefix_caching: false
+    async_scheduling: true
+    max_num_batched_tokens: 65536
+    max_model_len: 65536
+    devices: "0"
+    input_connectors:
+      from_stage_0: connector_of_shared_memory
+    default_sampling_params: {temperature: 0.0, top_p: 1.0, top_k: -1, max_tokens: 65536, repetition_penalty: 1.0}
+YAML
+}
+
+# The memory of card $1, MiB. nvidia-smi counts the cards as CUDA does here: every engine starts with
+# CUDA_DEVICE_ORDER=PCI_BUS_ID, the board's numbering.
+card_mib() {
+  local total
+  total="$(nvidia-smi -i "$1" --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n 1 | tr -d ' ')" || true
+  [[ "$total" =~ ^[0-9]+$ ]] && [ "$total" -gt 0 ] || die "cannot read the memory of card $1 with nvidia-smi: the stages' shares of it are unknown"
+  echo "$total"
+}
+
+share_of() { awk -v mib="$1" -v total="$2" 'BEGIN { printf "%.3f", mib / total }'; }
+
 case "$RECIPE" in
   step-audio2)
     NAME="stepfun-ai/Step-Audio-2-mini"
@@ -154,11 +225,34 @@ case "$RECIPE" in
     SERVE_FLAGS=""
     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     ;;
-  *) die "unknown recipe '$RECIPE': step-audio2 or qwen3-omni" 2 ;;
+  qwen3-tts)
+    # One name whatever the checkpoint: the port says which, and a request may name it as its pool does.
+    NAME="qwen3-tts"
+    PACKAGES="vllm==0.30.0 vllm-omni==0.30.0"
+    SERVE_FLAGS=""
+    # The talker's weights are 3.6 GiB at 1.7B (1.7 GiB at 0.6B); the rest of its budget is its KV cache: 17 776 tokens,
+    # four requests of 4096. The decoder took 1.3-1.7 GB with four requests at once (2026-10-22, RTX 3090 and 5090): it
+    # does not fill its budget, but vLLM wants the budget free at its start. Their sum is the runner's vram_mib.
+    TALKER_MIB=6144
+    DECODER_MIB=2560
+    ;;
+  *) die "unknown recipe '$RECIPE': step-audio2, qwen3-omni or qwen3-tts" 2 ;;
 esac
 
 [ -f "$MODEL_DIR/config.json" ] || die "$MODEL_DIR/config.json is missing: download the model on the /hf page first"
 compgen -G "$MODEL_DIR/*.safetensors" >/dev/null || die "$MODEL_DIR holds no .safetensors weights: download the model on the /hf page first"
+
+# Budgets in MiB become shares of the cell's card before anything is installed: a card that cannot hold them says so
+# now. The card is the first the cell sees: the one the cell is pinned to (CUDA_VISIBLE_DEVICES), else the first.
+if [ -n "${TALKER_MIB:-}" ]; then
+  CARD="${CUDA_VISIBLE_DEVICES:-0}"
+  CARD="${CARD%%,*}"
+  CARD_MIB="$(card_mib "$CARD")"
+  [ "$((TALKER_MIB + DECODER_MIB))" -lt "$CARD_MIB" ] \
+    || die "card $CARD has $CARD_MIB MiB, and the two stages of Qwen3-TTS need $((TALKER_MIB + DECODER_MIB))"
+  TALKER_SHARE="$(share_of "$TALKER_MIB" "$CARD_MIB")"
+  DECODER_SHARE="$(share_of "$DECODER_MIB" "$CARD_MIB")"
+fi
 
 # The marker is written when the install is DONE, not when the venv exists: a first start that stopped halfway (the
 # network, a full disk) must not read as installed — the next start would skip the work and fail at its first import.
@@ -173,7 +267,9 @@ if [ ! -f "$VENV/.installed-$RECIPE" ]; then
 fi
 
 mkdir -p "$OMNI_HOME"
-YAML="$OMNI_HOME/$RECIPE.yaml"
+# One file a cell, by its port: two cells of one recipe on two cards are given two budgets, and a file the second
+# rewrote while the first was starting gave the first the second card's shares (found live, 2026-10-22).
+YAML="$OMNI_HOME/$RECIPE-$PORT.yaml"
 "yaml_${RECIPE//-/_}" > "$YAML"
 
 SERVE_DIR="$MODEL_DIR"
@@ -197,7 +293,10 @@ if [ -n "$INSTALL_ONLY" ]; then
 fi
 
 say "serving $NAME on port $PORT: weights from $SERVE_DIR"
-export PATH="$VENV/bin:$PATH" VLLM_WORKER_MULTIPROC_METHOD=spawn MAX_JOBS="${MAX_JOBS:-4}"
+# Any name a client gives the model is this one: a cell serves one model, and the caravan routes by its port. A pool
+# that leads here is named by the operator (Open WebUI sends the pool's name), and vLLM answered every name but its
+# own `--served-model-name` with 404 "The model ... does not exist" (2026-10-22).
+export PATH="$VENV/bin:$PATH" VLLM_WORKER_MULTIPROC_METHOD=spawn MAX_JOBS="${MAX_JOBS:-4}" VLLM_SKIP_MODEL_NAME_VALIDATION=1
 cd "$OMNI_HOME"
 # shellcheck disable=SC2086
 exec vllm serve "$SERVE_DIR" --omni --served-model-name "$NAME" --host 0.0.0.0 --port "$PORT" \

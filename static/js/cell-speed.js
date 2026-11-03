@@ -29,6 +29,12 @@ export class CellSpeed {
     this.speed = this.running && Number.isFinite(speed) && speed > 0 ? speed : 0;
     this.working = this.running && this.requests !== null && this.requests > 0;
     this.held = this.speed > 0 && !this.working;
+    // Its server answered that it keeps no metrics (the scout heard 404 or 501, 2.41 — llama.cpp started without --metrics): no
+    // speed and no count can come, and the window says the speed is not measured — not that no request came, which is what it
+    // said on Hermes while Hermes answered (the owner, 2026-10-26). Only a true is the fact; anything else is not told.
+    this.unmeasured = this.running && s.noMetrics === true;
+    // Whether the cell's next start brings them: the controller reads its box by the builder's own rule (topology.py metricsNext).
+    this.measuredNext = this.unmeasured && s.metricsNext === true;
   }
 
   /** The words on the line: the speed, its number written by `format` (the board's formatTps), with `last` before it when it is held. */

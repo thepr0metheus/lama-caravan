@@ -78,9 +78,13 @@ export const advancedTabDefs = [
 // default Params tab for visibility — see renderFields().
 // Toggles that stay UNSTATED until the operator touches them: the binary
 // already has a default, and writing our own would turn a default into a
-// decision nobody made.
-export const optionalToggleFields = ["CPU_STRICT", "KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_PROPS", "ENABLE_SLOTS", "SKIP_CHAT_PARSING", "ENABLE_THINKING", "OP_OFFLOAD", "REPACK", "WARMUP"];
-export const defaultOnOptionalToggles = ["KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_SLOTS", "ENABLE_THINKING", "OP_OFFLOAD", "REPACK", "WARMUP"];
+// decision nobody made. ENABLE_METRICS is the one whose default is the
+// caravan's: the binary keeps no metrics, and the builder starts a cell with
+// them unless its box says off (config_builder.py) — the caravan reads speed,
+// queue and context use there. Its box came from the controller's own config,
+// empty since the move to the NAS, and every cell made since started without.
+export const optionalToggleFields = ["CPU_STRICT", "KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_PROPS", "ENABLE_SLOTS", "SKIP_CHAT_PARSING", "ENABLE_THINKING", "OP_OFFLOAD", "REPACK", "WARMUP", "ENABLE_METRICS"];
+export const defaultOnOptionalToggles = ["KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_SLOTS", "ENABLE_THINKING", "OP_OFFLOAD", "REPACK", "WARMUP", "ENABLE_METRICS"];
 // Closed value sets rendered as a <datalist> beside the plain input: they stay
 // free text (an unknown future value must remain typeable) while every legal
 // value is discoverable. SPEC_TYPE is the field the whole speculative-decoding

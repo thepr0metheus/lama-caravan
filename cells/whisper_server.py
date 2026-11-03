@@ -5,8 +5,9 @@ Serves POST /v1/audio/transcriptions (multipart wav -> {"text": ...}) on your GP
 
 The skeleton — argv, the port, the loading thread, /health with its required
 fields, and the rule that a failure never answers success — lives in
-cell_base.CellServer. What stays here is what makes this cell whisper: the
-download-with-progress hook, the multipart parsing, and the transcription.
+cell_base.CellServer, and so does the reading of a multipart form (cell_base.Form).
+What stays here is what makes this cell whisper: the download-with-progress hook
+and the transcription.
 
 Setup (on the GPU box):
     python3 -m venv ~/wsr && ~/wsr/bin/pip install faster-whisper \\
@@ -19,7 +20,7 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cell_base import CellServer   # noqa: E402
+from cell_base import CellServer, Form   # noqa: E402
 
 
 class WhisperCell(CellServer):
@@ -80,9 +81,10 @@ class WhisperCell(CellServer):
         return huggingface_hub.snapshot_download(repo, tqdm_class=_T)
 
     def handle(self, body, headers, path):
-        wav = _extract_file(body, headers.get("Content-Type", ""))
-        lang = _field(body, "language")
-        task = _field(body, "task")           # "translate" -> whisper any->en
+        form = Form(body, headers.get("Content-Type", ""))
+        wav = form.file()
+        lang = form.field("language")
+        task = form.field("task")             # "translate" -> whisper any->en
         # WHEN each word was said. A live transcriber re-runs this on a growing
         # buffer and, once a sentence has settled, wants to drop the audio it
         # already covered — which it can only do if it knows where that sentence
@@ -93,9 +95,8 @@ class WhisperCell(CellServer):
         # Off unless asked. Word timestamps cost an extra alignment pass, and
         # the answer for everyone who does not ask stays byte-for-byte what it
         # was — this endpoint has LAN clients that predate the field.
-        fmt = (_field(body, "response_format") or "json").strip().lower()
-        grans = [g.strip().lower() for g in _fields(body, "timestamp_granularities[]")
-                 + _fields(body, "timestamp_granularities")]
+        fmt = (form.field("response_format") or "json").strip().lower()
+        grans = [g.strip().lower() for g in form.fields("timestamp_granularities")]
         want_words = "word" in grans
         # Segments are needed by every format that carries timing, not just the
         # verbose one — srt and vtt ARE segment lists, just written differently.
@@ -176,54 +177,6 @@ class WhisperCell(CellServer):
             if want_words:
                 payload["words"] = out_words
         return 200, json.dumps(payload).encode(), "application/json"
-
-
-def _boundary(ctype):
-    for part in ctype.split(";"):
-        part = part.strip()
-        if part.startswith("boundary="):
-            return part[len("boundary="):].strip('"')
-    return None
-
-
-def _extract_file(body, ctype):
-    b = _boundary(ctype)
-    if not b:
-        return None
-    sep = b"--" + b.encode()
-    for part in body.split(sep):
-        head, _, rest = part.partition(b"\r\n\r\n")
-        if b"filename=" in head and rest:
-            return rest.rsplit(b"\r\n", 1)[0]
-    return None
-
-
-def _fields(body, name):
-    """EVERY value sent under this field name, in order.
-
-    Repeated names are normal in this API — `timestamp_granularities[]` is sent
-    once per granularity, so a client asking for both segment and word sends two
-    parts. Reading only the first would silently drop whichever came second.
-    """
-    key = ('name="%s"' % name).encode()
-    out, at = [], 0
-    while True:
-        i = body.find(key, at)
-        if i < 0:
-            return out
-        s = body.find(b"\r\n\r\n", i)
-        if s < 0:
-            return out
-        s += 4
-        e = body.find(b"\r\n", s)
-        if e > s:
-            out.append(body[s:e].decode(errors="replace"))
-        at = e if e > i else i + len(key)
-
-
-def _field(body, name):
-    vals = _fields(body, name)
-    return vals[0] if vals else None
 
 
 def _ts(seconds, comma=False):

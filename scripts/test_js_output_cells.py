@@ -22,17 +22,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
-sys.path.insert(0, str(ROOT))
-from caravan.proxy.capacity import route_group_key  # noqa: E402
-
-# One table for the proxy's queue name and the board's (1.3.506): the twins must agree.
-UPSTREAMS = [{"upstreamHost": "10.0.0.9", "upstreamPort": 22001, "upstreamType": "llama"},
-             {"upstreamHost": "10.0.0.9", "upstreamPort": 11434, "upstreamType": "engine", "upstreamModel": "qwen3:8b"},
-             {"upstreamHost": "10.0.0.9", "upstreamPort": 8092, "upstreamType": "machine", "upstreamModel": "gemma"},
-             {"upstreamHost": "10.0.0.9", "upstreamPort": 8092, "upstreamType": "machine", "upstreamModel": "org/m:q4"},
-             {"upstreamHost": "10.0.0.9", "upstreamPort": 22001}]
+from _contract import Contract  # noqa: E402
 
 STUBS = ("topology-render,topology-modals,cables,routers,cloud,history,dialogs,favorites,config-locator,system-panels,"
          "onboarding,topology-dnd,canvas,usage-stats,dialog-llamas,models-page,system-page,onboarding-tours")
@@ -57,6 +49,13 @@ const out = {};
 
 PINS = [
     # ── state ──
+    ("state_standing_twin",
+     "",
+     'Object.entries(OutputCells.PHASES).filter(([, word]) => word === "stopped").map(([phase]) => phase).sort()',
+     json.dumps(Contract.table("controller")["standingPhases"]),
+     "одна таблица (1.3.645): фазы, которые строка называет «остановлена», — те же, что контроллер пишет в выход ячейки "
+     "словом stopped (proxies_config.STANDING_PHASES), и по ним пул проходит мимо; разойдутся — пул спросит ячейку, "
+     "которую доска рисует стоящей, или пропустит ту, что работает"),
     ("state_by_phase",
      '',
      '(() => { const c = cells([CTL([{ port: 22001, phase: "running" }, { port: 22002, phase: "stopped" }, { port: 22003, phase: "reserved" },'
@@ -182,8 +181,8 @@ PINS = [
      "чужая машина, старый скаут без списка — unknown, а не stopped"),
     ("queue_name_is_the_proxys",
      '',
-     f'{json.dumps(UPSTREAMS)}.map((o) => OutputCells.upstream(o))',
-     json.dumps([route_group_key(o) for o in UPSTREAMS]),
+     f'{json.dumps([row["upstream"] for row in Contract.table("controller")["routeGroups"]])}.map((o) => OutputCells.upstream(o))',
+     json.dumps([row["group"] for row in Contract.table("controller")["routeGroups"]]),
      "имя очереди выхода на доске — то же, что прокси ставит на запрос (route_group_key): ячейка и движок — "
      "«адрес:порт», модель машины — «адрес:порт/модель»; одна таблица для обоих двойников"),
     ("every_state_word_is_a_string",
@@ -224,9 +223,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

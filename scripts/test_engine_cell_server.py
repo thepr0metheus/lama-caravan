@@ -285,6 +285,10 @@ st, out, hdrs = post("/v1/chat/completions", {"model": "whatever-the-caller-thin
 seen = next(b for m, p, b in oll.calls[before:] if p == "/v1/chat/completions")
 check(st == 200 and seen["model"] == "qwen2.5:0.5b" and seen["messages"] == [{"role": "user", "content": "hi"}],
       "запрос дошёл до движка с моделью ячейки, остальное как было: вызывающему не нужно знать имя модели")
+st, out, hdrs = post("/v1/chat/completions", {"messages": [{"role": "user", "content": "What is 2+2?"}]})
+seen = next(b for m, p, b in reversed(oll.calls) if p == "/v1/chat/completions")
+check(st == 200 and seen == {"messages": [{"role": "user", "content": "What is 2+2?"}], "model": "qwen2.5:0.5b"},
+      "запрос без модели — так спрашивает вкладка «Разговор» (1.3.643) — тоже уходит с моделью ячейки")
 deadline = time.time() + 3
 while time.time() < deadline and not any(p == "/api/generate" and b.get("keep_alive") == -1
                                          for m, p, b in oll.calls[before:] if isinstance(b, dict)):

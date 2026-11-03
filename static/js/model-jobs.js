@@ -1,7 +1,7 @@
 // What a model DOES — as opposed to what launches it.
 //
-// Twin of caravan/common/model_jobs.py; both are run against ONE table of
-// cases in scripts/test_model_jobs.py. The rule lives twice because both the
+// The browser's copy of rust/crates/admin/src/common/model_jobs.rs; both are run against ONE table of
+// cases, contract/model_jobs.json. The rule lives twice because both the
 // server and the browser decide by it, and diverging twins is exactly the
 // defect that put it in a file of its own.
 //
@@ -79,22 +79,31 @@ const RUNNER_JOBS = {
   seamless: ["speech-translate"],
   translate: ["translate"],
   gr00t: ["robot-policy"],
-  // The voice servers (1.3.553): twin of _RUNNER_JOBS in model_jobs.py.
+  // The voice servers (1.3.553): the same table as `Jobs` in rust/crates/admin/src/common/model_jobs.rs.
   personaplex: ["voice-chat"],
   "lfm-audio": ["tts"],
   "step-audio2": ["llm", "voice-chat"],
   "qwen3-omni": ["llm", "voice-chat"],
+  "qwen3-tts": ["tts"],
+  "voice-clone": ["tts"],
   "minicpm-omni": ["voice-chat"],
 };
 
-//: What a safetensors folder of an architecture only one runner reads does: twin of _ARCH_JOBS in model_jobs.py,
-//: held to the registry's claims (stArchs) by scripts/test_launcher_runners.py.
+//: What a safetensors folder of an architecture only one runner reads does: the same table as in rust/crates/admin/src/common/model_jobs.rs,
+//: held to the registry's claims (stArchs) by contract/model_jobs.json.
 const ARCH_JOBS = {
   personaplex: ["voice-chat"],
   Lfm2AudioForConditionalGeneration: ["tts"],
   step_audio_2: ["llm", "voice-chat"],
   qwen3_omni_moe: ["llm", "voice-chat"],
+  qwen3_tts: ["tts"],
 };
+
+// The runners a job is usually done by, in the table's order (RUNNER_JOBS): the new-cell wizard's tiles name them for a job
+// the machine has no model of yet (add-model.js). A function beside the table it reads, as the rest of this module.
+export function jobRunners(job) {
+  return Object.keys(RUNNER_JOBS).filter((id) => RUNNER_JOBS[id].includes(job));
+}
 
 // The vocabulary's order, not the caller's — so two cells reporting the same
 // pair of jobs draw the same pair of chips in the same places.
@@ -154,7 +163,7 @@ export function jobsForCell(runnerId, kinds = []) {
 // llama-server. One rule for the cell card, its detail window and Routing's
 // rows — the card and the window each held a copy, written differently. Here,
 // beside the vocabulary, since the controller tells the proxy what each cell does
-// by the same rule (caravan/common/model_jobs.py cell_runner_id, one table of
+// by the same rule (rust/crates/admin/src/common/model_jobs.rs cell_runner_id, one table of
 // cases for both in scripts/test_model_jobs.py, 1.3.502).
 export function cellRunnerId(cfg) {
   const c = cfg || {};

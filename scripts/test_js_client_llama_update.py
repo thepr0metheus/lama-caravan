@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node  # noqa: E402
+from _node import find_node, probe_args  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGS = sorted(p.stem for p in (ROOT / "static" / "js" / "i18n").glob("*.js"))
@@ -180,7 +180,7 @@ def main():
     probe.write_text(PROBE)
     try:
         harness = ROOT / "scripts" / "_js_harness.mjs"
-        result = subprocess.run([node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');", str(probe)], cwd=ROOT,
+        result = subprocess.run(probe_args(node, harness, probe), cwd=ROOT,
                                 env={**os.environ, "JS_ROOT": str(ROOT / "static/js"), "JS_STUBS": "i18n,utils", "LANGS": json.dumps(LANGS),
                                      "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"},
                                 capture_output=True, text=True, timeout=60)

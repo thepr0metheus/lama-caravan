@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 from cell_speed_cases import HELP, LAST  # noqa: E402
 
 STUBS = ("polling,canvas,topology-dnd,topology-render,dialogs,cloud,cables,history,favorites,config-locator,"
@@ -357,6 +357,18 @@ PINS = [
      '"b":[["7%",""],["4.8 / 31.8 GB",""],["24.0 W",""]],"c":[["—",""],["— / 8.0 GB",""],["—",""]]}',
      "настоящий рендер панели: у машины с двумя картами 4.8 / 55.8 GB, 42 Вт и 7% (карты по отдельности — в подсказке); negative: у машины с одной картой цифры её и без подсказки; "
      "у карты без замеров — «—», а не «0%», «0.0 / 8.0 GB» и «0.0 W»"),
+    # 2026-11-02, the owner's choice Ш1: a machine's page says each card's figures on its row, and the column keeps only the machine's.
+    ("node_telemetry_without_the_cards", '',
+     '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes("node:box-a:tokens"), h.includes("node:box-a:gpu"), h.includes("gpu-metric-card"), h.includes("data-node-canvas=\\"box-a:vram\\"")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 0 }, { index: 1 }], servers: [{ port: 22011 }] }, { cards: false }))',
+     '[1,true,false,false,false]', "на странице машины в колонке только скорость токенов; negative: строк и холстов карт там нет"),
+    ("node_telemetry_without_the_cards_nothing", '', 'm.nodeTelemetryRowsHtml({ id: "box-z", gpus: [{ index: 0 }] }, { cards: false })', '""', "negative: только карты и ни ячейки — колонке показать нечего, блок молчит"),
+    ("rack_row_figures_from_the_tick", '',
+     '(() => { const old = document.querySelector; const labels = {}; const sparks = {}; document.querySelector = (q) => { const k = (q.match(/data-node-metric-val="([^"]*)"/) || [])[1]; if (k) return (labels[k] ||= { textContent: "", title: "" }); const s = (q.match(/data-node-metric-spark="([^"]*)"/) || [])[1]; return s ? (sparks[s] ||= { innerHTML: "" }) : null; };'
+     ' try { st.ui.latestSystemMonitor = { hosts: { a: [{ t: 1, cpuPct: 10, ram: { usedGb: 8 }, gpus: [{ index: 0, utilPct: 5, memUsedMiB: 100, memTotalMiB: 24576, powerW: 30 }] }, { t: 2, cpuPct: 20, ram: { usedGb: 9 }, gpus: [{ index: 0, utilPct: 7, memUsedMiB: 200, memTotalMiB: 24576, powerW: 31 }] }] } };'
+     ' st.setTopology({ nodes: [{ id: "a", cpu: { loadPct: 12.6, ram: { usedGb: 9, totalGb: 60.5 } }, gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 6349, utilizationGpuPct: 33.6, powerDrawW: 117.72 }] }, { id: "b", gpus: [{ index: 0, memoryTotalMiB: 8192 }] }] });'
+     ' m.drawNodeTelemetry(); const read = (k) => labels[k].textContent; return { one: ["a:gpu:0", "a:mem:0", "a:power:0", "a:cpu", "a:ram"].map(read), blind: ["b:gpu:0", "b:mem:0", "b:power:0", "b:cpu", "b:ram"].map(read), sparks: ["a:gpu:0", "a:mem:0", "a:power:0", "a:cpu", "a:ram"].map((k) => sparks[k].innerHTML.includes("<polyline")), noSpark: sparks["b:cpu"].innerHTML }; } finally { document.querySelector = old; st.ui.latestSystemMonitor = null; } })()',
+     '{"one":["34%","6.2 / 24.0","117.7 W","13%","9.0 / 60.5"],"blind":["—","— / 8.0","—","—","— / —"],"sparks":[true,true,true,true,true],"noSpark":""}',
+     "строка карты на стойке: тик монитора пишет её загрузку, память и мощность и у машины с одной картой; строка RAM: процессор и занятая память; negative: чего не сказали, то прочерк, график не рисуется"),
     # 2026-10-17, the owner: "the combined chart (like you did now) and a chart for each of the cards".
     ("node_telemetry_a_line_per_card", '',
      '(() => { const two = { id: "box-a", gpus: [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], servers: [{ port: 22011 }] };'
@@ -392,9 +404,9 @@ PINS = [
      ' m.drawNodeTelemetry(); const read = (id, key) => [(seen["v:" + id + ":" + key] || {}).textContent ?? null, (((seen["s:" + id + ":" + key] || {}).innerHTML || "").match(/points="([^"]*)"/) || [null, null])[1]];'
      ' return { a0: [read("a", "gpu:0"), read("a", "vram:0"), read("a", "power:0")], a1: [read("a", "gpu:1"), read("a", "vram:1"), read("a", "power:1")], b: [read("b", "gpu:0"), read("b", "vram:0")] }; } finally { document.querySelector = old; } })()',
      '{"a0":[["0%","0.0,14.0 72.0,13.9"],["0.0 / 24.0 GB","0.0,14.0 72.0,14.0"],["18.0 W","0.0,9.0 72.0,8.7"]],'
-     '"a1":[["7%","0.0,13.3 72.0,12.7"],["4.8 / 31.8 GB","0.0,11.9 72.0,11.9"],["24.0 W","0.0,7.6 72.0,7.3"]],"b":[[null,null],[null,null]]}',
+     '"a1":[["7%","0.0,13.3 72.0,12.7"],["4.8 / 31.8 GB","0.0,11.9 72.0,11.9"],["24.0 W","0.0,7.6 72.0,7.3"]],"b":[["7%",null],["4.8 / 31.8 GB",null]]}',
      "настоящий рендер: каждая из двух карт получает своё значение и свой график (загрузка, память, мощность), а не общие цифры машины; "
-     "negative: у машины с одной картой строк по картам нет и ничего в них не пишется"),
+     "у машины с одной картой её цифры тоже пишутся: на странице машины это строка стойки, на главной доске таких мест нет, и писать некуда; negative: без истории график не рисуется"),
     ("controller_widget_gone", '', '["controllerTokenGenSamples", "drawGpuMetricSparklines", "renderLlamaClientsInnerHtml"].filter((k) => k in m)', '[]',
      "negative: собственного виджета контроллера (серия генерации, спарклайны GPU/токенов/VRAM/мощности, клиенты llama) больше нет — его машина теперь узел со своей телеметрией (шаг 6.9)"),
 ]
@@ -509,9 +521,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

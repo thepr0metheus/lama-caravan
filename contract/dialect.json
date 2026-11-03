@@ -1,0 +1,21 @@
+{
+  "model": "m",
+  "failure": [
+    {"status": 502, "kind": "", "told": 502, "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "proxy_error"}}, "headers": []},
+    {"status": 400, "kind": "upstream_timeout", "told": 502, "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "upstream_timeout"}}, "headers": []},
+    {"status": 500, "kind": "x", "told": 500, "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "x"}}, "headers": []},
+    {"status": 499, "kind": "x", "told": 502, "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "x"}}, "headers": []},
+    {"status": 503, "kind": "queue_timeout", "told": 503, "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "queue_timeout"}}, "headers": []},
+    {"status": 503, "kind": "blocked", "told": 503, "payload": {"error": {"message": "This consumer is paused on the caravan's board.", "type": "server_error", "param": null, "code": null}}, "headers": [["Retry-After", "30"]]},
+    {"status": 429, "kind": "x", "told": 429, "payload": {"error": {"message": "The model `m` has reached its usage limit. Try again in 30 s.", "type": "rate_limit_error", "param": null, "code": "rate_limit_exceeded"}}, "headers": [["Retry-After", "30"]]}
+  ],
+  "stream_failure": [
+    {"kind": "upstream_reset", "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "upstream_reset"}}},
+    {"kind": "", "payload": {"error": {"message": "The model `m` failed. Try again later.", "type": "server_error", "param": null, "code": "proxy_error"}}}
+  ],
+  "answer_error": [
+    {"status": 400, "reason": "too long", "code": "ctx", "told": 400, "payload": {"error": {"message": "too long", "type": "invalid_request_error", "param": null, "code": "ctx"}}, "headers": []},
+    {"status": 503, "reason": "Loading model", "code": null, "told": 502, "payload": {"error": {"message": "The model `m` failed (HTTP 503).", "type": "server_error", "param": null, "code": "upstream_error"}}, "headers": []}
+  ],
+  "header_ok": [["Content-Type", true], ["content-length", true], ["CACHE-CONTROL", true], ["Server", false], ["X-Request-Id", false], ["Set-Cookie", false]]
+}

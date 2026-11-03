@@ -43,7 +43,7 @@ import time
 import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cell_base import CellServer   # noqa: E402
+from cell_base import CellServer, Recording   # noqa: E402
 
 SAMPLE_RATE = 24_000
 #: The model's end-of-audio code: a frame that holds it is dropped, not decoded.
@@ -147,12 +147,11 @@ class LfmVoice:
         return chat
 
     def _add_wav(self, chat, raw):
+        # The cells' one reader: a WAV itself, webm, ogg, mp3 or m4a through ffmpeg (soundfile read neither of the last
+        # three). A copy, not a view of the reader's buffer: torch wants the samples writable.
         import numpy as np
-        import soundfile
-        wav, rate = soundfile.read(io.BytesIO(raw), dtype="float32")
-        if wav.ndim == 2:
-            wav = wav.mean(1)
-        chat.add_audio(self.torch.from_numpy(np.ascontiguousarray(wav))[None], rate)
+        rec = Recording.decode(raw)
+        chat.add_audio(self.torch.from_numpy(np.array(rec.samples, dtype=np.float32))[None], rec.rate)
 
     def _reply(self, chat):
         chat.end_turn()
@@ -311,7 +310,7 @@ class LfmAudioCell(CellServer):
 
     def _asr(self, body):
         if not body:
-            return 400, {"error": "the body must be a wav file"}, "application/json"
+            return 400, {"error": "the body is empty: send a recording"}, "application/json"
         return 200, {"text": self.voice.asr(body)}, "application/json"
 
 

@@ -4,7 +4,7 @@
 What's pinned by value. (The controller's own service, runtime and CPU/GPU
 summaries of the classic view went with its cells in step 6.9 — pinned as
 gone.) Controller: good/warn service chips, cells, git with a warn on dirty
-files, python, disk with a warn below 50 GB or with an error, models; inside
+files, disk with a warn below 50 GB or with an error, models; inside
 a container the user-service repair button is removed. llama.cpp: "upstream
 is newer" is decided by COMMIT when both sides are known, and by build number
 only as a fallback; "not checked". The archived-builds list and the vLLM
@@ -34,7 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("polling,dialogs,topology-nodes,canvas,topology-dnd,topology-render,charts,cables,cloud,history,favorites,"
          "config-locator,onboarding,onboarding-tours,usage-stats,dialog-llamas,models-page,system-page,llama-edit,"
@@ -80,8 +80,8 @@ PINS = [
     ("classic_panels_gone", '', '["renderService", "renderRuntime", "renderCpu", "renderGpu", "revertLatest"].filter((k) => k in m)', '[]',
      "negative: сводок одиночного сервера контроллера (служба, рантайм, CPU, GPU) и отката его start-server.sh больше нет — классический вид ушёл с ячейками контроллера в шаге 6.9"),
     # ── controller ──
-    ("controller_info_chips", '', '(() => { m.renderControllerInfo({ services: [{ unit: "caravan.service", ok: true, active: "active", sub: "running", pid: "77" }, { unit: "proxies.service", ok: false }], cells: { running: 3, total: 5 }, projectGit: { branch: "main", head: "abc1234", dirtyCount: 2 }, python: "3.12", disk: { path: "/models", totalGb: 900, freeGb: 20 }, models: { count: 12, totalGb: 340 } }); const h = html("controllerInfo"); return [h.includes("llama-chip good\\"><span>caravan.service</span><strong>active / running · PID 77"), h.includes("llama-chip warn\\"><span>proxies.service</span><strong>n/a"), h.includes("3 / 5"), h.includes("llama-chip warn\\"><span>app git</span><strong>main @ abc1234"), h.includes("<strong>3.12</strong>"), h.includes("llama-chip warn\\"><span>models disk</span><strong>20 GB free / 900 GB"), h.includes("<strong>12 · 340 GB</strong>"), F().repairUserServiceBtn.removed]; })()',
-     '[true,true,false,true,true,true,true,null]', "чипы контроллера: сервис good с PID и warn без данных; negative: чипа ячеек нет, даже если старый контроллер прислал cells (своих ячеек у него нет с шага 6.9); git warn при грязных файлах, python, диск warn ниже 50 GB, модели; кнопка починки на месте"),
+    ("controller_info_chips", '', '(() => { m.renderControllerInfo({ services: [{ unit: "caravan.service", ok: true, active: "active", sub: "running", pid: "77" }, { unit: "proxies.service", ok: false }], cells: { running: 3, total: 5 }, projectGit: { branch: "main", head: "abc1234", dirtyCount: 2 }, disk: { path: "/models", totalGb: 900, freeGb: 20 }, models: { count: 12, totalGb: 340 } }); const h = html("controllerInfo"); return [h.includes("llama-chip good\\"><span>caravan.service</span><strong>active / running · PID 77"), h.includes("llama-chip warn\\"><span>proxies.service</span><strong>n/a"), h.includes("3 / 5"), h.includes("llama-chip warn\\"><span>app git</span><strong>main @ abc1234"), h.includes("Python"), h.includes("llama-chip warn\\"><span>models disk</span><strong>20 GB free / 900 GB"), h.includes("<strong>12 · 340 GB</strong>"), F().repairUserServiceBtn.removed]; })()',
+     '[true,true,false,true,false,true,true,null]', "чипы контроллера: сервис good с PID и warn без данных; negative: чипа ячеек нет, даже если старый контроллер прислал cells (своих ячеек у него нет с шага 6.9); git warn при грязных файлах; negative: чипа Python нет; диск warn ниже 50 GB, модели; кнопка починки на месте"),
     ("controller_info_container_and_disk_error", '', '(() => { m.renderControllerInfo({ container: true, projectGit: {}, disk: { path: "/models", error: "not mounted" } }); const h = html("controllerInfo"); return [F().repairUserServiceBtn.removed, h.includes("llama-chip warn\\"><span>models disk</span><strong>/models: not mounted"), h.includes("llama-chip good\\"><span>app git</span><strong>n/a</strong>"), h.includes("server cells")]; })()',
      '[true,true,true,false]', "контейнер: кнопка починки user-сервиса убрана; диск с ошибкой — warn; negative: чипа ячеек нет"),
     ("controller_info_missing", '', '(() => { m.renderControllerInfo(null); return html("controllerInfo"); })()', '""', "negative: без данных — ничего"),
@@ -272,9 +272,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

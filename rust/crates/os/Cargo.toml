@@ -1,0 +1,13 @@
+[package]
+name = "os"
+description = "What only the C library can say: the one crate with unsafe code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

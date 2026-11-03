@@ -3,8 +3,9 @@
 
 The launcher reads Strata's own setup.py and runs Strata's own tools, so here it meets a
 stand-in Strata: a setup.py with the tables and rules the launcher reads (the real ones,
-v0.1.42, trimmed to the rows these pins use), tools that write what the real ones write,
-and an engine that is a file. The engine arguments are pinned against the config Strata's
+v0.2.9, trimmed to the rows these pins use), tools that write what the real ones write,
+and an engine that is a file. A second stand-in has only v0.1.42's rules: a Strata put back
+has to keep starting. The engine arguments are pinned against the config Strata's
 own setup wrote on the GPU machine for IQ2_XS at 131072 tokens (2026-10-13): the launcher
 reproduced them there byte for byte, and these pins hold that shape.
 
@@ -41,6 +42,7 @@ SECOND = "Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00002-of-00002.gguf"
 
 SETUP = '''
 import os
+from strata_control import acquisition
 EXE = "strata"
 import math
 MODELS = {"IQ2_XS": {"ram_gb": 48, "arena_gb": 35.5},
@@ -69,7 +71,27 @@ def kv_streaming_ram_gb(ctx, kv):
 def resident_budget_gib(model, ram, kv_ram_gb=0.0):
     gib = round(ram) - UNSLOTH_RAM_LEFT_GB - math.ceil(kv_ram_gb)
     return max(8, min(gib, int(MODELS[model]["arena_gb"] / 1.073741824)))
+UNSLOTH_RESIDENT_BESIDE_GB = 16
+def unsloth_budget(model, ram, gpu=None, asked=None):
+    return asked is not None or bool((gpu or {}).get("uma")) or \\
+        ram < MODELS[model]["arena_gb"] / 1.073741824 + UNSLOTH_RESIDENT_BESIDE_GB
+def unsloth_default_env(family, model, hip, in_budget):
+    env = {}
+    if family != "unsloth":
+        return env
+    if not hip and model.startswith("UD-"):
+        env["STRATA_HC_Q8"] = "1"
+    if not in_budget:
+        env["STRATA_ROUTE_TAIL_SKIP"] = "0"
+    return env
+def arch_numbers(value):
+    if isinstance(value, str):
+        return [int(x) for x in value.replace(",", ";").split(";") if x.strip()]
+    return [int(x) for x in value or []]
 '''
+#: What v0.1.42 had: no package of its own, none of the rules v0.2 added.
+SETUP_V0142 = SETUP.replace("from strata_control import acquisition\n", "")
+SETUP_V0142 = SETUP_V0142[:SETUP_V0142.index("UNSLOTH_RESIDENT_BESIDE_GB = 16")]
 IQ_PACK = '''
 import json, sys
 from pathlib import Path
@@ -104,7 +126,7 @@ def strata_home(name="home", setup=SETUP, engine=True, build=None):
     files = {"setup.py": setup, "tools/iq_pack.py": IQ_PACK, "tools/mtp_rt.py": MTP_RT,
              "tools/gguf_reader.py": READER, "serve/server.py": "", "data/expert-profile.bin": "p",
              "data/expert-profile-coder.bin": "c", "data/draft_vocab_cyrillic.bin": "cyr",
-             "data/draft_vocab_en.bin": "en",
+             "data/draft_vocab_en.bin": "en", "strata_control/__init__.py": "", "strata_control/acquisition.py": "",
              "engine/BUILD.json": json.dumps(build or {"cuda_dirs": ["/cuda/bin"]})}
     if engine:
         files["engine/strata"] = "engine"
@@ -165,7 +187,7 @@ WORK = TMP / "scratch"
 
 def section_the_config():
     print("конфиг Strata:")
-    L = launch(HOME, ROOT_M, "--mtp", str(ROOT_M / "mtp-q2_0.gguf"), "--name", "qwen3.8-flash-next",
+    L = launch(HOME, ROOT_M, "--mtp", str(ROOT_M / "mtp-q2_0.gguf"), "--name", "qwen3.8-flash-next", "--context", "131072",
                env={"CARAVAN_CELL_SCRATCH": str(WORK)})
     path = L.config()
     cfg = json.loads(path.read_text())
@@ -192,6 +214,10 @@ def section_the_config():
                                   str(path), "--host", "0.0.0.0", "--port", "22009"],
           "сервер Strata слушает 0.0.0.0 — доска и вход машины достают его по сети")
 
+    cfg = json.loads(launch(HOME, ROOT_M, "--work", str(TMP / "trained")).config().read_text())
+    check(cfg["args"][cfg["args"].index("--max-context") + 1] == "262144" and "--rope-scaling" not in cfg["args"],
+          "без --context — окно, на котором модель обучена, 262144, без YaRN (владелец, 2026-10-26: было 131072)")
+
     L = launch(HOME, ROOT_M, "--work", str(TMP / "plain"), "--context", "16384")
     cfg = json.loads(L.config().read_text())
     check("--mtp" not in cfg["args"] and "--spec" not in cfg["args"] and cfg["model_name"] == "qwen3.8-flash-next",
@@ -208,6 +234,8 @@ def section_the_config():
     cfg = json.loads(RamOf(48)(lambda: launch(HOME, ROOT_M, "--work", str(TMP / "ram")).config()).read_text())
     check("--kv-resident" not in cfg["args"],
           "negative: ОЗУ не хватает на KV рядом с экспертами — KV остаётся в видеопамяти, как решает setup.py")
+    check("--resident-budget-gib" not in cfg["args"],
+          "negative: у IQ2_XS бюджета нет и на 48 ГБ ОЗУ, где правило Unsloth сказало бы «тесно»: оно не про эту модель")
     cfg = json.loads(launch(HOME, ROOT_M, "--work", str(TMP / "g1"), env={"CUDA_VISIBLE_DEVICES": "1"})
                      .config().read_text())
     check(cfg["gpu"] == 1, "карта, закреплённая в окружении ячейки, — карта Strata")
@@ -225,7 +253,7 @@ def section_budget_packs():
     print("~4-битные модели Unsloth — с бюджетом ОЗУ по правилу самой Strata:")
     root, first = unsloth_pack("unsloth-q4")
     cfg = json.loads(RamOf(60)(lambda: launch(HOME, root, "--work", str(TMP / "b1"), "--vram-reserve-mib", "4096",
-                                              first=first).config()).read_text())
+                                              "--context", "131072", first=first).config()).read_text())
     args = cfg["args"]
     check(args[-6:] == ["--kv-resident", "32768", "--resident-budget-gib", "34", "--vram-reserve-mib", "4096"],
           f"UD-Q4_K_XL на 60 ГБ ОЗУ: после --kv-resident — --resident-budget-gib 34 (60 − 24 на систему − 2 на KV в ОЗУ), "
@@ -236,29 +264,55 @@ def section_budget_packs():
           == ["--gguf", str(root / first), "--out", str(TMP / "b1/pack"), "--compat-bf16"],
           "пак для Unsloth собран с --compat-bf16 (pack_args семейства из setup.py)")
     check(cfg["model_name"] == "qwen3.8-flash-next-unsloth", "имя по умолчанию — семейства Unsloth")
+    whole = json.loads(RamOf(60)(lambda: launch(HOME, root, "--work", str(TMP / "b7"), first=first).config()).read_text())
+    check(whole["args"][-4:] == ["--kv-resident", "32768", "--resident-budget-gib", "32"],
+          "без --context — окно обучения 262144: KV в ОЗУ вдвое больше, бюджет 32 (60 − 24 − 4)")
     one = json.loads(RamOf(60)(lambda: launch(HOME, root, "--work", str(TMP / "b2"), "--context", "16384", first=first).config()).read_text())
     check(one["args"][-2:] == ["--resident-budget-gib", "36"] and "--kv-resident" not in one["args"],
           "окно 16384: KV в ОЗУ не уходит и из бюджета не вычитается — 60 − 24 = 36")
-    big = json.loads(RamOf(100)(lambda: launch(HOME, root, "--work", str(TMP / "b3"), first=first).config()).read_text())
-    check("--resident-budget-gib" in big["args"] and big["args"][big["args"].index("--resident-budget-gib") + 1] == "71",
-          "boundary: ОЗУ много — бюджет не больше самих экспертов (77 ГБ / 1.0737 = 71)")
+    check(one["env"] == {"STRATA_HC_Q8": "1"}, "у модели Unsloth на CUDA — настройка движка, которую пишет установщик (STRATA_HC_Q8)")
+    edge = json.loads(RamOf(87)(lambda: launch(HOME, root, "--work", str(TMP / "b3"), "--context", "16384", first=first).config()).read_text())
+    check(edge["args"][-2:] == ["--resident-budget-gib", "63"] and edge["env"] == {"STRATA_HC_Q8": "1"},
+          "boundary: 87 ГБ ОЗУ — экспертам (71,7) и запасу 16 ещё тесно: бюджет 87 − 24 = 63")
+    big = json.loads(RamOf(88)(lambda: launch(HOME, root, "--work", str(TMP / "b9"), "--context", "16384", first=first).config()).read_text())
+    check("--resident-budget-gib" not in big["args"] and big["env"] == {"STRATA_HC_Q8": "1", "STRATA_ROUTE_TAIL_SKIP": "0"},
+          "boundary: 88 ГБ ОЗУ — эксперты с запасом влезают: бюджета нет, все в ОЗУ, и установщик пишет STRATA_ROUTE_TAIL_SKIP=0")
     tiny = json.loads(RamOf(28)(lambda: launch(HOME, root, "--work", str(TMP / "b4"), "--context", "16384", first=first).config()).read_text())
     check(tiny["args"][-2:] == ["--resident-budget-gib", "8"], "boundary: ОЗУ мало — бюджет не меньше 8 (правило Strata)")
     three, first3 = unsloth_pack("unsloth-iq4", "UD-IQ4_XS", 3)
-    cfg3 = json.loads(RamOf(60)(lambda: launch(HOME, three, "--work", str(TMP / "b5"), first=first3).config()).read_text())
+    cfg3 = json.loads(RamOf(60)(lambda: launch(HOME, three, "--work", str(TMP / "b5"), "--context", "131072",
+                                               first=first3).config()).read_text())
     check("--ple-gguf" not in cfg3["args"] and cfg3["args"][cfg3["args"].index("--resident-budget-gib") + 1] == "34",
           "UD-IQ4_XS в три части — так же: бюджет 34, таблицу n-грамм движок находит сам")
     plain = json.loads(launch(HOME, ROOT_M, "--work", str(TMP / "b6")).config().read_text())
-    check("--resident-budget-gib" not in plain["args"],
-          "negative: IQ2_XS бюджета не знает — все эксперты в ОЗУ, флага нет")
+    check("--resident-budget-gib" not in plain["args"] and "env" not in plain,
+          "negative: IQ2_XS бюджета не знает — все эксперты в ОЗУ, флага нет; настроек движка нет и ключа env нет")
     old = strata_home("no-budget", setup=SETUP.replace("def resident_budget_gib", "def resident_budget_was"))
     check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "b7")).config())
-          == "this Strata has no setup.resident_budget_gib — the caravan's launcher knows v0.1.42",
+          == "this Strata has no setup.resident_budget_gib — the caravan's launcher knows v0.2.9",
           "negative: в setup.py нет правила бюджета — отказ с его именем, а не догадка о числе")
     old = strata_home("no-kv-ram", setup=SETUP.replace("def kv_streaming_ram_gb", "def kv_streaming_ram_was"))
     check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "b8")).config())
-          == "this Strata has no setup.kv_streaming_ram_gb — the caravan's launcher knows v0.1.42",
+          == "this Strata has no setup.kv_streaming_ram_gb — the caravan's launcher knows v0.2.9",
           "negative: нет правила, сколько ОЗУ берёт KV, — отказ с его именем: бюджет без него был бы неверен")
+
+
+def section_a_strata_put_back():
+    print("Strata v0.1.42, поставленная обратно, запускается как раньше:")
+    back = strata_home("v0142", setup=SETUP_V0142)
+    root, first = unsloth_pack("unsloth-back")
+    cfg = json.loads(RamOf(100)(lambda: launch(back, root, "--work", str(TMP / "p1"), first=first).config()).read_text())
+    check("env" not in cfg and cfg["args"][cfg["args"].index("--resident-budget-gib") + 1] == "71",
+          "у неё нет правил unsloth_budget и unsloth_default_env: бюджет всегда, не больше самих экспертов (77 ГБ / 1.0737 = 71), настроек движка нет")
+    built = strata_home("v0142-archs", setup=SETUP_V0142, build={"cuda_dirs": ["/cuda/bin"], "archs": [86, 120]})
+    L = launch(built, ROOT_M, "--work", str(TMP / "p2"))
+    L.card_arch = lambda gpu: 75
+    check("sm_86, sm_120" in (refused(L.config) or ""), "BUILD.json со списком архитектур она читает без своего правила")
+    print("запись сборки строкой (готовый движок):")
+    joined = strata_home("archs-joined", build={"cuda_dirs": ["/cuda/bin"], "archs": "86;120"})
+    L = launch(joined, ROOT_M, "--work", str(TMP / "p3"))
+    L.card_arch = lambda gpu: 75
+    check("sm_86, sm_120" in (refused(L.config) or ""), "«86;120» читается правилом самой Strata, а не падает на «;»")
 
 
 def section_the_engine_knows_the_card():
@@ -341,7 +395,7 @@ def section_refusals():
           "negative: Strata не установлена — отказ с подсказкой")
     old = strata_home("old", setup=SETUP.replace("def kv_streaming_wanted", "def kv_streaming_was"))
     check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "r10")).config())
-          == "this Strata has no setup.kv_streaming_wanted — the caravan's launcher knows v0.1.42",
+          == "this Strata has no setup.kv_streaming_wanted — the caravan's launcher knows v0.2.9",
           "negative: в setup.py нет нужного правила — отказ с его именем, а не догадка")
     check(refused(lambda: launch(HOME, ROOT_M, "--work", str(TMP / "r11"), "--mtp", str(TMP / "none.gguf")).config())
           == f"the draft layer's file is not here: {TMP / 'none.gguf'}",
@@ -399,6 +453,7 @@ def section_becomes_the_server():
 def main():
     section_the_config()
     section_budget_packs()
+    section_a_strata_put_back()
     section_the_engine_knows_the_card()
     section_refusals()
     section_kept_with_the_cache()

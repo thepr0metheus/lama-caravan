@@ -9,15 +9,19 @@ const BTN_SEEN_KEY = "caravanTourBtnUsed";
 // (button clicked while a tour is already open = restart, not stacking).
 let activeTour = null;
 
+// A step's target: the first element the anchor matches that is on screen. Not the first match: a page draws one of several
+// alike (a panel for each cell, one of them shown) or a selector list names where each kind of form keeps the same thing (the
+// command of llama.cpp and of the other runners) — the first match hidden dropped the step on every page (2026-10-27).
 function visibleEl(selector) {
   if (!selector) return null;
-  const el = document.querySelector(selector);
-  if (!el) return null;
-  if (el.closest("[hidden]")) return null;
-  const rect = el.getBoundingClientRect();
-  if (rect.width < 4 && rect.height < 4) return null;
-  if (getComputedStyle(el).visibility === "hidden") return null;
-  return el;
+  for (const el of document.querySelectorAll(selector)) {
+    if (el.closest("[hidden]")) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 4 && rect.height < 4) continue;
+    if (getComputedStyle(el).visibility === "hidden") continue;
+    return el;
+  }
+  return null;
 }
 
 export function createTour(config) {
@@ -77,8 +81,11 @@ export function createTour(config) {
     const pad = 6;
     let r;
     if (el) {
+      // The ring keeps to the window: a target as tall as a column, or at its edge (the monitors' tabs), drew it past the edges.
       const b = el.getBoundingClientRect();
-      r = { x: b.left - pad, y: b.top - pad, w: b.width + pad * 2, h: b.height + pad * 2 };
+      const left = Math.max(2, b.left - pad), top = Math.max(2, b.top - pad);
+      const right = Math.min(vw - 2, b.left + b.width + pad), bottom = Math.min(vh - 2, b.top + b.height + pad);
+      r = { x: left, y: top, w: Math.max(0, right - left), h: Math.max(0, bottom - top) };
       spot.classList.remove("ob-spot-center");
     } else {
       r = { x: vw / 2, y: vh / 2, w: 0, h: 0 };
@@ -89,7 +96,7 @@ export function createTour(config) {
     spot.style.width = `${r.w}px`;
     spot.style.height = `${r.h}px`;
 
-    // Card placement: below the target, flip above if cramped, centered for center steps.
+    // Card placement: below the target, flip above if cramped, beside a target as tall as the window, centered for center steps.
     const cw = Math.min(360, vw - 24);
     card.style.width = `${cw}px`;
     const ch = card.offsetHeight || 180;
@@ -101,7 +108,15 @@ export function createTour(config) {
       cx = Math.min(Math.max(12, r.x + r.w / 2 - cw / 2), vw - cw - 12);
       cy = r.y + r.h + 14;
       if (cy + ch > vh - 12) cy = r.y - ch - 14;      // flip above
-      if (cy < 12) cy = Math.max(12, vh - ch - 16);   // fallback: pin bottom
+      if (cy < 12) {
+        // Neither: the target is as tall as the window — a column, a section of a page. The card stands beside it, where it
+        // covers none of it (it was pinned to the foot over the column it told about), else at the window's foot.
+        const right = r.x + r.w + 14, left = r.x - cw - 14;
+        cy = Math.min(Math.max(12, r.y + 12), vh - ch - 12);
+        if (right + cw <= vw - 12) cx = right;
+        else if (left >= 12) cx = left;
+        else cy = Math.max(12, vh - ch - 16);         // fallback: pin bottom
+      }
     }
     card.style.left = `${cx}px`;
     card.style.top = `${cy}px`;

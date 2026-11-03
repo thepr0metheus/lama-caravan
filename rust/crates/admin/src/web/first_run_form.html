@@ -1,0 +1,11 @@
+<form id="setupForm" data-t="setup-form">
+      <p class="note" data-i18n="setupNote">No account exists yet. Until you create one, this controller answers nothing but this page. There is no default admin/admin on purpose.</p>
+      <label for="su" data-i18n="user">Username</label>
+      <input id="su" autocomplete="username" autofocus data-t="setup-username">
+      <label for="sp" data-i18n="passNew">Password (min 8 chars)</label>
+      <input id="sp" type="password" autocomplete="new-password" data-t="setup-password">
+      <label for="sp2" data-i18n="passRepeat">Repeat password</label>
+      <input id="sp2" type="password" autocomplete="new-password" data-t="setup-password-repeat">
+      <button class="primary" type="submit" data-i18n="create" data-t="setup-submit">Create account &amp; enable sign-in</button>
+      <p class="err" id="se"></p>
+    </form>

@@ -18,15 +18,13 @@ clients need no new code path, plus GET /health.
 
 Usage: seamless_server.py <port> <model_dir> [target_lang]
 """
-import io
 import json
 import os
 import sys
 import threading
-import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cell_base import CellServer   # noqa: E402
+from cell_base import CellServer, Form, Recording   # noqa: E402
 
 MAX_AUDIO_MS = int(os.environ.get("SEAMLESS_MAX_AUDIO_MS", "30000"))
 SAMPLE_RATE = 16000
@@ -140,7 +138,8 @@ class SeamlessCell(CellServer):
     def handle(self, body, headers, path):
         if not path.endswith("/transcriptions") and not path.endswith("/translations"):
             return 404, {"error": "not found"}, None
-        raw = _extract_file(body, headers.get("Content-Type", ""))
+        form = Form(body, headers.get("Content-Type", ""))
+        raw = form.file()
         if not raw:
             return 400, {"error": "multipart field `file` is required"}, None
         # Field names, in order of preference:
@@ -153,8 +152,8 @@ class SeamlessCell(CellServer):
         #   src_lang   — accepted and NOT used: this model detects the source
         #                from the audio itself. /health says so, so a caller can
         #                see it without running an experiment.
-        requested = (_field(body, "tgt_lang") or _field(body, "target_lang")
-                     or _field(body, "language") or "")
+        requested = (form.field("tgt_lang") or form.field("target_lang")
+                     or form.field("language") or "")
         try:
             tgt = _resolve_lang(requested)
         except LangError as exc:
@@ -278,61 +277,11 @@ def _resolve_lang(code):
         return raw
     raise LangError(raw)
 
-def _boundary(ctype):
-    for part in (ctype or "").split(";"):
-        part = part.strip()
-        if part.startswith("boundary="):
-            return part[len("boundary="):].strip('"')
-    return None
-
-
-def _extract_file(body, ctype):
-    b = _boundary(ctype)
-    if not b:
-        return None
-    sep = b"--" + b.encode()
-    for part in body.split(sep):
-        head, _, rest = part.partition(b"\r\n\r\n")
-        if b"filename=" in head and rest:
-            return rest.rsplit(b"\r\n", 1)[0]
-    return None
-
-
-def _field(body, name):
-    key = ('name="%s"' % name).encode()
-    i = body.find(key)
-    if i < 0:
-        return None
-    s = body.find(b"\r\n\r\n", i)
-    if s < 0:
-        return None
-    s += 4
-    e = body.find(b"\r\n", s)
-    return body[s:e].decode(errors="replace") if e > s else None
-
-
 def _decode_audio(raw):
-    """Bytes -> mono float32 at 16 kHz. WAV is read natively; anything else goes
-    through ffmpeg, which every host running a speech cell already has."""
+    """Bytes -> mono float32 at 16 kHz, read by the cells' one reader (cell_base.Recording): a WAV at 16 kHz itself,
+    anything else through ffmpeg; a recording it cannot read is its refusal, with its status."""
     import numpy as np
-    try:
-        with wave.open(io.BytesIO(raw), "rb") as wf:
-            if wf.getsampwidth() == 2 and wf.getframerate() == SAMPLE_RATE:
-                frames = wf.readframes(wf.getnframes())
-                data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-                if wf.getnchannels() > 1:
-                    data = data.reshape(-1, wf.getnchannels()).mean(axis=1)
-                return data
-    except Exception:  # noqa: BLE001
-        pass
-    import subprocess
-    proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
-         "-f", "f32le", "-ac", "1", "-ar", str(SAMPLE_RATE), "pipe:1"],
-        input=raw, capture_output=True, timeout=300)
-    if proc.returncode != 0:
-        raise RuntimeError("ffmpeg: " + proc.stderr.decode(errors="replace")[:200])
-    return np.frombuffer(proc.stdout, dtype=np.float32)
+    return np.frombuffer(Recording.decode(raw, rate=SAMPLE_RATE).samples, dtype=np.float32)
 
 
 def _translate(audio, tgt_lang):

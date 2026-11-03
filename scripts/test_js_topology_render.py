@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("topology-modals,cables,routers,charts,cloud,history,dialogs,"
          "llama-edit,form,favorites,config-locator,system-panels,onboarding,topology-dnd,canvas,"
@@ -394,12 +394,13 @@ _REFRESH_SETUP = (
     ' globalThis.__seen = [];'
     ' Object.defineProperty(document, "activeElement", { configurable: true, get: () => {'
     ' globalThis.__seen.push(st.state?.modelsStamp); return { matches: () => true, closest: () => null }; } });')
+_REFRESH_DONE = (
+    ' finally { Object.defineProperty(document, "activeElement", { configurable: true, writable: true, value: undefined });'
+    ' delete globalThis.__fetchReply["/api/topology"]; delete globalThis.__fetchReply["/api/models/rows"]; } })()')
 _REFRESH_RUN = (
     'await (async () => { try { await m.refreshTopology();'
     ' return [globalThis.__fetchCalls.map((c) => c.path), (st.state.models || []).map((r) => r.path),'
-    ' st.state.modelsStamp, globalThis.__seen]; }'
-    ' finally { Object.defineProperty(document, "activeElement", { configurable: true, writable: true, value: undefined });'
-    ' delete globalThis.__fetchReply["/api/topology"]; delete globalThis.__fetchReply["/api/models/rows"]; } })()')
+    ' st.state.modelsStamp, globalThis.__seen]; }' + _REFRESH_DONE)
 PINS += [
     ("fingerprint_sees_a_new_model_list",
      'st.setState({ config: {}, modelsStamp: "a" }); globalThis.__fpm0 = m.topologyStructureFingerprint();'
@@ -420,29 +421,40 @@ PINS += [
      _REFRESH_RUN,
      '[["/api/topology"], ["old.gguf"], "s2", ["s2"]]',
      "negative: отпечаток тот же — опрос не ходит за строками, список страницы как был"),
+    ("a_reading_outdated_on_its_way_decides_nothing",
+     'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s1" }); ' + _REFRESH_SETUP,
+     'await (async () => { try { const way = m.refreshTopology(); st.setTopology({ of: "write" }); await way;'
+     ' return [st.topology.of, globalThis.__fetchCalls.map((c) => c.path), (st.state.models || []).map((r) => r.path), globalThis.__seen]; }' + _REFRESH_DONE,
+     '["write", ["/api/topology"], ["old.gguf"], []]',
+     "negative (1.3.691): чтение вышло до ответа на запись и пришло после него — страница держит ответ, за строками не ходит и ничего не решает: "
+     "иначе у Маршрутизации, что читает по такту, только что перенесённая строка прыгала бы назад до следующего такта"),
 ]
 
 PINS += [
     # 2026-10-12: Routing is the pools' board — what it draws is structure, moved from any page.
     ("fingerprint_follows_the_pools_board",
-     'st.setTopology({ ...st.topology, proxies: [{ port: 23001, kind: "consumer", set: "chat", models: ["S"] }],'
-     ' sets: [{ id: "chat", name: "Chat", pools: ["std"] }],'
+     'st.setTopology({ ...st.topology, proxies: [{ port: 23001, kind: "consumer", deny: [], models: ["S"] }],'
+     ' entryModels: ["S"], denyChoices: { pools: [{ key: "pool:std", name: "S" }], models: [{ key: "model:srv:22008", name: "C", source: "host:h", runs: true }], sources: ["host:h"] },'
+     ' liveCatalog: [{ id: "C", pool: "live:srv:22008", runs: true, output: "srv:22008" }], entryMove: null,'
      ' pools: [{ id: "std", name: "S", steps: [{ id: "r1", kind: "output", output: "srv:22008" }] }],'
      ' modelLevels: { set: {} }, poolsRuntime: { available: true, pools: { std: { selectedStepId: "r1", decidedAt: 1, steps: [] } } } });',
      '(() => { const fp = () => m.topologyStructureFingerprint(); const moved = (change) => { const before = fp(); change(); return fp() !== before; };'
      ' const top = st.topology; globalThis.ROUTER_STANDALONE = true;'
-     ' try { return [moved(() => { top.proxies[0].set = "cheap"; }), moved(() => { top.proxies[0].models = ["S", "E"]; }),'
-     ' moved(() => { top.sets[0].pools = ["std", "eco"]; }), moved(() => { top.sets[0].name = "Chat 2"; }),'
+     ' try { return [moved(() => { top.proxies[0].deny = ["pool:std"]; }), moved(() => { top.proxies[0].models = ["S", "E"]; }),'
+     ' moved(() => { top.entryModels = ["S", "C"]; }), moved(() => { top.liveCatalog[0].runs = false; }), moved(() => { top.denyChoices.models[0].runs = false; }),'
+     ' moved(() => { top.entryMove = { clients: [], sets: [], sees: 2, twins: [{ id: "c", name: "C", where: "h" }] }; }), moved(() => { top.entryModels = null; }),'
      ' moved(() => { top.pools[0].steps[0].output = "srv:22009"; }),'
      ' moved(() => { top.modelLevels = { set: { sub: { m: { stopAt: { "18000": 20 } } } } }; }), moved(() => { top.addedModels = { sub: ["m"] }; }),'
      ' moved(() => { top.poolsRuntime.pools.std.selectedStepId = ""; }), moved(() => { top.poolsRuntime.pools.std.decidedAt = 99; }),'
+     ' moved(() => { top.proxies[0].calls = [{ pool: "std", count: 5, last: 9 }]; }),'
      ' (() => { globalThis.ROUTER_STANDALONE = false; return moved(() => { top.poolsRuntime.pools.std.selectedStepId = "r1"; }); })()]; }'
      ' finally { delete globalThis.ROUTER_STANDALONE; } })()',
-     '[true,true,true,true,true,true,true,true,false,false]',
-     "Маршрутизация перерисовывается, когда клиент перенёс канат на другой набор, у клиента сменились модели, у набора сменились пулы "
-     "или имя (1.3.497), строка сменила выход, задан уровень модели, у аккаунта добавлена "
-     "или убрана модель (2026-10-12), прокси выбрал другую строку; "
-     "negative: время решения прокси меняется с каждым запросом — не структура; на главной доске решение прокси не перестраивает страницу"),
+     '[true,true,true,true,true,true,true,true,true,true,true,false,false,false]',
+     "Маршрутизация перерисовывается, когда клиенту запретили или разрешили что-то, у клиента сменились модели, сменилось то, что видит клиент без "
+     "запретов, модель напрямую запустилась или встала, пришло окно переезда (1.3.675), чтение не сделано (не «пусто»), строка сменила выход, задан "
+     "уровень модели, у аккаунта добавлена или убрана модель (2026-10-12), прокси выбрал другую строку; negative: время решения прокси меняется с "
+     "каждым запросом — не структура; вызовы клиента за три дня тоже растут с каждым запросом — их читает закреплённый путь, а не перестройка "
+     "страницы; на главной доске решение прокси не перестраивает страницу"),
     # 1.3.498: a model opening or closing by its schedule changes its ⏱ and its rows' pills.
     ("fingerprint_follows_model_schedules",
      'st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: 1,'
@@ -482,13 +494,29 @@ PINS += [
      '[true,true,true,false]',
      "главная доска перерисовывает облачных провайдеров, когда провайдера поставили на доску или убрали, когда в блок добавили аккаунт "
      "(2026-10-12) — с этой страницы или с другой; negative: тот же список новым объектом — не новая структура"),
+    ("fingerprint_follows_the_words_on_the_cells_cards",
+     'st.setTopology({ ...st.topology, cellNotes: { "h:1": "mine" }, cellModelNotes: { "h:1": "the model" } });',
+     '(() => { const part = () => m.topologyStructureParts().notes; const moved = (change) => { const before = part(); change(); return part() !== before; };'
+     ' const top = st.topology; return [moved(() => { top.cellModelNotes = { "h:1": "the model, reworded" }; }), moved(() => { top.cellModelNotes = { ...top.cellModelNotes, "h:2": "another" }; }),'
+     ' moved(() => { top.cellModelNotes = {}; }), moved(() => { top.cellNotes = { "h:1": "mine, reworded" }; }), moved(() => { top.cellNotes = {}; }),'
+     ' moved(() => { delete top.cellModelNotes; delete top.cellNotes; }), moved(() => { top.cellNotes = {}; top.cellModelNotes = {}; })]; })()',
+     '[true,true,true,true,true,false,false]',
+     "a comment written on /models (or a cell's note, from another page) redraws the cards that carry it at the next answer, instead of waiting for something "
+     "else to rebuild them: reworded, added for another cell, taken away; negative: an answer with no such fields and one with empty ones are the same words (none)"),
+    ("fingerprint_follows_the_marks_on_the_models",
+     'st.setTopology({ ...st.topology, modelRatings: { a: "like" } });',
+     '(() => { const part = () => m.topologyStructureParts().notes; const moved = (change) => { const before = part(); change(); return part() !== before; };'
+     ' const top = st.topology; return [moved(() => { top.modelRatings = { a: "dislike" }; }), moved(() => { top.modelRatings = {}; }),'
+     ' moved(() => { delete top.modelRatings; })]; })()',
+     '[true,true,false]',
+     "a like or a dislike set from another tab redraws the cards at the next answer; negative: no marks and an answer without the field are the same (none)"),
     ("fingerprint_parts_are_named_in_one_place",
      'st.setTopology({ ...st.topology, nodes: [{ id: "h1", online: true }] });',
      '[Object.keys(m.topologyStructureParts()),'
      ' Object.values(m.topologyStructureParts()).join("||") === m.topologyStructureFingerprint(),'
      ' (() => { const saved = st.topology; st.setTopology(null);'
      ' try { return [m.topologyStructureParts(), m.topologyStructureFingerprint()]; } finally { st.setTopology(saved); } })()]',
-     '[["clients", "hosts", "classicSrv", "nodeSrv", "gpus", "engines", "prox", "sets", "cloud", "levels", "providers", "decided", "llamaVer", "models",'
+     '[["clients", "hosts", "classicSrv", "nodeSrv", "gpus", "engines", "prox", "entry", "cloud", "levels", "providers", "decided", "llamaVer", "notes", "models",'
      ' "view", "pendingCells", "modals", "order"], true, [{}, ""]]',
      "defect-history: window.__fpDebug называл части своим списком, без hosts и engines, — каждая часть после "
      "clients печаталась под именем соседки; теперь имена и порядок — сами части, и отпечаток — их склейка; "
@@ -573,9 +601,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

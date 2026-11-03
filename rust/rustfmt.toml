@@ -1,0 +1,3 @@
+# The width the Python beside it keeps.
+max_width = 130
+use_small_heuristics = "Max"

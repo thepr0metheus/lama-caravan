@@ -53,7 +53,7 @@ install -m 0755 "${SRC}/run_tts.sh"    "${HOME}/run_tts.sh"
 info "  installed ~/tts_server.py + ~/cell_base.py + ~/run_tts.sh"
 
 # torchcodec (torch>=2.9 audio IO) needs the system ffmpeg shared libraries.
-if ldconfig -p 2>/dev/null | grep -q libavutil; then
+if ldconfig -p 2>/dev/null | grep libavutil >/dev/null; then
   info "  ffmpeg libraries present"
 elif sudo -n true 2>/dev/null; then
   info "Installing ffmpeg (torchcodec runtime)..."

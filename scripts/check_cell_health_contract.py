@@ -11,7 +11,7 @@ less than the cell had told it —
     answer, which is what made the failure invisible.
   - Cells report `langs`; the copier looked for `languages`.
 
-Now caravan/admin/cell_health.py holds the names and both sides read them from
+Now rust/crates/admin/src/fleet/remote_cells.rs holds the names and both sides read them from
 there. This checks the third side — the cell servers — and the one thing a
 static check can be sure of: that each server MENTIONS every required key in
 the payload it builds. It cannot prove the value is right; it can prove nobody
@@ -24,11 +24,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin.cell_health import CARRIED, OPTIONAL, REQUIRED  # noqa: E402
+from _rust_source import RustSource  # noqa: E402
 
 CELLS = ROOT / "cells"
-TELEMETRY = ROOT / "caravan/admin/telemetry.py"
-TOPOLOGY = ROOT / "caravan/admin/topology.py"
+#: What every cell must say; the rest of what travels to the board is optional.
+REQUIRED = ("status", "engine", "model", "source")
+CARRIED = tuple(RustSource.words("admin/src/fleet/remote_cells.rs", "CARRIED"))
+OPTIONAL = tuple(key for key in CARRIED if key not in REQUIRED)
 
 
 def dict_literal_keys(path):
@@ -123,23 +125,16 @@ def main():
                     f'        status/engine/model/source are how the board tells one running\n'
                     f'        cell from another and whether it runs the code we ship.')
 
-    # The copier must not keep a list of its own again.
-    tele = TELEMETRY.read_text(encoding="utf-8")
-    if "carry(" not in tele:
-        errors.append("telemetry.py no longer routes the reply through cell_health.carry() — "
-                      "a second list of names has come back")
-    if re.search(r'for k in \("model", "engine"', tele):
-        errors.append("telemetry.py has a hand-written key list again")
+    # What the program carries must start with what every cell must say, or the board reads a required field empty.
+    for key in REQUIRED:
+        if key not in CARRIED:
+            errors.append(f'the program does not carry "{key}" from a cell\'s reply (CellHealthWords::CARRIED), and every cell must say it')
 
-    # Anything the board reads out of a cell's live reply has to be carried, or
-    # it silently arrives empty and renders as though the cell said nothing.
-    topo = TOPOLOGY.read_text(encoding="utf-8")
-    for key in re.findall(r'\(health or \{\}\)\.get\("([a-zA-Z_]+)"\)', topo):
-        if key not in CARRIED and key != "meta":
-            errors.append(
-                f'topology.py reads "{key}" from a cell\'s reply, but the contract does not\n'
-                f'        carry it — it will always be empty. Add it to OPTIONAL in\n'
-                f'        caravan/admin/cell_health.py, or stop reading it.')
+    # Anything the board reads out of a cell's live reply has to be carried, or it silently arrives empty and renders as though the cell said nothing.
+    for rel, lines in RustSource.files("admin/src/topology/server"):
+        for key in re.findall(r'\bhealth\.get\("([a-zA-Z_]+)"\)', "\n".join(lines)):
+            if key not in CARRIED and key != "meta":
+                errors.append(f'{rel} reads "{key}" from a cell\'s reply, but CellHealthWords::CARRIED does not carry it — it will always be empty.')
 
     if errors:
         print("cell health contract: FAILED", file=sys.stderr)

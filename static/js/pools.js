@@ -2,7 +2,7 @@
 // ordered chain of steps, each one account at a provider with ONE model and — on a ChatGPT
 // subscription — its own switch levels on the 5H and WEEKLY windows. The proxy takes the first
 // step that fits and goes on to the next one for limits only: the step's own level, 429, 402,
-// 401 (caravan/proxy/pool_steps.py). A 500 or a timeout is the backup node's work, not the
+// 401 (rust/crates/proxy/src/pool_steps/mod.rs). A 500 or a timeout is the backup node's work, not the
 // pool's. Another model is another pool.
 //
 // Each pool is its own card under Pools, always open (the operator, 2026-10-11: the folded
@@ -40,6 +40,8 @@ export class PoolCards {
     // is passed by for that request.
     busy: ["poolBusy", "ready"],
     unavailable: ["poolCellOff", "off-cell"],
+    // The board knows the cell stands still (1.3.645): the proxy passes it by without asking it.
+    stopped: ["poolCellOff", "off-cell"],
     output_missing: ["poolOutputMissing", "missing"],
     not_connected: ["poolNotConnected", "open"],
     tried: ["poolTried", "reserve"],

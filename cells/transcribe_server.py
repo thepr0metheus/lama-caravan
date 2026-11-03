@@ -34,17 +34,14 @@ is MIT, but check the card before assuming (some ASR weights are CC-BY-NC).
 """
 from __future__ import annotations
 
-import array
-import io
 import json
 import os
 import re
 import sys
 import threading
-import wave
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cell_base import CellServer   # noqa: E402
+from cell_base import CellServer, Form, Recording   # noqa: E402
 
 _model = None
 _session = None
@@ -108,18 +105,16 @@ class TranscribeCell(CellServer):
     def handle(self, body, headers, path):
         if path not in ("/v1/audio/transcriptions", "/transcribe"):
             return 404, json.dumps({"error": "not found"}).encode(), "application/json"
-        ctype = headers.get("Content-Type", "")
-        wav = _extract_file(body, ctype)
-        if not wav:
-            return 400, json.dumps({"error": "need multipart file=wav"}).encode(), "application/json"
-        try:
-            samples, sr = _wav_to_floats(wav)
-            samples = _resample_16k(samples, sr)
-        except Exception as exc:  # noqa: BLE001
-            return 400, json.dumps({"error": f"bad wav: {exc}"}).encode(), "application/json"
+        form = Form(body, headers.get("Content-Type", ""))
+        raw = form.file()
+        if not raw:
+            return 400, json.dumps({"error": "need multipart file: a recording"}).encode(), "application/json"
+        # WAV or anything ffmpeg reads; a recording it cannot read is the reader's refusal, with its status.
+        rec = Recording.decode(raw)
+        samples = _resample_16k(list(rec.samples), rec.rate)
 
-        fmt = (_fields(body, ctype, "response_format") or ["json"])[0].lower() or "json"
-        gran = {g.lower() for g in _fields(body, ctype, "timestamp_granularities")}
+        fmt = (form.field("response_format") or "json").strip().lower() or "json"
+        gran = {g.strip().lower() for g in form.fields("timestamp_granularities")}
         pieces = _split_at_quiet(samples, _window_ms)
         texts, words, segments = [], [], []
         offset_ms = 0.0
@@ -188,20 +183,6 @@ def _model_slug() -> str:
     base = os.path.basename(_model_path or "")
     base = re.sub(r"\.gguf$", "", base, flags=re.I)
     return re.sub(r"-(F16|F32|BF16|Q\d[^-]*)$", "", base, flags=re.I) or "transcribe"
-
-def _wav_to_floats(data: bytes):
-    """wav bytes -> (list[float] mono, sample_rate). 16-bit PCM expected."""
-    wf = wave.open(io.BytesIO(data), "rb")
-    sr = wf.getframerate()
-    ch = wf.getnchannels()
-    raw = wf.readframes(wf.getnframes())
-    wf.close()
-    a = array.array("h")
-    a.frombytes(raw)
-    if ch > 1:                                   # downmix to mono
-        a = a[::ch]
-    return [s / 32768.0 for s in a], sr
-
 
 def _resample_16k(samples, sr: int):
     """Resample to 16 kHz. The engine takes 16 kHz mono float32 and does NOT
@@ -290,25 +271,6 @@ def _split_at_quiet(samples, window_ms: int):
     return out
 
 
-def _fields(body: bytes, ctype: str, name: str):
-    """Every value sent under `name` — timestamp_granularities[] arrives twice
-    when a caller asks for words AND segments, and reading only the first drops
-    one of them."""
-    m = re.search(r'boundary="?([^";,]+)"?', ctype or "")
-    if not m:
-        return []
-    sep = ("--" + m.group(1)).encode()
-    out = []
-    for part in body.split(sep):
-        head, _, val = part.partition(b"\r\n\r\n")
-        if not _ or b'filename="' in head:
-            continue
-        hm = re.search(rb'name="([^"]+)"', head)
-        if hm and hm.group(1).decode("utf-8", "replace").rstrip("[]") == name:
-            out.append(val.rstrip(b"\r\n-").decode("utf-8", "replace").strip())
-    return out
-
-
 def _words_from_tokens(tokens, offset_ms: float):
     """Group the engine's TOKEN times into words.
 
@@ -353,21 +315,6 @@ def _srt_ts(sec: float, comma=True):
     m, ms = divmod(ms, 60000)
     s, ms = divmod(ms, 1000)
     return f"{h:02d}:{m:02d}:{s:02d}{',' if comma else '.'}{ms:03d}"
-
-
-def _extract_file(body: bytes, ctype: str):
-    m = re.search(r'boundary="?([^";,]+)"?', ctype or "")
-    if not m:
-        return None
-    sep = ("--" + m.group(1)).encode()
-    for part in body.split(sep):
-        if b"filename=" not in part:
-            continue
-        idx = part.find(b"\r\n\r\n")
-        if idx < 0:
-            continue
-        return part[idx + 4:].rstrip(b"\r\n-")
-    return None
 
 
 if __name__ == "__main__":

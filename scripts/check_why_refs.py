@@ -17,9 +17,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs/why.md"
+#: What the public mirror leaves out (scripts/sync-public.sh). A rule that lives there is checked where the folder stands; in the mirror its name is only words.
+NOT_MIRRORED = "deploy/nas/"
 
-# `path/to/file.py:123` or `path/to/file.py` in backticks.
-REF = re.compile(r'`([a-z][a-zA-Z0-9_/.*-]+\.(?:py|js|md|sh))(?::(\d+))?`')
+# `path/to/file.rs:123` or `path/to/file.rs` in backticks.
+REF = re.compile(r'`([a-z][a-zA-Z0-9_/.*-]+\.(?:py|rs|js|md|sh))(?::(\d+))?`')
 
 
 def main():
@@ -35,6 +37,8 @@ def main():
                 errors.append(f"{path} — ни одного файла по этому образцу")
             continue
         target = ROOT / path
+        if path.startswith(NOT_MIRRORED) and not (ROOT / NOT_MIRRORED).is_dir():
+            continue
         if not target.is_file():
             errors.append(f"{path} — файла нет; правило осиротело")
             continue

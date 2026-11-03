@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 _fail = []
 
@@ -125,6 +125,16 @@ out.stale_mixed = m.staleReadings(C([
 out.stale_empty = m.staleReadings(C([]), NOW);
 out.min_age = MIN;
 out.readings = Object.keys(m.USAGE_READINGS).sort();
+// DeepSeek's balance, each state: (the stubs say the word's key, so a word in place of a zero shows).
+const dsHtml = (entry) => { m.deepseekBalanceCache.clear(); if (entry) m.deepseekBalanceCache.set("ds", entry); return m.deepseekBalanceHtml("ds"); };
+out.ds = { unread: dsHtml(null), reading: dsHtml({ loading: true }),
+  told: dsHtml({ data: { ok: true, available: true, balances: [{ currency: "USD", total: "110.00", granted: "10.00", toppedUp: "100.00" }, { currency: "CNY", total: "7.00", granted: "", toppedUp: "7.00" }] }, fetchedAt: 1 }),
+  poor: dsHtml({ data: { ok: true, available: false, balances: [{ currency: "USD", total: "0.00", granted: "0.00", toppedUp: "0.00" }] }, fetchedAt: 1 }),
+  silent: dsHtml({ data: { ok: true, available: null, balances: [] }, fetchedAt: 1 }),
+  key: dsHtml({ data: { ok: false, authError: true, error: "key invalid or revoked" }, fetchedAt: 1 }),
+  failed: dsHtml({ data: { ok: false, error: "HTTP <500>" }, fetchedAt: 1 }), down: dsHtml({ data: null, error: "Error: no road", fetchedAt: 1 }),
+  again: dsHtml({ data: { ok: true, available: true, balances: [] }, loading: true, fetchedAt: 1 }) };
+m.deepseekBalanceCache.clear();
 // действие: спросить заново — то же, что делает кнопка ↻; прежнее чтение остаётся на карточке
 m.subscriptionUsageCache.set("gone", { data: { ok: true, limits: LIM(70) }, fetchedAt: NOW });
 const sentBefore = globalThis.__fetchCalls.length;
@@ -255,9 +265,8 @@ if node is None:
 probe = ROOT / "scripts" / ".probe_usage_stats.tmp.mjs"
 probe.write_text(PROBE, encoding="utf-8")
 try:
-    hook = f"data:text/javascript,import {{ register }} from 'node:module'; register('file://{ROOT}/scripts/_js_harness.mjs');"
     env = {"JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": "form,cloud,topology-render,polling", "PATH": "/usr/bin:/bin"}
-    proc = subprocess.run([node, "--import", hook, str(probe)], capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
+    proc = subprocess.run(probe_args(node, ROOT / "scripts" / "_js_harness.mjs", probe), capture_output=True, text=True, cwd=ROOT, env=env, timeout=60)
 finally:
     probe.unlink(missing_ok=True)
 if proc.returncode != 0:
@@ -332,8 +341,20 @@ check(got["stale_failed"] == ["a"], "прошлое чтение упало — 
 check(got["stale_mixed"] == ["old"], f"из трёх аккаунтов берётся ровно устаревший (got {got['stale_mixed']})")
 check(got["stale_empty"] == [], "negative: пустой кэш — пустой ответ, а не падение")
 check(got["min_age"] == 60000, f"порог — минута (got {got['min_age']})")
-check(got["readings"] == ["apiCosts", "openrouter", "subscription"], 
-      f"все три вида чтений в одной таблице — кнопка и возврат зовут одно действие (got {got['readings']})")
+check(got["readings"] == ["apiCosts", "deepseek", "openrouter", "subscription"], 
+      f"все четыре вида чтений в одной таблице — кнопка и возврат зовут одно действие (got {got['readings']})")
+ds = got["ds"]
+EN = {k: v for k, v in re.findall(r'^  (us\w+): "([^"]*)",$', (ROOT / "static/js/i18n/en.js").read_text(encoding="utf-8"), re.M)}
+check(all('data-t="cloud-deepseek-balance"' in h and 'data-ds-balance-refresh="ds"' in h for h in ds.values()), "баланс DeepSeek: у каждого состояния есть своё место и кнопка ↻")
+check(EN["usLoadingBalance"] in ds["unread"] and EN["usLoadingBalance"] in ds["reading"] and "disabled" in ds["reading"] and "disabled" not in ds["unread"].split("<span")[0],
+      "ещё не прочитан — читается, а не «0»; пока читается, ↻ не нажать")
+check("110.00 USD" in ds["told"] and "7.00 CNY" in ds["told"] and "granted 10.00 · topped up 100.00" in ds["told"] and EN["usDeepseekEmpty"] not in ds["told"],
+      "каждая валюта: сумма и из чего она; negative: хватает — предупреждения нет")
+check("0.00 USD" in ds["poor"] and EN["usDeepseekEmpty"] in ds["poor"], "его слово «не хватит на запросы» сказано рядом с нулём")
+check(EN["usDeepseekUnknown"] in ds["silent"] and " USD" not in ds["silent"] and EN["usDeepseekEmpty"] not in ds["silent"],
+      "negative: баланса не назвал — так и сказано, а не ноль; и «не хватит» он тоже не говорил")
+check("key invalid" in ds["key"] and "HTTP &lt;500&gt;" in ds["failed"] and "no road" in ds["down"], "отвергнутый ключ, сбой провайдера и сбой чтения — у каждого своё слово, с экранированием")
+check('class="sub-usage-refresh icon-action compact spinning"' in ds["again"] and EN["usDeepseekUnknown"] in ds["again"], "чтение заново не стирает прошлый ответ")
 check(got["refresh_keeps"] == [True, True, True, 1],
       f"обновление идёт мимо отказа _shouldFetch (хорошие данные лежат), одним запросом, и НЕ стирает прежнее чтение: "
       f"до 1.3.463 шкалы пропадали с карточки до ответа (got {got['refresh_keeps']})")

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caravan Scout</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: #12141a; color: #e6e6ea;
+         font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+         display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h1 .llama { margin-right: 8px; }
+  .sub { color: #9a9aa5; margin: 0 0 20px; font-size: 13px; }
+  .card { background: #1a1d26; border: 1px solid #2a2e3b; border-radius: 12px;
+          padding: 16px 18px; margin-bottom: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+             color: #8b8b96; margin: 0 0 10px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0;
+         font-size: 14px; }
+  .row .k { color: #9a9aa5; }
+  .row .v { text-align: right; word-break: break-all; }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; }
+  .pill.ok    { background: #133b26; color: #58d68d; }
+  .pill.err   { background: #3b1616; color: #ec7063; }
+  .pill.off   { background: #2a2e3b; color: #9a9aa5; }
+  .hint { color: #8b8b96; font-size: 12.5px; margin: 8px 0 0; }
+  a { color: #6db3f2; }
+  .foot { color: #6f6f7a; font-size: 12px; margin-top: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="llama">&#129433;</span>Caravan Scout</h1>
+  <p class="sub">This machine lends its hardware to a <a
+     href="https://github.com/thepr0metheus/lama-caravan" target="_blank"
+     rel="noopener">LAMA CARAVAN</a> fleet.</p>
+
+  <div class="card">
+    <h2>This host</h2>
+    <div class="row"><span class="k">Host ID</span><span class="v" id="hostId">…</span></div>
+    <div class="row"><span class="k">Hostname / IP</span><span class="v" id="hostAddr">…</span></div>
+    <div class="row"><span class="k">Platform</span><span class="v" id="platform">…</span></div>
+    <div class="row"><span class="k">GPUs</span><span class="v" id="gpus">…</span></div>
+    <div class="row"><span class="k">llama server cells</span><span class="v" id="cells">…</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Controller</h2>
+    <div class="row"><span class="k">Paired with</span><span class="v" id="controller">—</span></div>
+    <div class="row"><span class="k">Heartbeat</span><span class="v" id="hb"><span class="pill off">not paired</span></span></div>
+    <p class="hint" id="howto">To add this machine, open the LAMA CARAVAN board
+      and use <b>Model servers → ＋ Add scout</b> with this address:
+      <b id="selfAddr">…</b>. The controller pairs the scout itself and hands
+      over its fleet token — there is nothing to enter here.</p>
+  </div>
+
+  <p class="foot"><span id="ver">caravan-scout</span> · HTTP API on this port — see
+    <a href="https://github.com/thepr0metheus/caravan-scout" target="_blank"
+       rel="noopener">docs</a></p>
+</div>
+<script>
+(function () {
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+  function render(st) {
+    $("hostId").textContent = st.hostId || "?";
+    if (st.version) $("ver").textContent = "caravan-scout v" + st.version;
+    $("hostAddr").textContent = (st.hostname || "?") + " / " + (st.ip || "?");
+    $("platform").textContent = st.platform || "?";
+    var gpus = st.gpus || [];
+    $("gpus").textContent = gpus.length ? gpus.join(", ") : "none (CPU host)";
+    var cells = st.cells || {};
+    $("cells").textContent = cells.total ? cells.running + " running / " + cells.total : "none";
+    $("selfAddr").textContent = (st.ip || "?") + ":" + (st.port || 8092);
+
+    var ctl = st.controllerUrl || "";
+    $("controller").innerHTML = ctl
+      ? '<a href="' + esc(ctl) + '" target="_blank" rel="noopener">' + esc(ctl) + "</a>"
+      : "—";
+    $("howto").style.display = ctl ? "none" : "";
+
+    var hb = st.heartbeat || {};
+    var el = $("hb");
+    if (!ctl) {
+      el.innerHTML = '<span class="pill off">not paired</span>';
+    } else if (hb.state === "ok") {
+      var when = hb.lastAt ? new Date(hb.lastAt * 1000).toLocaleTimeString() : "";
+      el.innerHTML = '<span class="pill ok">ok' + (when ? " · " + when : "") + "</span>";
+    } else if (hb.state === "error") {
+      el.innerHTML = '<span class="pill err" title="' + esc(hb.error || "") + '">error</span> '
+        + '<span style="color:#9a9aa5;font-size:12.5px">' + esc((hb.error || "").slice(0, 80)) + "</span>";
+    } else {
+      el.innerHTML = '<span class="pill off">waiting…</span>';
+    }
+  }
+
+  function refresh() {
+    fetch("/api/pairing").then(function (r) { return r.json(); }).then(render).catch(function () {});
+  }
+  refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>

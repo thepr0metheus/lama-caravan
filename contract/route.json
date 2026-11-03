@@ -1,0 +1,573 @@
+{
+ "normalize": [
+  {
+   "raw": {
+    "port": 23001
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": "23001",
+    "label": "  hermes  ",
+    "kind": " Consumer ",
+    "apiKey": " k ",
+    "mode": "PAUSED",
+    "portClosed": 1,
+    "priority": "2",
+    "clientTimeoutSeconds": "90",
+    "upstreamHost": " 10.0.0.1 ",
+    "upstreamPort": "81",
+    "deny": [
+     "pool:a",
+     "bad",
+     "model:mm:x",
+     " host:h ",
+     "pool:",
+     5,
+     "pool:a"
+    ]
+   },
+   "route": {
+    "label": "hermes",
+    "port": 23001,
+    "kind": "consumer",
+    "deny": [
+     "host:h",
+     "model:mm:x",
+     "pool:a"
+    ],
+    "upstreamHost": "10.0.0.1",
+    "upstreamPort": 81,
+    "enabled": true,
+    "mode": "paused",
+    "apiKey": "k",
+    "portClosed": true,
+    "priority": 2,
+    "clientTimeoutSeconds": 90,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001.9,
+    "enabled": null
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": false,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   },
+   "as_is": "enabled null is off: bool(None)"
+  },
+  {
+   "raw": {
+    "port": 1,
+    "deny": [
+     "pool:a"
+    ]
+   },
+   "route": {
+    "label": "port-1",
+    "port": 1,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   },
+   "why": "only a client of the entry keeps refusals"
+  },
+  {
+   "raw": {
+    "port": 1,
+    "clientTimeoutSeconds": -5,
+    "upstreamHost": "   ",
+    "label": "   "
+   },
+   "route": {
+    "label": "port-1",
+    "port": 1,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 1,
+    "label": "01234567890123456789012345678901234567890123456789012345678901234567890123456789EXTRA"
+   },
+   "route": {
+    "label": "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
+    "port": 1,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "label": "no port"
+   },
+   "route": null
+  },
+  {
+   "raw": {
+    "port": "abc"
+   },
+   "route": null
+  },
+  {
+   "raw": {
+    "port": null
+   },
+   "route": null
+  },
+  {
+   "raw": {
+    "port": 1,
+    "kind": "service"
+   },
+   "route": null,
+   "why": "a pool's own port is no longer served"
+  },
+  {
+   "raw": {
+    "port": 1,
+    "upstreamPort": "x"
+   },
+   "route": null
+  },
+  {
+   "raw": {
+    "port": 1,
+    "priority": "x"
+   },
+   "route": null
+  },
+  {
+   "raw": {
+    "port": 1,
+    "clientTimeoutSeconds": []
+   },
+   "route": {
+    "label": "port-1",
+    "port": 1,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   },
+   "why": "an empty list is falsy: int(x or 0)"
+  },
+  {
+   "raw": {
+    "port": 1,
+    "queueAbortPct": "x"
+   },
+   "route": null
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": 16000
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": 16000,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": "16000"
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": 16000,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": " 16000 "
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": 16000,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": 0
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": "0"
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": -5
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": "-5"
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": 12.5
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": true
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": "many"
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": null
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextAuto": true
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": true
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextAuto": 1
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": true
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextAuto": false
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextAuto": ""
+   },
+   "route": {
+    "label": "port-23001",
+    "port": 23001,
+    "kind": "",
+    "deny": [],
+    "upstreamHost": "127.0.0.1",
+    "upstreamPort": 8080,
+    "enabled": true,
+    "mode": "open",
+    "apiKey": "",
+    "portClosed": false,
+    "priority": 0,
+    "clientTimeoutSeconds": 0,
+    "contextLength": null,
+    "contextAuto": false
+   }
+  },
+  {
+   "raw": {
+    "port": 23001,
+    "contextLength": "--5"
+   },
+   "route": null
+  },
+  {
+   "raw": "not an object",
+   "route": null
+  }
+ ]
+}

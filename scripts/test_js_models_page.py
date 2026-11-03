@@ -38,7 +38,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 
 def _english():
@@ -67,7 +67,8 @@ STUBS = ("dialogs,dialog-llamas,polling,canvas,topology-dnd,topology-render,char
          "llama-edit,remote-cells,topology-nodes,topology-modals,routers,topology-activity,topology-proxies,model-meta,form,"
          "model-stores,model-moves")
 
-PAGE_READS = ["/api/models/unused", "/api/models/freshness", "/api/hf/download/jobs", "/api/model-stores/files"]
+PAGE_READS = ["/api/models/unused", "/api/models/freshness", "/api/hf/download/jobs", "/api/model-stores/files", "/api/model-notes",
+              "/api/models/rows"]
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -101,7 +102,7 @@ document.querySelectorAll = (sel) => {
 await import(pathToFileURL(process.env.JS_ROOT + "/models-page.js").href);
 const cls = () => { const s = new Set(); return { add: (...c) => c.forEach((x) => s.add(x)), remove: (...c) => c.forEach((x) => s.delete(x)), has: (c) => s.has(c), toggle: (c, on) => (on === undefined ? (s.has(c) ? s.delete(c) : s.add(c)) : (on ? s.add(c) : s.delete(c))) } };
 const mkEl = (onWipe) => ({ textContent: "", _html: "", writes: 0, get innerHTML() { return this._html; }, set innerHTML(v) { this._html = v; this.writes += 1; if (onWipe && !String(v).includes("<details")) onWipe(); }, hidden: false, disabled: false, value: "", classList: cls(), listeners: {}, focused: 0, clicked: 0, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); }, setAttribute() {}, focus() { this.focused += 1; }, click() { this.clicked += 1; (this.listeners.click || []).forEach((fn) => fn({})); }, contains: () => false });
-const IDS = ["mdlTree", "mdlPicked", "mdlDelete", "mdlUnused", "mdlStores", "mdlMovesSum", "mdlMove", "mdlMoveTo", "confirmCancel", "confirmDelete", "confirmOverlay", "mdlSelectAll", "toast", "userChipName", "userChip", "userMenu", "userChipBtn", "userMenuLogout", "mdlFreshCheck", "mdlFreshAuto", "mdlFreshStamp", "mdlFreshGet", "mdlFreshKeep", "mdlFreshAt", "mdlFoot", "mdlSummary", "mdlFilters", "mdlSearch"];
+const IDS = ["mdlJobs", "mdlWindows", "mdlTree", "mdlPicked", "mdlDelete", "mdlUnused", "mdlStores", "mdlMovesSum", "mdlMove", "mdlMoveTo", "confirmCancel", "confirmDelete", "confirmOverlay", "mdlSelectAll", "toast", "userChipName", "userChip", "userMenu", "userChipBtn", "userMenuLogout", "mdlFreshCheck", "mdlFreshAuto", "mdlFreshStamp", "mdlFreshGet", "mdlFreshKeep", "mdlFoot", "mdlSummary", "mdlFilters", "mdlSearch"];
 const F = () => globalThis.__fields;
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body === null ? null : JSON.parse(c.body) }));
 const settle = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r)); };
@@ -128,7 +129,11 @@ const reset = () => { globalThis.__fields = Object.fromEntries(IDS.map((id) => [
   // still needs the shape the page talks to.
   "model-stores.mountStores": () => ({ stores: [], render() {}, refresh() {}, holds() {} }) }; };
 reset();
-const tree = () => F().mdlTree.innerHTML;
+// The two columns of what a model does and how long a context it takes (model-facts.js, pinned in
+// test_js_model_facts.py and by facts_columns_and_filters here) are empty for a page whose fixtures carry no
+// editor rows; the other pins read the tree without those empty cells, as they read it before the columns came.
+const EMPTY_FACTS = /<span class="mdl-c-job" data-t="models-row-jobs" data-t-id="[^"]*"><\/span><span class="mdl-c-window" data-t="models-row-window" data-t-id="[^"]*" data-t-state="none"><\/span>/g;
+const tree = () => F().mdlTree.innerHTML.replace(EMPTY_FACTS, "");
 const box = (path, size, checked) => ({ checked, dataset: { delPath: path, size: String(size) } });
 // The move tracker's face as the page uses it; a pin overrides what it needs.
 const tracker = (over = {}) => ({ onWay: () => null, rowHtml: () => "", stayedHtml: () => "", branchHtml: () => "", openHtml: () => "",
@@ -155,9 +160,44 @@ const panel = (scope = "all") => { globalThis.__stubReturns["model-stores.mountS
     render() {}, refresh() {}, holds(x) { globalThis.__held = x; }, choose(s) { this.chosen.push(s); this.scope = s; opts.onScope(s); } }); }; };
 const place = (scope) => { globalThis.__panel.scope = scope; globalThis.__storesOpts.onScope(scope); };
 const out = {};
+// The comments on the models as /api/model-notes answers them; `limit` is the server's own, so that a pin sees the page read it.
+const NOTES = (notes = {}, limit = 777) => ({ ok: true, notes, limit, root: "(root)" });
+// A button of the comment block pressed: the click reaches the tree's one listener, whichever button it was (attr: noteEdit, noteSave, noteCancel).
+const hit = (attr, value = "") => { const sel = "[data-" + attr.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + "]";
+  const el = { dataset: { [attr]: value }, disabled: false, closest: (s) => (s === sel ? el : null) }; return el; };
+const press = async (attr, value) => { const el = hit(attr, value); await F().mdlTree.listeners.click[0]({ target: el }); await settle(); return el; };
+const typeNote = (text) => { const el = { value: text, closest: (s) => (s === "[data-note-input]" ? el : null) }; F().mdlTree.listeners.input[0]({ target: el }); };
+const noteBox = () => { const m = /<textarea class="mdl-note-input"[^>]*>([^<]*)<\/textarea>/.exec(tree()); return m ? m[1] : null; };
+const idsOf = (h, hook) => [...h.matchAll(new RegExp(`data-t="${hook}" data-t-id="([^"]*)"`, "g"))].map((m) => m[1]);
+const textsOf = (h, hook = "models-note") => [...h.matchAll(new RegExp(`<div class="mdl-note" data-t="${hook}" data-t-id="([^"]*)"><span class="mdl-note-mark" aria-hidden="true">[^<]*</span><span class="mdl-note-head">[^<]*</span><span class="mdl-note-text">([^<]*)</span>`, "g"))].map((m) => [m[1], m[2]]);
+const chipsOf = (h) => [...h.matchAll(/data-t="models-note-chip" data-t-id="([^"]*)" title="([^"]*)"/g)].map((m) => [m[1], m[2]]);
 """
 
 PINS = [
+    # ── What a model does and how long a context it takes (model-facts.js, 1.3.637): the editor's rows, read once more.
+    ("facts_columns_and_filters",
+     'globalThis.__fetchReply["/api/models/rows"] = { ok: true, models: ['
+     '{ path: "qwen/Qwen/Q4/qwen-q4.gguf", kind: "model", detectedFamily: "qwen3", ggufMeta: { contextLength: 32768 } }, '
+     '{ path: "qwen/Qwen/Q8/qwen-q8.gguf", kind: "model", detectedFamily: "qwen3", ggufMeta: { contextLength: 262144 } }, '
+     '{ path: "llama/Meta/Q4/l-q4.gguf", kind: "model", detectedFamily: "llama3", ggufMeta: { contextLength: 131072 } }, '
+     '{ path: "root.gguf", kind: "model", detectedFamily: "embedding", ggufMeta: {} }] };',
+     r"""await (async () => { await boot(); const h = F().mdlTree.innerHTML; const nav = F().mdlJobs.innerHTML, win = F().mdlWindows.innerHTML;
+       const cell = (hook, id) => { const at = h.indexOf(`data-t="${hook}" data-t-id="${id}"`); return at < 0 ? "" : h.slice(at, h.indexOf("</span>", h.indexOf(">", at) + 1)); };
+       const ids = () => [...F().mdlTree.innerHTML.matchAll(/data-t="models-tree-group" data-t-id="([^"]*)"/g)].map((m) => m[1]).filter((x) => !["Qwen", "Meta", "Q4", "Q8", "·"].includes(x));
+       const press = (box, attr, value) => box.listeners.click[0]({ target: { closest: (sel) => (sel === `[data-${attr}]` ? { dataset: { [attr.replace(/-([a-z])/g, (m, c) => c.toUpperCase())]: value } } : null) } });
+       const head = h.includes('<span class="mdl-c-job">What for</span><span class="mdl-c-window">Context up to</span>');
+       const qwenWindow = cell("models-row-window", "qwen"), rootWindow = cell("models-row-window", "(root)");
+       const navCounts = [...nav.matchAll(/data-mdl-job="([^"]*)"[^>]*><span aria-hidden="true">[^<]*<\/span><span>[^<]*<\/span><span class="c">(\d+)/g)].map((m) => [m[1], Number(m[2])]);
+       const all = ids();
+       press(F().mdlJobs, "mdl-job", "embed"); const embedOnly = ids();
+       press(F().mdlJobs, "mdl-job", "embed"); const back = ids();
+       press(F().mdlWindows, "mdl-window", "131072"); const long = ids();
+       press(F().mdlWindows, "mdl-window", "131072");  // the page's choice outlives a pin: taken off for the next ones
+       return [head, qwenWindow.includes('data-t-state="known"') && qwenWindow.endsWith("32,768 – 262,144"), rootWindow.includes('data-t-state="unknown"'),
+               h.includes('data-job="llm">💬 LLM</span>'), navCounts, win.includes('data-mdl-window="262144"'), all, embedOnly, back, long]; })()""",
+     json.dumps([True, True, True, True, [["llm", 3], ["embed", 1]], True, ["qwen", "llama", "(root)"], ["(root)"], ["qwen", "llama", "(root)"], ["qwen", "llama"]]),
+     "страница берёт строки редактора: у ветки — работы её моделей и окно (диапазон, когда кванты разные), модель векторов без окна — "
+     "«не известен»; слева — работы со счётом и окна; выбор сужает дерево, повторное нажатие снимает его"),
     # ── Download alongside and install: buttons on a file's row.
     ("staged_buttons_appear_only_where_there_is_work", '',
      'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { r: { files: { "qwen/Qwen/Q4/qwen-q4.gguf": { state: "size" }, "qwen/Qwen/Q8/qwen-q8.gguf": { state: "same" } } } }, prev: {}, watch: {} }); const h = tree(); return [(h.match(/data-staged-get=/g) || []).length, h.includes(\'data-staged-get="qwen/Qwen/Q4/qwen-q4.gguf"\'), h.includes("data-staged-apply"), h.includes("data-staged-prev")]; })()',
@@ -205,30 +245,29 @@ PINS = [
                  [0, False], ["/api/models/staged/revert", {"file": "qwen/Qwen/Q4/qwen-q4.gguf"}]], ensure_ascii=False),
      "«revert» кладёт сохранённую сборку на место рабочей, и новый файл удаляется — сначала вопрос, который это говорит, красным; после "
      "«да» — запрос по пути; negative: «нет» — ни запроса"),
-    ("the_daily_check_has_a_time_of_day", '',
-     'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: {}, prev: {}, watch: { check: true, at: "04:30" } }); const shown = F().mdlFreshAt.value; const enabled = !F().mdlFreshAt.disabled; '
-     'globalThis.__fetchReply["/api/models/freshness/watch"] = { ok: true, watch: { check: true, download: false, keepPrev: false, at: "07:05" } }; '
-     'F().mdlFreshAt.value = "7:5"; (F().mdlFreshAt.listeners.change || []).forEach((fn) => fn({})); await settle(); '
-     'return [shown, enabled, calls().filter((c) => c.path === "/api/models/freshness/watch").map((c) => c.body), F().mdlFreshAt.value]; })()',
-     '["04:30",true,[{"check":true,"download":false,"keepPrev":false,"at":"7:5"}],"07:05"]',
-     'positive: настроенное время видно в поле; правка уезжает ОДНИМ телом вместе с галками, и на экран возвращается то, что ПРИНЯЛ сервер («7:5» → «07:05»), а не то, что набрали'),
-    ("the_time_field_is_dead_while_nobody_looks", '',
-     'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 0, repos: {}, prev: {}, watch: { check: false, at: "03:00" } }); const off = F().mdlFreshAt.disabled; '
-     'await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 0, repos: {}, prev: {}, watch: { check: true, at: "03:00" } }); return [off, F().mdlFreshAt.disabled]; })()',
-     '[true,false]',
-     'negative: галка снята — поле времени выключено: настройка, которую некому исполнить, выглядела бы как обещание'),
-    ("a_refused_time_does_not_stay_on_screen", '',
-     'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 0, repos: {}, prev: {}, watch: { check: true, at: "03:00" } }); '
-     'globalThis.__fetchReply["/api/models/freshness/watch"] = { __status: 400, error: "time out of range: 25:00" }; '
-     'F().mdlFreshAt.value = "25:00"; (F().mdlFreshAt.listeners.change || []).forEach((fn) => fn({})); await settle(); '
-     'return [F().mdlFreshAt.value, F().toast.textContent.includes("25:00")]; })()',
-     '["03:00",true]',
-     'negative: сервер отверг время — поле возвращается к прежнему и причина сказана вслух; иначе на экране осталась бы настройка, которой нет'),
+    ("the_daily_check_has_no_hour", '',
+     'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 0, repos: {}, prev: {}, watch: { check: true, at: "04:30" } }); '
+     'globalThis.__fetchReply["/api/models/freshness/watch"] = { ok: true, watch: { check: false, download: false, keepPrev: false } }; '
+     'F().mdlFreshAuto.checked = false; (F().mdlFreshAuto.listeners.change || []).forEach((fn) => fn({})); await settle(); '
+     'return [calls().filter((c) => c.path === "/api/models/freshness/watch").map((c) => c.body), F().mdlFreshAuto.checked]; })()',
+     '[[{"check":false,"download":false,"keepPrev":false}],false]',
+     '1.3.678 (владелец, 2026-10-27: «раз в день запускать, если открыли доску»): часа больше нет — настройки едут без него; '
+     'negative: «at», пришедший от старого сервера, обратно не уезжает (до 1.3.678 тело несло «at» всегда, пустым — тоже)'),
     ("watch_sends_all_three_levels", '',
      'await (async () => { await boot(); F().mdlFreshKeep.checked = true; (F().mdlFreshKeep.listeners.change || []).forEach((fn) => fn({})); await settle(); return calls().map((c) => c.body); })()',
-     '[{"check":false,"download":false,"keepPrev":true,"at":""}]',
-     'галки и время едут ВМЕСТЕ одним телом — сервер сам включит «смотреть» под «обновлять», и спорить с ним по дороге незачем; пустое время означает «оставить как настроено», а не «сбросить»'),
+     '[{"check":false,"download":false,"keepPrev":true}]',
+     'галки едут ВМЕСТЕ одним телом — сервер сам включит «смотреть» под «обновлять», и спорить с ним по дороге незачем'),
     # ── Model freshness: the watcher's report is drawn as an icon, and the UNCHECKED stays silent.
+    ("freshness_title_says_what_is_known", '',
+     'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { "Qwen/qwen": { files: { '
+     '"qwen/Qwen/Q4/qwen-q4.gguf": { state: "size", localSize: 2 ** 34, remoteSize: 2 ** 33, localDate: "2026-08-15", remoteDate: "2026-08-19" }, '
+     '"qwen/Qwen/Q8/qwen-q8.gguf": { state: "date", localSize: 2 ** 34, remoteSize: 2 ** 34, localDate: "2026-10-17", remoteDate: "2026-10-19" } } } }, '
+     'watch: { check: true } }); return [...tree().matchAll(/class="mdl-fresh newer" title="([^"]*)">⇪</g)].map((m) => m[1]).sort(); })()',
+     json.dumps(sorted([en("mdlFreshNewer", ours="16.0 GB · 2026-08-15", theirs="8.00 GB · 2026-08-19"),
+                        en("mdlFreshReuploaded", ours="16.0 GB · 2026-10-17", theirs="16.0 GB · 2026-10-19")]), ensure_ascii=False),
+     "1.3.679 (2026-10-27: ⇪ на части IQ1_M, совпавшей с HF до байта, говорил «на HF другой файл»): разный размер — другая сборка, так и "
+     "сказано; тот же размер и коммит на HF новее — «возможно, перезалит», как на /hf, и что байты сравнит «Verify» на /hf; "
+     "negative: про файл с тем же размером не сказано «другой файл»"),
     ("freshness_marks_only_what_differs", '',
      'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { "Qwen/qwen": { files: { "qwen/Qwen/Q4/qwen-q4.gguf": { state: "size", localSize: 2 ** 34, remoteSize: 2 ** 33, localDate: "2026-08-15", remoteDate: "2026-08-19" }, "qwen/Qwen/Q8/qwen-q8.gguf": { state: "same" }, "llama/Meta/Q4/l-q4.gguf": { state: "unknown" } } } }, watch: { check: false } }); const h = tree(); return [(h.match(/mdl-fresh newer/g) || []).length, (h.match(/mdl-fresh unknown/g) || []).length, h.includes("16.0 GB · 2026-08-15"), h.includes("8.00 GB · 2026-08-19"), (h.match(/⇪ 1</g) || []).length, h.includes(\'data-differs="1"\')]; })()',
      '[4,1,true,true,3,true]',
@@ -280,6 +319,14 @@ PINS = [
      'return [atTop, moved.length > 0, [...new Set(moved)]]; })()',
      '[0,true,[640]]',
      'дерево пересобирается целиком и на миг становится ниже — браузер увёл бы страницу в шапку; позиция восстанавливается, а из нулевой прокрутки никто никуда не прыгает'),
+    ("the_list_pane_keeps_its_place_across_a_redraw", '',
+     'await (async () => { const was = document.querySelector; let written = []; '
+     'const pane = (top) => ({ get scrollTop() { return top; }, set scrollTop(v) { written.push(v); top = v; } }); '
+     'document.querySelector = (sel) => (sel === ".mdl-main" ? pane(640) : was?.call(document, sel)); await boot(); const scrolled = [...written]; written = []; '
+     'document.querySelector = (sel) => (sel === ".mdl-main" ? pane(0) : was?.call(document, sel)); await boot(); const atTop = [...written]; '
+     'document.querySelector = was; await boot(); return [scrolled, atTop]; })()',
+     '[[640],[]]',
+     'на широком экране список прокручивается в своей панели: она и держит место через перерисовку; negative: панель наверху не трогается, панели нет — ничего не падает'),
     ("one_name_two_copies_one_verdict_each", '',
      'await (async () => { const files = [{ path: "M/A/Q5_K_M/dup.gguf", sizeBytes: 2 ** 30, ageDays: 5, referenced: false }, { path: "M/A/default/dup.gguf", sizeBytes: 2 ** 30, ageDays: 9, referenced: false }]; '
      'await boot(files, { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { "A/M": { files: { "M/A/Q5_K_M/dup.gguf": { state: "size" } } } }, prev: {}, watch: {} }); const h = tree(); '
@@ -300,7 +347,7 @@ PINS = [
      'знаменатель — СВЕРЕННЫЕ файлы: недостучавшийся репозиторий не растворяется в общем числе; галка показывает сохранённое'),
     ("freshness_button_and_checkbox_talk_to_the_server", '',
      'await (async () => { await boot(); F().mdlFreshCheck.click(); await settle(); const a = calls().map((c) => c.path); globalThis.__fetchCalls.length = 0; F().mdlFreshAuto.checked = true; (F().mdlFreshAuto.listeners.change || []).forEach((fn) => fn({})); await settle(); return [a.includes("/api/models/freshness/check"), calls().map((c) => [c.path, c.body])]; })()',
-     '[true,[["/api/models/freshness/watch",{"check":true,"download":false,"keepPrev":false,"at":""}]]]',
+     '[true,[["/api/models/freshness/watch",{"check":true,"download":false,"keepPrev":false}]]]',
      'кнопка просит проверку; три галки уезжают ОДНИМ телом — сервер сам делает нижние обязательными для верхних'),
     ("the_unused_line_is_the_reason_for_the_buttons", '',
      r"""await (async () => { await boot(); const idle = [F().mdlUnused.textContent, F().mdlUnused.classList.has("warn")];
@@ -346,6 +393,14 @@ PINS = [
      '["/hf?q=gemma","gemma","Find this model on Hugging Face"],["/hf?q=llama","llama","Find this model on Hugging Face"],["/hf?q=qwen","qwen","Find this model on Hugging Face"]],false,false,false,false,false]',
      "дорога на Hugging Face: ветка автора — это репозиторий, 🤗 открывает его на /hf; ветка модели ищет по имени (все авторы); у кванта, (root), «·», кэша models-- и автора default ссылки нет"),
 
+    ("a_link_opens_the_page_on_a_model", '',
+     r"""await (async () => { globalThis.location.search = "?q=qwen%2FQwen%2FQ8%2F"; try { await boot(); } finally { globalThis.location.search = ""; }
+       const h = tree(); const named = [h.includes("qwen-q8.gguf"), h.includes("qwen-q4.gguf"), h.includes("l-q4.gguf"), h.includes("root.gguf")];
+       const box = F().mdlSearch.value; await boot(); const again = tree();
+       return [box, named, F().mdlSearch.value, again.includes("l-q4.gguf")]; })()""",
+     '["qwen/Qwen/Q8/",[true,false,false,false],"",true]',
+     "1.3.660 (владелец, 2026-10-26: «ссылку на модель в нашем хранилище»): ссылка окна ячейки `?q=` открывает страницу уже суженной "
+     "до папки кванта модели, и поле поиска говорит, по чему; negative: другие файлы не видны; без `?q=` — весь список и пустое поле"),
     ("tree_largest_first_every_level", '', 'await (async () => { await boot(); const h = tree(); const i = (s) => h.indexOf(s); return [i(\'data-t-id="qwen"\') < i(\'data-t-id="llama"\'), i(\'data-t-id="llama"\') < i(\'data-t-id="(root)"\'), i(\'data-t-id="Q8"\') < i(\'data-t-id="Q4"\')]; })()', '[true,true,true]', "крупные первыми на каждом уровне: модели, кванты"),
     ("file_rows_used_and_deletable", '',
      r"""await (async () => { await boot(); const h = tree(); const used = rowOf(h, "qwen-q4.gguf"), free = rowOf(h, "qwen-q8.gguf"); return [
@@ -609,6 +664,117 @@ PINS = [
      '[[0,0],[2,2]]',
      "перерисовка, которая ничего не меняет, разметку не трогает: страница рисует себя после каждого ответа, а разметка, заменённая под "
      "зажатой кнопкой мыши, съедает клик (живьём терялись клики по фильтрам и местам); negative: фильтр туда и обратно перерисовывает дважды"),
+    # ── The comments on the models: one for each model, whatever its quants.
+    ("a_model_with_a_comment_shows_it_and_the_others_offer_one",
+     'globalThis.__fetchReply["/api/model-notes"] = NOTES({ qwen: "A <b>dense</b> model & more", "(root)": "never shown", nobody: "a model that is not on the list" });',
+     r"""await (async () => { await boot(); const h = tree(); const at = (s, from = 0) => h.indexOf(s, from);
+       const start = at('data-branch="qwen"'), block = at('data-t="models-note"', start), firstAuthor = at('data-branch="qwen/Qwen"');
+       return { chips: chipsOf(h), texts: textsOf(h), adds: idsOf(h, "models-note-add").sort(), edits: idsOf(h, "models-note-edit"),
+         aboveTheAuthors: start < block && block < firstAuthor, noUnknownLine: !h.includes("models-notes-unknown"), noBoxYet: !h.includes("<textarea") }; })()""",
+     json.dumps({"chips": [["qwen", "A &lt;b&gt;dense&lt;/b&gt; model &amp; more"]], "texts": [["qwen", "A &lt;b&gt;dense&lt;/b&gt; model &amp; more"]],
+                 "adds": ["llama"], "edits": ["qwen"], "aboveTheAuthors": True, "noUnknownLine": True, "noBoxYet": True}),
+     "a model with a comment shows 💬 on its folded row (the words in the tooltip) and the comment itself above its authors, escaped, with a pencil to change it; "
+     "a model without one offers the way to write it; the row of the loose files (\"(root)\") takes none even when the file holds a stray one, and a comment on a model "
+     "that is not on the list is not drawn; no box is open until it is asked for"),
+    ("a_page_that_did_not_get_the_comments_offers_none",
+     'globalThis.__fetchReply["/api/model-notes"] = { __status: 500, error: "down" };',
+     r"""await (async () => { await boot(); const h = tree(); const none = [chipsOf(h).length, textsOf(h).length, idsOf(h, "models-note-add").length, idsOf(h, "models-note-edit").length];
+       const line = /<p class="muted mdl-notes-unknown" data-t="models-notes-unknown">([^<]*)<\/p>/.exec(h);
+       globalThis.__fetchReply["/api/model-notes"] = NOTES({}); await boot(); const known = tree();
+       return { none, line: line && line[1], knownAdds: idsOf(known, "models-note-add").sort(), knownLine: known.includes("models-notes-unknown") }; })()""",
+     json.dumps({"none": [0, 0, 0, 0], "line": EN["mdlNoteUnknown"], "knownAdds": ["llama", "qwen"], "knownLine": False}, ensure_ascii=False),
+     "negative: a page that could not read the comments draws no chip, no text and no box to write one in — a box that opened empty over a comment it did not read "
+     "would save over it — and says so under the list; once they are read the line is gone and every model offers its comment"),
+    ("writing_a_comment_for_one_model",
+     'globalThis.__fetchReply["/api/model-notes"] = NOTES({});',
+     r"""await (async () => { await boot(); await press("noteEdit", "llama"); const opened = [noteBox(), /maxlength="777"/.test(tree()), idsOf(tree(), "models-note-add")];
+       typeNote("Meta's 70B"); pressFilter("unused"); const afterRedraw = noteBox(); pressFilter("unused");
+       globalThis.__fetchReply["/api/model-notes"] = { ok: true, model: "llama", note: "Meta's 70B" }; globalThis.__fetchCalls.length = 0;
+       const save = await press("noteSave", "llama"); const h = tree();
+       return { opened, afterRedraw, calls: calls(), saved: textsOf(h), chips: chipsOf(h).map((c) => c[0]), boxGone: noteBox() === null, adds: idsOf(h, "models-note-add"),
+         toast: F().toast.textContent, busy: save.disabled }; })()""",
+     json.dumps({"opened": ["", True, ["qwen"]], "afterRedraw": "Meta&#39;s 70B",
+                 "calls": [{"path": "/api/model-notes", "method": "POST", "body": {"model": "llama", "field": "note", "note": "Meta's 70B"}}],
+                 "saved": [["llama", "Meta&#39;s 70B"]], "chips": ["llama"], "boxGone": True, "adds": ["qwen"], "toast": EN["mdlNoteSaved"], "busy": True}, ensure_ascii=False),
+     "the add button opens an empty box for that model with the limit the server told (not one of the page's own); what is typed is kept through a redraw of the tree "
+     "(a filter pressed there and back); Save sends the model's folder and the words in one POST, and the tree then shows the comment, its chip and a pencil with no second trip; "
+     "the box is gone and the toast says the comment is saved"),
+    ("a_comment_is_changed_and_taken_away",
+     'globalThis.__fetchReply["/api/model-notes"] = NOTES({ qwen: "old words" });',
+     r"""await (async () => { await boot(); await press("noteEdit", "qwen"); const opened = noteBox(); typeNote("");
+       globalThis.__fetchReply["/api/model-notes"] = { ok: true, model: "qwen", note: "" }; globalThis.__fetchCalls.length = 0;
+       await press("noteSave", "qwen"); const h = tree();
+       return { opened, calls: calls(), texts: textsOf(h).length, chips: chipsOf(h).length, adds: idsOf(h, "models-note-add").sort(), toast: F().toast.textContent }; })()""",
+     json.dumps({"opened": "old words", "calls": [{"path": "/api/model-notes", "method": "POST", "body": {"model": "qwen", "field": "note", "note": ""}}],
+                 "texts": 0, "chips": 0, "adds": ["llama", "qwen"], "toast": EN["mdlNoteGone"]}, ensure_ascii=False),
+     "the pencil opens the box with the comment the model has now; an emptied box saved is an empty note to the server, and the comment is gone from the tree — "
+     "text, chip and pencil — with the add button back and the toast saying it was removed, not saved"),
+    ("a_refused_comment_stays_in_the_box",
+     'globalThis.__fetchReply["/api/model-notes"] = NOTES({});',
+     r"""await (async () => { await boot(); await press("noteEdit", "llama"); typeNote("words that took long to write");
+       globalThis.__fetchReply["/api/model-notes"] = { __status: 400, error: "a comment is at most 1000 characters, this one has 1001" };
+       const save = await press("noteSave", "llama"); pressFilter("unused"); pressFilter("unused");
+       const got = { toast: F().toast.textContent, box: noteBox(), busy: save.disabled, chips: chipsOf(tree()).length };
+       await press("noteCancel"); return got; })()""",
+     json.dumps({"toast": "a comment is at most 1000 characters, this one has 1001", "box": "words that took long to write", "busy": False, "chips": 0}),
+     "negative: a refusal says why in the toast and leaves the box open, with the words still held (a redraw of the tree puts them back) and Save pressable again; nothing is drawn as kept"),
+    ("the_other_two_texts_of_a_model",
+     'globalThis.__fetchReply["/api/model-notes"] = { ...NOTES({}), params: { qwen: "--temp 1" }, comments: {}, limits: { note: 777, params: 4000, comment: 500 } };',
+     r"""await (async () => { await boot(); const h = tree(); const shown = { params: textsOf(h, "models-params"), adds: [idsOf(h, "models-note-add").sort(), idsOf(h, "models-params-add").sort(), idsOf(h, "models-comment-add").sort()], edits: idsOf(h, "models-params-edit") };
+       const edit = hit("noteEdit", "qwen"); edit.dataset.noteField = "params"; await F().mdlTree.listeners.click[0]({ target: edit }); await settle();
+       const opened = [noteBox(), /maxlength="4000"/.test(tree()), idsOf(tree(), "models-params-input"), idsOf(tree(), "models-params-add").includes("qwen"), idsOf(tree(), "models-note-input")];
+       typeNote("--temp 0.7"); globalThis.__fetchReply["/api/model-notes"] = { ok: true, model: "qwen", field: "params", note: "--temp 0.7" }; globalThis.__fetchCalls.length = 0;
+       await press("noteSave", "qwen"); const saved = [calls(), textsOf(tree(), "models-params"), chipsOf(tree()).length, F().toast.textContent];
+       const add = hit("noteEdit", "llama"); add.dataset.noteField = "comment"; await F().mdlTree.listeners.click[0]({ target: add }); await settle();
+       const comment = [noteBox(), /maxlength="500"/.test(tree()), idsOf(tree(), "models-comment-input")]; typeNote("mine");
+       globalThis.__fetchReply["/api/model-notes"] = { ok: true, model: "llama", field: "comment", note: "mine" }; globalThis.__fetchCalls.length = 0; await press("noteSave", "llama");
+       return { shown, opened, saved, comment, commentCall: calls(), comments: textsOf(tree(), "models-comment"), desc: textsOf(tree()) }; })()""",
+     json.dumps({"shown": {"params": [["qwen", "--temp 1"]], "adds": [["llama", "qwen"], ["llama"], ["llama", "qwen"]], "edits": ["qwen"]},
+                 "opened": ["--temp 1", True, ["qwen"], False, []],
+                 "saved": [[{"path": "/api/model-notes", "method": "POST", "body": {"model": "qwen", "field": "params", "note": "--temp 0.7"}}], [["qwen", "--temp 0.7"]], 0, EN["mdlNoteSaved"]],
+                 "comment": ["", True, ["llama"]],
+                 "commentCall": [{"path": "/api/model-notes", "method": "POST", "body": {"model": "llama", "field": "comment", "note": "mine"}}],
+                 "comments": [["llama", "mine"]], "desc": []}, ensure_ascii=False),
+     "у модели три текста (владелец, 2026-10-31): описание, рекомендованные параметры от разработчика и свой комментарий, каждый со своей кнопкой, своим пределом от сервера и своим полем в запросе; "
+     "negative: сохранённые параметры не становятся описанием и не дают чипа описания, а открытый ящик одного поля не открывает другое"),
+    ("a_models_mark_on_the_list",
+     'globalThis.__fetchReply["/api/model-notes"] = { ...NOTES({}), ratings: { qwen: "like", "(root)": "like", nobody: "dislike" } };',
+     r"""await (async () => { await boot(); const h = tree(); const marks = [...h.matchAll(/data-t="model-rating" data-t-state="(like|dislike)"/g)].map((m) => m[1]);
+       const pressed = (m) => [...tree().matchAll(new RegExp(`aria-pressed="true" data-model-rate="(like|dislike)" data-model-rate-for="${m}"`, "g"))].map((x) => x[1]);
+       const buttons = [pressed("qwen"), pressed("llama"), idsOf(h, "models-rate").sort()];
+       const button = (kind, model) => { const el = { dataset: { modelRate: kind, modelRateFor: model }, closest: (s) => (s === "[data-model-rate]" ? el : null) }; return el; };
+       const click = async (kind, model) => { await F().mdlTree.listeners.click[0]({ target: button(kind, model) }); await settle(); };
+       globalThis.__fetchReply["/api/model-rating"] = { ok: true, model: "llama", rating: "dislike", ratings: { qwen: "like", llama: "dislike" } }; globalThis.__fetchCalls.length = 0;
+       await click("dislike", "llama"); const set = [calls(), pressed("llama")];
+       globalThis.__fetchReply["/api/model-rating"] = { ok: true, model: "qwen", rating: "", ratings: { llama: "dislike" } }; globalThis.__fetchCalls.length = 0;
+       await click("like", "qwen"); const taken = [calls(), pressed("qwen")];
+       globalThis.__fetchReply["/api/model-rating"] = { __status: 400, error: "no such model" }; await click("like", "llama"); const refused = [pressed("llama"), F().toast.textContent];
+       return { marks, buttons, set, taken, refused }; })()""",
+     json.dumps({"marks": ["like"], "buttons": [["like"], [], ["llama:dislike", "llama:like", "qwen:dislike", "qwen:like"]],
+                 "set": [[{"path": "/api/model-rating", "method": "POST", "body": {"model": "llama", "rating": "dislike"}}], ["dislike"]],
+                 "taken": [[{"path": "/api/model-rating", "method": "POST", "body": {"model": "qwen", "rating": ""}}], []],
+                 "refused": [["dislike"], "no such model"]}, ensure_ascii=False),
+     "хранилище показывает оценку на строке модели, а в открытой модели её можно поставить и снять тем же щелчком; negative: у строки россыпью и у модели не из списка значка нет, а отказ оставляет оценку прежней и говорит почему"),
+    ("cancel_and_escape_leave_nothing_behind",
+     'globalThis.__fetchReply["/api/model-notes"] = NOTES({ qwen: "kept" });',
+     r"""await (async () => { await boot(); globalThis.__fetchCalls.length = 0;
+       await press("noteEdit", "llama"); typeNote("a draft"); await press("noteCancel"); const cancelled = [noteBox(), calls().length];
+       await press("noteEdit", "llama"); const again = noteBox();
+       const other = { closest: () => null }; F().mdlTree.listeners.keydown[0]({ key: "Escape", target: other }); const elsewhere = noteBox();
+       const esc = { closest: (s) => (s === "[data-note-input]" ? esc : null) }; F().mdlTree.listeners.keydown[0]({ key: "Enter", target: esc }); const enter = noteBox();
+       F().mdlTree.listeners.keydown[0]({ key: "Escape", target: esc });
+       return { cancelled, again, elsewhere, enter, escaped: [noteBox(), calls().length], kept: textsOf(tree()) }; })()""",
+     '{"cancelled":[null,0],"again":"","elsewhere":"","enter":"","escaped":[null,0],"kept":[["qwen","kept"]]}',
+     "Cancel and Escape in the box close it and send nothing; the next box opens with what the model has (nothing), not with the draft that was let go; "
+     "negative: Escape pressed anywhere else does not touch a comment; the kept comment of another model is as it was"),
+    ("a_refresh_that_cannot_read_the_comments_keeps_the_last_ones",
+     'globalThis.__fetchReply["/api/model-notes"] = NOTES({ qwen: "kept" }); globalThis.__stubReturns["model-moves.mountMoves"] = (opts) => { globalThis.__movesOpts = opts; return tracker(); };',
+     r"""await (async () => { await boot(); globalThis.__fetchReply["/api/model-notes"] = { __status: 500, error: "down" };
+       globalThis.__movesOpts.onChange(); await settle(); const h = tree();
+       return { chips: chipsOf(h).map((c) => c[0]), noUnknownLine: !h.includes("models-notes-unknown") }; })()""",
+     '{"chips":["qwen"],"noUnknownLine":true}',
+     "a refresh that could not read the comments keeps the ones the page read before: they change rarely and a box being typed in must not vanish "
+     "(the page's first look is another matter: see the pin of the page that never got them)"),
 ]
 
 
@@ -650,9 +816,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:
@@ -670,6 +834,10 @@ def main():
         if have != rev.get(pid, "\0missing"):
             _fail.append(f"пин {pid} зависит от порядка")
     print(f"порядок: {len(PINS)} пинов дают те же значения в обратном порядке" if not _fail else "")
+    page = (ROOT / "static" / "models.html").read_text(encoding="utf-8")
+    check("mdlFreshAt" not in page and 'type="time"' not in page and "Look once a day, when the main board is opened" in page,
+          "1.3.678: у галки «раз в сутки» нет поля часа — когда смотреть, говорят её слова (первая доска за день); "
+          "negative: поля времени в разметке нет")
     print()
     if _fail:
         print(f"FAILED ({len(_fail)}):")

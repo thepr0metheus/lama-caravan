@@ -26,7 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _node import find_node, node_search_paths  # noqa: E402
+from _node import find_node, node_search_paths, probe_args  # noqa: E402
 
 STUBS = ("canvas,polling,topology-dnd,topology-render,topology-modals,topology-nodes,charts,cables,cloud,history,"
          "favorites,config-locator,system-panels,onboarding,usage-stats,dialog-llamas,models-page,system-page,"
@@ -59,9 +59,22 @@ const metaNode = () => {
     }
     return boxes;
   };
+  // The boxes of a dialog that asks words, read back the same way: key, type, value and placeholder as the markup
+  // wrote them, with the entities undone as a browser undoes them; a box that takes focus says so in the log.
+  let fields = { html: null, list: [] };
+  const plain = (s) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&amp;", "&");
+  const readFields = () => {
+    if (fields.html !== n.innerHTML) {
+      fields = { html: n.innerHTML, list: [...n.innerHTML.matchAll(/<input type="(text|number)"([^>]*) data-field="([^"]*)" data-t="confirm-field" data-t-id="[^"]*" value="([^"]*)" placeholder="([^"]*)">/g)]
+        .map((x) => ({ type: x[1], extra: x[2], dataset: { field: plain(x[3]) }, value: plain(x[4]), placeholder: plain(x[5]), onkeydown: null,
+          focus() { focusLog.push("field:" + this.dataset.field); } })) };
+    }
+    return fields.list;
+  };
   n.querySelector = (sel) => (sel === "[data-check-all]" ? readBoxes().all : null);
   n.querySelectorAll = (sel) => {
     if (sel === "[data-check]") return readBoxes().list;
+    if (sel === "[data-field]") return readFields();
     if (cache.html !== n.innerHTML) {
       cache = { html: n.innerHTML, list: [...n.innerHTML.matchAll(/data-choice="([^"]*)"\s*aria-checked="(true|false)">([^<]*)</g)]
         .map((x) => ({ dataset: { choice: x[1] }, label: x[3], attrs: { "aria-checked": x[2] }, onclick: null,
@@ -79,6 +92,12 @@ const POOLS = { choiceLabel: "Pools", allLabel: "All pools, new ones too", empty
 const chips = () => F().confirmMeta.querySelectorAll().map((b) => [b.dataset.choice, b.attrs["aria-checked"], b.label]);
 const HOLDS = { choiceLabel: "Unload when unused for", choice: "-1",
   choices: [{ value: "900", label: "15 min" }, { value: "3600", label: "1 h" }, { value: "-1", label: "until I unload it" }] };
+// The window that turns a machine's cache on: its folder and its limit, asked with the question.
+const CACHE = { danger: false, title: "Turn the model cache on?", confirmLabel: "Turn on",
+  fields: [{ key: "dir", label: "Folder", value: "/mnt/ssd/cache", placeholder: "/mnt/ssd/llama-model-cache" },
+           { key: "budget", label: "Limit", value: 50, kind: "number", suffix: "GB", placeholder: "keeps 3" }] };
+const boxes = () => F().confirmMeta.querySelectorAll("[data-field]");
+const fieldRows = () => boxes().map((b) => [b.dataset.field, b.type, b.value, b.placeholder]);
 const build = () => {
   const modal = { dataset: {} };
   globalThis.__fields = {
@@ -316,6 +335,49 @@ PINS = [
      'await (async () => { const p = m.appConfirm("x", { danger: false, choices: [{ value: "a", label: "A" }] }); const shown = [F().confirmMeta.hidden, F().confirmMeta.innerHTML]; m.settleAppConfirm(true); return [shown, await p]; })()',
      '[[true,""],true]',
      "negative: обычный confirm вариантов не рисует, даже если их передали, и отвечает true"),
+    ("fields_show_boxes_with_their_words",
+     '',
+     '(() => { m.appConfirmFields("Copies of models are kept on this machine.", CACHE); const h = F().confirmMeta.innerHTML; return [F().confirmMeta.hidden, fieldRows(), (h.match(/data-t="confirm-field"/g) || []).length, h.includes(\'dlg-field-label">Folder<\'), h.includes(\'dlg-field-suffix">GB<\'), [/spellcheck="false" autocomplete="off"/.test(boxes()[0].extra), /min="1" step="1"/.test(boxes()[1].extra)], F().confirmInput.hidden, modalOf().dataset.tone, F().confirmDelete.classList.has("danger"), [...focusLog], F().confirmTitle.textContent, F().confirmText.textContent, F().confirmDelete.textContent]; })()',
+     '[false,[["dir","text","/mnt/ssd/cache","/mnt/ssd/llama-model-cache"],["budget","number","50","keeps 3"]],2,true,true,[true,true],true,"ask",false,["field:dir"],"Turn the model cache on?","Copies of models are kept on this machine.","Turn on"]',
+     "the window that turns a cache on (the owner, 2026-11-03): each box under its label with its words; the number box takes whole numbers from 1 with its unit after it; "
+     "tone «ask», focus in the first box, no prompt box"),
+    ("fields_settle_their_words_by_key",
+     '',
+     'await (async () => { const p = m.appConfirmFields("Q", CACHE); const [dir, budget] = boxes(); dir.value = "  /data/cache  "; budget.value = " 120 "; m.settleAppConfirm(true); return [await p, F().confirmMeta.hidden, F().confirmMeta.innerHTML, F().confirmOverlay.hidden]; })()',
+     '[{"dir":"/data/cache","budget":"120"},true,"",true]',
+     "OK answers what the boxes hold now, by key and trimmed; after it the meta is hidden and empty"),
+    ("fields_cancel_is_null",
+     '',
+     'await (async () => { const p = m.appConfirmFields("Q", CACHE); boxes()[0].value = "/elsewhere"; m.settleAppConfirm(false); const r = m.appConfirm("Sure?"); m.settleAppConfirm(true); return [await p, await r]; })()',
+     '[null,true]',
+     "negative: Cancel answers null whatever was typed; the next plain confirm answers true, not the boxes"),
+    ("fields_enter_confirms",
+     '',
+     'await (async () => { const p = m.appConfirmFields("Q", CACHE); const budget = boxes()[1]; budget.onkeydown({ key: "a", preventDefault: () => {} }); const open = F().confirmOverlay.hidden; budget.value = "7"; let prevented = false; budget.onkeydown({ key: "Enter", preventDefault: () => { prevented = true; } }); const closed = F().confirmOverlay.hidden; if (!closed) m.settleAppConfirm(false); return [open, await p, prevented, closed]; })()',
+     '[false,{"dir":"/mnt/ssd/cache","budget":"7"},true,true]',
+     "Enter in a box confirms, as in a prompt, and the key is taken; another key closes nothing"),
+    ("fields_escaped",
+     '',
+     '(() => { m.appConfirmFields("Q", { fields: [{ key: "k<1", label: "<b>x</b>", value: \'a"b<c\', suffix: "<i>u</i>" }] }); const h = F().confirmMeta.innerHTML; return [h.includes("<b>"), h.includes("&lt;b&gt;x&lt;/b&gt;"), h.includes("<i>"), h.includes(\'value="a&quot;b&lt;c"\'), boxes().map((b) => [b.dataset.field, b.value])]; })()',
+     '[false,true,false,true,[["k<1","a\\"b<c"]]]',
+     "negative: labels, words, keys and units are escaped — a folder with a quote in it stays the box's words, not markup"),
+    ("fields_boundaries",
+     '',
+     'await (async () => { m.appConfirmFields("Q", { fields: [{ label: "no key" }, null, { key: "a", label: "A" }] }); const one = [modalOf().dataset.tone, [...focusLog], boxes().map((b) => b.dataset.field)]; m.settleAppConfirm(false); focusLog.length = 0; const p = m.appConfirmFields("Q", { danger: false, fields: [] }); const none = [F().confirmMeta.hidden, F().confirmMeta.innerHTML, [...focusLog]]; m.settleAppConfirm(true); return [one, none, await p]; })()',
+     '[["danger",["field:a"],["a"]],[true,"",["ok"]],{}]',
+     "boundary: a box without a key is not drawn; focus goes into the first box even in the red tone (it is there to be typed in); "
+     "no boxes — nothing drawn, focus on OK, and OK answers an empty object (not null: OK and Cancel stay apart)"),
+    ("fields_forgotten_by_the_next_dialog",
+     '',
+     'await (async () => { m.appConfirmFields("Q", CACHE); focusLog.length = 0; const r = m.appConfirm("y"); const meta = [F().confirmMeta.hidden, F().confirmMeta.innerHTML, [...focusLog]]; m.settleAppConfirm(true); const q = m.appPrompt("Name"); F().confirmInput.value = "x"; m.settleAppConfirm(true); return [meta, await r, await q]; })()',
+     '[[true,"",["cancel"]],true,"x"]',
+     "negative: a confirm opened over an unanswered fields dialog draws no boxes, puts the focus on its own Cancel (not into a box gone with the markup) "
+     "and answers true, not their words; a prompt after it answers its string"),
+    ("plain_confirm_ignores_fields",
+     '',
+     'await (async () => { const p = m.appConfirm("x", { danger: false, fields: CACHE.fields }); const shown = [F().confirmMeta.hidden, F().confirmMeta.innerHTML]; m.settleAppConfirm(true); return [shown, await p]; })()',
+     '[[true,""],true]',
+     "negative: a plain confirm draws no boxes even when given them, and answers true"),
 ]
 
 
@@ -354,9 +416,7 @@ def main():
         env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
-            [node, "--import",
-             f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
-             str(path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+            probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
     finally:
         path.unlink(missing_ok=True)
     if run.returncode != 0:

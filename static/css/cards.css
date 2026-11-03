@@ -1293,6 +1293,52 @@ button.danger {
 .topbar .user-chip button,
 .topbar .lang-trigger { white-space: nowrap; }
 
+/* The caravan's pages in the bar of every page (scripts/gen_header.py, BAR_PAGES; the owner, 2026-10-24:
+   "move them into the row where the language switches"; Routing and the machines since 2026-10-29). The look is the one they had on the caravan's strip: a pill
+   with its page's tint — the accent for the models on disk, Hugging Face's yellow for its browser — while the text keeps
+   the theme's colour, so both read the same on a light bar and a dark one. The page a link stands on is lit, and is still
+   a link. Under 1430 px only the icons stay, each saying its page in its hover: measured on the six views in 20 languages, the
+   widest needs that much with the words (Russian's "Маршрутизация" among them), and the owner's window is 1440 px wide. */
+.topbar-pages { display: inline-flex; align-items: center; gap: 6px; }
+.topbar-page {
+  --tint: var(--accent, #6ea8fe);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tint) 45%, transparent);
+  background: color-mix(in srgb, var(--tint) 10%, transparent);
+  color: var(--text);
+  font: 600 12.5px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s ease, border-color .15s ease;
+}
+.topbar-page[data-t="header-hf"] { --tint: #f5b72b; }
+.topbar-page:hover { border-color: var(--tint); background: color-mix(in srgb, var(--tint) 20%, transparent); }
+.topbar-page[aria-current="page"] { border-color: var(--tint); background: color-mix(in srgb, var(--tint) 26%, transparent); }
+.topbar-page:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+@media (max-width: 1429px) { .topbar-page-label { display: none; } }
+
+/* The list of machines (static/js/header-machines.js): a pill like the others that opens a menu under it. */
+.topbar-machines { position: relative; display: inline-flex; }
+button.topbar-page { min-height: 0; cursor: pointer; }
+.topbar-machines-menu {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; display: grid; gap: 2px; min-width: 220px; max-height: min(70vh, 420px);
+  overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+}
+.topbar-machine {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 7px; color: var(--text); font-size: 13px;
+  text-decoration: none; white-space: nowrap;
+}
+.topbar-machine:hover, .topbar-machine:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.topbar-machine[aria-current="page"] { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.topbar-machine-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.topbar-machine-dot.on { background: var(--good); }
+.topbar-machine-off { margin-left: auto; padding-left: 14px; color: var(--muted); font-size: 11.5px; }
+.topbar-machines-note { max-width: 320px; padding: 8px 10px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+
 .summary {
   display: grid;
   gap: 7px;
