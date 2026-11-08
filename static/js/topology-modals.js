@@ -11,7 +11,7 @@ import {
 import { formatTps } from "./polling.js";
 import { topologyRouterOutputLabel } from "./routers.js";
 import { setTopology, state, topology, ui } from "./state.js";
-import { _proxyUpstreamStr, proxyEffectiveWaitTimeout } from "./topology-activity.js";
+import { proxyEffectiveWaitTimeout } from "./topology-activity.js";
 import {
   topologyScheduleGrid,
   topologySchedulePaintOutput,
@@ -24,8 +24,8 @@ import { $, api, escapeHtml, pill, toast } from "./utils.js";
 export let topologyQueuePriorityModalOpen = false;
 export let topologyPriorityModalOpen = false;
 export let topologyPriorityOrder = [];
-export let topologyQueuePriorityEdits = {};  // pending edits: cloudFallbackPct, priorityPreemptPct, queueAbortPct, stickySlotSec; routes: {port: {cloudFallbackPct,priorityPreemptPct,queueAbortPct}}
-export let topologyQueuePriorityProxyExpanded = {};  // {port: true} — which proxy rows are expanded in the modal
+export let topologyQueuePriorityEdits = {};  // pending edits: cloudFallbackPct, priorityPreemptPct, queueAbortPct, stickySlotSec; routes: {client id: {cloudFallbackPct,priorityPreemptPct,queueAbortPct}}
+export let topologyQueuePriorityProxyExpanded = {};  // {client id: true} — which client rows are expanded in the modal
 export let topologyRawConfigOpen = false;    // raw agent-proxies.json viewer modal
 export let topologyRawConfigText = "";
 export let topologyRawConfigPath = "";
@@ -60,15 +60,15 @@ export function _renderQueueThresholdTimelines(globalCloudPct, globalPriorPct, g
   const routeEdits = topologyQueuePriorityEdits.routes || {};
 
   return localProxies.map((proxy) => {
-    const port = Number(proxy.port || 0);
+    const routeId = String(proxy.id || "");
     const effective = proxyEffectiveWaitTimeout(proxy);
     const wt = effective > 0 ? effective : 3600;
     const isDefault = !(effective > 0);
-    const expanded = !!topologyQueuePriorityProxyExpanded[port];
+    const expanded = !!topologyQueuePriorityProxyExpanded[routeId];
 
     // Resolve effective pct: pending edit > saved route override > global slider
-    const thresh = (queueThresholds?.proxies || []).find((p) => Number(p.port || 0) === port) || {};
-    const pendingRoute = routeEdits[port] || {};
+    const thresh = (queueThresholds?.proxies || []).find((p) => String(p.id || "") === routeId) || {};
+    const pendingRoute = routeEdits[routeId] || {};
     function _effPct(key, globalVal) {
       if (Object.prototype.hasOwnProperty.call(pendingRoute, key)) {
         const v = pendingRoute[key];
@@ -112,22 +112,22 @@ export function _renderQueueThresholdTimelines(globalCloudPct, globalPriorPct, g
     // inapplicable ones are grayed out (qp-handle-inactive) and non-draggable.
     const sliderSection = `
       <div class="qp-proxy-overrides">
-        <div class="topology-pct-track qp-proxy-track" data-qp-proxy-track="${port}">
-          <div class="topology-pct-fill" data-qp-proxy-fill="${port}" style="width:${abortPct}%"></div>
+        <div class="topology-pct-track qp-proxy-track" data-qp-proxy-track="${escapeHtml(routeId)}">
+          <div class="topology-pct-fill" data-qp-proxy-fill="${escapeHtml(routeId)}" style="width:${abortPct}%"></div>
           <div class="topology-pct-handle cloud${!hasCloud ? " qp-handle-inactive" : ""}" style="left:${cloudPct}%"
-              data-qp-proxy-handle="${port}" data-qp-pct-key="cloudFallbackPct" tabindex="0"
+              data-qp-proxy-handle="${escapeHtml(routeId)}" data-qp-pct-key="cloudFallbackPct" tabindex="0"
               title="${escapeHtml(hasCloud ? t("qpCloudFallbackTitle") : t("qpNoCloudTitle"))}">
             <span class="qp-handle-icon">↑☁</span>
             <span class="qp-handle-time">${_fmtSec(Math.round(wt * cloudPct / 100))}</span>
           </div>
           <div class="topology-pct-handle crown${!hasPriority ? " qp-handle-inactive" : ""}" style="left:${priorPct}%"
-              data-qp-proxy-handle="${port}" data-qp-pct-key="priorityPreemptPct" tabindex="0"
+              data-qp-proxy-handle="${escapeHtml(routeId)}" data-qp-pct-key="priorityPreemptPct" tabindex="0"
               title="${escapeHtml(hasPriority ? t("qpPriorityTitle") : t("qpNoPriorityTitle"))}">
             <span class="qp-handle-icon">👑</span>
             <span class="qp-handle-time">${_fmtSec(Math.round(wt * priorPct / 100))}</span>
           </div>
           <div class="topology-pct-handle abort" style="left:${abortPct}%"
-              data-qp-proxy-handle="${port}" data-qp-pct-key="queueAbortPct"
+              data-qp-proxy-handle="${escapeHtml(routeId)}" data-qp-pct-key="queueAbortPct"
               tabindex="0" title="${escapeHtml(t("qpQueueAbortTitle"))}">
             <span class="qp-handle-icon">✕</span>
             <span class="qp-handle-time">${_fmtSec(Math.round(wt * abortPct / 100))}</span>
@@ -135,14 +135,14 @@ export function _renderQueueThresholdTimelines(globalCloudPct, globalPriorPct, g
         </div>
         <div class="qp-proxy-override-footer">
           <span class="qp-override-hint">${escapeHtml(t("qpOverrideHint", { wt }))}</span>
-          ${anyOverride ? `<button class="mini-link qp-override-reset" type="button" data-qp-proxy-reset="${port}" title="${escapeHtml(t("qpResetGlobalTitle"))}">${escapeHtml(t("qpResetGlobalBtn"))}</button>` : ""}
+          ${anyOverride ? `<button class="mini-link qp-override-reset" type="button" data-qp-proxy-reset="${escapeHtml(routeId)}" title="${escapeHtml(t("qpResetGlobalTitle"))}">${escapeHtml(t("qpResetGlobalBtn"))}</button>` : ""}
         </div>
       </div>`;
 
     return `
-      <div class="qp-proxy-tl-row${anyOverride ? " has-override" : ""}" data-qp-proxy-row="${port}">
+      <div class="qp-proxy-tl-row${anyOverride ? " has-override" : ""}" data-qp-proxy-row="${escapeHtml(routeId)}">
         <div class="qp-proxy-tl-head">
-          <span class="qp-proxy-tl-label">${escapeHtml(proxy.label || `:${proxy.port}`)}${anyOverride ? `<span class="qp-override-dot" title="${escapeHtml(t("tmTitleCustomThresholds"))}">•</span>` : ""}</span>
+          <span class="qp-proxy-tl-label">${escapeHtml(proxy.label || proxy.id || "")}${anyOverride ? `<span class="qp-override-dot" title="${escapeHtml(t("tmTitleCustomThresholds"))}">•</span>` : ""}</span>
           <span class="qp-proxy-tl-wt">wait_timeout=${wt}s${isDefault ? " (default)" : ""}</span>
         </div>
         ${sliderSection}
@@ -284,14 +284,13 @@ export function renderTopologyPriorityModal() {
     if (!proxy) return "";
     const level = priorityLevelForIndex(index);
     const hue = priorityHueForLevel(level);
-    const endpoint = `:${proxy.port || "?"} → ${_proxyUpstreamStr(proxy)}`;
     return `
       <div class="topology-priority-row" data-priority-row="${escapeHtml(proxy.id)}" draggable="true">
         <span class="topology-priority-handle" aria-hidden="true" title="Drag to reorder">⠿</span>
         <span class="topology-priority-badge" style="background:hsl(${hue},66%,42%)">${level}</span>
         <div class="topology-priority-meta">
-          <strong>${escapeHtml(proxy.label || `:${proxy.port}`)}</strong>
-          <small>${escapeHtml(proxy.topologyRole || "route")} · ${escapeHtml(endpoint)}</small>
+          <strong>${escapeHtml(proxy.label || proxy.id || "")}</strong>
+          <small>${escapeHtml(proxy.topologyRole || "route")}</small>
         </div>
         <button class="icon-action compact" type="button" data-priority-remove="${escapeHtml(proxy.id)}" aria-label="Remove priority" title="Remove priority">×</button>
       </div>
@@ -351,7 +350,7 @@ export async function saveQueuePriorityModal() {
 
   // Save per-proxy overrides
   const routeEdits = topologyQueuePriorityEdits.routes || {};
-  const routeSavePromises = Object.entries(routeEdits).map(([port, overrides]) => {
+  const routeSavePromises = Object.entries(routeEdits).map(([routeId, overrides]) => {
     const patch = {};
     for (const key of ["cloudFallbackPct", "priorityPreemptPct", "queueAbortPct"]) {
       if (Object.prototype.hasOwnProperty.call(overrides, key)) {
@@ -361,7 +360,7 @@ export async function saveQueuePriorityModal() {
     if (!Object.keys(patch).length) return Promise.resolve();
     return api("/api/agent-proxies/route-policy", {
       method: "POST",
-      body: JSON.stringify({ port: Number(port), ...patch }),
+      body: JSON.stringify({ routeId: String(routeId), ...patch }),
     });
   });
   await Promise.all(routeSavePromises);
@@ -383,7 +382,7 @@ export function openPriorityModal(proxyId) {
   const proxies = topology?.proxies || [];
   topologyPriorityOrder = proxies
     .filter((proxy) => Math.max(0, Number(proxy.priority || 0)) > 0)
-    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || Number(a.port || 0) - Number(b.port || 0))
+    .sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0) || String(a.label || "").localeCompare(String(b.label || "")))
     .map((proxy) => proxy.id);
   topologyPriorityEdits = {};
   if (proxyId && !topologyPriorityOrder.includes(proxyId)) {
@@ -418,14 +417,14 @@ export async function savePriorityModal() {
   originalPriority.forEach((_value, id) => {
     if (!targets.has(id)) {
       const proxy = proxies.find((row) => row.id === id);
-      if (proxy) routeChanges.push({ port: proxy.port, priority: 0 });
+      if (proxy) routeChanges.push({ routeId: proxy.id, priority: 0 });
     }
   });
   targets.forEach((target, id) => {
     const current = originalPriority.get(id) || 0;
     if (current !== target) {
       const proxy = proxies.find((row) => row.id === id);
-      if (proxy) routeChanges.push({ port: proxy.port, priority: target });
+      if (proxy) routeChanges.push({ routeId: proxy.id, priority: target });
     }
   });
   if (!routeChanges.length) {
@@ -452,7 +451,6 @@ export function topologyLogSummary(row) {
     row.timeIso || (row.time ? new Date(row.time * 1000).toLocaleString() : ""),
     row.event || "",
     row.route || item.route || "",
-    item.port || row.port ? `:${item.port || row.port}` : "",
     item.status || row.status ? `status ${item.status || row.status}` : "",
     item.error || row.error || "",
   ].filter(Boolean);
@@ -589,7 +587,7 @@ export async function setTopologyProxyRoutePolicy(proxyId, patch) {
   if (!proxy) return;
   await api("/api/agent-proxies/route-policy", {
     method: "POST",
-    body: JSON.stringify({ port: proxy.port, ...patch }),
+    body: JSON.stringify({ routeId: proxy.id, ...patch }),
   });
   await refreshTopology();
   toast("proxy policy updated");
@@ -600,7 +598,7 @@ export async function stopTopologyProxy(proxyId) {
   if (!proxy) return;
   await api("/api/agent-proxies/stop", {
     method: "POST",
-    body: JSON.stringify({ port: proxy.port }),
+    body: JSON.stringify({ routeId: proxy.id }),
   });
   await refreshTopology();
   toast("stop requested");

@@ -86,7 +86,7 @@ impl AuthStore {
             }
             let user_id = session.get("userId").and_then(Value::as_i64);
             // absent-ok: a session nobody saw is seen now.
-            seen_now = now - session.get("lastSeen").and_then(Value::as_f64).unwrap_or(0.0) > 60.0;
+            seen_now = now - session.get("lastSeen").and_then(Value::as_f64).unwrap_or(0.0) > Self::SEEN_EVERY;
             let user = Self::rows(doc, "users").find(|row| row.get("id").and_then(Value::as_i64) == user_id);
             Ok(user.map(|user| SessionInfo {
                 user: Coerce::text(user.get("username")),

@@ -11,6 +11,7 @@ pub mod models;
 pub mod pages;
 pub mod pools;
 pub mod proxies;
+pub mod runner_presets;
 pub mod system;
 pub mod topology;
 
@@ -31,6 +32,7 @@ impl AllRoutes {
             health::HealthRoutes::ROUTES,
             pages::PageRoutes::ROUTES,
             models::ModelRoutes::ROUTES,
+            runner_presets::RunnerPresetRoutes::ROUTES,
             hf::HfRoutes::ROUTES,
             fleet::FleetRoutes::ROUTES,
             cells::CellRoutes::ROUTES,

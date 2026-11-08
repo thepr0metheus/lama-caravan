@@ -3,13 +3,14 @@
 use super::*;
 
 /// `(id, state, [(port, state)])` of a machine's model, as far as a change of it matters.
-pub(super) type ReportedModel = (String, String, Vec<(i64, String)>);
+/// A model of a machine's entry as a report says it: its name, its state, and each copy by its cell, the port its run holds and its state.
+pub(super) type ReportedModel = (String, String, Vec<(String, i64, String)>);
 
 /// A scout's report in the shape the record keeps.
 pub struct HostReport;
 
 impl HostReport {
-    pub(super) const GPU_FIELDS: [&'static str; 11] = [
+    pub(super) const GPU_FIELDS: [&'static str; 13] = [
         "index",
         "uuid",
         "name",
@@ -21,6 +22,9 @@ impl HostReport {
         "utilizationGpuPct",
         "temperatureC",
         "powerDrawW",
+        // The card's bus, since scout 2.45.0: what weights left in RAM come to it over (the board's estimate of the speed).
+        "pcieGen",
+        "pcieWidth",
     ];
 
     pub(super) fn cut(raw: Option<&Value>, most: usize) -> String {
@@ -117,7 +121,10 @@ impl HostReport {
         let count = |key: &str| Coerce::whole(raw.get(key));
         let object = |key: &str| raw.get(key).filter(|said| said.is_object());
         json!({
+            // The cell by its name since scout 2.46; a scout of before names none, and its port names the cell `c<port>` (ServerCells::node_cell).
+            "id": raw.get("id").filter(|said| said.is_string()).and_then(CellId::read),
             "running": Coerce::truthy(raw.get("running")),
+            // The port this run of the cell leased; none while it holds none.
             "port": raw.get("port"),
             "modelPath": Self::cut_raw(raw.get("modelPath"), 300),
             "mmprojPath": Self::cut_raw(raw.get("mmprojPath"), 300),
@@ -167,12 +174,9 @@ impl HostReport {
             nodes.push(node.clone());
         }
         let object = |key: &str| payload.get(key).filter(|said| said.is_object()).cloned().unwrap_or_else(|| json!({}));
-        let autostart = payload.get("autostart").and_then(Value::as_array).map(|ports| {
-            let digits = ports
-                .iter()
-                .map(|port| Coerce::str_of(Some(port)))
-                .filter(|port| !port.is_empty() && port.chars().all(|digit| digit.is_ascii_digit()));
-            let unique: BTreeSet<i64> = digits.filter_map(|port| port.parse().ok()).collect();
+        // The cells the scout starts with its machine, by their names; a scout of before said their ports, which name the cells `c<port>`.
+        let autostart = payload.get("autostart").and_then(Value::as_array).map(|said| {
+            let unique: BTreeSet<String> = said.iter().filter_map(CellId::read).collect();
             unique
         });
         let telemetry = payload.get("telemetry").filter(|said| said.is_object()).map(|said| {

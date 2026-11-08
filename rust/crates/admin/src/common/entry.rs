@@ -58,21 +58,20 @@ impl EntryDoor {
         Value::Object(out)
     }
 
-    /// `{key: ports}` of the keys more than one route carries.
-    pub fn shared_keys(routes: &[Value]) -> BTreeMap<String, Vec<i64>> {
-        let mut ports: BTreeMap<String, Vec<i64>> = BTreeMap::new();
+    /// `{key: names}` of the keys more than one client carries, the names in order.
+    pub fn shared_keys(routes: &[Value]) -> BTreeMap<String, Vec<String>> {
+        let mut names: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for route in routes {
             let key = Coerce::stripped(route.get("apiKey"));
             if !key.is_empty() {
-                // absent-ok: `int(route.get("port") or 0)`: a route of no port still shares its key.
-                ports.entry(key).or_default().push(Coerce::whole(route.get("port")));
+                names.entry(key).or_default().push(Coerce::text(route.get("label")));
             }
         }
-        ports.retain(|_, found| found.len() > 1);
-        for found in ports.values_mut() {
+        names.retain(|_, found| found.len() > 1);
+        for found in names.values_mut() {
             found.sort_unstable();
         }
-        ports
+        names
     }
 }
 
@@ -218,10 +217,11 @@ mod tests {
 
     #[test]
     fn a_key_is_shown_by_its_tail() {
-        assert_eq!(EntryDoor::public_route(&json!({"port": 1, "apiKey": "abcdefg"})), json!({"port": 1, "keyTail": "defg"}));
-        assert_eq!(EntryDoor::public_route(&json!({"port": 1})), json!({"port": 1, "keyTail": ""}));
-        let routes = [json!({"apiKey": "k", "port": 2}), json!({"apiKey": "k", "port": 1}), json!({"apiKey": "z", "port": 3})];
-        assert_eq!(EntryDoor::shared_keys(&routes).get("k"), Some(&vec![1, 2]));
+        assert_eq!(EntryDoor::public_route(&json!({"id": "c1", "apiKey": "abcdefg"})), json!({"id": "c1", "keyTail": "defg"}));
+        assert_eq!(EntryDoor::public_route(&json!({"id": "c1"})), json!({"id": "c1", "keyTail": ""}));
+        let routes =
+            [json!({"apiKey": "k", "label": "b"}), json!({"apiKey": "k", "label": "a"}), json!({"apiKey": "z", "label": "c"})];
+        assert_eq!(EntryDoor::shared_keys(&routes).get("k"), Some(&vec!["a".to_string(), "b".to_string()]));
         assert_eq!(EntryDoor::shared_keys(&routes).len(), 1);
     }
 

@@ -46,6 +46,9 @@ impl AuthStore {
     const MAX_FAILS: i64 = 5;
     const LOCKOUT_SECONDS: f64 = 60.0;
     const SESSION_ID_LENGTH: usize = 12;
+    /// Seconds between two writes of a session's `lastSeen`: what the sessions list shows, its grain, not its life (that is `expiresAt`). Once a
+    /// minute it rewrote the accounts' file for every open board, on the NAS's disks (2026-11-03; the owner: «write less»).
+    const SEEN_EVERY: f64 = 600.0;
     /// The cookie's name.
     pub const SESSION_COOKIE: &'static str = "caravan_session";
     const UNAVAILABLE: &'static str = "the sign-in store did not answer, try again in a moment";
@@ -271,6 +274,23 @@ mod tests {
         assert_eq!(listed.first().and_then(|row| row.get("id")).and_then(Value::as_str).map(str::len), Some(12));
         store.delete_session(&token).unwrap();
         assert_eq!(store.validate_session(&token, 100.0).unwrap(), None);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn a_session_s_last_sight_is_written_once_in_its_grain() {
+        let root = folder("seen");
+        let store = AuthStore::open(&root.join("auth.db"), "s");
+        store.create_user("me", "password1", "", 1).unwrap();
+        let (id, _) = store.verify_login("me", "password1", "ip", 1.0).unwrap();
+        let token = store.create_session(id, "ip", "ua", 100).unwrap();
+        let file = || std::fs::read(root.join("auth.json")).unwrap();
+        let seen = || store.list_sessions(100).unwrap().first().and_then(|row| row.get("lastSeen")).cloned();
+        let before = file();
+        assert!(store.validate_session(&token, 100.0 + AuthStore::SEEN_EVERY).unwrap().is_some());
+        assert_eq!((seen(), file() == before), (Some(json!(100)), true), "negative: a sight within its grain is not written");
+        assert!(store.validate_session(&token, 101.0 + AuthStore::SEEN_EVERY).unwrap().is_some());
+        assert_eq!((seen(), file() == before), (Some(json!(701)), false), "a sight after it is");
         std::fs::remove_dir_all(&root).unwrap();
     }
 

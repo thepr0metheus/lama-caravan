@@ -110,17 +110,18 @@ class Stand:
     PORT = 8799
     SCOUT_PORT = 18092
     HOST_ID = "stand-box"
-    #: Stopped cells on the bench, ready to be dragged. The second is the one to split between the cards.
+    #: Stopped cells on the bench, ready to be dragged, by their models: a cell has no port until its scout leases one at its start
+    #: (2026-11-08), and its name is the controller's. The second is the one to split between the cards.
     CELLS = (
-        (22001, "stand-small-8B-Q4_K_M.gguf", "16384"),
-        (22002, "stand-chat-27B-Q4_K_M.gguf", "32768"),
-        (22003, "stand-coder-70B-Q3_K_M.gguf", "32768"),
-        (22004, "stand-huge-120B-Q4_K_M.gguf", "32768"),
+        ("stand-small-8B-Q4_K_M.gguf", "16384"),
+        ("stand-chat-27B-Q4_K_M.gguf", "32768"),
+        ("stand-coder-70B-Q3_K_M.gguf", "32768"),
+        ("stand-huge-120B-Q4_K_M.gguf", "32768"),
     )
     #: vLLM over checkpoints: the second has more weights than either card's share holds.
     VLLM_CELLS = (
-        (22005, "stand-vllm-small-8B", "32768"),
-        (22006, "stand-vllm-big-70B", "32768"),
+        ("stand-vllm-small-8B", "32768"),
+        ("stand-vllm-big-70B", "32768"),
     )
 
     #: The machine the stand stands in for has this much; on macOS a scout measures no used memory at all, and a stand that only ever draws that says nothing of a Linux
@@ -232,20 +233,23 @@ class Stand:
                 raise SystemExit(f"the scout was not paired: {said}")
             time.sleep(1)
 
+    #: What names a bench cell's model in its settings.
+    MODEL_KEYS = ("MODEL_FILE", "VLLM_MODEL")
+
     def add_cells(self):
-        """The bench, first time only: a cell an earlier run changed keeps what it was changed to."""
+        """The bench, first time only, a cell by its model: a cell an earlier run changed keeps what it was changed to, and a run
+        makes no second cell of a model the bench has."""
         topology = self.api.call("GET", "/api/topology")
-        have = {int(server.get("port") or 0) for node in topology.get("nodes") or [] if node.get("id") == self.HOST_ID
-                for server in node.get("servers") or []}
-        cells = [(port, {"RUNNER": "llama-server", "MODEL_FILE": model, "PORT": str(port), "HOST": "0.0.0.0", "CTX_SIZE": window,
-                         "N_GPU_LAYERS": "999", "PARALLEL": "1"}) for port, model, window in self.CELLS]
-        cells += [(port, {"RUNNER": "vllm", "VLLM_MODEL": str(self.data / "models" / model), "PORT": str(port), "MAX_MODEL_LEN": window})
-                  for port, model, window in self.VLLM_CELLS]
-        for port, config in cells:
-            if port in have:
+        have = {(server.get("slotConfig") or {}).get(key) for node in topology.get("nodes") or [] if node.get("id") == self.HOST_ID
+                for server in node.get("servers") or [] for key in self.MODEL_KEYS}
+        cells = [{"RUNNER": "llama-server", "MODEL_FILE": model, "HOST": "0.0.0.0", "CTX_SIZE": window, "N_GPU_LAYERS": "999", "PARALLEL": "1"}
+                 for model, window in self.CELLS]
+        cells += [{"RUNNER": "vllm", "VLLM_MODEL": str(self.data / "models" / model), "MAX_MODEL_LEN": window} for model, window in self.VLLM_CELLS]
+        for config in cells:
+            if any(config.get(key) in have for key in self.MODEL_KEYS):
                 continue
-            self.api.call("POST", "/api/topology/server-cell/save-config",
-                          {"hostId": self.HOST_ID, "port": port, "config": config, "cacheModels": False})
+            # No cell's id: the controller makes the cell and names it.
+            self.api.call("POST", "/api/topology/server-cell/save-config", {"hostId": self.HOST_ID, "config": config, "cacheModels": False})
 
     def up(self):
         self.prepare()

@@ -228,6 +228,7 @@ impl<'app> CellCommand<'app> {
             local_paths: true,
             over_network: found.over_network(),
             header_path: "",
+            port: "",
         };
         let headers = AppHeaders::of(self.app);
         let args = LlamaArgs::build(&merged, &paths, &headers);
@@ -246,6 +247,7 @@ impl<'app> CellCommand<'app> {
             local_paths: false,
             over_network,
             header_path,
+            port: LlamaArgs::LEASED_PORT,
         };
         let headers = AppHeaders::of(self.app);
         LlamaArgs::build(config, &paths, &headers)

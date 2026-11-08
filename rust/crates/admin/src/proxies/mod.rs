@@ -1,6 +1,7 @@
 //! The proxy's document: its routes, its routers and the graph.
 
 pub mod as_consumer;
+pub mod client_ids;
 pub mod config;
 pub mod dsl;
 pub mod entry_settings;

@@ -12,6 +12,11 @@ measured figure, else the model file's size; on the CPU the file is RAM, and the
 saying nothing; an engine cell's own tip; garbage in (booleans, text, negatives) treated as not told; the classes and hooks; the words in all 20 languages;
 and the wiring: the card builds both badges once, from the class, and keeps no copy of the old single chip.
 
+The live patch (2026-11-07: a voice cell's badge said "GPU 0.3G" for minutes while it held 2.4): the report read once for the builder and the patch
+(`cards`, `measured` — nothing filled in where nothing is told), a card's figure in the window ("2.4 GB", the dash for none), the window's tile of a part
+with its live marks, and `patch` — it writes a drawing again from the next report, writes nothing when nothing moved, and nothing for a memory no process
+holds or a port with no model. The patch over the real board is pinned in test_js_cell_memory_live.py.
+
 The module is loaded FOR REAL with utils.js; i18n (English words) is a stand-in.
 
 Run: python3 scripts/test_js_cell_memory.py
@@ -104,6 +109,9 @@ eq(badges(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: 31.4 * GB })).m
    + "bench lays it — not its files: an 87 GB pack read \"GPU ≈87.2G\" on a 32 GB card");
 eq(titles(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: 31.4 * GB })).map((t) => t.replace(/&#39;/g, "'"))[1], en.machineSizeFree,
    "…and its tip says so in the bench's own words");
+eq(titles(of({ fileBytes: 87.2 * GB, takesFree: true, everyCard: true, freeBytes: 31.4 * GB })).map((t) => t.replace(/&#39;/g, "'"))[1], en.machineSizeFreeEvery,
+   "…and of EVERY card when its runner takes them all (the registry's everyCard): the owner, 2026-11-04 — the row said «every card» while "
+   + "the tip still said «its card»; the words are one rule, CellMemory.freeWords, which machine-head.js reads too");
 eq(badges(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: null })).map((b) => b.slice(1))[1], ["mem-unknown", "idle", "GPU —"],
    "negative: its card's room is not known (or the card lacks its floor) — a dash, not the files' size and not a 0");
 eq(badges(of({ fileBytes: 87.2 * GB, takesFree: true, freeBytes: 0 })).map((b) => b[2])[1], "idle",
@@ -131,6 +139,71 @@ eq(titles(of({ live: true, gpuKnown: false, ramBytes: null, heldTitle: "Memory O
   eq(tip.includes("&quot;quoted&quot; &lt;b&gt;engine&lt;/b&gt; &amp; &#39;more&#39;") && !tip.includes("<b>"), true, "negative: a tip is escaped — a model's or an engine's name cannot break the markup");
 }
 
+// ── the report read once, for the builder and the live patch (2026-11-07) ──
+eq(CellMemory.cards({ gpuIndexes: [0, 1], gpuMem: { "0": 2434 } }), [{ i: 0, mib: 2434 }, { i: 1, mib: 0 }],
+   "the cards a cell's processes are on, as its entry lists them (gpuIndexes), with what each holds in MiB (gpuMem); a card listed with no figure holds 0 there");
+eq([CellMemory.cards({ gpuMem: { "0": 2434 } }), CellMemory.cards({ gpuIndexes: "0", gpuMem: { "0": 2434 } }), CellMemory.cards(null)], [[], [], []],
+   "negative: a figure for a card the cell is not listed on is not its; a list that is no list, or no report, gives no cards — and does not throw on the card");
+eq(CellMemory.measured({ gpuIndexes: [0, 1], gpuMem: { "0": 2434, "1": 1024 }, ramBytes: 5860118528 }, { gpus: [{ index: 0 }, { index: 1 }] }),
+   { gpuKnown: true, ramBytes: 5860118528, vramBytes: 3458 * 2 ** 20, split: "GPU0: 2.4 GiB · GPU1: 1.0 GiB", cards: [{ i: 0, mib: 2434 }, { i: 1, mib: 1024 }] },
+   "what a cell's processes hold, read off its report as the badges take it: the RSS, the video memory summed over its cards, the split for the tip, the cards");
+{
+  const told = CellMemory.measured({ gpuIndexes: [0], gpuMem: { "0": 2434 } }, { gpus: [] });
+  eq([told.gpuKnown, told.ramBytes, badges(of({ live: true, ...told })).map((b) => b[3])], [false, undefined, ["RAM —", "GPU —"]],
+     "negative: a machine whose cards were not read and a scout that does not tell the RAM — nothing is filled in: both badges say the dash, not 0");
+}
+eq([2434, 1024, 0, null, undefined, NaN, -5, "x"].map((mib) => CellMemory.cardFigure(mib)), ["2.4 GB", "1.0 GB", "—", "—", "—", "—", "—", "—"],
+   "a card's figure in the window's Memory tab: one place of gigabytes; negative: nothing held there, or no figure, is the dash — never \"0.0 GB\" or \"NaN GB\"");
+eq(CellMemory.of({ live: true, gpuKnown: true, ramBytes: 5.5 * GB, vramBytes: 2.4 * GB }).tile("gpu", "Video memory"),
+   { id: "gpu", label: "Video memory", value: "2.4G", sub: en.cwMemHeld, live: "data-live-cwgpu", liveSub: "data-live-cwgpusub" },
+   "the window's tile of a part says the badge's figure and, under it, what kind of figure it is — marked for the live patch");
+eq(CellMemory.of({ fileBytes: 7.5 * GB }).tile("ram", "RAM"), { id: "ram", label: "RAM", value: "—", sub: en.cwMemIdle, live: "data-live-cwram", liveSub: "data-live-cwramsub" },
+   "negative: a parked cell's RAM tile — nothing to expect: the dash, and the words say it does not run");
+
+// ── the live patch writes a drawing again (topology-render.js syncTopologyLive) ──
+{
+  // A badge, a figure and a card's figure as the browser holds them, counting what is written.
+  const EL = (attrs = {}, text = "") => {
+    const el = { attrs: { ...attrs }, text, writes: 0 };
+    Object.defineProperty(el, "className", { get: () => el.attrs.class || "", set: (v) => { el.attrs.class = v; el.writes++; } });
+    Object.defineProperty(el, "textContent", { get: () => el.text, set: (v) => { el.text = v; el.writes++; } });
+    el.getAttribute = (k) => (k in el.attrs ? el.attrs[k] : null);
+    el.setAttribute = (k, v) => { el.attrs[k] = String(v); el.writes++; };
+    return el;
+  };
+  const ROOT = (els) => ({ querySelector: (sel) => els[sel] || null, querySelectorAll: (sel) => els[`all ${sel}`] || [] });
+  const page = () => {
+    const ram = EL({ class: "mbadge mbadge-ram", "data-t": "cell-ram", "data-t-state": "held", title: en.cellRamTitle }, "RAM 3.7G");
+    const gpu = EL({ class: "mbadge mbadge-vram", "data-t": "cell-gpu", "data-t-state": "held", title: `${en.vramChipTitle} — GPU0: 0.3 GiB` }, "GPU 0.3G");
+    const tiles = { "[data-live-cwgpu]": EL({}, "0.3G"), "[data-live-cwgpusub]": EL({}, en.cwMemHeld), "[data-live-cwram]": EL({}, "3.7G"), "[data-live-cwramsub]": EL({}, en.cwMemHeld) };
+    const card0 = EL({ "data-live-cwcard": "0" }, "0.3 GB"), card1 = EL({ "data-live-cwcard": "1" }, "1.0 GB");
+    return { ram, gpu, tiles, cards: [card0, card1],
+             root: ROOT({ '[data-t="cell-ram"]': ram, '[data-t="cell-gpu"]': gpu, ...tiles, "all [data-live-cwcard]": [card0, card1] }) };
+  };
+  const said = (p) => [p.ram.attrs.class, p.ram.attrs["data-t-state"], p.ram.text, p.gpu.attrs.class, p.gpu.text, p.gpu.attrs.title,
+                       ...Object.values(p.tiles).map((x) => x.text), ...p.cards.map((x) => x.text)];
+  const writes = (p) => [p.ram, p.gpu, ...Object.values(p.tiles), ...p.cards].reduce((sum, x) => sum + x.writes, 0);
+  const later = { live: true, ...CellMemory.measured({ gpuIndexes: [0], gpuMem: { "0": 2434 } }, { gpus: [{ index: 0 }] }) };
+  const p = page();
+  CellMemory.of(later).patch(p.root);
+  eq(said(p), ["mbadge mbadge-mem-unknown", "unknown", "RAM —", "mbadge mbadge-vram", "GPU 2.4G", `${en.vramChipTitle} — GPU0: 2.4 GiB`,
+               "2.4G", en.cwMemHeld, "—", en.cwMemUnknown, "2.4 GB", "—"],
+     "the patch writes a drawing again from the next report: the GPU badge's figure and tip, the RAM badge turned into the dash (no longer told) with "
+     + "its class and state, the tiles' figures and words, each card's figure — a card it holds nothing on any more says the dash");
+  const again = writes(p);
+  CellMemory.of(later).patch(p.root);
+  eq(writes(p) - again, 0, "negative: the same memory patched again writes nothing — not one attribute, not one text");
+  const parked = page();
+  CellMemory.of({ ...later, live: false, fileBytes: 7.5 * GB }).patch(parked.root);
+  const reserved = page();
+  CellMemory.of({ ...later, reserved: true }).patch(reserved.root);
+  eq([writes(parked), writes(reserved)], [0, 0],
+     "negative: a memory no process holds now writes nothing (a parked cell keeps the estimate it was drawn with), nor does a port with no model");
+  let threw = "";
+  try { CellMemory.of(later).patch(null); CellMemory.of(later).patch(ROOT({})); } catch (e) { threw = String(e); }
+  eq(threw, "", "negative: no drawing, or a drawing without the badges (a hidden cell, a card whose line shows a status) — nothing to write, and no error");
+}
+
 // ── the words ──
 {
   const langs = JSON.parse(process.env.LANGS), keys = JSON.parse(process.env.KEYS);
@@ -147,7 +220,7 @@ eq(titles(of({ live: true, gpuKnown: false, ramBytes: null, heldTitle: "Memory O
 }
 
 for (const why of pass) console.log("  ok  " + why);
-console.log(`js cell-memory OK: ${pass.length} pins — the figure, a running cell, not told is not zero, garbage in, a cell that does not run, a port with no model, the markup, the words`);
+console.log(`js cell-memory OK: ${pass.length} pins — the figure, a running cell, not told is not zero, garbage in, a cell that does not run, a port with no model, the markup, the report read once, the live patch, the words`);
 '''
 
 
@@ -161,6 +234,14 @@ def wiring():
         problems.append("topology-nodes.js has the old single memory chip again — the two badges are cell-memory.js's")
     if "const row = new CellRow({" in nodes and "chip: memBadge || deviceChip" not in nodes:
         problems.append("the line (CellRow) must carry the same badges as the card: chip: memBadge || deviceChip")
+    # 2026-11-07: the builder and the live patch read the cell's report through one door, and the patch writes what the class says.
+    if "CellMemory.measured(s, node)" not in nodes:
+        problems.append("topology-nodes.js must read what the cell's processes hold through CellMemory.measured(s, node) — the live patch reads it there too")
+    render = (ROOT / "static" / "js" / "topology-render.js").read_text(encoding="utf-8")
+    if not re.search(r"CellMemory\.of\(\{ live: CellMemory\.holds\(topologyServerPhase\(s\)\), \.\.\.CellMemory\.measured\(s, n\) \}\)", render) \
+            or "memory.patch(line);" not in render or "memory.patch(card);" not in render:
+        problems.append("syncTopologyLive (topology-render.js) must write the badges again from CellMemory — CellMemory.of({ live: CellMemory.holds(...), "
+                        "...CellMemory.measured(s, n) }).patch(...) on the line and on the card or window")
     css = (ROOT / "static" / "css" / "modals.css").read_text(encoding="utf-8")
     fold = (ROOT / "static" / "css" / "fold.css").read_text(encoding="utf-8")
 
@@ -194,7 +275,8 @@ def main():
         for line in problems:
             print("  - " + line)
         raise SystemExit(1)
-    print("  ok  the card builds both badges once from the class; the line carries them; no copy of the old chip; every class has a rule")
+    print("  ok  the card builds both badges once from the class; the line carries them; the builder and the live patch read the report through "
+          "CellMemory.measured; no copy of the old chip; every class has a rule")
     node = find_node()
     if not node:
         raise SystemExit("node required")

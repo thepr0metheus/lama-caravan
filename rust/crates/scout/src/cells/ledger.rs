@@ -66,21 +66,25 @@ impl<'a> MemoryLedger<'a> {
         Self { table, meminfo }
     }
 
-    /// (port, MiB) of every other cell of this scout that is up or on its way up and has promised memory.
-    fn promised(&self, port: i64) -> Vec<(i64, f64)> {
+    /// (how the operator knows it, MiB) of every other cell of this scout than `id` that is up or on its way up and has promised memory: a cell by
+    /// the name its model has at the machine's entry, or its id when it has none — never a port, which the board does not show.
+    fn promised(&self, id: &str) -> Vec<(String, f64)> {
         let mut found = Vec::new();
         for (other, cell) in self.table.all() {
             // Read apart: `tracking` asks for the same cell's lock.
-            let ram_mib = cell.facts().ram_mib;
-            if other != port && ram_mib != 0 && self.table.tracking(other) {
-                found.push((other, ram_mib as f64));
+            let (ram_mib, name) = {
+                let facts = cell.facts();
+                (facts.ram_mib, facts.name.clone())
+            };
+            if other != id && ram_mib != 0 && self.table.tracking(&other) {
+                found.push((if name.is_empty() { other } else { name }, ram_mib as f64));
             }
         }
         found
     }
 
     /// The refusal when the memory cannot hold what `want` reserves (`{reserveMiB, who, why}`); `None` when it can, or when this machine does not say what it has: no refusal then, as with no card.
-    pub fn short(&self, port: i64, want: &Value) -> Option<Value> {
+    pub fn short(&self, id: &str, want: &Value) -> Option<Value> {
         let said = want.get("reserveMiB").filter(|value| Coerce::truthy(Some(*value)));
         let need = match said {
             Some(value) => Coerce::float(value)?,
@@ -96,8 +100,8 @@ impl<'a> MemoryLedger<'a> {
             .filter(|who| !who.is_empty() && Coerce::truthy(want.get("who")))
             .unwrap_or_else(|| "the cell".to_string());
         let why = if Coerce::truthy(want.get("why")) { Coerce::text(want.get("why")) } else { String::new() };
-        let held = self.promised(port);
-        let holders: Vec<String> = held.iter().map(|(other, _)| format!(":{other}")).collect();
+        let held = self.promised(id);
+        let holders: Vec<String> = held.iter().map(|(other, _)| other.clone()).collect();
         let hint = if holders.is_empty() { String::new() } else { format!(" — stop {} first", holders.join(", ")) };
         let reason = if why.is_empty() { String::new() } else { format!(" ({why})") };
         let wants = format!("{who} wants {:.1} GiB of memory{reason}", need / 1024.0);
@@ -156,14 +160,14 @@ mod tests {
         let table = table();
         let file = figures("short", 60_000, 10_000);
         let ledger = MemoryLedger::new(&table, &file);
-        assert_eq!(ledger.short(1, &json!({"reserveMiB": 1000})), None);
-        let refusal = ledger.short(1, &json!({"reserveMiB": 9000, "who": "Strata", "why": "experts"})).unwrap();
+        assert_eq!(ledger.short("c1", &json!({"reserveMiB": 1000})), None);
+        let refusal = ledger.short("c1", &json!({"reserveMiB": 9000, "who": "Strata", "why": "experts"})).unwrap();
         assert_eq!(
             refusal.get("error").and_then(Value::as_str),
             Some("Strata wants 8.8 GiB of memory (experts) but only 9.8 GiB is available (and 2 GiB stays for the system)")
         );
-        assert_eq!(ledger.short(1, &json!({"reserveMiB": "x"})), None);
-        assert_eq!(ledger.short(1, &json!({})), None);
+        assert_eq!(ledger.short("c1", &json!({"reserveMiB": "x"})), None);
+        assert_eq!(ledger.short("c1", &json!({})), None);
         drop(fs::remove_file(&file));
     }
 
@@ -171,17 +175,21 @@ mod tests {
     fn a_cell_still_loading_has_promised_its_memory() {
         let table = table();
         let file = figures("promised", 60_000, 50_000);
-        let other = table.at(22001);
+        let other = table.at("c3f9a02b1");
         other.facts().ram_mib = 40_000;
+        other.facts().name = "strata-experts".to_string();
         let ledger = MemoryLedger::new(&table, &file);
         // Not up and not on its way up: its promise holds nothing.
-        assert_eq!(ledger.short(22002, &json!({"reserveMiB": 30_000})), None);
-        table.say(22001, &json!({"phase": "loading"}));
-        let refusal = ledger.short(22002, &json!({"reserveMiB": 30_000})).unwrap();
+        assert_eq!(ledger.short("c22002", &json!({"reserveMiB": 30_000})), None);
+        table.say("c3f9a02b1", &json!({"phase": "loading"}));
+        let refusal = ledger.short("c22002", &json!({"reserveMiB": 30_000})).unwrap();
         let words = refusal.get("error").and_then(Value::as_str).unwrap();
-        assert!(words.ends_with("that is more than 90% of the machine's 58.6 GiB — stop :22001 first"), "{words}");
+        assert!(
+            words.ends_with("that is more than 90% of the machine's 58.6 GiB — stop strata-experts first"),
+            "named by its model, not a port: {words}"
+        );
         // The cell's own promise is not in its own way.
-        assert_eq!(ledger.short(22001, &json!({"reserveMiB": 30_000})), None);
+        assert_eq!(ledger.short("c3f9a02b1", &json!({"reserveMiB": 30_000})), None);
         drop(fs::remove_file(&file));
     }
 
@@ -189,7 +197,7 @@ mod tests {
     fn a_machine_that_does_not_say_is_no_refusal() {
         let table = table();
         let missing = std::path::Path::new("/no/such/meminfo");
-        assert_eq!(MemoryLedger::new(&table, missing).short(1, &json!({"reserveMiB": 1_000_000})), None);
+        assert_eq!(MemoryLedger::new(&table, missing).short("c1", &json!({"reserveMiB": 1_000_000})), None);
         assert_eq!(MemoryFigures::read(missing), MemoryFigures::default());
     }
 }

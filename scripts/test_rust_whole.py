@@ -9,6 +9,7 @@ again. The card and the cell's server are stand-ins: scripts/test_rust_scout_con
 Run: python3 scripts/test_rust_whole.py    (after `cargo build --release -p proxy -p admin -p scout` in rust/)
 """
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -18,6 +19,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -28,6 +30,8 @@ from test_rust_scout_conformance import StandIns  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 MODEL = "Qwen/author/Q4/qwen-Q4.gguf"
+#: What the library's file of MODEL holds.
+MODEL_BYTES = b"GGUF" + bytes(range(256)) * 64
 NAME = "whole-small"
 
 
@@ -39,13 +43,16 @@ class Scout:
         self.program = program
         self.port = free_port()
         self.stand_ins = StandIns(base / "stand-ins")
-        # The board's talk to a cell comes by the machine's address, as to a real one, which listens on everything; and a real one says its places.
-        server = StandIns.CELL.replace('("127.0.0.1", port)', '("0.0.0.0", port)')
+        # It listens where its command says, as llama-server does (`--host`): the controller writes the machine's loopback there, and reaches
+        # it through the scout's door (step 7 of the owner's plan, 2026-11-08). A real one says its places too.
+        server = StandIns.CELL.replace('("127.0.0.1", port)', '(flag("--host", default="127.0.0.1"), port)')
         server = server.replace('if self.path == "/props":', 'if self.path == "/slots":\n            return self.reply(200, [{"id": 0}, {"id": 1}])\n        if self.path == "/props":')
         # What it was started with is said in its log: the story reads it.
         server = server.replace('print(f"cell on {port}', 'print("started with " + " ".join(argv), flush=True)\nprint(f"cell on {port}')
         # Asked to, it leaves a child with no environment: the mark gone, as vLLM's engine has it when it renames itself.
         server = server.replace('print("started with "', 'import os, subprocess\nif os.environ.get("STAND_IN_CHILD"): print("a child " + str(subprocess.Popen(["env", "-i", "sleep", "300"]).pid), flush=True)\nprint("started with "')
+        # Asked to, it pauses after each piece of a stream: a long answer, which a scout handed a release is to wait for.
+        server = server.replace("                self.wfile.flush()\n", "                self.wfile.flush()\n                time.sleep(float(body.get(\"pause\") or 0))\n", 1)
         self.stand_ins.write("llama-server", server)
         self.cache = base / "cache"
         self.cache.mkdir(parents=True)
@@ -74,13 +81,24 @@ class Scout:
 
 
 class Whole:
-    """The one story, step by step: each step reads what the one before left."""
+    """The one story, step by step: each step reads what the one before left. A cell is known by its name, and holds a port only while it runs (Papyrus
+    `caravan-scout-port-lease`): the board's cells get their names from the controller and their ports from the scout's lease, and a step that starts a cell on the
+    scout itself names it as a controller would, its port leased from a range of one free port."""
+
+    #: The cell a step starts on the scout itself.
+    DIRECT = "c0a1b2c3d"
 
     def __init__(self, caravan, scout, check):
         self.caravan = caravan
         self.scout = scout
         self.check = check
-        self.cell = free_port()
+        self.direct = free_port()
+        #: The cell the steps look at, by its name, and the port its run holds, as its scout said it last.
+        self.cell_id = None
+        self.cell = None
+        #: The board's cell, which the story starts, stops and brings back; and the one it keeps for a new scout.
+        self.board_id = None
+        self.kept_id = None
         self.host = None
         self.key = None
         self.entry = None
@@ -93,15 +111,51 @@ class Whole:
 
     def scouts_cell(self):
         nodes = self.on_scout("GET", "/api/llama-node/status")[1].get("nodes") or []
-        return next((node for node in nodes if node.get("port") == self.cell), None)
+        return next((node for node in nodes if node.get("id") == self.cell_id), None)
 
     def boards_cell(self):
         """The cell as the board reads it: the machine in the topology, and the cell's row in it."""
         for node in self.ask("GET", "/api/topology")[1].get("nodes") or []:
             for cell in node.get("servers") or []:
-                if cell.get("port") == self.cell and node.get("id") == self.host:
+                if cell.get("cellId") == self.cell_id and node.get("id") == self.host:
                     return cell
         return None
+
+    def ran(self, seconds=40):
+        """Whether the cell runs, its port listening; the port is taken from what its scout says, for a start leases one."""
+        def runs():
+            node = self.scouts_cell() or {}
+            if node.get("phase") != "running" or not node.get("port"):
+                return False
+            self.cell = node.get("port")
+            return listening(self.cell)
+        return until(runs, seconds)
+
+    def start_direct(self, what, **fields):
+        """A start sent to the scout itself, as a controller sends it: the cell's name and the range its port is leased from, no port."""
+        self.cell_id, self.cell = self.DIRECT, self.direct
+        start = {"cellId": self.DIRECT, "ports": {"base": self.direct, "upper": self.direct}, "modelPath": MODEL, "args": ["--port", "{{PORT}}", "-m", "{{MODEL_PATH}}"],
+                 "config": {}, "cacheModels": True, **fields}
+        status, said, _ = self.on_scout("POST", "/api/llama-node/start", start)
+        self.check.that(status == 200 and said.get("cellId") == self.DIRECT and said.get("port") == self.direct, f"{what}: {status} {said}")
+        return start
+
+    def stop_direct(self):
+        return self.on_scout("POST", "/api/llama-node/stop", {"cellId": self.DIRECT})
+
+    def told(self, lines=20):
+        """What the cell's log says now, in one line."""
+        return " ".join(str(line) for line in self.on_scout("GET", f"/api/llama-node/log?cell={self.cell_id}&lines={lines}")[1].get("lines") or [])
+
+    def saved(self, config, cell_id=None):
+        """The board's settings of a cell: of the cell named, or of a new one on the machine, whose name the answer says."""
+        where = {"cellId": cell_id} if cell_id else {"hostId": self.host}
+        status, said, _ = self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": config, "cacheModels": True})
+        self.check.that(status == 200 and said.get("cellId"), f"the settings: {status} {said}")
+        return said.get("cellId")
+
+    def act(self, action, cell_id=None):
+        return self.ask("POST", "/api/topology/server-cell/action", {"cellId": cell_id or self.cell_id, "action": action})
 
     def pair(self):
         status, said, _ = self.ask("POST", "/api/topology/scout/connect", {"address": "127.0.0.1", "port": self.scout.port})
@@ -117,31 +171,49 @@ class Whole:
 
     def model_comes(self):
         """A library on another machine: asked by its name, the file comes from the controller into the scout's cache. Beside each other, as here, a cell started from the board reads the library in place."""
-        start = {"port": self.cell, "modelPath": MODEL, "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {}, "cacheModels": True}
-        answer = self.on_scout("POST", "/api/llama-node/start", start)
-        self.check.that(answer[0] == 200, f"a start by the model's name: {answer[1]}")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40), f"the copy did not run: {self.scouts_cell()}")
+        self.start_direct("a start by the model's name")
+        self.check.that(self.ran(), f"the copy did not run: {self.scouts_cell()}")
         copied = self.scout.cache / MODEL
         original = self.caravan.base / "data" / "models" / MODEL
         self.check.that(copied.exists() and copied.read_bytes() == original.read_bytes(), "the model did not come byte for byte")
-        self.check.that(self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})[0] == 200, "the copy's cell did not stop")
+        self.check.that(self.stop_direct()[0] == 200, "the copy's cell did not stop")
         self.check.that(until(lambda: not listening(self.cell), 15), "the copy's cell still holds the port")
 
     def start_cell(self):
-        where = {"hostId": self.host, "port": self.cell}
-        self.check.that(self.ask("POST", "/api/topology/server-slot/add", where)[0] == 200, "the slot was not added")
-        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "2048", "N_GPU_LAYERS": "99", "MODEL_NAME": NAME, "PORT": str(self.cell)}
-        answer = self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": config, "cacheModels": True})
-        self.check.that(answer[0] == 200, f"the config: {answer[1]}")
-        answer = self.ask("POST", "/api/topology/server-cell/action", {**where, "action": "start"})
+        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "2048", "N_GPU_LAYERS": "99", "MODEL_NAME": NAME}
+        self.board_id = self.cell_id = self.saved(config)
+        self.cell = None
+        stopped = self.boards_cell() or {}
+        self.check.that(stopped and stopped.get("port") is None, f"a cell that does not run holds a port on the board: {stopped}")
+        answer = self.act("start")
         self.check.that(answer[0] == 200, f"the start: {answer[1]}")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40), f"the cell did not run: {self.scouts_cell()}")
-        self.check.that(until(lambda: listening(self.cell), 10), f"nothing listens on the cell's port: {self.scouts_cell()} {self.on_scout('GET', f'/api/llama-node/log?port={self.cell}&lines=20')[1]}")
+        self.check.that(self.ran(), f"the cell did not run on a port its scout leased: {self.scouts_cell()} {self.told()}")
+        self.check.that(22001 <= (self.cell or 0) <= 22999, f"the port is not of the cells' range: {self.cell}")
         # A beat says it now, not at the minute's end. The pull an open board kicks gives up after 2 s, and on a Mac the scout's state takes longer.
         beat = SlowClient(self.scout.port).post("/api/heartbeat", b"{}", {"X-Caravan-Token": self.scout.token()})
         self.check.that(beat == 200, f"the scout did not beat when asked: {beat}")
         running = lambda: (self.boards_cell() or {}).get("phase") == "running"  # noqa: E731
         self.check.that(until(running, 30), f"the board does not show the cell running: {self.boards_cell()}")
+
+    def through_the_scout_s_door(self):
+        """The cell listens on its machine's loopback, where its command says, and the controller reaches it through the scout's door alone:
+        the board's word on its health comes that way, the door asks the fleet token, and a door to a cell the machine does not have says so."""
+        self.check.that("--host 127.0.0.1" in self.told(), f"the cell was not told the loopback: {self.told()}")
+        ready = lambda: (self.boards_cell() or {}).get("modelReady") is True  # noqa: E731
+        self.check.that(until(ready, 20), f"the board does not read the cell's health: {self.boards_cell()}")
+        door = f"/api/cell/{self.cell_id}"
+        logged = lambda: f"GET {door}/health" in (self.scout.base / "scout.log").read_text(errors="replace")  # noqa: E731
+        self.check.that(until(logged, 10), "the board's word on the cell's health did not come through the scout's door")
+        status, said, _ = self.on_scout("GET", f"{door}/props")
+        self.check.that(status == 200 and said.get("total_slots") == 2, f"the cell's own /props through the door: {status} {said}")
+        status, said, _ = self.ask("GET", f"{door}/props", port=self.scout.port)
+        self.check.that(status == 401, f"negative: the door without the fleet token: {status} {said}")
+        status, said, _ = self.on_scout("GET", "/api/cell/c0f0f0f0f/health")
+        self.check.that(status == 404 and "no cell c0f0f0f0f" in str(said), f"negative: a door to a cell the machine does not have: {status} {said}")
+        status, said, _ = self.ask("POST", "/api/cell-talk", {"cellId": self.cell_id, "mode": "text-chat", "text": "hello", "history": []})
+        talked = lambda: f"POST {door}/v1/chat/completions" in (self.scout.base / "scout.log").read_text(errors="replace")  # noqa: E731
+        self.check.that(status == 200 and said.get("status") == 200 and until(talked, 10),
+                        f"a question of the Talk tab, through the door: {status} {said}")
 
     def places_reach_the_board(self):
         """What a model says of its places, under the name the board looks for them by: the controller names the queue, the proxy counts it. An idle model's strip said "0 of ?" (the owner, 2026-10-26)."""
@@ -178,15 +250,18 @@ class Whole:
         day = time.strftime("%Y-%m-%d", time.gmtime())
         rows = lambda: self.ask("GET", f"/api/agent-proxy-logs?date={day}&event=finished")[1].get("rows") or []  # noqa: E731
         self.check.that(until(lambda: len(rows()) >= 2, 10), f"the journal: {rows()}")
-        talk = self.ask("POST", "/api/cell-talk", {"hostId": self.host, "port": self.cell, "mode": "text-chat", "text": "hi"})
+        talk = self.ask("POST", "/api/cell-talk", {"cellId": self.cell_id, "mode": "text-chat", "text": "hi"})
         self.check.that(talk[0] == 200, f"the board's talk to the cell: {talk[0]} {talk[1]}")
 
     def stop_cell(self):
-        where = {"hostId": self.host, "port": self.cell}
-        answer = self.ask("POST", "/api/topology/server-cell/action", {**where, "action": "stop"})
+        answer = self.act("stop")
         self.check.that(answer[0] == 200, f"the stop: {answer[1]}")
         self.check.that(until(lambda: not listening(self.cell), 15), "the cell's port is still held after the stop")
         self.check.that(until(lambda: not self.scouts_cell(), 15), f"the scout still holds the cell: {self.scouts_cell()}")
+        beat = SlowClient(self.scout.port).post("/api/heartbeat", b"{}", {"X-Caravan-Token": self.scout.token()})
+        self.check.that(beat == 200, f"the scout did not beat when asked: {beat}")
+        portless = lambda: (self.boards_cell() or {"port": "gone"}).get("port") is None  # noqa: E731
+        self.check.that(until(portless, 15), f"a stopped cell still holds a port on the board: {self.boards_cell()}")
 
     def cache_turned_off(self):
         """The cache turned off from the board: the copies go, a model is read where the library lies on the machine, and one that is not there is refused, not brought."""
@@ -205,12 +280,11 @@ class Whole:
         self.check.that(status == 200 and answer.get("result", {}).get("off") is True, f"turning it off: {status} {answer}")
         self.check.that((answer.get("modelCache") or {}).get("library") == str(library), f"the board does not read the library: {answer.get('modelCache')}")
         self.check.that(not copied.exists(), "the copy stayed after the cache was turned off")
-        start = {"port": self.cell, "modelPath": MODEL, "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {}, "cacheModels": True}
-        self.check.that(self.on_scout("POST", "/api/llama-node/start", start)[0] == 200, "a start with the cache off")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40), f"it did not run: {self.scouts_cell()}")
+        start = self.start_direct("a start with the cache off")
+        self.check.that(self.ran(), f"it did not run: {self.scouts_cell()}")
         self.check.that(not copied.exists(), "the cache is off, and the model was copied here")
         self.check.that(str(library / MODEL) in " ".join(str(word) for word in (self.scouts_cell() or {}).get("args", [])) or (library / MODEL).exists(), "it does not read from the library")
-        self.check.that(self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})[0] == 200, "its stop")
+        self.check.that(self.stop_direct()[0] == 200, "its stop")
         self.check.that(until(lambda: not listening(self.cell), 15), "it still holds the port")
         self.check.that((library / MODEL).exists(), "the stop took the library's file")
         missing = {**start, "modelPath": "Qwen/author/Q4/not-there.gguf"}
@@ -218,7 +292,7 @@ class Whole:
         failed = lambda: "of that size" in str(self.scouts_cell() or {})  # noqa: E731
         self.check.that(until(failed, 20), f"a model the library has not is refused in words: {self.scouts_cell()}")
         self.check.that(not (self.scout.cache / "Qwen/author/Q4/not-there.gguf").exists(), "it was brought after all")
-        self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})
+        self.stop_direct()
         status, answer, _ = self.ask("POST", "/api/topology/client-llama/cache-off", {**where, "off": False})
         self.check.that(status == 200 and (answer.get("modelCache") or {}).get("off") is False, f"turning it on: {status} {answer}")
         self.check.that((answer.get("modelCache") or {}).get("library") == str(library), "turned on, the machine forgot where its library lies")
@@ -229,14 +303,13 @@ class Whole:
 
     def cache_cleared(self):
         """Clear from the board: what the scout brought goes, what the library has stays."""
-        start = {"port": self.cell, "modelPath": MODEL, "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {}, "cacheModels": True}
-        self.check.that(self.on_scout("POST", "/api/llama-node/start", start)[0] == 200, "a start with the cache on again")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40), f"it did not run: {self.scouts_cell()}")
+        self.start_direct("a start with the cache on again")
+        self.check.that(self.ran(), f"it did not run: {self.scouts_cell()}")
         copied = self.scout.cache / MODEL
         self.check.that(copied.exists(), "the cache is on, and the model did not come")
         status, answer, _ = self.ask("POST", "/api/topology/client-llama/cache-clear", {"hostId": self.host})
         self.check.that(status == 200 and copied.exists(), f"a running cell keeps its files: {status} {answer}")
-        self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})
+        self.stop_direct()
         self.check.that(until(lambda: not listening(self.cell), 15), "it still holds the port")
         status, answer, _ = self.ask("POST", "/api/topology/client-llama/cache-clear", {"hostId": self.host})
         self.check.that(status == 200 and not copied.exists() and answer.get("result", {}).get("removed", 0) >= 1, f"the clearing: {status} {answer}")
@@ -253,31 +326,27 @@ class Whole:
             return
         status, answer, _ = self.ask("POST", "/api/topology/client-llama/cache-off", {**where, "off": True, "library": ""})
         self.check.that(status == 200 and (answer.get("modelCache") or {}).get("through") is True, f"turning it off with no folder: {status} {answer}")
-        start = {"port": self.cell, "modelPath": MODEL, "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {}, "cacheModels": True}
-        self.check.that(self.on_scout("POST", "/api/llama-node/start", start)[0] == 200, "a start through the controller")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40), f"it did not run: {self.scouts_cell()}")
-        told = lambda: " ".join(str(line) for line in self.on_scout("GET", f"/api/llama-node/log?port={self.cell}&lines=20")[1].get("lines") or [])  # noqa: E731
-        self.check.that(until(lambda: "library-view" in told(), 10), f"the program was not given a file of the view: {told()}")
-        path = Path(next(word for word in told().split() if "library-view" in word).rstrip(","))
+        self.start_direct("a start through the controller")
+        self.check.that(self.ran(), f"it did not run: {self.scouts_cell()}")
+        self.check.that(until(lambda: "library-view" in self.told(), 10), f"the program was not given a file of the view: {self.told()}")
+        path = Path(next(word for word in self.told().split() if "library-view" in word).rstrip(","))
         whole = (self.caravan.base / "data" / "models" / MODEL).read_bytes()
         self.check.that(path.read_bytes() == whole, "what the program reads is not what the controller holds")
         self.check.that(not copied.exists(), "the model landed on the machine's disk")
-        self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})
+        self.stop_direct()
         self.check.that(until(lambda: not listening(self.cell), 15), "it still holds the port")
         status, answer, _ = self.ask("POST", "/api/topology/client-llama/cache-off", {**where, "off": False})
         self.check.that(status == 200 and (answer.get("modelCache") or {}).get("through") is False, f"turning it on: {status} {answer}")
 
     def what_a_cell_left_goes_with_its_stop(self):
         """A server that goes and leaves a child behind, its environment rewritten and the mark with it, holding the card. Its scope knows it, where the machine makes scopes."""
-        start = {"port": self.cell, "modelPath": MODEL, "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {}, "cacheModels": True, "env": {"STAND_IN_CHILD": "1"}}
-        self.check.that(self.on_scout("POST", "/api/llama-node/start", start)[0] == 200, "a start of a server with a child")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40), f"it did not run: {self.scouts_cell()}")
-        told = lambda: " ".join(str(line) for line in self.on_scout("GET", f"/api/llama-node/log?port={self.cell}&lines=20")[1].get("lines") or [])  # noqa: E731
-        self.check.that(until(lambda: "a child " in told(), 10), f"it named no child: {told()}")
-        child = int(told().split("a child ")[1].split()[0])
+        self.start_direct("a start of a server with a child", env={"STAND_IN_CHILD": "1"})
+        self.check.that(self.ran(), f"it did not run: {self.scouts_cell()}")
+        self.check.that(until(lambda: "a child " in self.told(), 10), f"it named no child: {self.told()}")
+        child = int(self.told().split("a child ")[1].split()[0])
         group = Path(f"/proc/{child}/cgroup")
         scoped = group.exists() and "/run-" in group.read_text(encoding="utf-8")
-        self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})
+        self.stop_direct()
         self.check.that(until(lambda: not listening(self.cell), 15), "it still holds the port")
         if scoped:
             self.check.that(until(lambda: not Path(f"/proc/{child}").exists(), 20), f"what the cell left stayed: pid {child}")
@@ -287,28 +356,27 @@ class Whole:
 
     def comes_back_with_what_was_saved(self):
         """A cell that crashed comes back with the settings saved since, and with the old ones only when nothing changed: a start by itself asks the controller, whose settings they are (the owner, 2026-11-02)."""
-        where = {"hostId": self.host, "port": self.cell}
-        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "2048", "PARALLEL": "2", "MODEL_NAME": NAME, "PORT": str(self.cell)}
-        self.check.that(self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": config, "cacheModels": True})[0] == 200, "the settings")
-        self.check.that(self.ask("POST", "/api/topology/server-cell/action", {**where, "action": "start"})[0] == 200, "the start")
-        self.check.that(until(lambda: (self.scouts_cell() or {}).get("phase") == "running", 40) and until(lambda: listening(self.cell), 10), f"it did not run: {self.scouts_cell()}")
-        said = lambda: " ".join(str(line) for line in self.on_scout("GET", f"/api/llama-node/log?port={self.cell}&lines=40")[1].get("lines") or [])  # noqa: E731
+        self.cell_id = self.board_id
+        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "2048", "PARALLEL": "2", "MODEL_NAME": NAME}
+        self.saved(config, self.board_id)
+        self.check.that(self.act("start")[0] == 200, "the start")
+        self.check.that(self.ran(), f"it did not run: {self.scouts_cell()}")
+        said = lambda: self.told(40)  # noqa: E731
         self.check.that(until(lambda: "--parallel 2" in said(), 10), f"its first start: {said()[:300]}")
         pid = (self.scouts_cell() or {}).get("pid")
         os.kill(pid, signal.SIGKILL)
         self.check.that(until(lambda: not listening(self.cell), 10), "it did not die")
-        changed = {**config, "PARALLEL": "5"}
-        self.check.that(self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": changed, "cacheModels": True})[0] == 200, "the settings saved while it is down")
-        came_back = lambda: listening(self.cell) and "--parallel 5" in said()  # noqa: E731
+        self.saved({**config, "PARALLEL": "5"}, self.board_id)
+        came_back = lambda: (self.scouts_cell() or {}).get("pid") not in (None, pid) and self.ran(1) and "--parallel 5" in said()  # noqa: E731
         self.check.that(until(came_back, 40), f"it did not come back with what was saved: {said()[-400:]}")
         again = (self.scouts_cell() or {}).get("pid")
         self.check.that(again and again != pid, f"the same process: {pid} {again}")
         os.kill(again, signal.SIGKILL)
         self.check.that(until(lambda: not listening(self.cell), 10), "it did not die the second time")
-        back = lambda: (self.scouts_cell() or {}).get("pid") not in (None, again) and listening(self.cell)  # noqa: E731
+        back = lambda: (self.scouts_cell() or {}).get("pid") not in (None, again) and self.ran(1)  # noqa: E731
         self.check.that(until(back, 40), f"nothing changed, and it did not come back: {self.scouts_cell()}")
         self.check.that("--parallel 5" in said(), f"it came back with something else: {said()[-300:]}")
-        self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})
+        self.check.that(self.act("stop")[0] == 200, "its stop")
         self.check.that(until(lambda: not listening(self.cell), 15), "it still holds the port")
 
     def a_machine_that_was_off_starts_what_was_saved(self):
@@ -316,14 +384,13 @@ class Whole:
         if not Path("/proc/sys/kernel/random/boot_id").exists():
             print("rust whole: this machine says no boot id, a start at boot was not tried")
             return
-        where = {"hostId": self.host, "port": self.cell}
-        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "2048", "PARALLEL": "3", "MODEL_NAME": NAME, "PORT": str(self.cell)}
-        self.check.that(self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": config, "cacheModels": True})[0] == 200, "the settings")
-        self.check.that(self.ask("POST", "/api/topology/server-cell/action", {**where, "action": "enable"})[0] == 200, "its autostart")
+        self.cell_id = self.board_id
+        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "2048", "PARALLEL": "3", "MODEL_NAME": NAME}
+        self.saved(config, self.board_id)
+        self.check.that(self.act("enable")[0] == 200, "its autostart")
         self.scout.stop()
         self.check.that(until(lambda: not listening(self.scout.port), 10), "the scout did not stop")
-        answer = self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": {**config, "PARALLEL": "9"}, "cacheModels": True})
-        self.check.that(answer[0] == 200, f"the settings saved with the machine off: {answer[1]}")
+        self.saved({**config, "PARALLEL": "9"}, self.board_id)
         state = self.scout.base / "state.json"
         kept = json.loads(state.read_text())
         kept["autostartBoot"] = "the boot before"
@@ -331,18 +398,17 @@ class Whole:
         self.scout.log = open(self.scout.base / "scout.log", "ab")
         self.scout.start()
         self.check.that(until(lambda: listening(self.scout.port), 15), "the scout did not come up")
-        self.check.that(until(lambda: listening(self.cell), 40), f"the cell did not start at the boot: {self.scouts_cell()}")
-        said = lambda: " ".join(str(line) for line in self.on_scout("GET", f"/api/llama-node/log?port={self.cell}&lines=40")[1].get("lines") or [])  # noqa: E731
-        self.check.that(until(lambda: "--parallel 9" in said(), 10), f"it started with what it kept, not what is saved: {said()[-300:]}")
-        self.check.that(self.ask("POST", "/api/topology/server-cell/action", {**where, "action": "disable"})[0] == 200, "its autostart off")
-        self.on_scout("POST", "/api/llama-node/stop", {"port": self.cell})
+        self.check.that(self.ran(), f"the cell did not start at the boot: {self.scouts_cell()}")
+        self.check.that(until(lambda: "--parallel 9" in self.told(40), 10), f"it started with what it kept, not what is saved: {self.told(40)[-300:]}")
+        self.check.that(self.act("disable")[0] == 200, "its autostart off")
+        self.on_scout("POST", "/api/llama-node/stop", {"cellId": self.board_id})
         self.check.that(until(lambda: not listening(self.cell), 15), "it still holds the port")
 
     def a_mark_outlives_its_model(self):
         """The owner's like stays when the cell and the model's files go, for he may meet the model again on /hf (the owner, 2026-11-02): it is kept by the model's name, apart from both."""
         model = MODEL.split("/")[0]
         self.check.that(self.ask("POST", "/api/model-rating", {"model": model, "rating": "like"})[0] == 200, "the like")
-        status, said, _ = self.ask("POST", "/api/topology/server-slot/delete", {"hostId": self.host, "port": self.cell})
+        status, said, _ = self.ask("POST", "/api/topology/server-slot/delete", {"cellId": self.board_id})
         self.check.that(status == 200 and said.get("removed"), f"the cell's deletion: {status} {said}")
         original = self.caravan.base / "data" / "models" / MODEL
         status, said, _ = self.ask("POST", "/api/models/gc", {"files": [MODEL]})
@@ -364,21 +430,24 @@ class Whole:
         Bundles(self.caravan).remove()
 
     def a_cell_to_keep(self):
-        where = {"hostId": self.host, "port": self.cell}
-        self.check.that(self.ask("POST", "/api/topology/server-slot/add", where)[0] == 200, "the slot to keep was not added")
-        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "4096", "PARALLEL": "3", "MODEL_NAME": NAME, "PORT": str(self.cell)}
-        self.check.that(self.ask("POST", "/api/topology/server-cell/save-config", {**where, "config": config, "cacheModels": True})[0] == 200, "the settings to keep")
+        status, said, _ = self.ask("POST", "/api/topology/server-slot/add", {"hostId": self.host})
+        self.kept_id = self.cell_id = (said.get("cell") or {}).get("id")
+        self.check.that(status == 200 and self.kept_id, f"the slot to keep was not added: {status} {said}")
+        config = {"MODEL_FILE": MODEL, "CTX_SIZE": "4096", "PARALLEL": "3", "MODEL_NAME": NAME}
+        self.check.that(self.saved(config, self.kept_id) == self.kept_id, "the settings to keep went to another cell")
         self.kept = (self.boards_cell() or {}).get("slotConfig")
         self.check.that((self.kept or {}).get("PARALLEL") == "3", f"the board does not hold the settings: {self.kept}")
         status, said, _ = self.ask("POST", "/api/pools/create", {"name": "Keeps a cell"})
         self.check.that(status == 200, f"the pool to keep: {status} {said}")
-        status, said, _ = self.ask("POST", "/api/pools/add-row", {"poolId": said.get("pool", {}).get("id"), "target": {"output": f"srv:{self.host}:{self.cell}"}})
+        # A pool's row goes to the machine's model, not to a cell: a cell's port is its run's (MachineOutputs::output_id).
+        model_output = "mm:" + hashlib.sha1(f"{self.host}\n{NAME}".encode()).hexdigest()[:12]
+        status, said, _ = self.ask("POST", "/api/pools/add-row", {"poolId": said.get("pool", {}).get("id"), "target": {"output": model_output}})
         self.check.that(status == 200, f"the pool's row on the cell: {status} {said}")
         self.documents_kept = self.documents()
         # What the operator set on the machine: the new scout is to get it back.
         answer = self.ask("POST", "/api/topology/client-llama/cache-budget", {"hostId": self.host, "budgetBytes": 3 << 30})
         self.check.that(answer[0] == 200, f"the cache's limit: {answer[1]}")
-        self.check.that(self.ask("POST", "/api/topology/server-cell/action", {**where, "action": "enable"})[0] == 200, "the cell's autostart")
+        self.check.that(self.act("enable", self.kept_id)[0] == 200, "the cell's autostart")
         beat = SlowClient(self.scout.port).post("/api/heartbeat", b"{}", {"X-Caravan-Token": self.scout.token()})
         self.check.that(beat == 200, f"the scout did not beat when asked: {beat}")
         said = lambda: next((row for row in self.ask("GET", "/api/topology")[1].get("nodes") or [] if row.get("id") == self.host), {})  # noqa: E731
@@ -414,18 +483,23 @@ class Whole:
         self.check.that(not (self.on_scout("GET", "/api/pairing")[1].get("controllerUrl")), "the new scout already names a controller")
         status, said, _ = self.ask("POST", "/api/topology/scout/connect", {"address": "127.0.0.1", "port": self.scout.port})
         self.check.that(status == 200 and said.get("hostId") == self.host, f"pairing the new scout: {status} {said}")
-        self.check.that(sorted(said.get("settingsBack") or []) == sorted(["cacheLimit", f"cell:{self.cell}"]), f"what came back: {said}")
+        self.check.that(sorted(said.get("settingsBack") or []) == sorted(["cacheLimit", f"cell:{self.kept_id}"]), f"what came back: {said}")
         self.check.that(not said.get("settingsNotBack"), f"what did not come back: {said}")
         cache = self.on_scout("GET", "/api/llama-node/cache")[1]
         self.check.that(cache.get("budgetBytes") == 3 << 30, f"the new scout has no limit: {cache}")
         kept_cells = self.on_scout("GET", "/api/state")[1].get("autostart") or []
-        self.check.that(self.cell in kept_cells, f"the new scout does not start the cell at boot: {kept_cells}")
+        self.check.that(self.kept_id in kept_cells, f"the new scout does not start the cell at boot: {kept_cells}")
         kept = lambda: (self.boards_cell() or {}).get("slotConfig")  # noqa: E731
         self.check.that(until(lambda: kept() == self.kept, 15), f"the cell's settings did not outlive the scout: {kept()} against {self.kept}")
         self.check.that((self.boards_cell() or {}).get("phase") in ("stopped", ""), f"the cell did not stand as it stood: {self.boards_cell()}")
-        moved = self.differences(self.documents_kept, self.documents())
-        moved = [place for place in moved if not place.startswith(".topology.machineSettings")]
-        self.check.that(not moved, f"letting a machine go and pairing it again changed more than its record: {moved}")
+        # A router's default that named the machine's model waited (`dormantDefault`) while the machine was gone: it comes back once the
+        # new scout lists the model again — a beat brings it the cells, the next one its models — and a board read rewrites the outputs.
+        moved = lambda: [place for place in self.differences(self.documents_kept, self.documents()) if not place.startswith(".topology.machineSettings")]  # noqa: E731
+        def settled():
+            SlowClient(self.scout.port).post("/api/heartbeat", b"{}", {"X-Caravan-Token": self.scout.token()})
+            self.ask("GET", "/api/topology")
+            return not moved()
+        self.check.that(until(settled, 30), f"letting a machine go and pairing it again changed more than its record: {moved()}")
         self.scout.stop()
 
     def let_go(self):
@@ -435,7 +509,7 @@ class Whole:
         self.check.that(until(lambda: not pairing().get("controllerUrl"), 15), f"the scout still names a controller: {pairing()}")
 
     def run(self):
-        for step in (self.pair, self.model_comes, self.start_cell, self.places_reach_the_board, self.through_the_entry, self.stop_cell, self.cache_turned_off, self.cache_cleared, self.through_the_controller, self.what_a_cell_left_goes_with_its_stop, self.comes_back_with_what_was_saved, self.a_machine_that_was_off_starts_what_was_saved, self.a_mark_outlives_its_model, self.cannot_replace_itself, self.a_cell_to_keep, self.let_go, self.a_new_scout_finds_its_cells):
+        for step in (self.pair, self.model_comes, self.start_cell, self.through_the_scout_s_door, self.places_reach_the_board, self.through_the_entry, self.stop_cell, self.cache_turned_off, self.cache_cleared, self.through_the_controller, self.what_a_cell_left_goes_with_its_stop, self.comes_back_with_what_was_saved, self.a_machine_that_was_off_starts_what_was_saved, self.a_mark_outlives_its_model, self.cannot_replace_itself, self.a_cell_to_keep, self.let_go, self.a_new_scout_finds_its_cells):
             step()
             if self.check.failed:
                 return
@@ -461,9 +535,19 @@ class Bundles:
             bundle.add(ROOT / "rust/crates/scout/scripts", arcname="scripts")
         return out.getvalue()
 
-    def place(self, commit, packed, named=None):
+    def place(self, commit, packed, named=None, content=None):
+        """The bundle and its facts; `content`, what its scout is, as release_ship.py says it since the controller follows by it."""
+        facts = {"commit": commit, "sha256": named or hashlib.sha256(packed).hexdigest(), "bytes": len(packed)}
+        if content:
+            facts["content"] = content
         (self.folder / "scout-bundle.tar.gz").write_bytes(packed)
-        (self.folder / "scout-bundle.json").write_text(json.dumps({"commit": commit, "sha256": named or hashlib.sha256(packed).hexdigest(), "bytes": len(packed)}))
+        (self.folder / "scout-bundle.json").write_text(json.dumps(facts))
+
+    def keep(self, commit, content):
+        """A release kept beside the running one, as release_ship.py keeps the ones before it: what its scout was."""
+        kept = self.folder.parent / commit
+        kept.mkdir(parents=True, exist_ok=True)
+        (kept / "scout-bundle.json").write_text(json.dumps({"commit": commit, "sha256": "ff", "bytes": 1, "content": content}))
 
     def remove(self):
         (self.folder / "scout-bundle.tar.gz").unlink()
@@ -471,11 +555,20 @@ class Bundles:
 
 
 class TakingARelease:
-    """A machine's scout takes a new release from the board, as the ⋯ menu asks: the real controller and the real scout, installed as install.sh leaves it."""
+    """A machine's scout takes a new release from the board, as the ⋯ menu asks, and from the controller by itself when its scout changed: the real
+    controller and the real scout, installed as install.sh leaves it. Up to `service_starts_the_new_one` the releases say nothing of their scout,
+    and the controller hands none of them by itself: the steps would not stand if it did (negative)."""
 
     OLD = "aaaa1111"
     NEW = "bbbb2222"
+    ONE_PROGRAM = "eeee5555"
+    CHANGED = "ffff6666"
+    WAITED = "abab7777"
     HOST = "whole-release"
+    #: The cell whose stream a release waits for, started on the scout itself as a controller starts one.
+    CELL = "c0b1c2d3e"
+    #: The stream's pause after each of its three pieces, seconds: the release comes in the first of them.
+    PAUSE = 1.5
 
     def __init__(self, caravan, base, program, check):
         self.caravan = caravan
@@ -504,7 +597,7 @@ class TakingARelease:
 
     def nothing_to_hand_out(self):
         status, said, _ = self.status()
-        self.check.that((status, said) == (200, {"ok": True, "release": None, "running": None, "installCommand": None}), f"no bundle: {status} {said}")
+        self.check.that((status, said) == (200, {"ok": True, "release": None, "running": None, "sameScout": None, "installCommand": None}), f"no bundle: {status} {said}")
         for path in ("/scout/install.sh", "/scout/bundle.tar.gz"):
             status, said, _ = self.open_door(path)
             self.check.that(status == 404 and "carries no scout" in str(said), f"{path} with no bundle: {status} {str(said)[:200]}")
@@ -571,8 +664,110 @@ class TakingARelease:
         time.sleep(1)
         self.check.that(self.scout.process.poll() is None, "the same release asked twice restarted the scout")
 
+    def beat(self):
+        """The scout's report now, not at its next beat."""
+        beat = SlowClient(self.scout.port).post("/api/heartbeat", b"{}", {"X-Caravan-Token": self.scout.token()})
+        self.check.that(beat == 200, f"the scout did not beat when asked: {beat}")
+
+    def follows_only_a_changed_scout(self):
+        """After a delivery the controller hands its release by itself at the machine's next report, and only a scout that is another program
+        than the one the machine runs (rust/crates/admin/src/fleet/scout_follow.rs)."""
+        self.bundles.keep(self.NEW, "one-program")
+        self.bundles.place(self.ONE_PROGRAM, Bundles.pack(self.program), content="one-program")
+        status, said, _ = self.status(self.HOST)
+        self.check.that(status == 200 and said.get("sameScout") is True, f"one program under another commit: {status} {said}")
+        self.beat()
+        time.sleep(3)
+        self.check.that(self.scout.process.poll() is None, "negative: the same program was handed, and the scout restarted for nothing")
+        self.check.that(self.link() == f"releases/{self.NEW}", f"negative: the same program moved the link: {self.link()}")
+        self.bundles.place(self.CHANGED, Bundles.pack(self.program), content="another-program")
+        status, said, _ = self.status(self.HOST)
+        self.check.that(said.get("sameScout") is False, f"another program: {status} {said}")
+        self.beat()
+        try:
+            self.check.that(self.scout.process.wait(30) == 0, f"the scout ended with {self.scout.process.returncode}")
+        except subprocess.TimeoutExpired:
+            self.check.that(False, "the controller did not hand the changed scout by itself")
+            return
+        self.check.that(self.link() == f"releases/{self.CHANGED}", f"the link after the controller handed it: {self.link()}")
+        self.scout.start()
+        until(lambda: listening(self.scout.port), 15)
+        says = lambda: self.status(self.HOST)[1].get("running")  # noqa: E731
+        self.check.that(until(lambda: says() == self.CHANGED, 30), f"the board does not read the release it was handed: {says()}")
+
+    def on_scout(self, method, target, body=None):
+        return self.ask(method, target, body, port=self.scout.port, headers={"X-Caravan-Token": self.scout.token()})
+
+    def cell_runs(self):
+        nodes = self.on_scout("GET", "/api/llama-node/status")[1].get("nodes") or []
+        return next((node for node in nodes if node.get("id") == self.CELL and node.get("phase") == "running" and node.get("port")), None)
+
+    def stream_through_the_entry(self, name, came, said):
+        """A client's stream through the scout's entry, read to its end: `came` is set once its head is here, `said` holds what came."""
+        connection = http.client.HTTPConnection("127.0.0.1", self.scout.port, timeout=30)
+        try:
+            body = json.dumps({"model": name, "stream": True, "pause": self.PAUSE, "messages": [{"role": "user", "content": "hi"}]})
+            connection.request("POST", "/v1/chat/completions", body, {"Content-Type": "application/json"})
+            answer = connection.getresponse()
+            said["status"] = answer.status
+            came.set()
+            said["body"] = answer.read().decode(errors="replace")
+        except OSError as error:
+            said["error"] = repr(error)
+        finally:
+            came.set()
+            connection.close()
+
+    def waits_for_a_stream_through_its_entry(self):
+        """A scout handed a release while a stream passes through its entry ends only once the stream is answered whole (the owner's plan of
+        2026-11-07, step 6, Papyrus `caravan-scout-port-lease`): every request to a model of the machine passes through it. The cell outlives
+        it, and the new scout holds it again."""
+        # The story before deleted the library's model (`a_mark_outlives_its_model`): it is there again, for the cell to fetch.
+        library = self.caravan.base / "data" / "models" / MODEL
+        library.parent.mkdir(parents=True, exist_ok=True)
+        library.write_bytes(MODEL_BYTES)
+        port = free_port()
+        start = {"cellId": self.CELL, "ports": {"base": port, "upper": port}, "modelPath": MODEL, "args": ["--port", "{{PORT}}", "-m", "{{MODEL_PATH}}"],
+                 "config": {}, "cacheModels": True}
+        status, said, _ = self.on_scout("POST", "/api/llama-node/start", start)
+        self.check.that(status == 200, f"the cell's start: {status} {said}")
+        self.check.that(until(lambda: self.cell_runs() is not None, 40), f"the cell does not run: {self.on_scout('GET', '/api/llama-node/status')[1]}")
+        names = [row.get("id") for row in self.ask("GET", "/v1/models", port=self.scout.port)[1].get("data") or []]
+        self.check.that(len(names) == 1, f"the entry's list: {names}")
+        if self.check.failed:
+            return
+        came, streamed = threading.Event(), {}
+        reader = threading.Thread(target=self.stream_through_the_entry, args=(names[0], came, streamed), daemon=True)
+        reader.start()
+        self.check.that(came.wait(15) and streamed.get("status") == 200, f"the stream did not begin: {streamed}")
+        self.bundles.place(self.WAITED, Bundles.pack(self.program))
+        status, said, _ = self.ask("POST", "/api/fleet/scout-update", {"hostId": self.HOST})
+        waits = said.get("waitsFor") if isinstance(said, dict) else None
+        self.check.that(status == 200 and said.get("restarting") is True and (waits or {}).get("requests") == 1
+                        and "1 request through the machine's entry" in (waits or {}).get("words", []), f"the update during the stream: {status} {said}")
+        time.sleep(self.PAUSE)
+        self.check.that(self.scout.process.poll() is None, "negative: the scout ended while the stream passed through it")
+        reader.join(20)
+        body = streamed.get("body") or ""
+        self.check.that(body.count("data: {") == 3 and body.strip().endswith("[DONE]"), f"the stream was cut: {streamed}")
+        try:
+            self.check.that(self.scout.process.wait(10) == 0, f"the scout ended with {self.scout.process.returncode}")
+        except subprocess.TimeoutExpired:
+            self.check.that(False, "the scout did not end once the stream was done")
+            return
+        self.check.that(self.link() == f"releases/{self.WAITED}", f"the link: {self.link()}")
+        self.check.that(listening(port), "the cell did not outlive its scout")
+        self.scout.start()
+        until(lambda: listening(self.scout.port), 15)
+        says = lambda: self.status(self.HOST)[1].get("running")  # noqa: E731
+        self.check.that(until(lambda: says() == self.WAITED, 30), f"the board does not read the release it waited to run: {says()}")
+        self.check.that(until(lambda: self.cell_runs() is not None, 30), f"the new scout does not hold the cell: {self.on_scout('GET', '/api/llama-node/status')[1]}")
+        status, said, _ = self.on_scout("POST", "/api/llama-node/stop", {"cellId": self.CELL})
+        self.check.that(status == 200 and until(lambda: not listening(port), 15), f"the cell's stop: {status} {said}")
+
     def run(self):
-        for step in (self.nothing_to_hand_out, self.handed_out, self.pair, self.refused_and_nothing_changes, self.taken, self.service_starts_the_new_one):
+        for step in (self.nothing_to_hand_out, self.handed_out, self.pair, self.refused_and_nothing_changes, self.taken, self.service_starts_the_new_one,
+                     self.follows_only_a_changed_scout, self.waits_for_a_stream_through_its_entry):
             step()
             if self.check.failed:
                 return
@@ -598,7 +793,7 @@ def main():
         base = Path(raw).resolve()
         library = base / "controller" / "data" / "models" / MODEL
         library.parent.mkdir(parents=True)
-        library.write_bytes(b"GGUF" + bytes(range(256)) * 64)
+        library.write_bytes(MODEL_BYTES)
         caravan = Caravan(base / "controller", found["admin"], found["proxy"], {"LLAMA_TOPOLOGY_SERVER_URL": "http://127.0.0.1:{port}"})
         scout = None
         try:
@@ -626,7 +821,8 @@ def main():
             caravan.stop()
     if check.failed:
         raise SystemExit(f"rust whole: {len(check.failed)} failed")
-    print("rust whole: ok, a machine, a model, a cell and a client's request, in Rust from end to end, and a scout that takes a new release from the board")
+    print("rust whole: ok, a machine, a model, a cell and a client's request, in Rust from end to end, and a scout that takes a new release from the board "
+          "and from the controller by itself when it changed, and restarts only once a stream through its entry is answered whole")
     return 0
 
 

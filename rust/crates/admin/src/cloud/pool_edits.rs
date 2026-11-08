@@ -256,6 +256,27 @@ impl PoolDesk<'_> {
         self.save_pool_in(&mut data, &pool)
     }
 
+    /// What the board names as the reader of a part no pool's rows can take. The rule is asked before the write, so the
+    /// board's error and the entry's refusal are one answer, said by the same words: this file does not decide what a reader
+    /// is, and it does not write what the answer refuses.
+    ///
+    /// The key is the rule's name (`EntryModels::READER_FIELD`), so the door that writes it and the reading that reads it
+    /// say one word. Nothing named is written as nothing, not as an empty name: the absence is kept as the absence it is.
+    pub fn set_reader(&self, supplied: &Value) -> Result<Value, AppError> {
+        if !supplied.is_object() {
+            return Err(AppError::new("body must be an object"));
+        }
+        let mut data = self.cloud().load();
+        let named = Coerce::word(supplied.get(EntryModels::READER_FIELD));
+        if let Some(refusal) = self.cloud().board_names(&data).can_write(&named) {
+            return Err(AppError::with_status(refusal.error.message, refusal.error.status));
+        }
+        let said = if named.is_empty() { Value::Null } else { json!(named) };
+        Coerce::put(&mut data, EntryModels::READER_FIELD, said.clone());
+        self.cloud().save(&data)?;
+        Ok(said)
+    }
+
     /// One more step at the end of the pool.
     pub fn add_step(&self, pool_id: &str, account_id: &str, model: Option<&Value>) -> Result<Value, AppError> {
         let mut data = self.cloud().load();

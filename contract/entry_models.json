@@ -6120,6 +6120,260 @@
    }
   }
  ],
+ "media": [
+  {
+   "rows": [
+    {
+     "id": "a",
+     "accountId": "acc-sub",
+     "model": "gpt-sub"
+    },
+    {
+     "id": "b",
+     "accountId": "acc-key",
+     "model": "key-chat"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "refused": false,
+   "why": "a row that reads pictures is enough: the subscription row takes it, and the text row beside it is no candidate for this request"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:a"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "refused": true,
+   "why": "every row that may serve said it reads text alone: no row can take the picture, so the entry refuses it"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:a"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": "hi"
+    }
+   ],
+   "refused": false,
+   "why": "the negative case: a chat of text is what the row promised, and refusing it would refuse the work the pool exists for"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:vision"
+    },
+    {
+     "id": "b",
+     "accountId": "acc-key",
+     "model": "key-chat"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "refused": false,
+   "why": "a local vision model first: the row that reads the picture may serve it, and the text row behind it is not asked"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:e"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "refused": false,
+   "why": "the row says nothing of its inputs: an unknown promise is not a promise that it cannot read, and the provider decides"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:a"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "input_audio",
+       "input_audio": {
+        "audio": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "refused": false,
+   "why": "this rule decides pictures only: audio keeps the rule it had, and refusing it here would change what the speech pools accept"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:a"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "what is wrong here?"
+      },
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "data:image/png;base64,iVBORw0KGgo="
+       }
+      }
+     ]
+    }
+   ],
+   "board_reader": "gpt-sub",
+   "refused": false,
+   "read": true,
+   "why": "the board's reader takes pictures: the request goes, and the row that cannot read the picture has it read for it when it serves — the entry does not refuse what the board's reader can make readable"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:vision"
+    },
+    {
+     "id": "b",
+     "accountId": "acc-key",
+     "model": "key-chat"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "what is wrong here?"
+      },
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "data:image/png;base64,iVBORw0KGgo="
+       }
+      }
+     ]
+    }
+   ],
+   "board_reader": "gpt-sub",
+   "refused": false,
+   "read": true,
+   "why": "the pictures are readable for the whole request, and whether they are read is the serving row's question: a row that reads them gets them as they came (pool_steps), so a vision row first is not read for"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:a"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": "hi"
+    }
+   ],
+   "board_reader": "gpt-sub",
+   "refused": false,
+   "read": false,
+   "why": "the negative case for the reader: a request with no picture has nothing to read, and the reader is not engaged"
+  },
+  {
+   "rows": [
+    {
+     "id": "a",
+     "output": "mm:a"
+    }
+   ],
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "what is wrong here?"
+      },
+      {
+       "type": "image_url",
+       "image_url": {
+        "url": "data:image/png;base64,iVBORw0KGgo="
+       }
+      }
+     ]
+    }
+   ],
+   "board_reader": "media",
+   "refused": true,
+   "read": false,
+   "why": "the board's reader named as the pool the request is for: a caption cannot come from the row that cannot read the picture, so nothing reads for it and the entry refuses with `media_reader_self`"
+  }
+ ],
  "group": {
   "id": "mm:a",
   "group": "10.0.0.1:8092/gemma"

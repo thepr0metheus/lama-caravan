@@ -79,15 +79,30 @@ impl<'app> ScoutCall<'app> {
         serde_json::from_slice(raw).map_err(|error| HttpError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error)))
     }
 
-    /// Calls the scout; a failure is a legible refusal.
-    pub fn post(&self, path: &str, payload: &Value, timeout: u64) -> Result<Value, AppError> {
+    fn sent(&self, path: &str, payload: &Value, timeout: u64) -> Result<Value, HttpError> {
         let mut fields = vec![("Content-Type", "application/json".to_string())];
         fields.extend(ScoutAuth::fields(self.app));
         let url = format!("{}{path}", self.agent_url);
         let body = PythonJson::spaced(payload);
         let answer = self.app.http.ask("POST", &url, &fields, body.as_bytes(), Duration::from_secs(timeout));
-        let said = answer.and_then(|answer| answer.text(64 << 20).map_err(HttpError::Io)).and_then(|raw| Self::parse(&raw));
-        said.map_err(|failure| AppError::with_status(self.words_of(&failure), 502))
+        answer.and_then(|answer| answer.text(64 << 20).map_err(HttpError::Io)).and_then(|raw| Self::parse(&raw))
+    }
+
+    /// Calls the scout; a failure is a legible refusal.
+    pub fn post(&self, path: &str, payload: &Value, timeout: u64) -> Result<Value, AppError> {
+        self.sent(path, payload, timeout).map_err(|failure| AppError::with_status(self.words_of(&failure), 502))
+    }
+
+    /// Calls the scout as `post` does, and a refusal keeps the status the scout gave it: its caller tells "not now" (409) from "cannot". A scout
+    /// that did not answer usably is 502.
+    pub fn post_as_said(&self, path: &str, payload: &Value, timeout: u64) -> Result<Value, AppError> {
+        self.sent(path, payload, timeout).map_err(|failure| {
+            let status = match &failure {
+                HttpError::Status(status, _) => *status,
+                HttpError::BadAddress(_) | HttpError::Io(_) => 502,
+            };
+            AppError::with_status(self.words_of(&failure), status)
+        })
     }
 
     /// Asks the scout for something; a failure is an answer that says so.

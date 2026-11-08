@@ -48,24 +48,25 @@ const pin = (cond, why) => { assert.ok(cond, why); pass.push(why); };
 {
   const top = {
     routers: [
-      { outputs: [{ id: "srv:22008", upstreamHost: "10.0.0.5", upstreamType: "llama" }, { id: "eng:o1", upstreamHost: "10.0.0.6" },
-        { id: "cb:x", upstreamType: "cloud", upstreamHost: "" }] },
-      { outputs: [{ id: "srv:22008", upstreamHost: "9.9.9.9" }] },
+      // A machine's model (mm:, on its scout's address) and an engine's (eng:): a cell is no output of its own since 2026-11-07.
+      { outputs: [{ id: "mm:coder", upstreamHost: "10.0.0.5", upstreamPort: 8092, upstreamType: "machine", upstreamModel: "Coder" },
+        { id: "eng:o1", upstreamHost: "10.0.0.6", upstreamType: "engine" }, { id: "cb:x", upstreamType: "cloud", upstreamHost: "" }] },
+      { outputs: [{ id: "mm:coder", upstreamHost: "9.9.9.9", upstreamType: "machine" }] },
     ],
     pools: [
-      { steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "srv:22008" },
+      { steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "mm:coder" },
         { kind: "account", accountId: "key", enabled: false }, { kind: "open" }] },
-      { steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "eng:o1" }, { kind: "output", output: "srv:gone" },
-        { kind: "output", output: "cb:x" }, { kind: "output", output: "srv:22008" }] },
+      { steps: [{ kind: "account", accountId: "sub" }, { kind: "output", output: "eng:o1" }, { kind: "output", output: "mm:gone" },
+        { kind: "output", output: "cb:x" }, { kind: "output", output: "mm:coder" }] },
     ],
   };
   const machineOf = (address) => ({ "10.0.0.5": "box-a", "10.0.0.6": "box-b" })[address] || address;
   const reach = PoolReach.of(top, machineOf);
-  assert.deepEqual(reach, { accounts: ["sub"], machines: [{ key: "box-a", outputs: ["srv:22008"] }, { key: "box-b", outputs: ["eng:o1"] }] });
-  pin(true, "an account a row calls, once however many rows call it; a machine one of whose cells a row calls, with its outputs, once each");
+  assert.deepEqual(reach, { accounts: ["sub"], machines: [{ key: "box-a", outputs: ["mm:coder"] }, { key: "box-b", outputs: ["eng:o1"] }] });
+  pin(true, "an account a row calls, once however many rows call it; a machine one of whose models a row calls, with its outputs, once each");
   pin(!reach.accounts.includes("key"), "negative: a row switched off leads nowhere — no cable says a request can go there");
   pin(reach.machines.every((m) => m.key !== "9.9.9.9"), "the first router that has the output says where it answers: one place, not a guess per router");
-  pin(!JSON.stringify(reach).includes("srv:gone") && !JSON.stringify(reach).includes("cb:x"),
+  pin(!JSON.stringify(reach).includes("mm:gone") && !JSON.stringify(reach).includes("cb:x"),
     "negative: an output gone from every router, and a pool's own cloud output, lead to no machine");
   assert.deepEqual(PoolReach.of({}, machineOf), { accounts: [], machines: [] });
   assert.deepEqual(PoolReach.of(undefined, machineOf), { accounts: [], machines: [] });

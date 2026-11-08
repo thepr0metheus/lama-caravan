@@ -1,19 +1,17 @@
-//! A remote cell as this controller reads it over the network, and the histories its card draws.
+//! A remote cell as this controller reads it — through its machine's scout (`cell_doorway.rs`): a cell listens on its machine's loopback
+//! alone since 2026-11-08 — and the histories its card draws.
 
 use crate::app::App;
 use crate::common::misc::TtlCache;
-use crate::fleet::port_answers::{ClosedPorts, PortAnswers};
+use crate::fleet::cell_doorway::CellDoorway;
 use rules::Coerce;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
-use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 /// What was asked a moment ago, and the histories.
 pub struct RemoteMemory {
-    port_answers: PortAnswers,
-    port_closed: ClosedPorts,
     health: TtlCache<String, String>,
     modalities: TtlCache<String, Option<Value>>,
     about: TtlCache<String, Value>,
@@ -23,8 +21,6 @@ pub struct RemoteMemory {
 impl Default for RemoteMemory {
     fn default() -> Self {
         Self {
-            port_answers: PortAnswers::default(),
-            port_closed: ClosedPorts::default(),
             health: TtlCache::new(3.0),
             modalities: TtlCache::new(300.0),
             about: TtlCache::new(30.0),
@@ -174,37 +170,23 @@ impl<'app> RemoteCells<'app> {
         Self::keep(held.tps.entry(key.to_string()).or_default(), now, sample)
     }
 
-    /// Whether a TCP connection opens from here to a remote server, remembered a moment.
-    pub fn probe_port(&self, ip: &str, port: i64, ttl: f64) -> bool {
-        self.app.remote.port_answers.answer(&format!("{ip}:{port}"), ttl, self.app.now(), || {
-            // absent-ok: a port out of range is port 0, which nothing answers.
-            (ip, u16::try_from(port).unwrap_or(0)).to_socket_addrs().is_ok_and(|mut addresses| {
-                addresses.next().is_some_and(|address| TcpStream::connect_timeout(&address, Duration::from_millis(600)).is_ok())
-            })
-        })
-    }
-
-    /// What the board may say of a running cell's port: open, closed long enough to say so, or `None`: not known yet.
-    pub fn port_said(&self, ip: &str, port: i64) -> Option<bool> {
-        let open = self.probe_port(ip, port, 15.0);
-        self.app.remote.port_closed.said(&format!("{ip}:{port}"), open, self.app.now())
-    }
-
-    fn get(&self, url: &str, timeout_ms: u64) -> Result<(u16, Vec<u8>), plumbing::http_client::HttpError> {
-        let answer = self.app.http.answer("GET", url, &[], &[], Duration::from_millis(timeout_ms))?;
+    /// The cell's own answer to a GET of `path`, through its machine's scout. A refusal of the scout's (no such cell, one that does
+    /// not take the connection) is an answer of a status too: the cell is not reached, as when it did not answer at all.
+    fn get(&self, way: &CellDoorway, path: &str, timeout_ms: u64) -> Result<(u16, Vec<u8>), plumbing::http_client::HttpError> {
+        let answer = self.app.http.answer("GET", &way.url(path), way.fields(), &[], Duration::from_millis(timeout_ms))?;
         let status = answer.head.status;
         let raw = answer.text(65536)?;
         Ok((status, raw))
     }
 
-    /// llama-server's `/health` state from here, remembered a moment: ok, loading or down.
-    pub fn llama_health(&self, ip: &str, port: i64) -> String {
-        let key = format!("{ip}:{port}");
+    /// llama-server's `/health` state, remembered a moment: ok, loading or down.
+    pub fn llama_health(&self, way: &CellDoorway) -> String {
+        let key = way.key();
         let now = self.app.now();
         if let Some(hit) = self.app.remote.health.get(&key, now, Some(3.0)) {
             return hit;
         }
-        let state = match self.get(&format!("http://{ip}:{port}/health"), 1200) {
+        let state = match self.get(way, "/health", 1200) {
             Ok((200, _)) => "ok",
             Ok((503, _)) => "loading",
             Ok((status, _)) if status < 400 => "loading",
@@ -220,14 +202,14 @@ impl<'app> RemoteCells<'app> {
     }
 
     /// What a cell says it is on its `/health`, for a cell this controller holds no settings for.
-    pub fn cell_about(&self, ip: &str, port: i64) -> Value {
-        let key = format!("{ip}:{port}");
+    pub fn cell_about(&self, way: &CellDoorway) -> Value {
+        let key = way.key();
         let now = self.app.now();
         if let Some(hit) = self.app.remote.about.get(&key, now, Some(30.0)) {
             return hit;
         }
         let mut about = Map::new();
-        if let Ok((status, raw)) = self.get(&format!("http://{ip}:{port}/health"), 1000)
+        if let Ok((status, raw)) = self.get(way, "/health", 1000)
             && status < 400
             && let Ok(body) = serde_json::from_slice::<Value>(&raw)
             && body.is_object()
@@ -300,28 +282,33 @@ impl<'app> RemoteCells<'app> {
         out
     }
 
-    /// Health and startup progress of a generic command cell.
-    pub fn command_cell_health(&self, ip: &str, port: i64, health_path: &str) -> Value {
+    /// Health and startup progress of a generic command cell. One with no health path is as well as its port: whether it listens, as
+    /// its machine's scout sees it on the loopback (`listening`); `unknown` when the scout could not read its listeners.
+    pub fn command_cell_health(&self, way: &CellDoorway, health_path: &str, listening: Option<bool>) -> Value {
         let path = Coerce::strip(health_path);
         if path.is_empty() {
-            let state = if self.probe_port(ip, port, 15.0) { "ok" } else { "down" };
+            let state = match listening {
+                Some(true) => "ok",
+                Some(false) => "down",
+                None => "unknown",
+            };
             return json!({"status": state, "downloadedBytes": 0, "totalBytes": 0});
         }
         let path = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
-        match self.get(&format!("http://{ip}:{port}{path}"), 1000) {
+        match self.get(way, &path, 1000) {
             Ok((code, raw)) => Self::health_of_answer(code, &raw, &path),
             Err(_) => json!({"status": "down", "downloadedBytes": 0, "totalBytes": 0}),
         }
     }
 
     /// The input modalities a running llama-server accepts, read from its `/props`; `None` while it says none.
-    pub fn llama_modalities(&self, ip: &str, port: i64) -> Option<Value> {
-        let key = format!("{ip}:{port}");
+    pub fn llama_modalities(&self, way: &CellDoorway) -> Option<Value> {
+        let key = way.key();
         let now = self.app.now();
         if let Some(hit) = self.app.remote.modalities.get(&key, now, Some(60.0)) {
             return hit;
         }
-        let said = self.get(&format!("http://{ip}:{port}/props"), 1500).ok().filter(|(status, _)| *status == 200);
+        let said = self.get(way, "/props", 1500).ok().filter(|(status, _)| *status == 200);
         let parsed = said.and_then(|(_, raw)| serde_json::from_slice::<Value>(&raw).ok());
         let mods = parsed.and_then(|props| props.get("modalities").filter(|raw| raw.is_object()).map(Self::only_modalities));
         self.app.remote.modalities.put(key, mods.clone(), now);
@@ -351,19 +338,43 @@ impl<'app> RemoteCells<'app> {
 mod tests {
     use super::*;
     use crate::tests::{HandClock, TestApp, TestFolder};
+    use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
 
+    /// A scout that answers one request with `answer`, and says what it was asked.
+    fn scout_once(answer: &'static str) -> (u16, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let asked = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(socket.try_clone().unwrap()).read_line(&mut line).unwrap();
+            (&socket).write_all(answer.as_bytes()).unwrap();
+            line
+        });
+        (port, asked)
+    }
+
     #[test]
-    fn a_port_is_asked_over_the_network() {
-        let folder = TestFolder::new("port-probe");
+    fn a_cell_is_asked_through_its_machine_s_scout() {
+        let folder = TestFolder::new("cell-through-scout");
         let app = TestApp::with_clock(&folder.path, &[], HandClock::at(1000));
+        let (port, asked) = scout_once("HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{\"status\":\"ok\"}");
+        let way = CellDoorway::of(&app, &json!({"agentUrl": format!("http://127.0.0.1:{port}")}), "c22035").unwrap();
+        assert_eq!(RemoteCells::of(&app).llama_health(&way), "ok");
+        assert_eq!(asked.join().unwrap(), "GET /api/cell/c22035/health HTTP/1.1\r\n", "the door's path, not the cell's port");
+    }
+
+    #[test]
+    fn a_command_cell_with_no_health_path_is_as_well_as_its_port_listens() {
+        let folder = TestFolder::new("command-listens");
+        let app = TestApp::with_clock(&folder.path, &[], HandClock::at(1000));
+        // A scout nobody runs: a cell with no health path is not asked, its scout's word on its port is read.
+        let way = CellDoorway::of(&app, &json!({"agentUrl": "http://127.0.0.1:1"}), "c1").unwrap();
         let cells = RemoteCells::of(&app);
-        let listening = TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = i64::from(listening.local_addr().unwrap().port());
-        assert!(cells.probe_port("127.0.0.1", port, 15.0), "a port somebody listens on");
-        // Not a port taken and let go: another test may be given that one the next moment. Nothing here listens on port 1.
-        assert!(!cells.probe_port("127.0.0.1", 1, 15.0), "a port nobody listens on");
-        assert!(!cells.probe_port("127.0.0.1", 70000, 15.0), "a port that cannot be");
+        assert_eq!(cells.command_cell_health(&way, "", Some(true))["status"], "ok");
+        assert_eq!(cells.command_cell_health(&way, "", Some(false))["status"], "down");
+        assert_eq!(cells.command_cell_health(&way, " ", None)["status"], "unknown", "negative: not known is not down");
     }
 
     #[test]

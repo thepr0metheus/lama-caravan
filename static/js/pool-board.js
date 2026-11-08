@@ -12,7 +12,7 @@
 //
 // "In a pool only the list of the models on the right is gathered, a row added by "+" in the pool; each row gives one more
 // output, and that output is cabled to the model on the right": a pool is its rows in order, each a subscription's model or a
-// machine's cell (rust/crates/rules/src/cloud_pools.rs), tried from the top (rust/crates/proxy/src/pool_steps/mod.rs). "The limit bars belong not on
+// machine's model (rust/crates/rules/src/cloud_pools.rs), tried from the top (rust/crates/proxy/src/pool_steps/mod.rs). "The limit bars belong not on
 // the pool but on the models themselves, on the right": a subscription model's two levels hold in every pool whose row names it
 // (rust/crates/rules/src/usage_limits.rs).
 //
@@ -24,6 +24,12 @@
 // links what the client gets for its own GET questions, asked with its key by the controller. "Show only the models I added"
 // (the owner, 2026-10-12): an account's card holds the models added to it with "＋ model", not every model the account offers
 // (rust/crates/rules/src/cloud_models.rs). The account itself is set up on the main board (provider-glances.js).
+//
+// The reader block (static/js/reader-block.js) is the part of the Pools column that names a model for a picture none of any
+// pool's rows can take: one row for the whole board, the name the operator gave it, and the word the rule answered for that
+// name. The board draws the word it is given (`top.reader.answer`, from `Reader::word()`) and works out no state of its own;
+// its row has an output dot and no input dot, and its cable — drawn at rest, because a wiring is what was named and not a
+// path a request has run through — goes to the model card the name resolves to. A click on that cable writes the absence back.
 import { CableFlow } from "./cable-flow.js";
 import { ConsumerCards } from "./consumers.js";
 import { EntryClients } from "./entry-clients.js";
@@ -35,6 +41,7 @@ import { PoolCards } from "./pools.js";
 import { PoolDock } from "./pool-dock.js";
 import { PoolFlow } from "./pool-flow.js";
 import { PoolReveal } from "./pool-reveal.js";
+import { ReaderBlock } from "./reader-block.js";
 import { ModelScheduleEditor } from "./model-schedule.js";
 import { JOB_LABELS, JOB_MARKS } from "./model-jobs.js";
 import { ModelQueue } from "./model-queue.js";
@@ -60,7 +67,7 @@ import {
 import { api, copyText, escapeHtml, toast } from "./utils.js";
 
 export class PoolBoard {
-  // A cell's state → its lamp: lit when it serves, a ring when it does not run, amber on the way
+  // A local model's state → its lamp: lit when it serves, a ring when it does not run, amber on the way
   // up or down, red when it failed — and a ring for a state nobody said (OutputCells: "unknown").
   static LEDS = { running: "", stopped: "off", starting: "wait", stopping: "wait", failed: "bad", unknown: "off" };
 
@@ -68,7 +75,7 @@ export class PoolBoard {
     agents = () => ui.latestSystemMonitor?.latest?.agentProxies?.agents, now = () => Date.now(),
     slots = () => ui.latestSystemMonitor?.latest?.agentProxies?.slotTotals } = {}) {
     this.call = call;
-    this.agents = agents;          // the monitor's rows of requests, by port: what the cables' drops are read from (pool-flow.js)
+    this.agents = agents;          // the monitor's rows of requests, by client id: what the cables' drops are read from (pool-flow.js)
     this.slots = slots;            // the slots the proxy counted for each upstream, by its group: how many a model's queue serves at once
     this.now = now;
     this.notify = notify;
@@ -85,9 +92,9 @@ export class PoolBoard {
     this.scroll = null;            // where the board stood scrolled when the page drew it last: {top, left}
     this.history = new Set();      // the pools whose switch history is open
     this.settings = new Set();     // the pools whose "Pool settings" are open
-    this.tests = new Set();        // the clients (by port) whose "Test as the client" is open
-    this.probe = null;             // a client's test request in its window: {port, label, path, model, busy | result | error}
-    this.probeModel = new Map();   // client port → the model of its set its tests name (the first, until chosen)
+    this.tests = new Set();        // the clients (by id) whose "Test as the client" is open
+    this.probe = null;             // a client's test request in its window: {id, label, path, model, busy | result | error}
+    this.probeModel = new Map();   // client id → the model of its set its tests name (the first, until chosen)
     this.catalogues = new Map();   // usage account id → {models, fetchedAt} | {loading: true} | {error}
     this.drag = null;              // a cable being drawn: {kind, from, dot, pointerId}
     this.drops = [];               // the cables the last drawing could not place, and why
@@ -144,8 +151,9 @@ export class PoolBoard {
     return (this.top?.cloudAccounts || []).find((a) => a.id === id) || null;
   }
 
-  // Routing's router: its outputs are the fleet's cells and the engines' models, one per
-  // `srv:<port>` and `eng:<id>` (rust/crates/admin/src/proxies/config.rs).
+  // Routing's router: its outputs are the machines' models and the engines', one per `mm:<hash>` and `eng:<id>`, and the
+  // pools', `cb:<pool>` (rust/crates/admin/src/proxies/config/outputs.rs). A cell is no output of its own since 2026-11-07:
+  // it is a copy of its machine's model.
   router() {
     const routers = this.top?.routers || [];
     return routers.find((r) => r.id === "router:default") || routers[0] || { outputs: [] };
@@ -155,29 +163,16 @@ export class PoolBoard {
     return new OutputCells(this.top, this.router());
   }
 
-  // The machines with their local outputs, each named as Routing names a machine. A machine whose entry lists its models
-  // (1.3.506) stands in the column by them, by name: its cells by port only where a pool's row still names one (1.3.655, step 3
-  // of the owner's plan — the pools' rows name the machines' models, rust/crates/admin/src/fleet/machine_rows.rs; a row the controller could
-  // not move keeps the cell its cable lands on). A machine with no entry — an older scout, a client made by hand — stands by its
-  // cells, as before.
+  // The machines with their local outputs, each named as Routing names a machine: a machine stands in the column by the models
+  // of its entry (1.3.506) and of its engines, by name. Until 2026-11-07 a cell was an output of its own (`srv:<port>`) and
+  // stood here by its port where a pool's row still named it (1.3.655); now it is a copy of its machine's model, and a machine
+  // whose scout lists no models stands here by its engines' models alone, if it has any.
   machines() {
-    const named = new Set((this.top?.pools || []).flatMap((p) => (p.steps || []).map((s) => String(s?.output || ""))));
-    return this.allMachines().map((g) => (PoolBoard.byModels(g)
-      ? { ...g, outs: g.outs.filter((o) => String(o.upstreamType || "llama") !== "llama" || named.has(String(o.id))) } : g));
-  }
-
-  // Every local output by machine, the column's or not: a row, the strip and the history name what a machine's card may leave out.
-  allMachines() {
     return localOutputGroups(this.router().outputs || []);
   }
 
-  // Whether a machine's card stands by its entry's models (its scout lists them): then its cells are their copies.
-  static byModels(group) {
-    return (group?.outs || []).some((o) => String(o.upstreamType || "") === "machine");
-  }
-
   output(id) {
-    for (const group of this.allMachines()) {
+    for (const group of this.machines()) {
       const out = group.outs.find((o) => String(o.id) === String(id));
       if (out) return { out, group };
     }
@@ -242,8 +237,8 @@ export class PoolBoard {
     return n > 0 ? `${Math.round(n / 1000)}K` : "";
   }
 
-  // A machine's rows: the cells a row names and the ones not stopped, in port order; the stopped
-  // cells no row names fold under one button while there are two or more of them — a button that
+  // A machine's rows: the models a row names and the ones not stopped, in the order given; the stopped
+  // models no row names fold under one button while there are two or more of them — a button that
   // hides one row saves nothing (the rule OutputCells.split keeps for the old Routing).
   static foldCells(outs, stateOf, named, expanded = false) {
     const quiet = (outs || []).filter((o) => stateOf(o) === "stopped" && !named(o));
@@ -258,19 +253,25 @@ export class PoolBoard {
     return `M ${n(a.x)} ${n(a.y)} C ${n(a.x + dx)} ${n(a.y)}, ${n(b.x - dx)} ${n(b.y)}, ${n(b.x)} ${n(b.y)}`;
   }
 
-  // A local output as rows and lists name it: a cell — or an engine's model — by its name and its
-  // port; a model of a machine's entry by its name alone: its port is the machine's entry, every
-  // model's (1.3.506).
-  static outLabel(out, cells) {
-    const name = cells.name(out);
-    return String(out?.upstreamType || "") === "machine" ? name : `${name} :${out.upstreamPort}`;
+  // The port a local output's row says: an engine's own (Ollama's 11434, LM Studio's 1234), or null. A model of a machine's
+  // entry has none of its own — its port is the machine's entry, every model's (1.3.506) — and a cell holds one only while it
+  // runs, so no port names a cell (Papyrus caravan-scout-port-lease, 2026-11-07).
+  static enginePort(out) {
+    const port = Number(out?.upstreamPort);
+    return String(out?.upstreamType || "") === "engine" && Number.isInteger(port) && port > 0 ? port : null;
   }
 
-  // Where a local output stands, as a row's target and the chooser say it: its machine, and the port
-  // of a cell or an engine.
+  // A local output as rows and lists name it: by its name, an engine's model with its engine's port after it.
+  static outLabel(out, cells) {
+    const port = PoolBoard.enginePort(out);
+    return port ? `${cells.name(out)} :${port}` : cells.name(out);
+  }
+
+  // Where a local output stands, as a row's target and the chooser say it: its machine, and an engine's port.
   static where(out, group) {
+    const port = PoolBoard.enginePort(out);
     const machine = `🖥 ${group?.name || ""}`;
-    return String(out?.upstreamType || "") === "machine" ? machine : `${machine} :${out?.upstreamPort}`;
+    return port ? `${machine} :${port}` : machine;
   }
 
   // A row as the windows name it: its model and where it stands, or that it has no cable.
@@ -406,7 +407,7 @@ export class PoolBoard {
     const clients = ConsumerCards.of(this.top);
     if (!clients.length) return PoolBoard.column("clients", head, `${entry}<p class="pb-empty" data-t="pb-no-clients">${escapeHtml(t("pbNoClients"))}</p>`);
     return PoolBoard.column("clients", head, entry + clients.map((c) => (EntryClients.builtin(c)
-      ? this.clientHtml(c) : PoolBoard.seat(c.port, this.clientHtml(c)))).join(""));
+      ? this.clientHtml(c) : PoolBoard.seat(c.id, this.clientHtml(c)))).join(""));
   }
 
   // A client's card says who it is, how many of the caravan's models it sees and whether it was refused, and what it is closed
@@ -415,7 +416,7 @@ export class PoolBoard {
   // or pinned. The dot at its right edge is where its cables leave from: no cable is drawn from it by hand — a client calls what
   // it names, and every pool and model is open to it.
   clientHtml(c) {
-    const port = escapeHtml(String(c.port));
+    const id = escapeHtml(String(c.id || ""));
     const builtin = EntryClients.builtin(c);
     const paused = ["paused", "drain"].includes(String(c.mode || "open"));
     const missed = PoolBoard.missBadge(c);
@@ -427,7 +428,7 @@ export class PoolBoard {
       const label = this.denyLabel(key);
       return `<span class="pb-chip pb-deny-chip${label.gone ? " gone" : ""}" data-t="pb-deny-chip" data-t-id="${escapeHtml(key)}" title="${escapeHtml(label.title)}">⊘ ${escapeHtml(label.name)}</span>`;
     }).join("");
-    return `<article class="pb-card pb-client${builtin ? " builtin" : ""}${paused ? " paused" : ""}" data-pb-client="${port}" data-pb-node="client:${port}" data-t="pb-client" data-t-id="${port}" data-t-state="${builtin ? "builtin" : deny.length ? "closed" : "open"}"${builtin ? ` data-builtin="${escapeHtml(EntryClients.kind(c))}"` : ""}>
+    return `<article class="pb-card pb-client${builtin ? " builtin" : ""}${paused ? " paused" : ""}" data-pb-client="${id}" data-pb-node="client:${id}" data-t="pb-client" data-t-id="${id}" data-t-state="${builtin ? "builtin" : deny.length ? "closed" : "open"}"${builtin ? ` data-builtin="${escapeHtml(EntryClients.kind(c))}"` : ""}>
       ${builtin ? "" : PoolBoard.gripHtml()}<span class="pb-client-name" title="${name}">${name}</span>
       ${builtin ? `<span class="pb-chip pb-builtin" data-t="pb-client-builtin" title="${escapeHtml(ConsumerCards.words(c).title)}">${escapeHtml(t("consumerBuiltinChip"))}</span>` : ""}
       <span class="pb-key" title="${escapeHtml(t("consumerKeyTitle"))}">🔑 …${escapeHtml(String(c.keyTail || ""))}</span>
@@ -473,7 +474,7 @@ export class PoolBoard {
       return account ? String(account.name || account.id) : "";
     }
     if (kind === "host") {
-      const group = this.allMachines().find((g) => (g.outs || []).some((o) => String(o.hostId || "") === id));
+      const group = this.machines().find((g) => (g.outs || []).some((o) => String(o.hostId || "") === id));
       return group ? String(group.name ?? id) : (((this.top?.denyChoices?.sources) || []).includes(key) ? id : "");
     }
     return "";
@@ -504,7 +505,7 @@ export class PoolBoard {
   // there is nothing to ask; with no model to see, no model to name. They stand in the strip below.
   asksHtml(c) {
     if (!String(this.top?.entry?.url || "")) return "";
-    const ask = (path, id) => `<a class="pb-ask" href="${escapeHtml(`/api/consumers/ask?port=${encodeURIComponent(String(c.port))}&path=${encodeURIComponent(path)}`)}"`
+    const ask = (path, id) => `<a class="pb-ask" href="${escapeHtml(`/api/consumers/ask?routeId=${encodeURIComponent(String(c.id))}&path=${encodeURIComponent(path)}`)}"`
       + ` data-t="pb-client-ask" data-t-id="${id}" title="${escapeHtml(t("pbClientAskTitle"))}">${escapeHtml(path)}</a>`;
     const model = this.probeModelOf(c);
     return `<div class="pb-client-asks" data-t="pb-client-links">${ask("/v1/models", "list")}${this.probeModelHtml(c, (c.models || []).map(String))}`
@@ -518,7 +519,7 @@ export class PoolBoard {
   probesHtml(c) {
     const table = this.top?.clientProbes || [];
     if (!table.length) return "";
-    const open = this.tests.has(String(c.port));
+    const open = this.tests.has(String(c.id));
     const head = `<button class="pb-tests-head${open ? " open" : ""}" type="button" data-pb-tests aria-expanded="${open}" data-t="pb-client-tests">`
       + `${escapeHtml(t("pbProbeRow"))}</button>`;
     if (!open) return head;
@@ -539,7 +540,7 @@ export class PoolBoard {
   // The model a client's test names: the one chosen while the client still sees it, else the first.
   probeModelOf(c) {
     const models = (c?.models || []).map(String);
-    const chosen = this.probeModel.get(String(c?.port));
+    const chosen = this.probeModel.get(String(c?.id));
     return models.includes(chosen) ? chosen : (models[0] || "");
   }
 
@@ -588,7 +589,7 @@ export class PoolBoard {
     if (!p) return "";
     const base = String(this.top?.entry?.url || "").replace(/\/v1\/?$/, "");
     const close = `<button class="pb-tool" type="button" data-pb-probe-close data-t="pb-probe-close" title="${escapeHtml(t("topologyClose"))}" aria-label="${escapeHtml(t("topologyClose"))}">✕</button>`;
-    const head = `<header class="pb-probe-head"><b>${escapeHtml(String(p.label || p.port))}</b><code>POST ${escapeHtml(base + p.path)}</code>${close}</header>`;
+    const head = `<header class="pb-probe-head"><b>${escapeHtml(String(p.label || ""))}</b><code>POST ${escapeHtml(base + p.path)}</code>${close}</header>`;
     const state = p.busy ? "busy" : p.error ? "failed" : "done";
     let body;
     if (p.busy) body = `<p class="pb-probe-note">${escapeHtml(t("pbProbeWaiting"))}</p>`;
@@ -613,25 +614,25 @@ export class PoolBoard {
   // calls. A test that may cost money — a picture — is asked about first. The window waits, then
   // shows the answer, or why the controller could not ask; an answer for a test the window no
   // longer shows lands nowhere.
-  async runProbe(port, path) {
-    const client = ConsumerCards.of(this.top).find((c) => String(c.port) === String(port));
+  async runProbe(id, path) {
+    const client = ConsumerCards.of(this.top).find((c) => String(c.id) === String(id));
     const probe = (this.top?.clientProbes || []).find((p) => p.path === path);
     if (!client || !probe) return null;
     if (probe.paid) {
-      const sure = await this.confirm(t("pbProbePaidAsk", { client: String(client.label || port) }),
+      const sure = await this.confirm(t("pbProbePaidAsk", { client: String(client.label || "") }),
         { title: t("pbProbePaidTitle"), danger: false, confirmLabel: t("pbProbeSend") });
       if (!sure) return null;
     }
-    const asked = { port: Number(port), label: String(client.label || ""), path, model: this.probeModelOf(client) };
+    const asked = { id: String(client.id), label: String(client.label || ""), path, model: this.probeModelOf(client) };
     this.probe = { ...asked, busy: true };
     this.redraw();
     let landed;
     try {
-      landed = { ...asked, result: await this.call("/api/consumers/probe", { method: "POST", body: JSON.stringify({ port: asked.port, path, model: asked.model }) }) };
+      landed = { ...asked, result: await this.call("/api/consumers/probe", { method: "POST", body: JSON.stringify({ routeId: asked.id, path, model: asked.model }) }) };
     } catch (err) {
       landed = { ...asked, error: String(err?.message || err) };
     }
-    if (this.probe?.port !== asked.port || this.probe?.path !== path) return null;
+    if (this.probe?.id !== asked.id || this.probe?.path !== path) return null;
     this.probe = landed;
     this.redraw();
     this.root?.querySelector?.("[data-pb-probe-close]")?.focus?.();
@@ -662,10 +663,10 @@ export class PoolBoard {
   // once are the models that run and the ones closed already; the search finds the rest — a model can be closed before it runs.
   // A model a closed source closes is ticked and cannot be opened by itself. A model blocked for the client that one of its pools
   // still calls says so: the pool works whole (the owner's choice "а"). Each box is saved as it is ticked; "Done" closes the window.
-  openDeny(port) {
-    const client = ConsumerCards.of(this.top).find((c) => String(c.port) === String(port));
+  openDeny(id) {
+    const client = ConsumerCards.of(this.top).find((c) => String(c.id) === String(id));
     if (!client) return null;
-    this.denying = { port: Number(client.port), query: "" };
+    this.denying = { id: String(client.id), query: "" };
     this.redraw();
     this.focusField("[data-pb-deny] [data-pb-deny-query]");
     return true;
@@ -681,11 +682,11 @@ export class PoolBoard {
 
   denyHtml() {
     const d = this.denying;
-    const client = d ? ConsumerCards.of(this.top).find((c) => Number(c.port) === d.port) : null;
+    const client = d ? ConsumerCards.of(this.top).find((c) => String(c.id) === d.id) : null;
     if (!client) return "";
-    const title = t("pbDenyTitle", { name: String(client.label || client.port) });
+    const title = t("pbDenyTitle", { name: String(client.label || "") });
     const close = `<button class="pb-tool" type="button" data-pb-deny-close data-t="pb-deny-close" title="${escapeHtml(t("topologyClose"))}" aria-label="${escapeHtml(t("topologyClose"))}">✕</button>`;
-    return `<div class="pb-modal" data-pb-deny role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-t="pb-deny" data-t-id="${escapeHtml(String(client.port))}">`
+    return `<div class="pb-modal" data-pb-deny role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}" data-t="pb-deny" data-t-id="${escapeHtml(String(client.id))}">`
       + `<div class="pb-modal-box"><header class="pb-modal-head"><b>${escapeHtml(title)}</b>${close}</header>`
       + `<p class="pb-modal-note">${escapeHtml(t("pbDenyNote"))}</p>`
       + `<input class="pb-picker-find" type="search" data-pb-deny-query data-t="pb-deny-query" value="${escapeHtml(String(d.query || ""))}"`
@@ -745,7 +746,7 @@ export class PoolBoard {
   denyFind(query) {
     if (!this.denying) return;
     this.denying.query = String(query || "");
-    const client = ConsumerCards.of(this.top).find((c) => Number(c.port) === this.denying.port);
+    const client = ConsumerCards.of(this.top).find((c) => String(c.id) === this.denying.id);
     const body = this.root?.querySelector?.("[data-pb-deny] [data-pb-deny-body]");
     if (client && body) body.innerHTML = this.denyBodyHtml(client);
   }
@@ -754,11 +755,11 @@ export class PoolBoard {
   // drawn with the answer, and the box keeps the keyboard's focus. Refused — the toast says why, and the board is drawn from
   // what the controller keeps.
   async toggleDeny(key, on) {
-    const client = this.denying ? ConsumerCards.of(this.top).find((c) => Number(c.port) === this.denying.port) : null;
+    const client = this.denying ? ConsumerCards.of(this.top).find((c) => String(c.id) === this.denying.id) : null;
     if (!client || !key) return null;
     const was = (Array.isArray(client.deny) ? client.deny : []).map(String);
     const deny = on ? [...was.filter((k) => k !== key), key] : was.filter((k) => k !== key);
-    const res = await this.send("/api/consumers/deny", { port: Number(client.port), deny });
+    const res = await this.send("/api/consumers/deny", { routeId: String(client.id), deny });
     if (!res) { this.redraw(); return null; }
     const esc = (v) => (globalThis.CSS?.escape ? globalThis.CSS.escape(String(v)) : String(v));
     this.root?.querySelector?.(`[data-pb-deny] [data-pb-deny-key="${esc(key)}"]`)?.focus?.();
@@ -776,7 +777,7 @@ export class PoolBoard {
     if (!move) return "";
     const twins = Array.isArray(move.twins) ? move.twins : [];
     const sees = t("pbClientSeesAll", { all: String(move.sees) });
-    const rows = (move.clients || []).map((c) => `<tr data-t="pb-move-client" data-t-id="${escapeHtml(String(c.port))}"><td>${escapeHtml(String(c.name || c.port))}</td>`
+    const rows = (move.clients || []).map((c) => `<tr data-t="pb-move-client" data-t-id="${escapeHtml(String(c.routeId || c.name || ""))}"><td>${escapeHtml(String(c.name || ""))}</td>`
       + `<td>${escapeHtml(String(c.had || t("pbMoveHadNone")))}</td><td>${escapeHtml(sees)}</td></tr>`).join("");
     const sets = (move.sets || []).map((x) => `${x.name}${(x.pools || []).length ? ` (${x.pools.join(", ")})` : ""}`).join("; ");
     const where = (twin) => (twin.where ? this.sourceName(`account:${twin.where}`) || this.sourceName(`host:${twin.where}`) || twin.where : "");
@@ -859,22 +860,35 @@ export class PoolBoard {
       + `<span class="pb-dot out open" data-pb-out="${escapeHtml(kind)}" title="${escapeHtml(hint)}"></span></div>`;
   }
 
+  // The order the column is read in, said once here and held by contract/media_reader_board.json (`column`): the direct
+  // block, then the block that names a reader, then the pools' cards. The parts are named even when one of them is not
+  // drawn — no pools, so no cards — because an absence has to be said, not left as a hole. The reader block is drawn whatever
+  // the pools are: the reader is the board's, so its row does not depend on a pool being there, and the absence it shows is
+  // the operator not having named anything.
+  // Nothing here pins itself: Direct is simply the first block, not one held in view while the column scrolls
+  // (the owner, 2026-11-06), so a part has no position of its own and the order is the only fact about where it sits.
   poolsHtml() {
     const head = this.head(t("pbPoolsSection"),
       `<span class="pb-head-tools"><button class="pb-add" type="button" data-pb-arrange data-t="pb-arrange" title="${escapeHtml(t("pbArrangeTitle"))}">⇅ ${escapeHtml(t("pbArrange"))}</button>`
       + `<button class="pb-add" type="button" data-pb-add-pool data-t="pb-add-pool">＋ ${escapeHtml(t("poolNew"))}</button></span>`);
     const pools = this.top?.pools || [];
     const direct = this.directHtml();
-    if (!pools.length) return PoolBoard.column("pools", head, `${direct}<p class="pb-empty" data-t="pb-no-pools">${escapeHtml(t("pbNoPools"))}</p>`);
-    return PoolBoard.column("pools", head, direct + pools.map((pool) => PoolBoard.seat(pool.id, this.poolHtml(pool))).join(""));
+    const block = ReaderBlock.html(this.top?.reader);
+    const empty = pools.length ? "" : `<p class="pb-empty" data-t="pb-no-pools">${escapeHtml(t("pbNoPools"))}</p>`;
+    const cards = pools.map((pool) => PoolBoard.seat(pool.id, this.poolHtml(pool))).join("");
+    return PoolBoard.column("pools", head, [direct, block, empty, cards].join(""));
   }
 
-  // «Напрямую» (the owner, 2026-10-27, option В2: "always pinned on top, and the rows come and go by how many paths run straight
-  // now"; "let all be seen"): a row for each model a client calls now without a pool — one row a model, whatever number of
+  // «Напрямую» (the owner, 2026-10-27, option В2: "the rows come and go by how many paths run straight now";
+  // "let all be seen"): a row for each model a client calls now without a pool — one row a model, whatever number of
   // clients call it — and, while a client, a model or a row of it is pinned, the models called straight over three days. A
   // client's cable runs to the row, the row's on to its model: no cable crosses the column of pools. The rows are the monitor's
   // and the journal's (directRows); none — the head says nobody, and the block is one line. It is drawn anew in place as the
   // paths come and go (paintDirect).
+  //
+  // It is the first block of the column, and it is not pinned there (the owner, 2026-11-06): "не надо его прям закреплять
+  // так чтобы его видно было и при свайпах. Просто пусть будет всегда самым верхним." The reader block stands directly
+  // below it. The order is said once, in `poolsHtml`, and held by contract/media_reader_board.json.
   directHtml() {
     const rows = this.directRows();
     this.directDrawn = this.directBodyHtml(rows);
@@ -892,7 +906,8 @@ export class PoolBoard {
   directRowHtml(row) {
     const pool = escapeHtml(row.pool);
     const target = row.key ? this.targetOf(row.key) : null;
-    const who = row.ports.map((port) => String(ConsumerCards.of(this.top).find((c) => Number(c.port) === port)?.label || port)).join(", ");
+    // A client the board no longer has is said as no client, never by a number.
+    const who = row.clients.map((id) => String(ConsumerCards.of(this.top).find((c) => String(c.id) === id)?.label || "?")).join(", ");
     const note = row.state === "recent" ? t("pbDirectCalled", { who, n: String(row.count) }) : row.state === "ended" ? t("pbDirectEnded", { who }) : who;
     return `<div class="pb-direct-row ${escapeHtml(row.state)}" data-pb-direct="${pool}" data-pb-node="direct:${pool}" data-t="pb-direct-row" data-t-id="${pool}" data-t-state="${escapeHtml(row.state)}">`
       + `<span class="pb-dot in" data-pb-direct-in aria-hidden="true"></span><span class="pb-led${row.state === "live" ? "" : " off"}" aria-hidden="true"></span>`
@@ -918,30 +933,30 @@ export class PoolBoard {
   // The rows of «Напрямую»: the models called straight now or a moment ago (PoolFlow, the monitor's rows — a request on a pool of
   // one row, `live:…`), in the order the paths came; then, while a client is pinned, the ones it called straight over three days
   // (`calls`); while a model is pinned, its own row with the clients that called it straight; while a row of the block is pinned,
-  // that row. Each {pool, name, key, ports, state: live | ended | recent, count}: its name and its model's key on the board come
+  // that row. Each {pool, name, key, clients, state: live | ended | recent, count}: its name and its model's key on the board come
   // from `liveCatalog`. A call of three days to a model the board no longer knows makes no row — there is no model to cable it to;
   // a request that runs now does, named by its pool's id while nobody names the model.
   directRows(now = this.now()) {
     const catalog = new Map((this.top?.liveCatalog || []).map((m) => [String(m.pool), m]));
     const rows = new Map();
-    const add = (pool, port, state, count = 0) => {
+    const add = (pool, id, state, count = 0) => {
       const entry = catalog.get(pool);
       if (!entry && state === "recent") return;
-      if (!rows.has(pool)) rows.set(pool, { pool, name: String(entry?.id || pool), key: entry ? PoolBoard.key(entry) : "", ports: [], state, count: 0 });
+      if (!rows.has(pool)) rows.set(pool, { pool, name: String(entry?.id || pool), key: entry ? PoolBoard.key(entry) : "", clients: [], state, count: 0 });
       const row = rows.get(pool);
-      if (port && !row.ports.includes(port)) row.ports.push(port);
+      if (id && !row.clients.includes(id)) row.clients.push(id);
       if (state === "live" || (state === "ended" && row.state === "recent")) row.state = state;
       row.count += count;
     };
-    for (const [pool, ways] of this.flowNow(now).direct) for (const way of ways) add(pool, way.port, way.active ? "live" : "ended");
+    for (const [pool, ways] of this.flowNow(now).direct) for (const way of ways) add(pool, way.id, way.active ? "live" : "ended");
     const pinned = this.trace?.pinned ? String(this.trace.key) : "";
     const clients = ConsumerCards.of(this.top);
     const called = (pool) => {
-      for (const c of clients) for (const call of c.calls || []) if (String(call.pool) === pool) add(pool, Number(c.port), "recent", Number(call.count) || 0);
+      for (const c of clients) for (const call of c.calls || []) if (String(call.pool) === pool) add(pool, String(c.id), "recent", Number(call.count) || 0);
     };
     if (pinned.startsWith("client:")) {
-      const client = clients.find((c) => `client:${c.port}` === pinned);
-      for (const call of client?.calls || []) add(String(call.pool), Number(client.port), "recent", Number(call.count) || 0);
+      const client = clients.find((c) => `client:${c.id}` === pinned);
+      for (const call of client?.calls || []) add(String(call.pool), String(client.id), "recent", Number(call.count) || 0);
     } else if (pinned.startsWith("model:")) {
       const key = pinned.slice("model:".length);
       for (const [pool, entry] of catalog) if (PoolBoard.key(entry) === key) called(pool);
@@ -1080,8 +1095,8 @@ export class PoolBoard {
     return said ? { look: said[1], text: t(said[0]), title: "" } : null;
   }
 
-  // What a row's output is cabled to: a subscription's model with its account, a machine's cell
-  // with its machine and port — or what is gone, said in red rather than drawn as a cable.
+  // What a row's output is cabled to: a subscription's model with its account, a machine's model
+  // with its machine (an engine's with its port too) — or what is gone, said in red rather than drawn as a cable.
   targetHtml(row) {
     if (row.kind === "account") {
       const account = this.account(row.accountId);
@@ -1168,7 +1183,7 @@ export class PoolBoard {
     for (const c of clients || []) {
       for (const key of Array.isArray(c.deny) ? c.deny : []) {
         if (!map.has(key)) map.set(key, []);
-        map.get(key).push(String(c.label || c.port));
+        map.get(key).push(String(c.label || ""));
       }
     }
     return map;
@@ -1321,6 +1336,16 @@ export class PoolBoard {
       switchReached: step.switchReached || null, stopReached: step.stopReached || null } });
   }
 
+  // The name a client calls a model by, as the entry says it (`liveCatalog`, rust/crates/rules/src/entry_models.rs), by the model's key:
+  // a model two accounts offer is called with its account after it — `gpt-6-luna (chatgpt-subscription)` — so the model's own id names
+  // neither of them. The board's reader is saved and drawn by this name, because it is the name the rule reads (`EntryModels::wired`);
+  // a reader cable that sent the bare id was refused as a name the caravan does not know on the live board (2026-11-07). "" for a model
+  // no client can call: the entry offers it under no name.
+  entryNameOf(key) {
+    const entry = (this.top?.liveCatalog || []).find((m) => PoolBoard.key(m) === key);
+    return entry ? String(entry.id) : "";
+  }
+
   // A row of a pool that names the model: it carries the proxy's last judgement of the model's levels.
   stepOf(accountId, model) {
     return (this.top?.pools || []).flatMap((p) => p.steps || [])
@@ -1342,7 +1367,7 @@ export class PoolBoard {
     const marks = PoolBoard.workChipHtml(this.workOf(account.id, model)) + PoolBoard.switchChipHtml(this.levelsOf(account.id, model))
       + PoolBoard.levelTagHtml(step) + this.schedule.chipHtml(key, model) + PoolBoard.closedHtml(closed.get(PoolBoard.denyKey(key)))
       + (free ? PoolBoard.unusedHtml() : "") + remove;
-    return `<div class="pb-model" data-pb-model data-pb-key="${escapeHtml(key)}" data-pb-node="model:${escapeHtml(key)}" data-account="${escapeHtml(account.id)}" data-model="${escapeHtml(model)}" data-name="${escapeHtml(model)}" data-t="pb-model" data-t-id="${escapeHtml(key)}">
+    return `<div class="pb-model" data-pb-model data-pb-key="${escapeHtml(key)}" data-pb-node="model:${escapeHtml(key)}" data-account="${escapeHtml(account.id)}" data-model="${escapeHtml(model)}" data-name="${escapeHtml(model)}" data-entry-name="${escapeHtml(this.entryNameOf(key))}" data-t="pb-model" data-t-id="${escapeHtml(key)}">
       ${PoolBoard.pullHtml("model")}
       <span class="pb-model-head">${PoolBoard.modelGrabHtml()}<span class="pb-model-name" title="${escapeHtml(model)}"><code>${escapeHtml(model)}</code>${unlisted}</span><span class="pb-chips">${marks}</span></span>
     </div>`;
@@ -1379,9 +1404,8 @@ export class PoolBoard {
     return look ? `<span class="pb-status ${look}" data-t="pb-model-level" data-t-state="${look}" title="${escapeHtml(t(word))}">${escapeHtml(t(chip))}</span>` : "";
   }
 
-  // A machine's card: a monitor, its name, and at the right how many of its models — or of its cells, for a machine with no entry —
-  // are in each state; a row for each one in sight, the stopped ones no pool uses folded under one line. The machine's address
-  // stands in the name's hover.
+  // A machine's card: a monitor, its name, and at the right how many of its models are in each state; a row for each one in
+  // sight, the stopped ones no pool uses folded under one line. The machine's address stands in the name's hover.
   machineHtml(group, uses, closed = new Map()) {
     const cells = this.cells();
     const key = `m:${group.key}`;
@@ -1389,7 +1413,7 @@ export class PoolBoard {
     const fold = PoolBoard.foldCells(group.outs, (o) => cells.state(o), (o) => uses.has(PoolBoard.key({ output: o.id })), expanded);
     const rows = fold.shown.map((out) => this.cellHtml(out, cells, uses, closed)).join("");
     const more = fold.quiet.length
-      ? `<button class="pb-more" type="button" data-pb-more="${escapeHtml(key)}" aria-expanded="false">${escapeHtml(t(PoolBoard.byModels(group) ? "pbMoreModels" : "pbMoreCells", { n: String(fold.quiet.length) }))}</button>`
+      ? `<button class="pb-more" type="button" data-pb-more="${escapeHtml(key)}" aria-expanded="false">${escapeHtml(t("pbMoreModels", { n: String(fold.quiet.length) }))}</button>`
       : expanded && fold.folded ? `<button class="pb-more" type="button" data-pb-more="${escapeHtml(key)}" aria-expanded="true">${escapeHtml(t("pbFewer"))}</button>` : "";
     const name = escapeHtml(String(group.name ?? ""));
     const where = group.address && group.address !== group.name ? ` title="${escapeHtml(String(group.address))}"` : "";
@@ -1446,9 +1470,10 @@ export class PoolBoard {
     return `<span class="pb-model-grab" data-pb-out="model" data-t="pb-model-grab" title="${escapeHtml(t("pbModelGrab"))}" aria-label="${escapeHtml(t("pbModelGrab"))}">⠿</span>`;
   }
 
-  // A cell's row: what it does (a mark, grey), its name, its port, and at the right what is news — its schedule, that no pool uses
-  // it, its state in a word when it is not running or stopped — and the lamp: lit while it serves, a ring while it does not run, amber
-  // on the way up or down, red when it failed (`LEDS`). A stopped cell says it by the ring alone; the lamp's hover says it in words.
+  // A local model's row: what it does (a mark, grey), its name, an engine's port, and at the right what is news — its schedule,
+  // that no pool uses it, its state in a word when it is not running or stopped — and the lamp: lit while it serves, a ring while
+  // it does not run, amber on the way up or down, red when it failed (`LEDS`). A stopped model says it by the ring alone; the
+  // lamp's hover says it in words.
   cellHtml(out, cells, uses, closed = new Map()) {
     const key = PoolBoard.key({ output: out.id });
     const state = cells.state(out);
@@ -1456,18 +1481,18 @@ export class PoolBoard {
     const said = escapeHtml(t(PoolBoard.cellStateWord(state)));
     const word = state !== "running" && state !== "stopped" ? `<span class="pb-cell-state">${said}</span>` : "";
     const name = escapeHtml(cells.name(out));
-    // A model of a machine's entry has no port of its own; it says how many cells serve it, when
-    // more than one (its copies, 1.3.506).
-    const ofMachine = String(out.upstreamType || "") === "machine";
-    const port = ofMachine ? "" : `<span class="pb-cell-port">:${escapeHtml(String(out.upstreamPort))}</span>`;
-    const copies = ofMachine && cells.copies(out) > 1
+    // No port names a model of a machine's entry or a cell (enginePort); an engine's model keeps its engine's.
+    const enginePort = PoolBoard.enginePort(out);
+    const port = enginePort ? `<span class="pb-cell-port">:${enginePort}</span>` : "";
+    // A model of a machine's entry says how many cells serve it, when more than one (its copies, 1.3.506).
+    const copies = cells.copies(out) > 1
       ? `<span class="pb-copies" title="${escapeHtml(t("pbCopiesTitle", { n: String(cells.copies(out)) }))}">×${cells.copies(out)}</span>` : "";
-    // What the cell does: the first job's mark in the slot before the name, every job in its hover. A cell whose job cannot be
+    // What the model does: the first job's mark in the slot before the name, every job in its hover. A model whose job cannot be
     // named has an empty slot, so the names stand in one line.
     const jobs = cells.jobs(out).filter((job) => JOB_MARKS[job]);
     const mark = `<span class="pb-model-mark" aria-hidden="true"${jobs.length ? ` title="${escapeHtml(jobs.map((job) => t(JOB_LABELS[job])).join(", "))}"` : ""}>${jobs.length ? escapeHtml(JOB_MARKS[jobs[0]]) : ""}</span>`;
     const lamp = `<span class="pb-led${led ? ` ${led}` : ""}" role="img" title="${said}" aria-label="${said}"></span>`;
-    return `<div class="pb-model machine" data-pb-model data-pb-key="${escapeHtml(key)}" data-pb-node="model:${escapeHtml(key)}" data-output="${escapeHtml(String(out.id))}" data-name="${name}" data-t="pb-model" data-t-id="${escapeHtml(key)}" data-t-state="${escapeHtml(state)}">
+    return `<div class="pb-model machine" data-pb-model data-pb-key="${escapeHtml(key)}" data-pb-node="model:${escapeHtml(key)}" data-output="${escapeHtml(String(out.id))}" data-name="${name}" data-entry-name="${escapeHtml(this.entryNameOf(key))}" data-t="pb-model" data-t-id="${escapeHtml(key)}" data-t-state="${escapeHtml(state)}">
       ${PoolBoard.pullHtml("model")}
       <span class="pb-model-head">${PoolBoard.modelGrabHtml()}${mark}<span class="pb-model-name" title="${name}">${name}</span>${copies}${port}<span class="pb-chips">${this.schedule.chipHtml(key, PoolBoard.outLabel(out, cells))}${PoolBoard.closedHtml(closed.get(PoolBoard.denyKey(key)))}${uses.get(key)?.length ? "" : PoolBoard.unusedHtml()}${word}${this.queueChipHtml(key)}${lamp}</span></span>
     </div>`;
@@ -1496,7 +1521,7 @@ export class PoolBoard {
   }
 
   // The local model a request is on now, by its key on the board: a pool's row names it — the row it is on now, a request that went
-  // on is the next row's — and a request routed straight to a cell names the cell's output. "" — no local model the board draws:
+  // on is the next row's — and a request routed straight to a model names the model's output. "" — no local model the board draws:
   // a subscription's row has no queue of the caravan's.
   queueKey(item) {
     const pool = (this.top?.pools || []).find((p) => String(p.id) === String(item?.cloudPoolId || ""));
@@ -1505,7 +1530,7 @@ export class PoolBoard {
     return pool || !item?.routedOutputId ? "" : PoolBoard.key({ output: String(item.routedOutputId) });
   }
 
-  // A cell's line: "1 of 1", "1 of 1 · 2 wait" — the mark is there while the model serves none and none waits, empty and hidden,
+  // A local model's line: "1 of 1", "1 of 1 · 2 wait" — the mark is there while the model serves none and none waits, empty and hidden,
   // so the monitor's next reading fills it in place (paintQueue).
   queueChipHtml(key, queues = this.queues()) {
     const chip = queues.get(key)?.chip() || null;
@@ -1513,7 +1538,7 @@ export class PoolBoard {
       + `${chip ? ` title="${escapeHtml(chip.title)}"` : " hidden"}>${chip ? escapeHtml(chip.text) : ""}</span>`;
   }
 
-  // A cell row of a pool: its state, and while a request of this pool waits on it, how long until it leaves — said over the state.
+  // A pool's row of a local model: its state, and while a request of this pool waits on it, how long until it leaves — said over the state.
   rowStateHtml(pool, row, status, queues = this.queues()) {
     const words = queues.get(PoolBoard.key(row))?.rowWait(pool.id, row.id) || "";
     return `<span class="pb-state${words ? " waiting" : ""}" data-pb-row-wait="${escapeHtml(`${pool.id}/${row.id}`)}">${PoolBoard.statusHtml(status)}`
@@ -1614,7 +1639,9 @@ export class PoolBoard {
   // The cables the board shows (the owner, 2026-10-27: "the cables only when we draw them, OR when a block is selected, OR when
   // requests run"): the pinned card's path (`path`) and every cable a request runs through now or ran through a moment ago
   // (pool-flow.js) — each from its output's dot to its input's dot, measured where both stand now. None at rest: what a client
-  // may call is said on its card, and a cable for each would be every client to every pool. «Напрямую» is drawn first: its rows
+  // may call is said on its card, and a cable for each would be every client to every pool. The reader block is the one cable
+  // drawn at rest, because a wiring is what the operator named and not a path a request has run through: a reader with a name
+  // has a cable even when nothing has been read yet. «Напрямую» is drawn first: its rows
   // are where some of them end. One that cannot be placed is named in `drops` with what is missing — never left out without a
   // word. One that carries a request now has its drops (cable-flow.js) and rings its two dots; one that did a moment ago is lit.
   drawCables() {
@@ -1635,7 +1662,7 @@ export class PoolBoard {
       return { x: r.left + r.width / 2 - origin.left, y: r.top + r.height / 2 - origin.top };
     };
     const parts = [];
-    for (const key of new Set([...(path?.cables || []), ...flow.active, ...flow.recent])) {
+    for (const key of new Set([...(path?.cables || []), ...flow.active, ...flow.recent, ...ReaderBlock.wiredKeys(this.top?.reader)])) {
       const cable = this.cableOf(key);
       if (!cable) continue;
       const from = cols.querySelector(cable.from), to = cols.querySelector(cable.to);
@@ -1654,19 +1681,19 @@ export class PoolBoard {
   // columns find them, what the drawing marks it with, its hint, whether it is lit as the row that serves now, and whether a click
   // cuts it — only a pool's row is cabled by hand; a client calls what it names. Null for a key that names no cable of the
   // board. `quiet` — an end known to be missing and said in its own place: a row whose model is gone says so on itself
-  // (targetHtml); a port that is no client of the entry is a proxy of the main board's, with no card here.
+  // (targetHtml); a client the board no longer has has no card here.
   cableOf(key) {
     const esc = (v) => (globalThis.CSS?.escape ? globalThis.CSS.escape(String(v)) : String(v));
     const [kind, ...rest] = String(key || "").split(":");
     const id = rest.join(":");
     if (kind === "client") {
-      const port = id.slice(0, id.indexOf("/")), pool = id.slice(id.indexOf("/") + 1);
-      const client = ConsumerCards.of(this.top).find((c) => String(c.port) === port);
+      const who = id.slice(0, id.indexOf("/")), pool = id.slice(id.indexOf("/") + 1);
+      const client = ConsumerCards.of(this.top).find((c) => String(c.id) === who);
       const straight = !(this.top?.pools || []).some((p) => String(p.id) === pool);
-      return { from: `[data-pb-node="client:${esc(port)}"] [data-pb-anchor]`,
+      return { from: `[data-pb-node="client:${esc(who)}"] [data-pb-anchor]`,
         to: straight ? `[data-pb-direct="${esc(pool)}"] [data-pb-direct-in]` : `[data-pb-pool="${esc(pool)}"] > [data-pb-in]`,
-        attrs: `data-pb-cable="call" data-port="${escapeHtml(port)}" data-pb-cable-key="${escapeHtml(key)}"`,
-        title: `${client ? String(client.label || port) : port} → ${this.poolName(pool)}`, lit: false, cuts: false, quiet: !client };
+        attrs: `data-pb-cable="call" data-pb-client-id="${escapeHtml(who)}" data-pb-cable-key="${escapeHtml(key)}"`,
+        title: `${client ? String(client.label || "") : "?"} → ${this.poolName(pool)}`, lit: false, cuts: false, quiet: !client };
     }
     if (kind === "direct") {
       const entry = (this.top?.liveCatalog || []).find((m) => String(m.pool) === id);
@@ -1674,6 +1701,18 @@ export class PoolBoard {
       return { from: `[data-pb-direct="${esc(id)}"] [data-pb-direct-out]`, to: `[data-pb-key="${esc(target)}"] [data-pb-in]`,
         attrs: `data-pb-cable="direct" data-pb-cable-key="${escapeHtml(key)}"`, title: `${t("pbDirect")} → ${this.poolName(id)}`,
         lit: false, cuts: false, quiet: !target };
+    }
+    if (kind === ReaderBlock.PREFIX) {
+      // The board names one reader, so this cable has no pool in its key: it goes from the row to the model card the name
+      // resolves to. Nothing named: no cable, and that is said as the absence it is — a line to nowhere would draw the
+      // operator's absence as a path. `quiet` because the row names the reader on itself: a drop here would be the same fact
+      // twice.
+      const name = this.top?.reader?.name || "";
+      if (!name) return null;
+      // The name is the entry's (`entryNameOf`): two accounts' rows of one model share their id, never their entry name.
+      return { from: `[data-t="${ReaderBlock.HOOKS.row}"] [data-pb-out]`, to: `[data-pb-model][data-entry-name="${esc(name)}"] [data-pb-in]`,
+        attrs: `data-pb-cable="${ReaderBlock.PREFIX}" data-pb-cable-key="${escapeHtml(key)}"`,
+        title: `${t("pbReaderHead")} → ${name}`, lit: false, cuts: true, quiet: true };
     }
     if (kind !== "row") return null;
     const [poolId, rowId] = id.split("/");
@@ -1705,8 +1744,8 @@ export class PoolBoard {
   // reach it and down to the models it reaches — never sideways, so a model two pools share lights its own way up, not the other
   // pool's clients. Since 1.3.675 a client reaches what it called over three days (`calls`, the journal's): a pool, or a model
   // straight through its row of «Напрямую» — every pool and model is open to it, and a path to each would light the whole board.
-  // Node keys are the cards' `data-pb-node`: client:<port>, pool:<id>, row:<pool>/<row>, direct:<pool of one row>, model:<key>;
-  // cable keys are the ones cableOf reads: client:<port>/<pool>, row:<pool>/<row>, direct:<pool of one row>.
+  // Node keys are the cards' `data-pb-node`: client:<client id>, pool:<id>, row:<pool>/<row>, direct:<pool of one row>, model:<key>;
+  // cable keys are the ones cableOf reads: client:<client id>/<pool>, row:<pool>/<row>, direct:<pool of one row>.
   static path(top, key) {
     const nodes = new Set(), cables = new Set();
     const clients = ConsumerCards.of(top);
@@ -1721,7 +1760,7 @@ export class PoolBoard {
       const [k, ...r] = node.split(":");
       const v = r.join(":");
       if (k === "pool" || k === "direct") {
-        for (const c of callers(v)) { nodes.add(`client:${c.port}`); cables.add(`client:${c.port}/${v}`); }
+        for (const c of callers(v)) { nodes.add(`client:${c.id}`); cables.add(`client:${c.id}/${v}`); }
       } else if (k === "row") {
         up(`pool:${v.split("/")[0]}`);
       } else if (k === "model") {
@@ -1740,7 +1779,7 @@ export class PoolBoard {
       const [k, ...r] = node.split(":");
       const v = r.join(":");
       if (k === "client") {
-        const client = clients.find((c) => String(c.port) === v);
+        const client = clients.find((c) => String(c.id) === v);
         for (const call of client?.calls || []) {
           const pool = String(call.pool);
           if (pools.has(pool)) { cables.add(`client:${v}/${pool}`); down(`pool:${pool}`); }
@@ -1831,7 +1870,7 @@ export class PoolBoard {
   // A card by what the strip says first: its name, and what stands under it.
   dockAbout({ kind, id }) {
     if (kind === "client") {
-      const c = ConsumerCards.of(this.top).find((x) => String(x.port) === id);
+      const c = ConsumerCards.of(this.top).find((x) => String(x.id) === id);
       return c ? { name: String(c.label || ""), subHtml: `<span class="pb-key">🔑 …${escapeHtml(String(c.keyTail || ""))}</span>` } : null;
     }
     if (kind === "direct") {
@@ -1853,7 +1892,7 @@ export class PoolBoard {
   }
 
   // A model's key (PoolBoard.key) as the strip says it: its name, and where it stands — its account, or
-  // its machine and port. A key the board does not know is not a model of it.
+  // its machine (PoolBoard.where). A key the board does not know is not a model of it.
   targetOf(key) {
     if (key.startsWith("acc:")) {
       const [accountId, ...rest] = key.slice(4).split("/");
@@ -1872,11 +1911,11 @@ export class PoolBoard {
   routeOf(key) {
     const { nodes } = PoolBoard.path(this.top, key);
     const ids = (prefix) => [...nodes].filter((n) => n.startsWith(prefix)).map((n) => n.slice(prefix.length));
-    const ports = new Set(ids("client:")), pools = new Set(ids("pool:"));
+    const clientIds = new Set(ids("client:")), pools = new Set(ids("pool:"));
     const targets = ids("model:").map((k) => this.targetOf(k)).filter(Boolean);
     const models = targets.map((x) => (targets.filter((y) => y.name === x.name).length > 1 ? `${x.name} · ${x.where}` : x.name)).sort();
     return [
-      { label: t("topologyClientsSection"), names: ConsumerCards.of(this.top).filter((c) => ports.has(String(c.port))).map((c) => String(c.label || "")) },
+      { label: t("topologyClientsSection"), names: ConsumerCards.of(this.top).filter((c) => clientIds.has(String(c.id))).map((c) => String(c.label || "")) },
       { label: t("pbPoolsSection"), names: (this.top?.pools || []).filter((x) => pools.has(String(x.id))).map((x) => String(x.name || x.id)) },
       { label: t("topologyModelsLabel"), names: models },
     ];
@@ -1956,7 +1995,7 @@ export class PoolBoard {
   }
 
   // The details of the card in the strip. A client's links, tests and errors stand here, in one wrapper
-  // that carries its port: the handlers find the client by it, as they did on its card (`display:
+  // that carries its id: the handlers find the client by it, as they did on its card (`display:
   // contents` — the wrapper has no box, the parts flow in the strip's columns).
   dockDetailsHtml({ kind, id }) {
     if (kind === "model") return this.modelDetailsHtml(id);
@@ -1969,9 +2008,9 @@ export class PoolBoard {
       return entry ? this.modelDetailsHtml(PoolBoard.key(entry)) : "";
     }
     if (kind !== "client") return "";
-    const c = ConsumerCards.of(this.top).find((x) => String(x.port) === id);
+    const c = ConsumerCards.of(this.top).find((x) => String(x.id) === id);
     if (!c) return "";
-    return `<div class="pb-dock-client" data-pb-client="${escapeHtml(String(c.port))}" data-t="pb-dock-client">${this.asksHtml(c)}${this.probesHtml(c)}${this.missesHtml(c)}</div>`;
+    return `<div class="pb-dock-client" data-pb-client="${escapeHtml(String(c.id))}" data-t="pb-dock-client">${this.asksHtml(c)}${this.probesHtml(c)}${this.missesHtml(c)}</div>`;
   }
 
   // The pointer over a card: its path, unless one is pinned or a cable, a row or a card is in the hand. The strip
@@ -2540,6 +2579,9 @@ export class PoolBoard {
 
   // A click on a pool's row's cable cuts it, after one question that names both of its ends. A client's cable and a cable of
   // «Напрямую» are what was called: nothing to cut (cableHtml gives them no place for a click).
+  //
+  // A reader cable is cut the same way, and the answer is the absence written back: the name is set to nothing, not to an
+  // empty name, so the wiring reads as the absence it is (`EntryModels::reader` in rust/crates/rules/src/entry_models.rs).
   async cut(el) {
     if (el.dataset.pbCable === "row") {
       const pool = this.actions.stored(el.dataset.pool);
@@ -2548,6 +2590,13 @@ export class PoolBoard {
       const sure = await this.confirm(t("pbCutRowText", { n: String(index + 1), pool: pool.name || pool.id, target: this.rowName(pool.steps[index]) }),
         { title: t("pbCutTitle"), danger: true, confirmLabel: t("pbCutTitle") });
       return sure ? this.send("/api/pools/connect-row", { poolId: pool.id, rowId: el.dataset.row, target: null }) : null;
+    }
+    if (el.dataset.pbCable === ReaderBlock.PREFIX) {
+      const named = this.top?.reader?.name || "";
+      if (!named) return null;
+      const sure = await this.confirm(t("pbReaderCutText", { reader: named }),
+        { title: t("pbCutTitle"), danger: true, confirmLabel: t("pbCutTitle") });
+      return sure ? this.send("/api/board/reader", ReaderBlock.body(null)) : null;
     }
     return null;
   }
@@ -2566,12 +2615,21 @@ export class PoolBoard {
   static SWAY = 10;
 
   // What each kind of cable lands on: a pool row's on a model — and a model's on a pool, or on the Pools column for a pool of
-  // its own; a model's input (1.3.587) does what its handle does. A client draws no cable since 1.3.675: it calls what it names.
+  // its own; a model's input (1.3.587) does what its handle does. A client draws no cable since 1.3.675: it calls what it
+  // names. The reader block's row lands on a model too, because a reader is a model the operator names, not a place.
   static ONTO = {
     row: ["[data-pb-model]"],
     "new-row": ["[data-pb-model]"],
     model: ["[data-pb-pool]", "[data-pb-pools-drop]"],
   };
+
+  // What a kind lands on. The reader block's kind is read from `ReaderBlock.PREFIX` here, at the call, and not as a key of
+  // the table above: a class field that reads another module at the moment the class is defined is a load-order trap — when
+  // the reader block is entered first (through pool-flow.js), `ReaderBlock` is still being initialised and the key becomes an
+  // error, not a hole. Said here because `landing` below is the only place the table is read.
+  static onto(kind) {
+    return PoolBoard.ONTO[kind] || (kind === ReaderBlock.PREFIX ? ["[data-pb-model]"] : null);
+  }
   // The kinds whose cable the pointer holds by its left end: it ends at the card's input, which stays where it is.
   static REVERSE = new Set(["model"]);
 
@@ -2582,16 +2640,18 @@ export class PoolBoard {
   }
 
   // What an output starts: its kind and where it comes from — a pool's row (the pool alone, for its "＋"), a model with the name
-  // the board shows it by. An output of any other kind starts nothing: a cable of a kind nobody lands would hang in the hand.
+  // the board shows it by, or the reader block's row, which comes from the board and not from a pool. An output of any other
+  // kind starts nothing: a cable of a kind nobody lands would hang in the hand.
   static source(dot) {
     if (dot?.hasAttribute?.("data-pb-in")) return PoolBoard.pulled(dot);
     const kind = dot?.dataset?.pbOut;
     if (kind === "model") return PoolBoard.modelSource(dot.closest("[data-pb-model]"));
+    if (kind === ReaderBlock.PREFIX) return { kind, from: {} };
     if (kind !== "row" && kind !== "new-row") return null;
     return { kind, from: { poolId: dot.closest("[data-pb-pool]")?.dataset.pbPool || "", rowId: dot.closest("[data-pb-row]")?.dataset.pbRow || "" } };
   }
 
-  // A model's cable: its target — an account's model, or a cell's output — with the name the board shows it by. A card that is none starts nothing.
+  // A model's cable: its target — an account's model, or a local model's output — with the name the board shows it by. A card that is none starts nothing.
   static modelSource(card) {
     if (!card) return null;
     const target = card.dataset.output ? { output: card.dataset.output } : { accountId: card.dataset.account || "", model: card.dataset.model || "" };
@@ -2616,7 +2676,7 @@ export class PoolBoard {
     if (el?.hasAttribute?.("data-pb-pool")) return { pool: el.dataset.pbPool };
     if (el?.hasAttribute?.("data-pb-model")) {
       return { target: el.dataset.output ? { output: el.dataset.output } : { accountId: el.dataset.account, model: el.dataset.model },
-        name: el.dataset.name || "" };
+        name: el.dataset.name || "", entry: el.dataset.entryName || "" };
     }
     if (el?.hasAttribute?.("data-pb-pools-drop")) return { newPool: true };
     return {};
@@ -2626,7 +2686,15 @@ export class PoolBoard {
   // for a place picked in the chooser. The model's name goes along: a pool still called "Pool", with no
   // cable yet, takes it as its own (rust/crates/admin/src/cloud/pools.rs; the owner, 2026-10-12: "a pool of one model
   // named after the model"). A place its kind does not land on asks nothing.
+  //
+  // A reader cable asks the board's door with the name the entry calls the model it landed on (`entryNameOf`), and with nothing
+  // else: the page does not decide whether that name may be a reader. `EntryModels::can_write` does, before the write, and the answer
+  // it gives is the same answer a request gets (rust/crates/admin/src/cloud/pool_edits.rs). A page that checked the promise here would
+  // be the fact read a second way, and the board could accept what the entry refuses. A model the entry offers under no name is asked
+  // by its key, which is no client's name: the door refuses it in the rule's words, where the bare id could name another account's
+  // model of the same id — a guess.
   static ask(kind, from, to) {
+    if (kind === ReaderBlock.PREFIX && to?.target && to.name) return ["/api/board/reader", ReaderBlock.body(to.entry || PoolBoard.key(to.target))];
     if (kind === "new-row" && to?.target) return ["/api/pools/add-row", { poolId: from.poolId, target: to.target, nameAfter: to.name || "" }];
     if (kind === "row" && to?.target) {
       return ["/api/pools/connect-row", { poolId: from.poolId, rowId: from.rowId, target: to.target, nameAfter: to.name || "" }];
@@ -2772,7 +2840,7 @@ export class PoolBoard {
   landing(x, y) {
     const el = this.doc?.elementFromPoint?.(x, y);
     if (!el || !this.drag) return null;
-    for (const onto of PoolBoard.ONTO[this.drag.kind] || []) {
+    for (const onto of PoolBoard.onto(this.drag.kind) || []) {
       const hit = el.closest?.(onto);
       if (hit) return hit;
     }
@@ -2816,7 +2884,9 @@ export class PoolBoard {
     if (drag?.scrollFrame) this.win.cancelAnimationFrame?.(drag.scrollFrame);
     drag?.over?.classList.remove("pb-drop");
     const root = this.root?.querySelector?.("[data-pb-root]");
-    root?.classList.remove(...Object.keys(PoolBoard.ONTO).map((kind) => `dragging-${kind}`));
+    // The reader kind is not a key of `ONTO` (see `onto`), so the class a reader drag adds has to be named here too:
+    // otherwise the dashed outline stays on the models after the cable is let go.
+    root?.classList.remove(...[...Object.keys(PoolBoard.ONTO), ReaderBlock.PREFIX].map((kind) => `dragging-${kind}`));
     root?.querySelector("[data-pb-live]")?.remove();
     if (drag?.moved) this.lightPath();
     this.settled();
@@ -2923,7 +2993,7 @@ export class PoolBoard {
     return [];
   }
 
-  // A row's model by the name the board shows it by: an account's model id, a cell's name.
+  // A row's model by the name the board shows it by: an account's model id, a local model's name.
   modelName(row, cells = this.cells()) {
     if (row?.kind === "account") return String(row.model || "");
     if (row?.kind !== "output") return "";
@@ -2931,8 +3001,8 @@ export class PoolBoard {
     return found ? cells.name(found.out) : String(row.output);
   }
 
-  // Every model a row can be cabled to: the models on each account's card, then each machine's — its entry's models, by name, or the
-  // cells of a machine with no entry (machines).
+  // Every model a row can be cabled to: the models on each account's card, then each machine's — its entry's models and its
+  // engines', by name (machines).
   targets(cells = this.cells()) {
     const out = [];
     for (const account of this.top?.cloudAccounts || []) {
@@ -2942,10 +3012,10 @@ export class PoolBoard {
       }
     }
     for (const group of this.machines()) {
-      for (const cell of group.outs || []) {
-        const name = cells.name(cell);
-        out.push({ key: PoolBoard.key({ output: cell.id }), label: name, hint: PoolBoard.where(cell, group),
-          to: { target: { output: cell.id }, name } });
+      for (const model of group.outs || []) {
+        const name = cells.name(model);
+        out.push({ key: PoolBoard.key({ output: model.id }), label: name, hint: PoolBoard.where(model, group),
+          to: { target: { output: model.id }, name } });
       }
     }
     return out;
@@ -3011,7 +3081,7 @@ export class PoolBoard {
   // show — a machine gone for now, a card the main board has — and each of those keeps its place (`merged`).
   static ORDERS = {
     pools: (ids) => ["/api/pools/order", { ids }],
-    clients: (ids) => ["/api/consumers/order", { order: ids.map(Number) }],
+    clients: (ids) => ["/api/consumers/order", { order: ids.map(String) }],
     models: (ids, board) => ["/api/topology/server-order", { order: ServerOrder.merged(board.sources.current(), ids) }],
   };
 

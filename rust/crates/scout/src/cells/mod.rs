@@ -1,8 +1,11 @@
-//! The cells of this machine: each one on its port, the table of them, what they look like from outside, and what outlives a scout's restart.
+//! The cells of this machine: each one by its own name, on the port its run leased, the table of them, what they look like from outside, and what outlives a scout's restart.
 
 pub mod autostart;
+pub mod door;
+pub mod lease;
 pub mod ledger;
 pub mod logs;
+pub mod migration;
 pub mod probe;
 pub mod reconcile;
 pub mod records;
@@ -21,7 +24,7 @@ use crate::http_client::HttpClient;
 use crate::machine::Machine;
 use crate::models::files::SplitGguf;
 use crate::models::keeper::CacheKeeper;
-use crate::models::{ModelFetcher, Shelf, ShelfParts};
+use crate::models::{FreeSpace, ModelFetcher, Shelf, ShelfParts};
 use crate::paths::ScoutPaths;
 use crate::process::{CellLog, HostProcesses, LogPatterns, MemoryScope, ProcessParts};
 use crate::runtimes::prism::PrismRuntime;
@@ -32,12 +35,12 @@ use logs::CellLogs;
 use os::clock::Clock;
 use probe::{HttpServerAsk, ServerProbe};
 use records::CellRecords;
-use rules::Coerce;
+use rules::{CellId, Coerce};
 use saved_start::SavedStarts;
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
-use table::CellTable;
+use table::{Cell, CellTable};
 
 /// What the cells are made of.
 pub struct CellsParts {
@@ -59,9 +62,11 @@ pub struct CellsParts {
     pub patterns: Arc<LogPatterns>,
     /// The rule of split files.
     pub splits: Arc<SplitGguf>,
+    /// What the disks have free, under the shelves the models are copied to: the machine's own, or a test's word.
+    pub disks: Arc<dyn FreeSpace>,
 }
 
-/// The cells by port, and how each looks from outside.
+/// The cells by their names, and how each looks from outside.
 pub struct Cells {
     /// The table.
     pub table: Arc<CellTable>,
@@ -103,7 +108,7 @@ pub struct Cells {
 impl Cells {
     /// The cells of this machine.
     pub fn new(parts: CellsParts) -> Self {
-        let CellsParts { machine, config, state, commands, http, clock, paths, patterns, splits } = parts;
+        let CellsParts { machine, config, state, commands, http, clock, paths, patterns, splits, disks } = parts;
         let scope = Arc::new(MemoryScope::new(Arc::clone(&commands), cfg!(target_os = "linux")));
         let total_memory_mib = MemoryFigures::read(&paths.meminfo).total;
         let home = state.folder().to_path_buf();
@@ -117,25 +122,32 @@ impl Cells {
         let table = Arc::new(CellTable::new(process_parts, Arc::clone(&splits), Arc::clone(&clock)));
         // The model files are the cells': downloads report into a cell's startup record, and a purge keeps what a running cell holds.
         let reporting = Arc::clone(&table);
-        let report: crate::models::Progress = Arc::new(move |port, fields| {
-            reporting.report(port, fields);
+        let report: crate::models::Progress = Arc::new(move |cell, fields| {
+            reporting.report(cell, fields);
         });
-        let parts =
-            ShelfParts::new(Arc::clone(&config), report, &state, Arc::clone(&clock), Arc::clone(&http), Arc::clone(&splits));
+        let parts = ShelfParts::new(
+            Arc::clone(&config),
+            report,
+            &state,
+            Arc::clone(&clock),
+            Arc::clone(&http),
+            Arc::clone(&splits),
+            disks,
+        );
         let shelf = |row: &'static Shelf| {
             let models = Arc::new(ModelFetcher::new(&parts, row));
             let cells = Arc::clone(&table) as Arc<dyn crate::models::CellsInUse>;
             let keeper = Arc::new(CacheKeeper::new(&state, Arc::clone(&models), cells, Arc::clone(&splits), Arc::clone(&clock)));
             let room = Arc::downgrade(&keeper);
-            models.room_comes_from(Arc::new(move |bytes, label| {
-                room.upgrade().map_or(Ok(()), |keeper| keeper.make_room(bytes, label))
+            models.room_comes_from(Arc::new(move |bytes, label, free| {
+                room.upgrade().map_or(Ok(()), |keeper| keeper.make_room(bytes, label, free))
             }));
             (models, keeper)
         };
         let (models, keeper) = shelf(&Shelf::CACHE);
         let (work_models, work_keeper) = shelf(&Shelf::WORK);
         Self {
-            logs: CellLogs::new(state.folder().join("cell-logs"), Arc::clone(&clock)),
+            logs: CellLogs::of_state(&state, Arc::clone(&clock)),
             saved: SavedStarts::new(Arc::clone(&config), Arc::clone(&http)),
             probe: ServerProbe::new(Arc::new(HttpServerAsk { http: Arc::clone(&http) }), Arc::clone(&clock)),
             records: CellRecords::new(state, Arc::clone(&clock)),
@@ -159,7 +171,7 @@ impl Cells {
     /// The logs' pass: what is too old goes, and what lies in the cache's folder comes over; a running cell's own log stays where it is written.
     pub fn tidy_logs(&self) {
         use crate::models::CellsInUse;
-        self.logs.pass(&self.models.cache_dir(), &self.table.live_ports());
+        self.logs.pass(&self.models.cache_dir(), &self.table.live_cells());
     }
 
     /// A log of this path.
@@ -167,35 +179,35 @@ impl Cells {
         CellLog::new(path, Arc::clone(&self.patterns))
     }
 
-    /// Where the cell on `port` writes: its process's log while this scout holds the process, the log its record names after a restart, else a log of its name in the model cache. A log of nothing when none of
-    /// them is there. Asked without making an empty cell of a port nobody started.
-    pub fn log_file(&self, port: i64) -> CellLog {
-        if let Some(log) = self.table.find(port).map(|cell| cell.process.log()).filter(|log| log.path().is_some()) {
+    /// Where the cell `id` writes: its process's log while this scout holds the process, the log its record names after a restart, else a log of its name in the logs' folder or the model cache. A log
+    /// of nothing when none of them is there. Asked without making an empty cell of a name nobody started.
+    pub fn log_file(&self, id: &str) -> CellLog {
+        if let Some(log) = self.table.find(id).map(|cell| cell.process.log()).filter(|log| log.path().is_some()) {
             return log;
         }
-        let record = self.records.get(port);
+        let record = self.records.get(id);
         let recorded = Coerce::truthy(record.get("log")).then(|| PathBuf::from(Coerce::text(record.get("log"))));
         // A log the record names may have come to the logs' folder since.
-        let found = recorded.filter(|path| path.is_file()).or_else(|| self.logs.find(port, &self.models.cache_dir()));
+        let found = recorded.filter(|path| path.is_file()).or_else(|| self.logs.find(id, &self.models.cache_dir()));
         self.log_of(found)
     }
 
-    /// What the cell on `port` wrote, the board's window: the last lines of a run, the newest when `run` names none, and the runs there are to read, newest first. `{ok: false, error}` for a port that is not a
-    /// number or has no log here, and for a name that is not one of its runs.
-    pub fn log(&self, port: Option<&str>, lines: Option<&str>, run: &str) -> Value {
-        let Some(port) = port.and_then(|port| Coerce::int(&json!(Coerce::strip(port)))) else {
-            return json!({"ok": false, "error": "port must be a number"});
+    /// What the cell `cell` wrote, the board's window: the last lines of a run, the newest when `run` names none, and the runs there are to read, newest first. `{ok: false, error}` for a word that is
+    /// no cell's name or a cell with no log here, and for a name that is not one of its runs.
+    pub fn log(&self, cell: Option<&str>, lines: Option<&str>, run: &str) -> Value {
+        let Some(id) = cell.and_then(|said| CellId::read(&json!(Coerce::strip(said)))) else {
+            return json!({"ok": false, "error": "cell must be a cell's name"});
         };
-        let log = self.log_file(port);
+        let log = self.log_file(&id);
         let runs = log.runs();
         let Some(newest) = runs.first() else {
-            return json!({"ok": false, "error": format!("no log of a cell on port {port} here")});
+            return json!({"ok": false, "error": format!("no log of the cell {id} here")});
         };
         let name = if run.is_empty() { Coerce::text(newest.get("name")) } else { run.to_string() };
         let Some(chosen) = log.run(&name) else {
-            return json!({"ok": false, "error": format!("{} is not a log of the cell on port {port}", PyRepr::of(&name))});
+            return json!({"ok": false, "error": format!("{} is not a log of the cell {id}", PyRepr::of(&name))});
         };
-        json!({"ok": true, "port": port, "run": name, "lines": chosen.lines(lines), "runs": runs})
+        json!({"ok": true, "cellId": id, "run": name, "lines": chosen.lines(lines), "runs": runs})
     }
 
     /// Starts a cell as the controller asks: a llama cell or a command cell, whichever the payload names. A start by hand clears the cell's crash count: it counts since the operator last touched it.
@@ -203,14 +215,14 @@ impl Cells {
         // A move of the cache or of the work folder copies what a start would read or write.
         cells.models.relocation.refuse_while_moving()?;
         let start = StartRequest::of(Arc::clone(cells), payload.clone());
-        let port = start.port().ok();
+        let id = start.cell_id().ok();
         // A refusal leaves no slot: only a cell that exists is touched.
-        if let Some(cell) = port.and_then(|port| cells.table.find(port)) {
+        if let Some(cell) = id.as_deref().and_then(|id| cells.table.find(id)) {
             cell.facts().crash = None;
         }
         let result = start.run();
         let started = result.as_ref().is_ok_and(|said| said.get("ok") == Some(&Value::Bool(true)));
-        if let Some(cell) = port.filter(|_| started).and_then(|port| cells.table.find(port)) {
+        if let Some(cell) = id.as_deref().filter(|_| started).and_then(|id| cells.table.find(id)) {
             cell.facts().request = Some(payload);
         }
         result
@@ -221,13 +233,13 @@ impl Cells {
         self.keeper.clear_unheld()
     }
 
-    /// A start of `port` asks a shelf for `files`: the keeper's log hears of it before the first byte is copied (a trim that another start's end triggers must find them wanted, whole or half copied), and
-    /// the cell keeps the list, what its stop lets go of.
-    pub fn asks(&self, port: i64, files: &[String], keeper: &CacheKeeper) {
+    /// A start of `cell` asks a shelf for `files`: the keeper's log hears of it before the first byte is copied (a trim that another start's end triggers must find them wanted, whole or half copied),
+    /// and the cell keeps the list, what its stop lets go of.
+    pub fn asks(&self, cell: &Cell, files: &[String], keeper: &CacheKeeper) {
         let names: Vec<String> =
             files.iter().map(|file| Coerce::strip(file).to_string()).filter(|name| !name.is_empty()).collect();
-        self.table.at(port).facts().asked.clone_from(&names);
-        keeper.uses.begin(port, &names);
+        cell.facts().asked.clone_from(&names);
+        keeper.uses.begin(&cell.id, &names);
     }
 
     /// The shelf a start keeps its models on: the folder for Strata's files when the start asks for it, the model cache otherwise.

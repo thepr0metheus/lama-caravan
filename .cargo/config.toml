@@ -1,0 +1,6 @@
+# Every test binary cargo starts goes through scripts/rust_test_runner.py: a time limit, and nothing left running once the run
+# that started it is gone (2026-11-04: two hung tests of an abandoned `cargo test` spun a Mac for three days). Here at the root of
+# the tree, so that cargo finds it from rust/, from a crate's folder and from the root with --manifest-path alike. A string, not an
+# array: cargo joins the arrays of nested configs, and replaces a string. scripts/check_rust_test_start.py holds it.
+[target.'cfg(all())']
+runner = "scripts/rust_test_runner.py"

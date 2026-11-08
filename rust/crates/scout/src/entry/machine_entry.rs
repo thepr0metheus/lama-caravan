@@ -6,6 +6,7 @@ use crate::entry::request::EntryRequest;
 use crate::entry::served::{CopyTurns, ServedNames};
 use crate::http_client::HttpClient;
 use net::{Dial, Stream};
+use rules::CellDoor;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::io::{self, BufReader, Read, Write};
@@ -133,7 +134,7 @@ impl MachineEntry {
             Ok((answer_head, answer_body)) => Forwarded::Answer(answer_head, answer_body),
             Err(error) => Forwarded::Refused(
                 Self::refusal(
-                    &format!("The cell of `{name}` on :{port} did not answer: {error}"),
+                    &format!("The cell of `{name}` did not answer: {error}"),
                     "server_error",
                     Some("cell_unreachable"),
                     Some("model"),
@@ -158,14 +159,15 @@ impl MachineEntry {
             ));
         }
         let running: Vec<&crate::entry::machine_models::Copy> = copies.iter().filter(|copy| copy.state == "running").collect();
-        let ports: Vec<i64> = running.iter().map(|copy| copy.port).collect();
+        // A running copy holds the port its start leased: what the request is sent to.
+        let ports: Vec<i64> = running.iter().filter_map(|copy| copy.port).collect();
         let busy = |port: i64| {
             let said = self.cells.probe.metrics(port).get("requestsProcessing").and_then(Value::as_i64);
             // absent-ok: a count a server does not say is taken as none.
             said.filter(|busy| *busy > 0).unwrap_or_default()
         };
         let Some(port) = self.turns.pick(&ports, busy) else {
-            let states: Vec<String> = copies.iter().map(|copy| format!(":{} {}", copy.port, copy.state)).collect();
+            let states: Vec<&str> = copies.iter().map(|copy| copy.state).collect();
             return Err((
                 Self::refusal(
                     &format!("The model `{name}` is not running on this machine ({})", states.join(", ")),
@@ -176,19 +178,22 @@ impl MachineEntry {
                 503,
             ));
         };
-        Ok((port, running.iter().find(|copy| copy.port == port).and_then(|copy| copy.since.clone())))
+        Ok((port, running.iter().find(|copy| copy.port == Some(port)).and_then(|copy| copy.since.clone())))
     }
 
     /// The request, to the cell.
     fn asked(port: i64, head: &RequestHead, body: &[u8]) -> io::Result<(AnswerHead, AnswerBody<Stream>)> {
         let port_number = u16::try_from(port).map_err(io::Error::other)?;
-        let socket =
-            Dial { turn: Self::TIMEOUT, limit: Self::TIMEOUT }.open::<io::Error>("127.0.0.1", port_number, &mut || Ok(()))?;
+        let socket = Dial { turn: Self::TIMEOUT, limit: Self::TIMEOUT }.open::<io::Error>(
+            CellDoor::LISTEN,
+            port_number,
+            &mut || Ok(()),
+        )?;
         socket.set_read_timeout(Some(Self::TIMEOUT))?;
         socket.set_write_timeout(Some(Self::TIMEOUT))?;
         let mut stream = Stream::Plain(socket);
         let fields = Self::passed(&head.headers, &Self::TO_CELL);
-        let mut out = format!("{} {} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n", head.method, head.target).into_bytes();
+        let mut out = format!("{} {} HTTP/1.1\r\nHost: {}:{port}\r\n", head.method, head.target, CellDoor::LISTEN).into_bytes();
         if !fields.iter().any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding")) {
             out.extend_from_slice(b"Accept-Encoding: identity\r\n");
         }

@@ -61,14 +61,27 @@ jobs:
           # there at all.
           python3 scripts/check_field_homes.py
           python3 scripts/check_runner_model_fields.py
+          # What a request carries is named in one place: the journal and the entry read the same fact (docs/vision-describe.md).
+          python3 scripts/check_media_parts.py
+          # What a wired reader is, said in one place, and never read out of a model's name (docs/vision-describe.md).
+          python3 scripts/check_media_reader.py
+          # Routing's reader block says the answer the rule gave; a state it invented is the fact read a second way.
+          python3 scripts/check_media_reader_board.py
+          # The board's reader reads a picture for the row that cannot, one way, and only a picture sent inside the request.
+          python3 scripts/check_media_reading.py
+          # What each diagram in diagrams/ says about a rule, and the guard it still points at.
+          python3 scripts/check_diagrams.py
           python3 scripts/check_installer_assets.py
           python3 scripts/check_cell_python_floor.py
           python3 scripts/check_cell_self_capture.py
           python3 scripts/check_shell_pipes.py
           python3 scripts/check_llama_flags.py
+          # A default cell's number must be readable back out of the sentence it came from.
+          python3 scripts/check_model_defaults.py
           python3 scripts/check_board_401.py
           python3 scripts/check_cell_kinds.py
           python3 scripts/check_cell_forms.py
+          python3 scripts/check_cell_listen.py
           python3 scripts/check_proxy_id_namespace.py
           python3 scripts/check_same_tab_links.py
           python3 scripts/test_same_tab_links.py
@@ -77,6 +90,10 @@ jobs:
           # Every node a test starts goes through scripts/_node.py, so that it gets --single-threaded:
           # node could hang for good in process.exit (2026-10-21).
           python3 scripts/check_node_start.py
+          # Every Rust test binary cargo starts goes through scripts/rust_test_runner.py: a time limit, and nothing left running
+          # once the run that started it is gone (2026-11-04: an abandoned `cargo test` spun a Mac for three days).
+          python3 scripts/check_rust_test_start.py
+          python3 scripts/test_rust_test_runner.py
           python3 scripts/check_ui_tokens.py
           python3 scripts/check_oop_contract.py
           python3 scripts/check_rust_contract.py
@@ -100,6 +117,10 @@ jobs:
           python3 scripts/test_hf_checkpoint_layout.py
           python3 scripts/test_ports.py
           python3 scripts/test_frozen_answers.py
+          # A promise file keeps a day the program quoted as it was written: the scout's comparison went red the day after its snapshot (2026-11-04).
+          python3 scripts/check_frozen_day_words.py
+          # A promise file keeps a value the program read from the internet: 75 answers went red on 2026-11-06 when npm published a newer version than the snapshot's.
+          python3 scripts/check_conformance_offline.py
           python3 scripts/test_api_body.py
           python3 scripts/test_js_model_meta.py
           python3 scripts/test_js_usage_stats.py
@@ -111,12 +132,16 @@ jobs:
           python3 scripts/test_js_client_llama_update.py
           python3 scripts/test_js_start_strip.py
           python3 scripts/test_js_memory.py
+          # How fast a model can answer from where its weights lie: the owner's two measurements on the 3090 (2026-11-03).
+          python3 scripts/test_js_decode_speed.py
           python3 scripts/test_js_ram_plan.py
           # A machine's model cache on its card: the setting, the figures, the foreign files (1.3.576).
           python3 scripts/test_js_model_cache.py
           python3 scripts/test_js_model_disk.py
           python3 scripts/test_js_cell_note.py
           python3 scripts/test_js_cell_memory.py
+          # What a cell holds, written again on every tick from the report, as the builder draws it (2026-11-07).
+          python3 scripts/test_js_cell_memory_live.py
           python3 scripts/test_js_split_mode.py
           # Where a llama.cpp cell's model lives: the cards and RAM as llama.cpp's fitting splits them, and what holds it (1.3.616).
           python3 scripts/test_js_placement.py
@@ -141,6 +166,7 @@ jobs:
           # The list of models under a machine's cells: rows, launches, marks (the owner's choice М1).
           python3 scripts/test_js_machine_models.py
           python3 scripts/test_js_machine_plan.py
+          python3 scripts/test_js_machine_build.py
           python3 scripts/test_stand.py
           python3 scripts/test_js_command_preview.py
           python3 scripts/test_js_form.py
@@ -176,6 +202,9 @@ jobs:
           python3 scripts/test_js_charts.py
           python3 scripts/test_js_cables.py
           python3 scripts/test_js_cable_flow.py
+          # Routing's reader block: its words are the answers `Reader::word()` gives, run against
+          # contract/media_reader_board.json with the real module in node.
+          python3 scripts/test_js_reader_block.py
           python3 scripts/test_js_history.py
           python3 scripts/test_js_favorites.py
           python3 scripts/test_js_config_locator.py
@@ -206,6 +235,10 @@ jobs:
           python3 scripts/test_js_model_list.py
           python3 scripts/check_firewall_untouched.py
           python3 scripts/check_image_contents.py
+          # One delivery at a time: every way into a delivery holds the lock of deploy/nas/release_ship.py.
+          python3 scripts/check_delivery_lock.py
+          # What a delivery says of its scout: the content the controller hands a release by (fleet/scout_follow.rs).
+          python3 scripts/test_release_ship_scout.py
           python3 scripts/check_container_answers.py
           python3 scripts/test_week_windows.py
           python3 scripts/test_js_model_schedule.py
@@ -229,6 +262,8 @@ jobs:
           python3 scripts/test_cell_strip_css.py
           python3 scripts/test_cell_settings_css.py
           python3 scripts/test_cables_css.py
+          # Every page fits a phone: the bar folds where it does not fit, the main board folds into one column (2026-11-07).
+          python3 scripts/test_pages_fit_phone_css.py
           # The input dot is a handle, and what already has the pool is no landing (1.3.587).
           python3 scripts/test_pull_css.py
           # Only a chosen path makes the rest of Routing step back: pointing at a card only lights it (1.3.676).
@@ -262,12 +297,18 @@ jobs:
           # voice engines against stand-in uv, git and venv python, and the five runners on the runner row.
           python3 scripts/test_lfm_audio_server.py
           python3 scripts/test_voice_launchers.py
+          python3 scripts/test_inferssd_launcher.py
           # The voice window (1.3.606): the controller asks a running cell what its runner answers, and the
           # board's window records a wav, keeps the talk and shows the answer's time.
           python3 scripts/test_js_voice_talk.py
           python3 scripts/check_cell_health_contract.py
           # Правило, потерявшее и код и ссылку, — потерянный инцидент.
           python3 scripts/check_why_refs.py
+          # A changelog entry is a file of changelog.d/, one per merge request, never the top of CHANGELOG.md.
+          python3 scripts/check_changelog_fragments.py
+          python3 scripts/test_changelog.py
+          # The shared clone's tidy: only what is merged, clean and left alone goes (Papyrus gitlab-code-tidy).
+          python3 scripts/test_tidy_git.py
           # Every guard above must be able to fail. Two were found in one day
           # that could not, both reporting green while the thing they guard was
           # deleted.

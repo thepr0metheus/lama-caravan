@@ -10,7 +10,8 @@ closes without a word.
 The runners' rows come from the program's own table (contract/controller.json) — this snapshot keeps no copy. Pinned by value, each
 claim with a positive and a negative: the samples' base64 both ways and their rate changed; the microphone as a stream
 (why it refuses before asking, the chunks it hands on, what it lets go); the voice played back to back; which cells the
-card offers the window to; the protocol's messages both ways; the window — the cell asked first, the talk opened, the
+card offers the window to (the cell by its id: it holds a port only while it runs, and neither the button, nor the window's
+head, nor the address it asks names one); the protocol's messages both ways; the window — the cell asked first, the talk opened, the
 models loading, full duplex (a second at a time, silence while muted, the model's lines and voice), turn by turn (an
 utterance sent whole, the answer's first sound timed), and each way a talk ends said by why: the cell's reason, a busy
 cell, a door that drops WebSocket, a cell that does not answer, the operator hanging up.
@@ -21,6 +22,7 @@ Run: python3 scripts/test_js_voice_live.py
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -138,17 +140,22 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 {
   const btn = (h) => { const b = String(h).match(/<button[^>]*>/); if (!b) return null;
     const a = (n) => (b[0].match(new RegExp(" " + n + '="([^"]*)"')) || [])[1] ?? null;
-    return { t: a("data-t"), id: a("data-t-id"), host: a("data-cell-live"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"),
+    return { t: a("data-t"), id: a("data-t-id"), cell: a("data-cell-live"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"),
              name: a("data-cell-live-name"), disabled: / disabled/.test(b[0]), title: a("title") }; };
-  const mini = new LiveCell({ hostId: "m1", port: 22024, name: "MiniCPM-o", runner: "minicpm-omni" });
+  const mini = new LiveCell({ cellId: "c3f9a02b1", name: "MiniCPM-o", runner: "minicpm-omni" });
   out.btnRunning = btn(mini.buttonHtml(true));
   out.btnStopped = btn(mini.buttonHtml(false));
-  out.btnOther = new LiveCell({ hostId: "m1", port: 22027, runner: "qwen3-tts" }).buttonHtml(true);
+  out.btnOther = new LiveCell({ cellId: "c22027", runner: "qwen3-tts" }).buttonHtml(true);
   out.spec = [mini.spec, new LiveCell({ runner: "qwen3-tts" }).spec];
   out.urls = [mini.url({ protocol: "https:", host: "board.example" }), mini.url({ protocol: "http:", host: "10.0.0.5:7990" }),
-    new LiveCell({ hostId: "a b&c", port: 1 }).url({ protocol: "https:", host: "x" })];
-  const back = LiveCell.fromButton({ dataset: { cellLive: "m1", nodeCellPort: "22024", cellLiveName: "MiniCPM-o", cellLiveRunner: "minicpm-omni" } });
-  out.fromButton = [back.hostId, back.port, back.name, back.runner];
+    new LiveCell({ cellId: "a b&c" }).url({ protocol: "https:", host: "x" })];
+  out.path = [mini.path, new LiveCell({ cellId: "c22024" }).path];
+  const back = LiveCell.fromButton({ dataset: { cellLive: "c3f9a02b1", cellLiveName: "MiniCPM-o", cellLiveRunner: "minicpm-omni" } });
+  out.fromButton = [back.cellId, back.name, back.runner];
+  // A button of the old shape (the machine in data-cell-live, the port beside it): no port is read off it, and no field holds one.
+  const old = LiveCell.fromButton({ dataset: { cellLive: "m1", nodeCellPort: "22024", cellLiveRunner: "minicpm-omni" } });
+  out.fromOld = [old.cellId, "port" in old, "hostId" in old, old.path];
+  out.title = [new LiveCell({ cellId: "c22024", runner: "minicpm-omni" }).title, mini.title];
 }
 
 // ── the protocol ──
@@ -194,7 +201,7 @@ class FakeVoice {
   stop() { this.stops += 1; }
   close() { this.closes += 1; }
 }
-const mini = new LiveCell({ hostId: "m1", port: 22024, name: "MiniCPM-o", runner: "minicpm-omni" });
+const mini = new LiveCell({ cellId: "c3f9a02b1", name: "MiniCPM-o", runner: "minicpm-omni" });
 const healthy = async (url) => { out.askedUrl = url; return { ok: true, runner: "minicpm-omni", protocol: "minicpm-omni", health: { status: 200, error: "" } }; };
 const msg = (o) => ({ data: JSON.stringify(o) });
 const made = (deps = {}) => {
@@ -241,7 +248,7 @@ const status = (w) => (w.statusText() || "");
   out.d11html = /data-t-state="ended"/.test(w.html()) && /data-t="live-start"/.test(w.html()) && !/data-t="live-hangup"/.test(w.html());
 }
 {
-  const w = made({ call: async () => ({ health: { status: 0, error: "the cell on 10.0.0.9:22024 did not answer" } }) });
+  const w = made({ call: async () => ({ health: { status: 0, error: "cell c3f9a02b1 did not answer" } }) });
   await w.start();
   out.cellDown = [w.phase, w.notice, FakeSocket.made.length];
 }
@@ -321,10 +328,19 @@ const status = (w) => (w.statusText() || "");
   out.stale = [w.phase, FakeSocket.made.length, fresh.sent.length, w.notice];
 }
 {
-  const plain = new LiveWindow(new LiveCell({ hostId: "m1", port: 22027, runner: "qwen3-tts" }), { call: healthy, Socket: FakeSocket, mic: new FakeMic(), voice: new FakeVoice(), doc: null });
+  const plain = new LiveWindow(new LiveCell({ cellId: "c22027", runner: "qwen3-tts" }), { call: healthy, Socket: FakeSocket, mic: new FakeMic(), voice: new FakeVoice(), doc: null });
   FakeSocket.made = [];
   await plain.start();
   out.noProtocol = [plain.talk, plain.modes, FakeSocket.made.length, /data-t="live-start" disabled/.test(plain.html())];
+}
+{
+  // The window's head: its title and the ✕ — the cell by its name, or by its id when the card gives none; never a port.
+  const headOf = (h) => h.slice(0, h.indexOf('<div class="talk-modes"'));
+  const named = new LiveWindow(mini, { call: healthy, Socket: FakeSocket, mic: new FakeMic(), voice: new FakeVoice(), doc: null }).html();
+  const nameless = new LiveWindow(new LiveCell({ cellId: "c22024", runner: "minicpm-omni" }),
+    { call: healthy, Socket: FakeSocket, mic: new FakeMic(), voice: new FakeVoice(), doc: null }).html();
+  out.heads = [headOf(named), headOf(nameless), (named.match(/data-t="live-window" data-t-id="([^"]*)"/) || [])[1] ?? null,
+               (nameless.match(/aria-label="([^"]*)" data-t="live-window"/) || [])[1] ?? null];
 }
 {
   const w = made();
@@ -412,17 +428,28 @@ def main():
           "stopped: what plays and what waits; a page with no audio plays nothing and fails nothing")
 
     print("which cells the card offers the window to:")
-    check(o["btnRunning"] == {"t": "cell-live", "id": "m1:22024", "host": "m1", "port": "22024", "runner": "minicpm-omni",
+    check(o["btnRunning"] == {"t": "cell-live", "id": "c3f9a02b1", "cell": "c3f9a02b1", "port": None, "runner": "minicpm-omni",
                               "name": "MiniCPM-o", "disabled": False, "title": w("liveOpenTitle")},
-          f"a running MiniCPM-o cell: 📞, naming its machine, port and runner ({o['btnRunning']})")
+          f"a running MiniCPM-o cell: 📞, naming its cell by its id and its runner; negative: no port beside it ({o['btnRunning']})")
     check(o["btnStopped"]["disabled"] is True and o["btnStopped"]["title"] == w("liveOpenStopped") and o["btnStopped"]["t"] is None,
           "negative: stopped, the button is shut and says why, with nothing to press")
     check(o["btnOther"] == "" and o["spec"] == [{"protocol": "minicpm-omni"}, None],
           "negative: a cell whose runner does not talk live gets none — the registry's word, no list here")
-    check(o["urls"] == ["wss://board.example/api/cell-live?hostId=m1&port=22024", "ws://10.0.0.5:7990/api/cell-live?hostId=m1&port=22024",
-                        "wss://x/api/cell-live?hostId=a%20b%26c&port=1"],
-          f"the board's own address as a WebSocket — wss behind https — the cell named, never its path ({o['urls']})")
-    check(o["fromButton"] == ["m1", "22024", "MiniCPM-o", "minicpm-omni"], "the cell the button names")
+    check(o["urls"] == ["wss://board.example/api/cell-live?cell=c3f9a02b1", "ws://10.0.0.5:7990/api/cell-live?cell=c3f9a02b1",
+                        "wss://x/api/cell-live?cell=a%20b%26c"],
+          f"the board's own address as a WebSocket — wss behind https — the cell named by its id, never its path or port ({o['urls']})")
+    check(o["path"] == ["/api/cell-live?cell=c3f9a02b1", "/api/cell-live?cell=c22024"],
+          "one path for the health asked and the talk opened: the two cannot name two cells")
+    check(o["fromButton"] == ["c3f9a02b1", "MiniCPM-o", "minicpm-omni"], "the cell the button names, by its id")
+    check(o["fromOld"] == ["m1", False, False, "/api/cell-live?cell=m1"],
+          f"negative: a button of the old shape gives no port and no machine — the window asks by the id alone ({o['fromOld']})")
+    check(o["title"] == ["c22024", "MiniCPM-o"], "a cell the card gives no name is called by its id; a named one by its name")
+    hn, hu, hid, hlabel = o["heads"]
+    check(f'📞 {w("liveTitle", name="MiniCPM-o")}' in hn and hid == "c3f9a02b1"
+          and f'📞 {w("liveTitle", name="c22024")}' in hu and hlabel == w("liveTitle", name="c22024"),
+          "the window's head and label: the card's name, or the cell's id when it gives none; its data-t-id the cell's id")
+    check(all("talk-port" not in h and not re.search(r":\d{2,5}\b", h) for h in (hn, hu)),
+          "negative: no port after the window's name — a cell holds one only while it runs")
 
     print("MiniCPM-o's messages:")
     check(o["consts"] == [16000, 24000, 16000, ["full_duplex", "turn_based"], ["minicpm-omni"]],
@@ -441,8 +468,8 @@ def main():
 
     print("the window, full duplex:")
     check(o["d0"] == ["idle", "idle", "full_duplex", ["full_duplex", "turn_based"]], "closed at first, full duplex picked")
-    check(o["d1"] == ["/api/cell-live?hostId=m1&port=22024", "wss://board.example/api/cell-live?hostId=m1&port=22024", "connecting", 1],
-          "the cell asked first, then the talk opened through the board; the player woken in the click")
+    check(o["d1"] == ["/api/cell-live?cell=c3f9a02b1", "wss://board.example/api/cell-live?cell=c3f9a02b1", "connecting", 1],
+          "the cell asked first, then the talk opened through the board, both by the cell's id; the player woken in the click")
     check(o["d2"] == ["loading", {"type": "session.init", "payload": {"mode": "full_duplex", "use_tts": True}}, w("liveLoading")],
           "open: the first message sent, and the window says the models load")
     check(o["d3"] == ["live", "live", [{"rate": 16000, "chunk": 16000}], w("liveListening")],
@@ -458,7 +485,7 @@ def main():
           f"the cell ended it: its reason said; the microphone and the voice stopped; Start again ({o['d11']})")
 
     print("each way a talk ends, said by why:")
-    check(o["cellDown"] == ["failed", {"key": "liveCellDown", "args": {"error": "the cell on 10.0.0.9:22024 did not answer"}}, 0],
+    check(o["cellDown"] == ["failed", {"key": "liveCellDown", "args": {"error": "cell c3f9a02b1 did not answer"}}, 0],
           "the cell does not answer its health: said, and no talk dialled")
     check(o["downThrown"] == ["failed", "liveCellDown", "HTTP 409", 0], "negative: the controller's own refusal is said the same way")
     check(o["busy"] == ["failed", {"key": "liveBusy", "args": {}}], "closed without a word while the models load: a busy cell, or the last talk still closing")

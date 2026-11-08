@@ -58,13 +58,27 @@ class FrozenAnswers:
 
 
 class OwnWords:
-    """What belongs to one run and is no word of an answer: its ports, its folders, this machine's name, today, the moment, this tree's version and commit."""
+    """What belongs to one run and is no word of an answer: its ports, its folders, this machine's name, today, the moment, this tree's version and commit.
 
+    A day belongs here only when the program COMPUTED it (the journal's date, a schedule's last firing). A day the program
+    QUOTED — a date written in its own words, a description — is a word of the answer: it stays as written, else the promise
+    is a different promise the day after the snapshot was written, and the comparison goes red on code that changed nothing
+    (pipeline #581, 2026-11-04: four descriptions written on 2026-11-03). Guarded by scripts/check_frozen_day_words.py.
+    """
+
+    #: A field that holds the program's own words, written in its source. A day inside it is a word of the answer, not of the run.
+    OWN_WORDS = {"description"}
     #: A number here is a moment, 2025 to 2030: nothing else the fake world says is this large and this close.
     MOMENTS = range(1_750_000_000, 1_900_000_000)
     MOMENT_WORDS = re.compile(r"(?<![0-9.])1(?:7[5-9]|8[0-9])[0-9]{7}(?:\.[0-9]+)?(?![0-9])")
     #: A file named by when it was saved.
     STAMP = re.compile(r"(?<![0-9])20[0-9]{6}-[0-9]{6}(?![0-9])")
+    #: A client's id the controller drew at random (rust/crates/admin/src/proxies/client_ids.rs): said by the order the run first met
+    #: it, the same on every run — a scenario makes its clients in one order.
+    CLIENT_ID = re.compile(r"(?<![0-9A-Za-z_-])client-[0-9a-f]{8}(?![0-9A-Za-z_-])")
+    #: A new cell's name, drawn at random the same way (rules::CellId::fresh): `c` and eight hex digits, said by the order the run first met
+    #: it. A cell of before is `c<port>`, and its port is a word of the run already.
+    CELL_ID = re.compile(r"(?<![0-9A-Za-z_-])c[0-9a-f]{8}(?![0-9A-Za-z_-])")
 
     def __init__(self, folders, ports):
         """`folders` and `ports` map each to the word it is said by."""
@@ -77,6 +91,8 @@ class OwnWords:
         self.version = re.search(r'pub const VERSION: &str = "([^"]+)"', (ROOT / "rust/crates/admin/src/lib.rs").read_text()).group(1)
         self.commit = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
         self.address = self.machine_address()
+        self.clients = {}
+        self.cells = {}
 
     @staticmethod
     def machine_address():
@@ -92,15 +108,26 @@ class OwnWords:
         """A port the scenario opened on its way."""
         self.ports[port] = word
 
-    def words(self, text):
+    def client_word(self, found):
+        """The word of a client's random id: the first met is `<client 1>`."""
+        return self.clients.setdefault(found.group(), f"<client {len(self.clients) + 1}>")
+
+    def cell_word(self, found):
+        """The word of a new cell's random name: the first met is `<cell 1>`."""
+        return self.cells.setdefault(found.group(), f"<cell {len(self.cells) + 1}>")
+
+    def words(self, text, quoted: bool = False):
         out = text
         for folder, word in self.folders.items():
             out = out.replace(folder, word)
         for port, word in self.ports.items():
             out = re.sub(rf"(?<![0-9]){port}(?![0-9])", word, out)
-        for day, word in self.days.items():
-            out = out.replace(day, word)
+        if not quoted:
+            for day, word in self.days.items():
+                out = out.replace(day, word)
         out = self.STAMP.sub("<stamp>", self.MOMENT_WORDS.sub("<moment>", out))
+        out = self.CLIENT_ID.sub(self.client_word, out)
+        out = self.CELL_ID.sub(self.cell_word, out)
         out = re.sub(r"/run/user/[0-9]+/", "/run/user/<uid>/", out)
         out = re.sub(rf"(?<![0-9.]){re.escape(self.version)}(?![0-9.])", "<version>", out)
         if self.commit:
@@ -111,13 +138,15 @@ class OwnWords:
             out = re.sub(rf"(?<![0-9.]){re.escape(self.address)}(?![0-9.])", "<this machine's address>", out)
         return out
 
-    def clean(self, value):
+    def clean(self, value, key: str = ""):
+        """`key` is the field the value sits under: it says whether the text is the program's own words, where a day is a word of the answer."""
+        quoted = key in self.OWN_WORDS
         if isinstance(value, dict):
-            return {self.words(key): self.clean(item) for key, item in value.items()}
+            return {self.words(name): self.clean(item, name) for name, item in value.items()}
         if isinstance(value, (list, tuple)):
-            return [self.clean(item) for item in value]
+            return [self.clean(item, key) for item in value]
         if isinstance(value, str):
-            return self.words(value)
+            return self.words(value, quoted)
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return value
         if value != value:

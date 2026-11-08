@@ -92,7 +92,8 @@ impl CacheBudget {
     }
 }
 
-/// What was started, newest first: for each model its files as the controller named them (the first is the model itself), the port, when, and whether the start got as far as a running process.
+/// What was started, newest first: for each model its files as the controller named them (the first is the model itself), the cell that started it, when, and whether the start got as far as a
+/// running process.
 pub struct ModelUses {
     state: Arc<ScoutState>,
     clock: Arc<dyn Clock>,
@@ -121,6 +122,11 @@ impl ModelUses {
         entry.get("files").and_then(|files| files.get(0)).and_then(Value::as_str)
     }
 
+    /// The cell an entry was started by.
+    pub fn cell_of(entry: &Value) -> Option<&str> {
+        entry.get("cell").and_then(Value::as_str)
+    }
+
     /// The entries that read, newest first.
     pub fn entries(&self) -> Vec<Value> {
         self.state.read(|doc| Self::sound_of(doc, self.key))
@@ -128,7 +134,7 @@ impl ModelUses {
 
     /// A start asks for these files. The entry stands at the front from this moment, not `ok` yet, except that a model which has run before keeps the word it earned: a start that fails does not
     /// unmake the model that worked.
-    pub fn begin(&self, port: i64, files: &[String]) {
+    pub fn begin(&self, cell: &str, files: &[String]) {
         let names: Vec<&str> = files.iter().map(|file| Coerce::strip(file)).filter(|name| !name.is_empty()).collect();
         let Some(first) = names.first().copied() else {
             return;
@@ -140,20 +146,20 @@ impl ModelUses {
                 .iter()
                 .find(|entry| Self::first_file(entry) == Some(first))
                 .is_some_and(|entry| Coerce::truthy(entry.get("ok")));
-            let mut kept = vec![json!({"files": names, "port": port, "at": at, "ok": ran})];
+            let mut kept = vec![json!({"files": names, "cell": cell, "at": at, "ok": ran})];
             kept.extend(current.into_iter().filter(|entry| Self::first_file(entry) != Some(first)));
             kept.truncate(Self::LIMIT);
             doc.insert(self.key.to_string(), Value::Array(kept));
         });
     }
 
-    /// The start of this port got as far as a running process: its newest entry is a model that ran.
-    pub fn commit(&self, port: i64) {
+    /// The start of `cell` got as far as a running process: its newest entry is a model that ran.
+    pub fn commit(&self, cell: &str) {
         self.state.change(|doc| {
             let mut entries = doc.get_mut(self.key).and_then(Value::as_array_mut);
             let list = entries.iter_mut().flat_map(|list| list.iter_mut());
             if let Some(Value::Object(entry)) =
-                list.filter(|entry| Self::sound(entry)).find(|entry| entry.get("port").and_then(Value::as_i64) == Some(port))
+                list.filter(|entry| Self::sound(entry)).find(|entry| Self::cell_of(entry) == Some(cell))
             {
                 entry.insert("ok".to_string(), json!(true));
             }

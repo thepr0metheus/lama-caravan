@@ -1,7 +1,7 @@
 //! vLLM. Its artifact comes from its own `VLLM_MODEL` field, an HF repo id, a path on the machine or a place among the controller's models, so whatever sits in `MODEL_FILE` cannot disqualify it.
 
 use super::{Config, MODELS_ROOT, PinnedCard, Runner, RunnerDefaults, RunnerRow, TalkSpec};
-use rules::{AppError, Coerce, ConfigField, Flag, PyRepr, ShellWord};
+use rules::{AppError, CellDoor, Coerce, ConfigField, Flag, PyRepr, ShellWord};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -219,7 +219,7 @@ impl Runner for VllmRunner {
             "serve".to_string(),
             word,
             "--host".to_string(),
-            "0.0.0.0".to_string(),
+            CellDoor::LISTEN.to_string(),
             "--port".to_string(),
             "\"$PORT\"".to_string(),
         ];

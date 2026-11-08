@@ -10,6 +10,7 @@ import { UI_MENUS } from "./ui-menus.js";
 import { HeaderMachines } from "./header-machines.js";
 import { CellFit, MACHINE_PICK, MachineMap, SIDE_INCIDENTS } from "./machine-head.js";
 import { MACHINE_MODELS } from "./machine-models.js";
+import { MACHINE_BUILD } from "./machine-build.js";
 import { ADD_MODEL } from "./add-model.js";
 import { MACHINE_DRAG, MachinePlanStart } from "./machine-plan.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
@@ -23,7 +24,7 @@ import { fetchModelPricing, fetchProxyDailyStats } from "./model-meta.js";
 import { initOnboarding } from "./onboarding-tours.js";
 import { bindMonitorDrawer, formatTps, LIVE_REFRESH_MS, loadState, refreshRoutingState, scheduleLiveRefresh, startTopologyMonitor } from "./polling.js";
 import { refreshRouteErrBadges } from "./topology-activity.js";
-import { CELL_FORM, cellServiceAction, purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
+import { CELL_FORM, cellConfigChecked, cellServiceAction, purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { mountScoutAdd } from "./scout-add.js";
 import { openIncidentsModal } from "./topology-nodes.js";
@@ -174,52 +175,84 @@ document.addEventListener("DOMContentLoaded", async () => {
                                 favorites: { list: getFavFields, toggle: (field) => toggleFavorite(field, "tr-") } });
   // The parts' "⋯" menus (ui-menus.js): open, close by Escape or a click outside, step aside when an item is chosen.
   UI_MENUS.bind();
-  // A cell chosen on a machine's map (machine-head.js): its blocks ringed, without a drawing of the board, and its
-  // model's row in the list opened, with the cell's last line. A like or a dislike is the model's: the answer goes on the topology, so that a drawing before the next
-  // reading does not undo it.
+  // A cell chosen on a machine's map (machine-head.js): its blocks ringed, without a drawing of the board, and the block of models follows
+  // the choice: the block is drawn for one model, so when the choice moves it to another the page is drawn again (`show` says when). A like
+  // or a dislike is the model's: the answer goes on the topology, so that a drawing before the next reading does not undo it.
   MACHINE_PICK.bind(document, { redraw: renderTopology, notify: toast, openChart: openChartModal,
                                 marked: (model, rating) => MACHINE_MODELS.marked(document, model, rating),
-                                listed: () => MACHINE_MODELS.show(document),
+                                listed: (root, model) => { if (MACHINE_MODELS.show(root, model)) renderTopology(); },
                                 save: async (model, rating) => {
                                   const res = await api("/api/model-rating", { method: "POST", body: { model, rating } });
                                   if (topology) topology.modelRatings = res.ratings;
                                   return res;
                                 } });
-  // The list of models: a filter, a work, words typed, a row opened, a new cell from a model (machine-models.js).
+  // The models block and the list that picks which model it shows (machine-models.js): a filter, a work, words typed, a row picked,
+  // a new cell from a model.
   MACHINE_MODELS.bind(document, { read: () => api("/api/model-notes"), redraw: renderTopology, newCell: (host, model) => ADD_MODEL.open(host, model) });
-  // A cell dragged on the rack, a handle moved, and the plan's Start and Cancel (machine-plan.js).
-  const phaseOf = (port) => {
-    const server = (machinePageNode()?.servers || []).find((s) => String(s.port) === String(port));
+  // The launch builder under the map (machine-build.js): a card put in its place by a press or carried there; the whole launch, no cell yet,
+  // chosen on the map under the builder's key, so the map's places, drag and plan lay it as they lay a cell that stands. The sets the
+  // controller keeps are read once a page (topology-render.js).
+  MACHINE_BUILD.bind(document, { ask: () => api("/api/runner-presets"), choose: (key) => { MACHINE_PICK.cellId = String(key); }, redraw: renderTopology });
+  // A cell dragged on the rack, a handle moved, and the plan's Start and Cancel (machine-plan.js). Every cell by its cellId.
+  // A launch built under the map is a cell that is not made yet, with no cellId and no port: its Start makes it on its machine — the save with
+  // no cellId, which names the cell it made — with the config the cell form makes of it, checked as the form checks its own, then starts it.
+  const launchTarget = async (plan) => {
+    const launch = MACHINE_BUILD.launch();
+    if (!launch) return null;
+    const filled = await ADD_MODEL.formConfig({ hostId: launch.host, file: launch.file, runner: launch.runner, fields: launch.fields });
+    if (!filled) return null;
+    const { config, refused } = cellConfigChecked(filled.config, launch.file);
+    if (refused) {
+      toast(refused);
+      return null;
+    }
+    const where = new MachineMap(machinePageNode(), { cells: MACHINE_PICK.cells, plan, launch: MACHINE_BUILD.server() });
+    const words = where.planWhere(where.fit(where.launch));
+    const cells = plan.evict.map((id) => MACHINE_PICK.nameOf(id)).join(", ");
+    return { makeOn: launch.host, config, cacheModels: filled.cacheModels, room: where.node,
+             question: t(plan.evict.length ? "machineBuildConfirmEvict" : "machineBuildConfirm", { cell: launch.name, where: words, cells }) };
+  };
+  const phaseOf = (cellId) => {
+    const server = (machinePageNode()?.servers || []).find((s) => MachineMap.idOf(s) === String(cellId));
     return server ? MachineMap.phase(server) : "";
   };
   MACHINE_DRAG.bind(document, {
-    cells: () => MACHINE_PICK.cells, node: machinePageNode, chosenPort: () => MACHINE_PICK.port,
+    cells: () => MACHINE_PICK.cells, node: machinePageNode, chosenId: () => MACHINE_PICK.cellId,
     place: (facts, node) => CellFit.of(facts).place(node),
-    choose: (port) => { MACHINE_PICK.port = String(port); MACHINE_PICK.show(document); },
+    choose: (cellId) => { MACHINE_PICK.cellId = String(cellId); MACHINE_PICK.show(document); },
     patch: patchMachinePage,
-    bring: (port) => MACHINE_PICK.bringRow(document, port),
-    stop: (port) => document.querySelector(`[data-t="machine-model-stop"][data-t-id="${CSS.escape(String(port))}"]`)?.click(),
+    bring: (cellId) => MACHINE_PICK.bringRow(document, cellId),
+    stop: (cellId) => document.querySelector(`[data-t="machine-model-stop"][data-t-id="${CSS.escape(String(cellId))}"]`)?.click(),
+    name: (cellId) => MACHINE_PICK.nameOf(cellId),
     notify: toast,
   });
   new MachinePlanStart({
     save: (body) => api("/api/topology/server-cell/save-config", { method: "POST", body: JSON.stringify(body) }),
-    act: (hostId, port, action) => cellServiceAction(hostId, port, action),
-    phase: async (port) => { await refreshTopology().catch(() => {}); return phaseOf(port); },
+    act: (cellId, action) => cellServiceAction(cellId, action),
+    phase: async (cellId) => { await refreshTopology().catch(() => {}); return phaseOf(cellId); },
+    name: (cellId) => MACHINE_PICK.nameOf(cellId),
   }).bind(document, {
-    target: (plan) => {
-      const server = (machinePageNode()?.servers || []).find((s) => String(s.port) === plan.port);
-      const facts = MACHINE_PICK.cells.get(plan.port);
-      if (!server || !facts) return null;
-      const name = `:${plan.port}${facts.name ? ` ${facts.name}` : ""}`;
+    target: async (plan) => {
+      if (MACHINE_BUILD.owns(plan.cellId)) return launchTarget(plan);
       const where = new MachineMap(machinePageNode(), { cells: MACHINE_PICK.cells, plan });
-      const words = where.planWhere(where.fit(where.node.servers.find((s) => String(s.port) === plan.port)));
-      const cells = plan.evict.map((p) => `:${p}`).join(", ");
-      return { hostId: facts.host, config: server.slotConfig || {}, cacheModels: server.cacheModels, room: where.node,
-               question: t(plan.evict.length ? "machinePlanConfirmEvict" : plan.moved ? "machinePlanConfirmMove" : "machinePlanConfirm", { cell: name, where: words, cells }) };
+      const server = where.serverOf(plan.cellId);
+      if (!server || !MACHINE_PICK.cells.has(plan.cellId)) return null;
+      const words = where.planWhere(where.fit(server));
+      const cells = plan.evict.map((id) => MACHINE_PICK.nameOf(id)).join(", ");
+      return { config: server.slotConfig || {}, cacheModels: server.cacheModels, room: where.node,
+               question: t(plan.evict.length ? "machinePlanConfirmEvict" : plan.moved ? "machinePlanConfirmMove" : "machinePlanConfirm",
+                           { cell: MACHINE_PICK.nameOf(plan.cellId), where: words, cells }) };
     },
     confirm: (question) => appConfirm(question, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }),
     notify: toast,
     redraw: renderTopology,
+    // The launch built under the map is a cell now, with a row and a name of its own, chosen by that name: the builder's places are empty for
+    // the next one, whatever the start does next.
+    made: (key, cellId) => {
+      if (!MACHINE_BUILD.owns(key)) return;
+      MACHINE_BUILD.made();
+      MACHINE_PICK.cellId = String(cellId);
+    },
   });
   // The incidents' way in from a machine's side column (machine-head.js), the same opener as the bar's "⚠".
   SIDE_INCIDENTS.bind(document, { open: openIncidentsModal });

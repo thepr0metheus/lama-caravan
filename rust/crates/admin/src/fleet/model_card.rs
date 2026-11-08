@@ -2,6 +2,7 @@
 
 use crate::app::App;
 use crate::common::window::Windows;
+use crate::proxies::client_ids::ClientIds;
 use crate::proxies::config::ProxiesConfig;
 use crate::topology::windows::PortQuestion;
 use rules::{AppError, Coerce};
@@ -77,19 +78,14 @@ impl<'app> ModelCard<'app> {
 
     /// Asks the entry, with this client's key, what it offers this client, and says the parsed answer. A client has no port of its own: the entry is the
     /// one place that answers (the owner, 2026-11-02), and it listens beside the controller. The links name the address a client calls.
-    pub fn card(&self, raw_port: &str) -> Result<Value, AppError> {
-        let port = Coerce::strip(raw_port)
-            .parse::<i64>()
-            .ok()
-            .filter(|port| *port > 0)
-            .ok_or_else(|| AppError::new("port must be a number"))?;
+    pub fn card(&self, route_id: &str) -> Result<Value, AppError> {
         let config = ProxiesConfig::of(self.app).load()?;
         let routes = config.get("routes").and_then(Value::as_array).into_iter().flatten();
         let route = routes
             .into_iter()
-            .find(|route| Coerce::int_or_zero(route.get("port")) == Some(port))
+            .find(|route| ClientIds::of(route) == route_id)
             .cloned()
-            .ok_or_else(|| AppError::with_status(format!("no proxy route on port {port}"), 404))?;
+            .ok_or_else(|| AppError::with_status(format!("no client has the id {route_id}"), 404))?;
         // absent-ok: a port not named is an entry that is off, said below.
         let entry_port = Coerce::whole(config.get("entry").and_then(|entry| entry.get("port")));
         let public = Coerce::stripped(config.get("entry").and_then(|entry| entry.get("publicUrl")));
@@ -125,7 +121,7 @@ impl<'app> ModelCard<'app> {
             "ok": status == 200 && error.is_empty(),
             "url": url,
             "label": Coerce::text(route.get("label")),
-            "port": port,
+            "routeId": route_id,
             "keyed": !key.is_empty(),
             "status": status,
             "tookMs": took_ms,

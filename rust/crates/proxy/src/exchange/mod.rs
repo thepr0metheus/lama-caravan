@@ -11,7 +11,7 @@ use crate::stop::Ending;
 use crate::upstream::Answer;
 use crate::watch::Watch;
 use files::Settings;
-use rules::{MachineOutput, OpenAiDialect, Pool, PoolRefusal, UpstreamFailure};
+use rules::{EntryRefusal, MachineOutput, OpenAiDialect, Pool, PoolRefusal, Reading, Told, UpstreamFailure};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -20,6 +20,7 @@ use wire::Headers;
 mod answers;
 mod cloud;
 mod machine;
+mod reading;
 
 /// What the request came with.
 pub struct Asked {
@@ -61,13 +62,23 @@ struct PoolAsk<'p> {
     pool: &'p Pool,
     body: &'p [u8],
     path: &'p str,
+    /// Whether the board's reader reads the request's pictures for a row that cannot (`PoolQuestion::reads`).
+    reads: bool,
 }
 
 impl PoolAsk<'_> {
     fn can_go_on(&self, excluded: &BTreeSet<String>, ready: bool) -> bool {
         let free = |output: &MachineOutput| Admission::has_room(self.proxy, output, &self.settings.policy);
         self.proxy.pools.can_go_on(
-            &PoolQuestion { settings: self.settings, pool: self.pool, body: self.body, path: self.path, excluded, free: &free },
+            &PoolQuestion {
+                settings: self.settings,
+                pool: self.pool,
+                body: self.body,
+                path: self.path,
+                excluded,
+                free: &free,
+                reads: self.reads,
+            },
             ready,
         )
     }
@@ -93,6 +104,14 @@ pub struct Exchange<'a> {
     facts: Facts,
     upstream_error_text: String,
     leg: LegNow,
+    /// What the board's reader reads of the request, for a row that cannot read its pictures; taken when it is read.
+    reading: Option<Box<Reading>>,
+    /// Whether the board's reader reads for this request at all: fixed when the request comes, so every leg asks the pool
+    /// the same question after the reading is done.
+    reads: bool,
+    /// The request with the reader's captions where its pictures stood, once read: a later row that cannot read them gets
+    /// the same words, and the reader is not asked twice for one request.
+    captioned: Option<Vec<u8>>,
 }
 
 impl<'a> Exchange<'a> {
@@ -125,7 +144,18 @@ impl<'a> Exchange<'a> {
             facts: Facts::default(),
             upstream_error_text: String::new(),
             leg: LegNow::None,
+            reading: None,
+            reads: false,
+            captioned: None,
         }
+    }
+
+    /// The same walk, with what the board's reader reads of the request for a row that cannot read its pictures
+    /// (`MediaAnswer::Readable`); `None` when nothing reads for any row.
+    pub fn reading(mut self, reading: Option<Box<Reading>>) -> Self {
+        self.reads = reading.is_some();
+        self.reading = reading;
+        self
     }
 
     /// Walks the request to its end. Every way out goes through `finish`: a request that came has a record.
@@ -148,17 +178,24 @@ impl<'a> Exchange<'a> {
         // A client gone before its refusal changes nothing here.
         drop(self.client.send_told(&told, &self.record.id));
         let result = self.record.blocked_json(STATUS, &words, KIND, self.proxy.clock.epoch());
-        self.proxy.board.finish_active(route.port, &self.record.id, result.clone());
+        self.proxy.board.finish_active(&route.id, &self.record.id, result.clone());
         self.note("blocked", Some(&result), json!({"status": STATUS}));
     }
 
     fn pool_ask(&self) -> PoolAsk<'_> {
-        PoolAsk { proxy: self.proxy, settings: &self.settings, pool: &self.pool, body: &self.asked.body, path: &self.record.path }
+        PoolAsk {
+            proxy: self.proxy,
+            settings: &self.settings,
+            pool: &self.pool,
+            body: &self.asked.body,
+            path: &self.record.path,
+            reads: self.reads,
+        }
     }
 
     fn note_received(&self) {
         let active = self.record.active_json();
-        self.proxy.board.add_active(&self.record.route.label, self.record.route.port, active.clone());
+        self.proxy.board.add_active(&self.record.route.label, &self.record.route.id, active.clone());
         self.note("received", Some(&active), json!({}));
     }
 
@@ -186,7 +223,7 @@ impl<'a> Exchange<'a> {
     }
 
     fn choose(&self, walk: &Walk) -> RowChoice {
-        self.proxy.choose_row(&self.settings, &self.pool, &self.asked.body, &self.record.path, &walk.excluded)
+        self.proxy.choose_row(&self.settings, &self.pool, &self.asked.body, &self.record.path, &walk.excluded, self.reads)
     }
 
     /// The pool answers this leg itself, no row fits now: nothing is sent, and the journal and the board say so, instead of blaming the provider
@@ -223,7 +260,7 @@ impl<'a> Exchange<'a> {
 
     fn note_started(&self, meta: Option<Value>, headers: Option<Value>) {
         self.update(json!({"phase": "upstream"}));
-        let active = self.proxy.board.active_item(self.record.route.port, &self.record.id);
+        let active = self.proxy.board.active_item(&self.record.route.id, &self.record.id);
         let queue = json!({"queuedMs": self.facts.queued_ms, "preempted": ""});
         self.note("upstream_started", active.as_ref(), json!({"queue": queue, "cloudMeta": meta, "cloudHeaders": headers}));
     }
@@ -259,7 +296,7 @@ impl<'a> Exchange<'a> {
             self.facts.error_kind = kind;
         }
         let result = self.record.finished_json(&self.facts, &self.leg, self.proxy.clock.epoch(), self.clock.as_json());
-        self.proxy.board.finish_active(self.record.route.port, &self.record.id, result.clone());
+        self.proxy.board.finish_active(&self.record.route.id, &self.record.id, result.clone());
         let fields = json!({"status": self.facts.status, "error": self.facts.error, "errorKind": self.facts.error_kind});
         self.note("finished", Some(&result), fields);
     }
@@ -277,6 +314,7 @@ impl<'a> Exchange<'a> {
                 self.facts.status = status;
                 (words, kind)
             }
+            Ending::Refused(refusal) => return self.tell_entry_refusal(&refusal),
             Ending::Upstream(end) => (end.words, end.kind),
             Ending::Inside(words) => (words, "proxy_error"),
             // A wait's end goes on to the pool's next row (`left_the_queue`) before it comes here.
@@ -285,6 +323,21 @@ impl<'a> Exchange<'a> {
         self.tell_failure(kind);
         self.facts.error = words;
         self.facts.error_kind = kind.to_string();
+    }
+
+    /// A refusal in the caravan's own words, told as they are: in a stream already open, as its error event. The record
+    /// keeps the words and the journal's name for them. A client gone before its refusal changes nothing here.
+    fn tell_entry_refusal(&mut self, refusal: &EntryRefusal) {
+        let told = if self.client.head_sent() {
+            self.client.send_stream_error(&refusal.error.payload())
+        } else {
+            let told: Told = refusal.error.clone().into();
+            self.client.send_told(&told, &self.record.id)
+        };
+        drop(told);
+        self.facts.status = refusal.error.status;
+        self.facts.error.clone_from(&refusal.error.message);
+        self.facts.error_kind = refusal.reason.to_string();
     }
 
     /// The failure, in the dialect's words. A client gone before its refusal changes nothing here.
@@ -304,7 +357,7 @@ impl<'a> Exchange<'a> {
     }
 
     fn update(&self, patch: Value) {
-        self.proxy.board.update_active(self.record.route.port, &self.record.id, patch);
+        self.proxy.board.update_active(&self.record.route.id, &self.record.id, patch);
     }
 
     fn note(&self, event: &str, item: Option<&Value>, fields: Value) {

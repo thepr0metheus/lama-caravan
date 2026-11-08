@@ -45,6 +45,14 @@ SHARED_FACTS = {
         "static/js/cell-speed.js",
         "CellSpeed",
     ),
+    # 2026-11-07: what a cell's processes hold on each card. The builder summed it for the badges and the patch did not write them at
+    # all — a voice cell's badge said "GPU 0.3G" for minutes while it held 2.4. Both read the report through the class now
+    # (CellMemory.cards / measured); a second reading could sum the cards another way, and the badge would change its figure on a tick.
+    "память процессов ячейки по картам (значки RAM/GPU)": (
+        re.compile(r"\.gpuMem\b"),
+        "static/js/cell-memory.js",
+        "CellMemory",
+    ),
 }
 
 #: Files that draw the board: the builder, the patcher, and everything in between.

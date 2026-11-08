@@ -314,8 +314,11 @@ def harness_checks():
         (tmp / "fake_server.py").write_text(FAKE_CELL.format(cells=str(CELLS)), encoding="utf-8")
         gate = tmp / "load-may-fail"
 
-        holder = socket.socket()                      # another process's listener, on every address
-        holder.bind(("0.0.0.0", 0))
+        # Another process's listener on the address a cell listens on, its machine's loopback (cells/cell_base.py LISTEN). A
+        # listener on every address would not do on a Mac: there a bind to one address may share a port held on all of them, and
+        # the cell would start on it and answer its own /health.
+        holder = socket.socket()
+        holder.bind(("127.0.0.1", 0))
         holder.listen(1)
         taken = holder.getsockname()[1]
         picks = [taken]

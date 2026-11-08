@@ -51,6 +51,12 @@ import threading
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+#: Where every cell listens: its machine's loopback. The machine shows the network one port of the caravan, its
+#: scout's, and the scout reaches a cell here — through its entry for a client, through its door for the controller
+#: (rules::CellDoor::LISTEN in the programs; scripts/check_cell_listen.py keeps every cell to it). Until 2026-11-08 a cell
+#: bound every address, and only the firewall kept anyone but the controller out.
+LISTEN = "127.0.0.1"
+
 
 def _source_stamp(subclass_file):
     """Digest of the code this process is RUNNING — base and subclass together.
@@ -463,7 +469,7 @@ class CellServer:
         ready would leave the board with nothing to show for minutes, and no way
         to tell 'still loading' from 'never started'."""
         threading.Thread(target=self._load_thread, daemon=True).start()
-        _Server(("0.0.0.0", self.port), _handler_for(self)).serve_forever()
+        _Server((LISTEN, self.port), _handler_for(self)).serve_forever()
 
 
 class _Server(ThreadingHTTPServer):

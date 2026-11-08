@@ -128,7 +128,8 @@ ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 import sys
 
 FIELDS = {"index": "0", "name": "Stand Card 24GB", "uuid": "GPU-stand", "memory.total": "24576", "memory.used": "1024", "memory.free": "23552",
-          "utilization.gpu": "0", "temperature.gpu": "41", "power.draw": "31.50", "driver_version": "570.100"}
+          "utilization.gpu": "0", "temperature.gpu": "41", "power.draw": "31.50", "driver_version": "570.100",
+          "pcie.link.gen.max": "4", "pcie.link.width.current": "16"}
 argv = sys.argv[1:]
 gpu = [word.split("=", 1)[1] for word in argv if word.startswith("--query-gpu=")]
 apps = [word for word in argv if word.startswith("--query-compute-apps=")]
@@ -413,7 +414,20 @@ class Scenario:
     def __init__(self, side: Side, controller: FakeController, ports: dict, record: Record, engine: FakeOllama | None):
         self.side, self.controller, self.ports, self.record, self.engine = side, controller, ports, record, engine
         self.cell = ports["cell"]
+        #: The cell is known by its name (Papyrus `caravan-scout-port-lease`, step 2): its port is leased at each start, from a range of one port here, so a run of it is where the comparison expects.
+        self.cell_id = self.CELL
+        self.range = {"base": self.cell, "upper": self.cell}
         self.home = side.home
+
+    #: The cell's name, and the names of the cells the controller keeps for the machine.
+    CELL = "c0a1b2c3d"
+    KEPT = ("c0a1b2c3e", "c0a1b2c3f", "c0a1b2c40")
+    #: What a start's words carry where the leased port goes.
+    PORT = "{{PORT}}"
+
+    def started(self, **fields) -> dict:
+        """A start of the cell, as the controller sends it: its name and the range its port is leased from, no port."""
+        return {"cellId": self.cell_id, "ports": self.range, **fields}
 
     def ask(self, method, path, body=None, fields=None, raw=None, timeout=30) -> Answer:
         return self.side.asker.ask(method, path, body, fields, raw, timeout)
@@ -428,23 +442,24 @@ class Scenario:
             self.record.add(name, {"status": answer.status, "json": Shape.clean(answer.json) if answer.json is not None else answer.raw.decode("utf-8", "replace"), "type": answer.fields.get("content-type"), "cache": answer.fields.get("cache-control")})
         return answer
 
-    def wait_cell(self, port, test, what, seconds=20):
+    def wait_cell(self, test, what, seconds=20):
         deadline = time.time() + seconds
         last = None
         while time.time() < deadline:
             nodes = self.ask("GET", "/api/llama-node/status").json.get("nodes") or []
-            last = next((node for node in nodes if node.get("port") == port), None)
+            last = next((node for node in nodes if node.get("id") == self.cell_id), None)
             if test(last):
                 return last
             time.sleep(0.1)
-        raise RuntimeError(f"{self.side.name}: :{port} never {what}: {last}")
+        raise RuntimeError(f"{self.side.name}: {self.cell_id} never {what}: {last}")
 
-    def running(self, port=None, seconds=20):
-        port = port or self.cell
-        node = self.wait_cell(port, lambda node: bool(node) and node.get("running") and node.get("listening") is not False and self.answers(port), "ran", seconds)
+    def running(self, seconds=20):
+        def ran(node):
+            return bool(node) and node.get("running") and node.get("listening") is not False and node.get("port") == self.cell and self.answers(self.cell)
+        self.wait_cell(ran, "ran", seconds)
         # What the server said while it was coming up is kept for two seconds: both scouts read it fresh from here on.
         time.sleep(2.1)
-        return self.wait_cell(port, bool, "stayed")
+        return self.wait_cell(bool, "stayed")
 
     def answers(self, port) -> bool:
         try:
@@ -471,14 +486,14 @@ class Scenario:
     def tables(self):
         for path in ("/api/llama-node/status", "/api/monitor/nvidia-smi", "/api/monitor/btop", "/api/host/processes", "/api/host/driver/install-status", "/api/host/listeners",
                      "/api/llama-node/configs", "/api/llama-node/update-status", "/api/llama-node/builds", "/api/llama-node/list-cache", "/api/llama-node/cache", "/api/vllm",
-                     "/api/vllm/update-status", "/api/telemetry?since=0", "/api/llama-node/log", "/api/llama-node/log?port=x", "/api/llama-node/log?port=1", "/api/telemetry?since=9999999999"):
+                     "/api/vllm/update-status", "/api/telemetry?since=0", "/api/llama-node/log", "/api/llama-node/log?cell=x", "/api/llama-node/log?cell=c1", "/api/telemetry?since=9999999999"):
             self.step(f"GET {path}", "GET", path)
         self.step("the driver", "GET", "/api/host/driver")
         self.step("state", "GET", "/api/state")
 
     def refusals(self):
         start = "/api/llama-node/start"
-        command = {"cellKind": "command", "port": self.cell, "shellLine": f"exec python3 {self.side.stand_ins.cell} --port {self.cell}"}
+        command = self.started(cellKind="command", shellLine=f"exec python3 {self.side.stand_ins.cell} --port {self.PORT}")
         self.step("no model", "POST", start, {})
         self.step("an unknown runner", "POST", start, {"config": {"RUNNER": "nope", "MODEL_FILE": "x"}})
         self.step("a bad env", "POST", start, {"modelPath": "x", "env": {"1bad": "x"}})
@@ -491,12 +506,12 @@ class Scenario:
         self.step("a card short of room", "POST", start, {**command, "command": "x", "vram": {"device": 0, "reserveMiB": 24000}})
         self.step("a card that is not here is no refusal", "POST", start, {**command, "command": "x", "vram": {"device": 7, "reserveMiB": 24000}})
         self.running()
-        self.step("it stops", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("it stops", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.step("configs delete, a bad name", "POST", "/api/llama-node/configs/delete", {"filename": "other.json"})
         self.step("configs delete, none", "POST", "/api/llama-node/configs/delete", {"filename": "llama-node.bak.x.json"})
         self.step("restore of no build", "POST", "/api/llama-node/restore", {})
         self.step("vllm, no venv", "POST", "/api/vllm/update", {})
-        self.step("stop, a port of no number", "POST", "/api/llama-node/stop", {"port": "x"}, status_only=True)
+        self.step("stop, no cell's name", "POST", "/api/llama-node/stop", {"cellId": "x y"}, status_only=True)
         self.step("a heartbeat now", "POST", "/api/heartbeat", {})
         self.step("dismiss nothing", "POST", "/api/llama-node/suspect-dismiss", {})
 
@@ -504,8 +519,8 @@ class Scenario:
         model = self.home / "library" / "held.gguf"
         model.parent.mkdir(parents=True, exist_ok=True)
         model.write_bytes(b"G" * 2048)
-        payload = {"port": self.cell, "modelPath": str(model), "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}", "--mmproj", "{{MMPROJ_PATH}}"],
-                   "config": {"MODEL_NAME": "my model", "N_GPU_LAYERS": "auto", "CTX_SIZE": 2048, "SPEC_TYPE": "mtp"}, "env": {"FAKE_ONE": "a b"}, "cacheModels": False}
+        payload = self.started(modelPath=str(model), args=["--port", self.PORT, "-m", "{{MODEL_PATH}}", "--mmproj", "{{MMPROJ_PATH}}"],
+                               config={"MODEL_NAME": "my model", "N_GPU_LAYERS": "auto", "CTX_SIZE": 2048, "SPEC_TYPE": "mtp"}, env={"FAKE_ONE": "a b", "FAKE_PORT": self.PORT}, cacheModels=False)
         self.step("a llama cell starts", "POST", "/api/llama-node/start", payload)
         node = self.running()
         self.record.add("its view", Shape.clean(node))
@@ -519,19 +534,19 @@ class Scenario:
         self.record.add("a stream", {"status": answer.status, "body": answer.raw.decode(), "type": answer.fields.get("content-type"), "cell": answer.fields.get("x-cell")})
         form = b"--XX\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nmy model\r\n--XX--\r\n"
         self.step("a form", "POST", "/v1/audio/transcriptions", raw=form, fields={"Content-Type": "multipart/form-data; boundary=XX"})
-        self.step("its log", "GET", f"/api/llama-node/log?port={self.cell}")
-        self.step("a run of no log", "GET", f"/api/llama-node/log?port={self.cell}&run=nope")
+        self.step("its log", "GET", f"/api/llama-node/log?cell={self.cell_id}")
+        self.step("a run of no log", "GET", f"/api/llama-node/log?cell={self.cell_id}&run=nope")
         for name in ("start.sh", "cell.json"):
-            path = self.side.root / "server-cells" / str(self.cell) / name
+            path = self.side.root / "server-cells" / self.cell_id / name
             text = path.read_text(encoding="utf-8") if path.exists() else "(none)"
             self.record.add(f"the cell's {name}", Shape.clean(json.loads(text)) if name.endswith(".json") else text)
-        self.step("it stops", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("it stops", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.step("stopped", "GET", "/api/llama-node/status")
-        self.step("a stop of nothing", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("a stop of nothing", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.record.add("its model stays", model.exists())
 
     def cache(self):
-        payload = {"port": self.cell, "modelPath": "dl/model.gguf", "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {}, "cacheModels": True}
+        payload = self.started(modelPath="dl/model.gguf", args=["--port", self.PORT, "-m", "{{MODEL_PATH}}"], config={}, cacheModels=True)
         self.step("a model fetched", "POST", "/api/llama-node/start", payload)
         self.running()
         self.step("the cache", "GET", "/api/llama-node/cache")
@@ -543,7 +558,7 @@ class Scenario:
         self.step("a budget", "POST", "/api/llama-node/cache/budget", {"budgetBytes": GIB})
         self.step("no budget", "POST", "/api/llama-node/cache/budget", {"budgetBytes": None})
         self.step("purge keeps what runs", "POST", "/api/llama-node/purge-cache", {})
-        self.step("it stops, its model stays", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("it stops, its model stays", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.record.add("kept on the disk", (self.home / "cache" / "dl" / "model.gguf").exists())
         foreign = self.home / "cache" / "theirs" / "other.gguf"
         foreign.parent.mkdir(parents=True, exist_ok=True)
@@ -553,17 +568,19 @@ class Scenario:
         self.step("delete foreign, no size", "POST", "/api/llama-node/cache/delete-foreign", {})
         self.step("delete foreign", "POST", "/api/llama-node/cache/delete-foreign", {"expectBytes": 512})
         self.record.add("the foreign file went", foreign.exists())
-        split = {"port": self.cell, "modelPath": "dl/part-00001-of-00002.gguf", "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {"MMPROJ_FILE": "dl/mmproj.gguf"}, "cacheModels": False}
+        # A projector named is loaded by its placeholder, as the controller's builder writes it: a scout fetches only what the command reads (2026-11-07).
+        split = self.started(modelPath="dl/part-00001-of-00002.gguf", args=["--port", self.PORT, "-m", "{{MODEL_PATH}}", "--mmproj", "{{MMPROJ_PATH}}"],
+                             config={"MMPROJ_FILE": "dl/mmproj.gguf"}, cacheModels=False)
         self.step("a split model", "POST", "/api/llama-node/start", split)
         node = self.running()
         self.record.add("its files", sorted(path.name for path in (self.home / "cache" / "dl").iterdir()))
         self.record.add("what the view says of them", {key: node.get(key) for key in ("modelBytes", "modelPath", "mmprojPath")})
-        self.step("purge at a stop", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("purge at a stop", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.record.add("what is left", sorted(path.name for path in (self.home / "cache" / "dl").iterdir()) if (self.home / "cache" / "dl").exists() else [])
         self.step("a file the controller lacks", "POST", "/api/llama-node/start", {**payload, "modelPath": "dl/none.gguf"})
-        node = self.wait_cell(self.cell, lambda node: bool(node) and node.get("phase") == "error", "failed")
+        node = self.wait_cell(lambda node: bool(node) and node.get("phase") == "error", "failed")
         self.record.add("its error", node.get("lastError", "").split(":")[0])
-        self.step("the failed one goes", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("the failed one goes", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.step("a new folder, not absolute", "POST", "/api/llama-node/cache/dir", {"path": "rel/path"})
         self.step("a new folder, none", "POST", "/api/llama-node/cache/dir", {})
         self.step("a new folder, the same", "POST", "/api/llama-node/cache/dir", {"path": str(self.home / "cache")})
@@ -574,29 +591,29 @@ class Scenario:
     def command_cell(self):
         script = self.side.stand_ins.cell
         hint = {"folder": {"dir": True}}
-        payload = {"cellKind": "command", "port": self.cell, "command": f"python3 {script} --port $PORT", "shellLine": f"exec python3 {script} --port {self.cell}", "healthPath": "/health",
-                   "modelFiles": ["folder"], "inPlace": hint, "env": {"FAKE_ONE": "b"}, "cacheModels": True, "config": {"MODEL_NAME": "voice", "RUNNER": "strata"}}
+        payload = self.started(cellKind="command", command=f"python3 {script} --port $PORT", shellLine=f"exec python3 {script} --port {self.PORT}", healthPath="/health",
+                               modelFiles=["folder"], inPlace=hint, env={"FAKE_ONE": "b"}, cacheModels=True, config={"MODEL_NAME": "voice", "RUNNER": "strata"})
         self.step("a command cell starts", "POST", "/api/llama-node/start", payload)
         node = self.running()
         self.record.add("its view", Shape.clean(node))
         self.record.add("its folder", sorted(str(path.relative_to(self.home / "moved")) for path in (self.home / "moved" / "folder").rglob("*")))
         self.record.add("its link", os.readlink(self.home / "moved" / "folder" / "link.bin"))
-        self.step("its log says its environment", "GET", f"/api/llama-node/log?port={self.cell}&lines=20")
+        self.step("its log says its environment", "GET", f"/api/llama-node/log?cell={self.cell_id}&lines=20")
         self.step("two kinds of one name, first", "GET", "/v1/models")
-        self.step("autostart without a request", "POST", "/api/llama-node/autostart", {"port": self.cell, "enabled": True})
-        self.step("autostart of a bad port", "POST", "/api/llama-node/autostart", {"port": 70000, "enabled": False})
-        self.step("autostart on", "POST", "/api/llama-node/autostart", {"port": self.cell, "enabled": True, "payload": payload})
+        self.step("autostart without a request", "POST", "/api/llama-node/autostart", {"cellId": self.cell_id, "enabled": True})
+        self.step("autostart of no cell's name", "POST", "/api/llama-node/autostart", {"cellId": "C-1", "enabled": False})
+        self.step("autostart on", "POST", "/api/llama-node/autostart", {"cellId": self.cell_id, "enabled": True, "payload": payload})
         self.step("kept in the state", "GET", "/api/state", shape=True)
         self.record.add("the kept request", Shape.clean(json.loads(self.side.state_path.read_text()).get("autostart")))
-        self.step("autostart off", "POST", "/api/llama-node/autostart", {"port": self.cell, "enabled": False})
-        self.step("it stops", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("autostart off", "POST", "/api/llama-node/autostart", {"cellId": self.cell_id, "enabled": False})
+        self.step("it stops", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
 
     def strata_shelf(self):
         """The folder for Strata's files, a shelf of its own (2026-11-03): a start marked `workFolder` is refused while none is chosen, then copies its model there with the cache off,
         keeps it after the stop, and the folder's limit and its move say what they did."""
         script = self.side.stand_ins.cell
-        payload = {"cellKind": "command", "port": self.cell, "command": f"python3 {script} --port $PORT", "shellLine": f"exec python3 {script} --port {self.cell}", "healthPath": "/health",
-                   "modelFiles": ["dl/model.gguf"], "cacheModels": False, "workFolder": True, "config": {"MODEL_NAME": "strata", "RUNNER": "strata"}}
+        payload = self.started(cellKind="command", command=f"python3 {script} --port $PORT", shellLine=f"exec python3 {script} --port {self.PORT}", healthPath="/health",
+                               modelFiles=["dl/model.gguf"], cacheModels=False, workFolder=True, config={"MODEL_NAME": "strata", "RUNNER": "strata"})
         self.step("a Strata cell with no folder", "POST", "/api/llama-node/start", payload)
         self.step("a folder for Strata's files", "POST", "/api/llama-node/cache/work", {"path": str(self.home / "ssd" / "strata")})
         self.step("a limit too small", "POST", "/api/llama-node/cache/work/budget", {"budgetBytes": 5})
@@ -605,7 +622,7 @@ class Scenario:
         self.step("a Strata cell starts", "POST", "/api/llama-node/start", payload)
         self.running()
         self.record.add("its copy and its files", sorted(str(path.relative_to(self.home / "ssd" / "strata")) for path in (self.home / "ssd" / "strata").rglob("*") if path.is_file()))
-        self.step("it stops", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("it stops", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
         self.record.add("the copy stays", (self.home / "ssd" / "strata" / "dl" / "model.gguf").exists())
         self.step("the shelf as the board reads it", "GET", "/api/llama-node/cache", shape=True)
         self.step("the limit taken off", "POST", "/api/llama-node/cache/work/budget", {"budgetBytes": None})
@@ -615,33 +632,34 @@ class Scenario:
 
     def crash(self):
         script = self.side.stand_ins.cell
-        payload = {"cellKind": "command", "port": self.cell, "command": f"python3 {script}", "shellLine": f"FAKE_CELL=die exec python3 {script} --port {self.cell}", "cacheModels": True, "config": {}}
+        payload = self.started(cellKind="command", command=f"python3 {script}", shellLine=f"FAKE_CELL=die exec python3 {script} --port {self.PORT}", cacheModels=True, config={})
         self.step("a cell that dies", "POST", "/api/llama-node/start", payload)
-        node = self.wait_cell(self.cell, lambda node: bool(node) and (node.get("crash") or {}).get("count"), "crashed")
+        node = self.wait_cell(lambda node: bool(node) and (node.get("crash") or {}).get("count"), "crashed")
         self.record.add("its note", Shape.clean({key: (node.get("crash") or {}).get(key) for key in ("count", "reason", "gaveUp", "neverReady")}))
         self.record.add("its card", {key: node.get(key) for key in ("phase", "running", "exitCode", "crashed", "lastError")})
-        node = self.wait_cell(self.cell, lambda node: bool(node) and (node.get("crash") or {}).get("count", 0) >= 2, "crashed twice", 20)
+        node = self.wait_cell(lambda node: bool(node) and (node.get("crash") or {}).get("count", 0) >= 2, "crashed twice", 20)
         self.record.add("restarted the same way", Shape.clean((node.get("crash") or {}).get("reason")))
-        self.step("a start by hand clears the note", "POST", "/api/llama-node/stop", {"port": self.cell})
+        self.step("a start by hand clears the note", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
 
     def survivors(self):
-        payload = {"port": self.cell, "modelPath": str(self.home / "library" / "held.gguf"), "args": ["--port", str(self.cell), "-m", "{{MODEL_PATH}}"], "config": {"MODEL_NAME": "survivor"}, "cacheModels": False}
+        payload = self.started(modelPath=str(self.home / "library" / "held.gguf"), args=["--port", self.PORT, "-m", "{{MODEL_PATH}}"], config={"MODEL_NAME": "survivor"}, cacheModels=False)
         self.step("a cell", "POST", "/api/llama-node/start", payload)
         self.running()
         self.side.kill()
         self.side.start()
         node = self.running()
-        self.record.add("held again", Shape.clean({key: node.get(key) for key in ("running", "adopted", "phase", "port", "modelPath", "pids")}))
+        self.record.add("held again", Shape.clean({key: node.get(key) for key in ("id", "running", "adopted", "phase", "port", "modelPath", "pids")}))
         self.step("its name kept", "GET", "/v1/models")
-        self.step("it stops", "POST", "/api/llama-node/stop", {"port": self.cell})
-        self.wait_cell(self.cell, lambda node: not node, "went")
+        self.step("it stops", "POST", "/api/llama-node/stop", {"cellId": self.cell_id})
+        self.wait_cell(lambda node: not node, "went")
         self.record.add("nothing runs it", self.answers(self.cell))
 
     def known(self):
-        self.controller.cells = [{"port": self.cell, "config": {"MODEL_NAME": "kept one", "RUNNER": "vllm", "SECRET": "x"}, "modelPath": "a/b.gguf"},
-                                 {"port": self.cell + 1, "config": {"MODEL_NAME": "kept one", "RUNNER": "llama-server"}},
-                                 {"port": self.cell + 2, "config": {"MODEL_FILE": "c/d-00001-of-00002.gguf"}},
-                                 {"port": "nope"}]
+        first, second, third = self.KEPT
+        self.controller.cells = [{"id": first, "config": {"MODEL_NAME": "kept one", "RUNNER": "vllm", "SECRET": "x"}, "modelPath": "a/b.gguf"},
+                                 {"id": second, "config": {"MODEL_NAME": "kept one", "RUNNER": "llama-server"}},
+                                 {"id": third, "config": {"MODEL_FILE": "c/d-00001-of-00002.gguf"}},
+                                 {"id": "nope!"}]
         self.step("a beat brings the cells", "POST", "/api/heartbeat", {})
         self.step("the list says them", "GET", "/v1/models")
         self.step("a request for a stopped one", "POST", "/v1/chat/completions", {"model": "kept one@vllm"})

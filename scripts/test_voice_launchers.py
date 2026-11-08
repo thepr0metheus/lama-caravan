@@ -40,8 +40,9 @@ DEPS = ("numpy<2.2", "safetensors<0.5", "huggingface-hub<0.25", "einops==0.7.0",
 # gzip: GNU tar runs it to unpack a .tgz (bsdtar, the macOS one, does it itself, which hid the want of it until the GitLab runner).
 # tr, sort, paste: the architectures of the machine's cards, run through nvidia-smi's compute capabilities (run_minicpm_omni.sh).
 # head, awk: a card's memory read through nvidia-smi and turned into the shares of Qwen3-TTS's stages (run_vllm_omni.sh).
+# grep, mv: the patch of llama.cpp-omni's one line, found once and written back (run_minicpm_omni.sh); basename: the stand-in git.
 UTILITIES = ("sed", "tar", "gzip", "rm", "mkdir", "cp", "chmod", "dirname", "touch", "cat", "env", "ln", "find", "wc", "tr", "sort", "paste",
-             "head", "awk")
+             "head", "awk", "grep", "mv", "basename")
 
 _fail = []
 
@@ -73,11 +74,12 @@ dir=""
 if [ "$1" = "-C" ]; then dir="$2"; shift 2; fi
 [ "$GIT_FAIL" = "$1" ] && exit 4
 case "$1" in
-  clone)     dest="${@: -1}"; mkdir -p "$dest/.git" "$dest/moshi/moshi"
+  clone)     dest="${@: -1}"; mkdir -p "$dest/.git" "$dest/moshi/moshi" "$dest/tools/omni"
              cp "$FIXTURES/server.py" "$dest/moshi/moshi/server.py"; cp "$FIXTURES/offline.py" "$dest/moshi/moshi/offline.py"
+             cp "$FIXTURES/omni.cpp" "$dest/tools/omni/omni.cpp"
              echo "not-the-pin" > "$dest/.git/SHA" ;;
   rev-parse) cat "$dir/.git/SHA" ;;
-  checkout)  echo "${@: -1}" > "$dir/.git/SHA" ;;
+  checkout)  if [ "${@: -2:1}" = "--" ]; then cp "$FIXTURES/$(basename "${@: -1}")" "$dir/${@: -1}"; else echo "${@: -1}" > "$dir/.git/SHA"; fi ;;
 esac
 '''
 
@@ -159,6 +161,15 @@ SERVER_PY = '''def main():
     args.mimi_weight = hf_hub_download(args.hf_repo, loaders.MIMI_NAME)
     hf_hub_download(args.hf_repo, "tokenizer.model")
 '''
+# llama.cpp-omni's tools/omni/omni.cpp at the pin, as far as the launcher's patch reads it: the one line it changes, once.
+OMNI_WAS = "    const int max_audio_tokens = ctx_omni->duplex_mode ? 26 : 500;"
+OMNI_NOW = "    const int max_audio_tokens = (ctx_omni->duplex_mode && !is_end_of_turn) ? 26 : 500;"
+OMNI_CPP = ("static bool generate_audio_tokens_local(struct omni_context * ctx_omni, bool is_end_of_turn = false) {\n"
+            "    // duplex: 26 (max_token_per_chunk = 25 + 1); simplex: 500\n"
+            f"{OMNI_WAS}\n"
+            "    return max_audio_tokens > 0;\n"
+            "}\n")
+
 OFFLINE_PY = '''def run(hf_repo):
     # Download config.json to increment download counter
     # No worries about double-counting since config.json will be cached the second time
@@ -186,6 +197,7 @@ class Sandbox:
         self.fixtures.mkdir()
         (self.fixtures / "server.py").write_text(SERVER_PY)
         (self.fixtures / "offline.py").write_text(OFFLINE_PY)
+        (self.fixtures / "omni.cpp").write_text(OMNI_CPP)
         self.utilities = self.dir / "utilities"
         self.utilities.mkdir()
         for name in UTILITIES:
@@ -319,7 +331,7 @@ def personaplex():
         r = box.run(launcher, "22021", str(model), env={"LD_LIBRARY_PATH": "/usr/local/cuda/lib64"})
         calls = box.calls()
         check(r.returncode == 0 and "serving on port 22021" in r.stdout, "serving: exit 0 and says which port")
-        want = (f"SERVER -m moshi.server --host 0.0.0.0 --port 22021 --static {assets}/dist --voice-prompt-dir {assets}/voices "
+        want = (f"SERVER -m moshi.server --host 127.0.0.1 --port 22021 --static {assets}/dist --voice-prompt-dir {assets}/voices "
                 f"--moshi-weight {model}/model.safetensors --mimi-weight {model}/tokenizer-e351c8d8-checkpoint125.safetensors "
                 f"--tokenizer {model}/tokenizer_spm_32k_3.model")
         check(want in calls, "the server gets the port, the page, the voices and the three weight files of the library: " + repr(calls))
@@ -558,7 +570,7 @@ def vllm_omni():
         box.forget()
         r = box.run(launcher, "22031", "qwen3-omni", str(qwen))
         calls = box.calls()
-        want = (f"VLLM serve {qwen} --omni --served-model-name qwen3-omni --host 0.0.0.0 --port 22031 --stage-init-timeout 1800 --init-timeout 2400 "
+        want = (f"VLLM serve {qwen} --omni --served-model-name qwen3-omni --host 127.0.0.1 --port 22031 --stage-init-timeout 1800 --init-timeout 2400 "
                 f"--trust-remote-code --deploy-config {omni}/qwen3-omni-22031.yaml")
         check(r.returncode == 0 and calls[:1] == [want], "serving: the library's folder, the name clients ask for, the port, the deploy file: " + repr(calls[:1]))
         check(f"CWD {omni}" in calls, "the engine runs in the launcher's own folder")
@@ -613,7 +625,7 @@ def vllm_omni():
         box.forget()
         r = box.run(launcher, "22032", "step-audio2", str(step))
         calls = box.calls()
-        check(calls[:1] == [f"VLLM serve {step} --omni --served-model-name stepfun-ai/Step-Audio-2-mini --host 0.0.0.0 --port 22032 "
+        check(calls[:1] == [f"VLLM serve {step} --omni --served-model-name stepfun-ai/Step-Audio-2-mini --host 127.0.0.1 --port 22032 "
                             f"--stage-init-timeout 1800 --init-timeout 2400 --trust-remote-code --enforce-eager --deploy-config {omni}/step-audio2-22032.yaml"],
               "step-audio2 serving: eager mode on, the model folder is the library's: " + repr(calls[:1]))
         check(f"ENV PATH0={step_venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=<unset> ANY_NAME=1" in calls,
@@ -711,7 +723,7 @@ def qwen3_tts():
         box.forget()
         r = box.run(launcher, "22033", "qwen3-tts", str(tts), env=cards)
         calls = [c for c in box.calls() if not c.startswith("uv ")]
-        check(r.returncode == 0 and calls[:1] == [f"VLLM serve {tts} --omni --served-model-name qwen3-tts --host 0.0.0.0 --port 22033 "
+        check(r.returncode == 0 and calls[:1] == [f"VLLM serve {tts} --omni --served-model-name qwen3-tts --host 127.0.0.1 --port 22033 "
                                                    f"--stage-init-timeout 1800 --init-timeout 2400 --trust-remote-code --deploy-config {omni}/qwen3-tts-22033.yaml"],
               "serving: the library's folder, the name `qwen3-tts`, the port, the deploy file: " + repr(calls[:1]))
         check(f"ENV PATH0={venv}/bin SPAWN=spawn MAX_JOBS=4 ALLOC=<unset> ANY_NAME=1" in calls,
@@ -742,6 +754,8 @@ def minicpm_model(box, skip=(), prompt_cache_bytes=211613152):
 def minicpm_omni():
     launcher = CELLS / "run_minicpm_omni.sh"
     pin = "88bd37eb671f67cf8d747140ed100231756e0bc3"
+    patch = "duplex-last-step-1"
+    built = f".built-{pin}-{patch}"
     box = Sandbox()
     try:
         box.tool("cmake", CMAKE)
@@ -790,11 +804,15 @@ def minicpm_omni():
         calls = box.calls()
         check(r.returncode == 0 and "ready (install-only)" in r.stdout, "--install-only: exit 0 and says it is ready")
         check(calls == [f"git clone -q https://github.com/tc-mb/llama.cpp-omni {src}", f"git -C {src} rev-parse HEAD",
-                        f"git -C {src} checkout -q --force {pin}", configure,
+                        f"git -C {src} checkout -q --force {pin}", f"git -C {src} checkout -q {pin} -- tools/omni/omni.cpp", configure,
                         f"cmake --build {src}/build --target llama-omni-server -j8"],
-              "the source at ONE commit, then the configure with the flags that were proven, then the one target: " + repr(calls))
-        check((src / "build" / f".built-{pin}").is_file() and (src / "build" / "bin" / "llama-omni-server").is_file(),
-              "the build is marked done, for that commit, when it is done")
+              "the source at ONE commit, its patched file put back as the pin has it, then the configure with the flags that were proven, then the one target: " + repr(calls))
+        omni = (src / "tools" / "omni" / "omni.cpp").read_text()
+        check(omni.count(OMNI_NOW) == 1 and OMNI_WAS not in omni and omni.replace(OMNI_NOW, OMNI_WAS) == OMNI_CPP,
+              "the patch: the step that ends a duplex turn is voiced to its end (500), any other duplex step keeps 26; negative: no other line of the file changed")
+        check("patched tools/omni/omni.cpp (duplex-last-step-1)" in r.stdout, "the start says it patched, and which patch")
+        check((src / "build" / built).is_file() and (src / "build" / "bin" / "llama-omni-server").is_file(),
+              "the build is marked done, for that commit and that patch, when it is done")
         check((src / "build" / ".arch").read_text() == "120\n", "and with the architectures it was built for (one card: sm_120)")
         want = {"MiniCPM-o-4_5-Q4_K_M.gguf": ("Q4_K_M", "."), "MiniCPM-o-4_5-audio-F16.gguf": ("F16", "audio"),
                 "MiniCPM-o-4_5-vision-F16.gguf": ("F16", "vision"), "MiniCPM-o-4_5-tts-F16.gguf": ("F16", "tts"),
@@ -869,7 +887,7 @@ def minicpm_omni():
 
         # A tree that was configured before is not reused: cmake would drop the options of this command line.
         (src / "build" / "stale-from-another-compiler").write_text("x")
-        (src / "build" / f".built-{pin}").unlink()
+        (src / "build" / built).unlink()
         box.forget()
         box.run(launcher, "22035", str(model), "--install-only")
         check(not (src / "build" / "stale-from-another-compiler").exists() and box.calls().count(configure) == 1,
@@ -887,13 +905,43 @@ def minicpm_omni():
         shutil.rmtree(src / "build")
         box.forget()
         r = box.run(launcher, "22035", str(model), "--install-only", env={"CMAKE_FAIL": "build"})
-        check(r.returncode != 0 and not (src / "build" / f".built-{pin}").exists() and not any(c.startswith("OMNI") for c in box.calls()),
+        check(r.returncode != 0 and not (src / "build" / built).exists() and not any(c.startswith("OMNI") for c in box.calls()),
               "a failing build: non-zero, not marked done, no server started")
         box.forget()
         r = box.run(launcher, "22035", str(model), "--install-only")
         check(r.returncode == 0 and not any(c.startswith("git clone") for c in box.calls())
-              and any(c.startswith("cmake --build") for c in box.calls()) and (src / "build" / f".built-{pin}").is_file(),
+              and any(c.startswith("cmake --build") for c in box.calls()) and (src / "build" / built).is_file(),
               "the next start builds again WITHOUT fetching the source again: " + repr(box.calls()))
+
+        # The patch's own life: a tree built before it, a tree patched by an earlier build, a source where the line is not there once.
+        (src / "build" / built).rename(src / "build" / f".built-{pin}")
+        box.forget()
+        r = box.run(launcher, "22035", str(model), "--install-only")
+        check(r.returncode == 0 and box.calls().count(configure) == 1 and (src / "build" / built).is_file(),
+              "a tree built before the patch (its marker names no patch) is built again, with the patch: " + repr(box.calls()))
+        box.forget()
+        box.run(launcher, "22035", str(model), "--install-only")
+        check(not any(c.startswith("cmake") or " -- tools/omni/omni.cpp" in c for c in box.calls()),
+              "negative: built with the patch: the next start neither patches nor builds: " + repr(box.calls()))
+        (src / "build" / built).unlink()
+        box.forget()
+        r = box.run(launcher, "22035", str(model), "--install-only")
+        omni = (src / "tools" / "omni" / "omni.cpp").read_text()
+        check(r.returncode == 0 and box.calls().count(configure) == 1 and omni.count(OMNI_NOW) == 1 and OMNI_WAS not in omni,
+              "a tree patched by an earlier build is put back first, patched once, not twice, and built: " + repr(r.stderr[-160:]))
+        for fixture, why in ((OMNI_CPP.replace(OMNI_WAS, "    const int max_audio_tokens = 26;"), "the line is not there (the pin's code moved)"),
+                             (OMNI_CPP.replace(OMNI_WAS, OMNI_WAS + "\n" + OMNI_WAS), "the line is there twice")):
+            (box.fixtures / "omni.cpp").write_text(fixture)
+            shutil.rmtree(src / "build", ignore_errors=True)
+            box.forget()
+            r = box.run(launcher, "22035", str(model), "--install-only")
+            check(r.returncode == 1 and "patch duplex-last-step-1 no longer applies" in r.stderr and not any(c.startswith("cmake") for c in box.calls())
+                  and not (src / "build").exists(),
+                  f"negative: {why}: exit 1, the patch is named, nothing is built — a patch that did not apply would cut the voice again in silence")
+        (box.fixtures / "omni.cpp").write_text(OMNI_CPP)
+        box.forget()
+        r = box.run(launcher, "22035", str(model), "--install-only")
+        check(r.returncode == 0 and (src / "build" / built).is_file(), "the pin's file back as it is: built, with the patch")
 
         # Serving, and yesterday's sessions.
         sessions = box.dir / "tmp" / "omni_ws"
@@ -908,7 +956,7 @@ def minicpm_omni():
         r = box.run(launcher, "22035", str(model))
         calls = box.calls()
         check(r.returncode == 0 and "serving on port 22035" in r.stdout, "serving: exit 0 and says which port")
-        check(f"OMNI -m {layout}/MiniCPM-o-4_5-Q4_K_M.gguf --host 0.0.0.0 --port 22035 -ngl 99 -c 8192 --temp 0.7 --repeat-penalty 1.05" in calls,
+        check(f"OMNI -m {layout}/MiniCPM-o-4_5-Q4_K_M.gguf --host 127.0.0.1 --port 22035 -ngl 99 -c 8192 --temp 0.7 --repeat-penalty 1.05" in calls,
               "the server gets the main GGUF of the layout, the port, the whole model on the GPU: " + repr(calls[-2:]))
         check(f"CWD {src}" in calls, "the server runs in its source folder (the reference voice is found relative to it)")
         check(not (sessions / "yesterday").exists() and (sessions / "today").is_dir(),

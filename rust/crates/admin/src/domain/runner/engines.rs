@@ -5,7 +5,11 @@ use super::{Config, Runner, RunnerDefaults, RunnerRow, TalkSpec};
 use rules::{AppError, Coerce, ConfigField, PyRepr, ShellWord};
 use serde_json::json;
 
-/// XTTS-v2, CosyVoice2 or F5-TTS: a text read out in a voice taken from a few seconds of a sample. The engine is the cell's choice; its packages and its weights install themselves at the cell's first start, so the model picker has nothing to offer it. No VRAM is reserved before the start: the engines' footprints are not measured yet.
+/// XTTS-v2, CosyVoice2 or F5-TTS: a text read out in a voice taken from a few seconds of a sample. The engine is the cell's choice; its packages and its weights install themselves at the cell's first start, so the model picker has nothing to offer it.
+///
+/// No VRAM is reserved before the start, and the plan names no figure, though the engines' footprints are measured: the cell picks its device itself as it loads, by its engine's own need
+/// (`cells/tts_server.py`, `VoiceEngine.need_gb`), and on a card short of it runs on the CPU and says why in its health (`deviceReason`). A reservation would have the scout refuse the start
+/// the CPU can still serve, and a plan is one figure a runner where the three engines need three: the needs live in the cell, in one place.
 pub struct VoiceCloneRunner;
 
 impl VoiceCloneRunner {

@@ -10,12 +10,15 @@ use crate::cloud::pools::PoolDesk;
 use crate::common::entry::{BuiltinClient, EntryDoor};
 use crate::data_tree::DataTree;
 use crate::fleet::cell_schedule::CellSchedule;
+use crate::fleet::default_cells_retired::DefaultCellsRetired;
 use crate::fleet::gpu_driver::GpuDriver;
+use crate::fleet::listen_address_retired::ListenAddressRetired;
 use crate::fleet::machine_rows::MachineRows;
 use crate::fleet::reports::FleetReads;
 use crate::models::model_list::ModelList;
 use crate::models::moves::runner::MoveRunner;
 use crate::monitoring::MonitorSampler;
+use crate::proxies::client_ids::ClientIdsGiven;
 use crate::proxies::config::ProxiesConfig;
 use crate::proxies::dsl::RouterDsl;
 use crate::proxies::entry_settings::EntrySettings;
@@ -24,7 +27,7 @@ use crate::proxies::service::Services;
 use crate::proxies::stats::ProxyStats;
 use crate::topology::TopologyState;
 use plumbing::{Log, Ticking};
-use rules::{AppError, Coerce};
+use rules::{AppError, Coerce, ReleasePatience};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -36,9 +39,6 @@ pub struct Startup {
 }
 
 impl Startup {
-    /// The most a new release waits for the requests that run.
-    const RELEASE_PATIENCE: f64 = 600.0;
-
     /// A start of this controller.
     pub fn of(app: &Arc<App>) -> Self {
         Self { app: Arc::clone(app) }
@@ -53,6 +53,8 @@ impl Startup {
                 return Err(format!("lama-caravan: will not start: {found}"));
             }
         }
+        // Before the proxy starts: a proxy that read the records with their numbers and no ids would know no client.
+        self.client_ids();
         Services::of(app).start_proxy();
         self.migrations();
         self.builtin_clients();
@@ -81,6 +83,35 @@ impl Startup {
     fn count(value: Option<&Value>) -> usize {
         // absent-ok: no list is no rows.
         value.and_then(Value::as_array).map_or(0, Vec::len)
+    }
+
+    /// Every client known by its record's id, its number gone (the owner, 2026-11-07): once, and said in the log with what each
+    /// number became, so that a row of the old journal can be read by it.
+    fn client_ids(&self) {
+        let app = &*self.app;
+        Self::step(
+            "entry: giving the clients their ids",
+            || ClientIdsGiven::migrate(app),
+            |done| {
+                let rows = |key: &str, shown: &dyn Fn(&Value) -> String| -> String {
+                    let listed: Vec<String> = done.get(key).and_then(Value::as_array).into_iter().flatten().map(shown).collect();
+                    if listed.is_empty() { "none".to_string() } else { listed.join(", ") }
+                };
+                let given = rows("given", &|row| {
+                    format!(
+                        "{} :{} → {}",
+                        Coerce::text(row.get("label")),
+                        Coerce::str_of(row.get("port")),
+                        Coerce::text(row.get("id"))
+                    )
+                });
+                let retired =
+                    rows("retired", &|row| format!("{} :{}", Coerce::text(row.get("label")), Coerce::str_of(row.get("port"))));
+                format!(
+                    "entry: every client is known by its id, its number gone: {given}; routes of the old kind retired: {retired}"
+                )
+            },
+        );
     }
 
     fn closed_ports(done: &Value) -> String {
@@ -145,6 +176,29 @@ impl Startup {
             Err(error) => Log::line(&format!("cloud: contextAuto migration skipped ({})", error.message)),
         }
         self.pool_migrations();
+        Self::step(
+            "cells: the models' default cells becoming presets",
+            || DefaultCellsRetired::migrate(app),
+            |done| {
+                format!(
+                    "cells: the models' default cells are presets of the launch builder now — gone, kept in defaultCellsRetired: {}; \
+                     kept as the operator's cells: {}; pools that lost a cable: {}",
+                    Self::joined(done.get("gone")),
+                    Self::joined(done.get("kept")),
+                    Self::joined(done.get("pools"))
+                )
+            },
+        );
+        Self::step(
+            "cells: the cells' own listen address retired",
+            || ListenAddressRetired::migrate(app),
+            |done| {
+                format!(
+                    "cells: every cell listens on its machine's loopback now, behind its scout — HOST gone from: {}",
+                    Self::joined(done.get("cells"))
+                )
+            },
+        );
     }
 
     fn pool_migrations(&self) {
@@ -214,9 +268,9 @@ impl Startup {
                         format!("; the entry could not be opened ({refused})")
                     };
                     format!(
-                        "entry: the built-in client {} made, number {}{door}",
+                        "entry: the built-in client {} made, id {}{door}",
                         Coerce::str_of(made.get("name")),
-                        Coerce::str_of(made.get("port"))
+                        Coerce::str_of(made.get("routeId"))
                     )
                 },
             );
@@ -278,13 +332,19 @@ impl Startup {
             QueueThresholds::of(&app).compute();
         });
         Ticking::in_background("memory-back", Duration::from_secs(60), os::Allocator::give_back);
+        // What waits for the file (a scout's report) gets there when no heartbeat comes to take it: a machine gone quiet.
+        let app = Arc::clone(&self.app);
+        Ticking::in_background("admin-save-later", Duration::from_secs(60), move || {
+            app.admin.save_if_waited(app.now(), FleetReads::REPORT_SAVE_WITHIN);
+        });
         self.release_watch();
         Self::said_if_refused("gpu-driver-watch", GpuDriver::start_thread(&self.app));
         Self::said_if_refused("cell-schedule", CellSchedule::start_thread(&self.app));
     }
 
     /// `CARAVAN_ROOT` is a link to one release: when it comes to name another, this process ends once no request runs, or after
-    /// `RELEASE_PATIENCE` at the most, and the container's restart starts the new one. A new version so needs no password.
+    /// `ReleasePatience` at the most (a machine's scout waits as long), and the container's restart starts the new one. A new version so
+    /// needs no password.
     fn release_watch(&self) {
         let Some(link) = self.app.env.get("CARAVAN_ROOT").map(std::path::PathBuf::from).filter(|link| link.is_symlink()) else {
             return;
@@ -300,15 +360,23 @@ impl Startup {
             }
             let now = app.now();
             let since = *waited_since.get_or_insert(now);
-            if Self::requests_running(&app) && now - since < Self::RELEASE_PATIENCE {
+            if Self::requests_running(&app) && now - since < ReleasePatience::SECONDS {
                 return;
             }
             Log::line(&format!(
                 "a new release is in place ({}): this process ends and the container's restart starts it",
                 link.display()
             ));
+            Self::before_exit(&app);
             std::process::exit(0);
         });
+    }
+
+    /// What waits for the files goes there before the process ends: the new one starts from them. The admin document is saved whether a
+    /// report waits or not: one write a release.
+    fn before_exit(app: &App) {
+        app.save_admin();
+        MonitorSampler::of(app).persist_now();
     }
 
     /// Whether a request still runs. The proxy a new file replaced counts by itself: it answers what it holds, and the state file is the new one's
@@ -326,5 +394,30 @@ impl Startup {
         if let Err(error) = started {
             Log::line(&format!("[{name}] not started: {error}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_process_that_ends_leaves_what_waited_in_its_files() {
+        let folder = crate::tests::TestFolder::new("startup-before-exit");
+        let clock = crate::tests::HandClock::at(1_000);
+        let app = crate::tests::TestApp::with_clock(&folder.path, &[], clock.clone());
+        let reads = FleetReads::of(&app);
+        let report = json!({"host": {"id": "box", "name": "Box"}});
+        reads.record(&report, false).unwrap();
+        clock.pass(10);
+        reads.record(&report, false).unwrap();
+        let seen = || {
+            let doc: Value = serde_json::from_slice(&std::fs::read(app.admin.store().path()).unwrap()).unwrap();
+            doc["topology"]["hosts"]["box"]["lastSeen"].clone()
+        };
+        assert_eq!((seen(), app.paths.monitor_history_file.exists()), (json!(1_000), false));
+        Startup::before_exit(&app);
+        assert_eq!((seen(), app.admin.waiting()), (json!(1_010), false), "the report that waited");
+        assert!(app.paths.monitor_history_file.exists(), "and the monitor's history");
     }
 }

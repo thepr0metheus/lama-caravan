@@ -968,14 +968,8 @@ button.cmd-dirty::after {
   }
 }
 
+/* The bar's own fold on a phone is with its other rules (cards.css). */
 @media (max-width: 720px) {
-  .topbar {
-    position: static;
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 14px;
-  }
-
   main {
     padding: 14px;
   }
@@ -1177,8 +1171,9 @@ button.cmd-dirty::after {
 }
 .user-chip button#userChipBtn:hover { border-color: var(--accent); }
 .user-chip-ico { font-size: 13px; }
+/* From the end of its button, toward the page's middle on a page written either way (as the language's menu, cards.css). */
 .user-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
+  position: absolute; inset-inline-end: 0; top: calc(100% + 6px); z-index: 60;
   min-width: 180px; display: grid; gap: 2px; padding: 6px;
   /* display:grid would defeat the hidden attribute (author display beats the
      UA's [hidden]{display:none}) — this is why the menu looked "always open". */

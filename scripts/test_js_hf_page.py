@@ -144,7 +144,7 @@ const reset = () => { localStorage.clear(); globalThis.__fetchCalls.length = 0; 
   globalThis.document.body = { dataset: {}, attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); } };
   globalThis.__stubReturns = { "onboarding.initTourButtons": (opts) => { tourCalls.push(["init", opts]); }, "onboarding.autoStartOnce": (key, ready, fn) => { tourCalls.push(["auto", key, ready, fn]); },
     "onboarding.createTour": (config) => { tourCalls.push(["create", config]); return { start: () => tourCalls.push(["start"]) }; } };
-  doc = { els: {}, listeners: {}, activeElement: null, body: null, getElementById(id) { return this.els[id] || null; },
+  doc = { els: {}, listeners: {}, activeElement: null, body: null, documentElement: { lang: "", dir: "" }, getElementById(id) { return this.els[id] || null; },
     addEventListener(t, fn, capture) { (this.listeners[capture ? `${t}:capture` : t] ||= []).push(fn); },
     removeEventListener(t, fn, capture) { const k = capture ? `${t}:capture` : t; this.listeners[k] = (this.listeners[k] || []).filter((f) => f !== fn); },
     createElement(tag) { const e = mkEl(); e.tag = tag; return e; } };
@@ -200,6 +200,14 @@ PINS = [
         return [first, cancel, plain, ok, defaults, insideStays, outside, enterStays, [await answer(p4), esc.stopped, o4.removed, keyCount()]]; })()""",
      J([["hf-confirm-overlay", "hf-confirm", DIALOG, 1, 1], [False, True, 0], [False, True], True, True, False, [False, True], [False, False], [False, True, True, 0]]),
      "окно вопроса: разметка с экранированием, фокус на OK; «Отмена», клик мимо окна и Esc — «нет», OK — «да», клик внутри и другие клавиши не закрывают; слушатель клавиш уходит с окном; по умолчанию — «Удалить», опасное"),
+
+    ("start_says_the_page_language", "",
+     r"""await (async () => { localStorage.setItem("llamacppAdminLang", "ar"); await boot(); const ar = [doc.documentElement.lang, doc.documentElement.dir];
+        reset(); localStorage.setItem("llamacppAdminLang", "de"); await boot(); const de = [doc.documentElement.lang, doc.documentElement.dir];
+        reset(); await boot(); return [...ar, ...de, doc.documentElement.lang, doc.documentElement.dir]; })()""",
+     J(["ar", "", "de", "", "en", ""]),
+     "/hf говорит свой язык (lang): арабский, немецкий, английский по умолчанию; negative: направления не пишет ни один — язык только перевод, "
+     "раскладка слева направо у всех (владелец, 2026-11-07: зеркальный арабский читался сломанным интерфейсом)"),
 
     ("start_wires_the_page", "",
      r"""await (async () => { const made = await boot({ "/api/hf/token": { ok: true, set: true, masked: "hf_…Zx9q" }, "/api/hf/favorites": { ok: true, favorites: [{ id: G, downloads: 61351, likes: 17 }] } });

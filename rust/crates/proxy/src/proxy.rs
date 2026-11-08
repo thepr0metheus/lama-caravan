@@ -2,6 +2,7 @@
 
 use crate::admission::Admission;
 use crate::board::Board;
+use crate::captions::Captions;
 use crate::clock::SystemZone;
 use crate::clock::{Clock, SystemClock};
 use crate::config::ProxyConfig;
@@ -42,6 +43,8 @@ pub struct Proxy {
     pub kept: Arc<KeptConnections>,
     /// The efforts each provider's models take, as their refusals listed them.
     pub efforts: EffortFit,
+    /// What the board's reader said of the pictures it read, kept in memory (`captions.rs`).
+    pub captions: Captions,
     /// The way out when a new version comes.
     pub drain: Arc<Drain>,
     /// The clocks.
@@ -85,6 +88,7 @@ impl Proxy {
             access,
             kept: Arc::new(KeptConnections::default()),
             efforts: EffortFit::default(),
+            captions: Captions::default(),
             drain: Arc::new(Drain::of_program(config.program.clone()).kept_by(config.keeper)),
             started_at: clock.epoch(),
             requests_seen: AtomicU64::new(0),
@@ -100,7 +104,8 @@ impl Proxy {
         format!("{}-{number}", (self.clock.epoch() * 1e9) as u128)
     }
 
-    /// The row of `pool` that serves now, the journal told when the pool's choice has moved. `excluded` is what the request has tried.
+    /// The row of `pool` that serves now, the journal told when the pool's choice has moved. `excluded` is what the request has tried;
+    /// `reads`, whether the board's reader reads its pictures for a row that cannot (`PoolQuestion::reads`).
     pub fn choose_row(
         &self,
         settings: &Settings,
@@ -108,9 +113,10 @@ impl Proxy {
         body: &[u8],
         path: &str,
         excluded: &BTreeSet<String>,
+        reads: bool,
     ) -> RowChoice {
         let free = |output: &MachineOutput| Admission::has_room(self, output, &settings.policy);
-        let (choice, event) = self.pools.resolve(&PoolQuestion { settings, pool, body, path, excluded, free: &free });
+        let (choice, event) = self.pools.resolve(&PoolQuestion { settings, pool, body, path, excluded, free: &free, reads });
         if let Some(event) = event {
             self.recorder.event("pool_switch", "", "", None, event);
         }

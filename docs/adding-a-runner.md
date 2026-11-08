@@ -98,7 +98,9 @@ Everything the browser needs to know about a runner it reads from the registry (
 `stArchs`, `ggufArchs`), the devices (`gpuOnly`, and `oneCard` for a server that runs on one card: on a machine with two cards the form then asks which one;
 `autoDevice` for one that picks its device itself while nothing pins it: the form offers an "auto" tile),
 the VRAM figure (`vramPlan`), the launcher and its arguments
-(`launcher`, `launcherArgs`, `folderRule`). A new runner is a row, not an edit of seven files; if a place
+(`launcher`, `launcherArgs`, `folderRule`), and the companion files the runner finds beside its model itself
+(`ownCompanions`, the row's `own_companions`: what its `complete` fills at a save — the form keeps the cell's files
+there and draws no suggestion of the model list over them). A new runner is a row, not an edit of seven files; if a place
 still names runners by id, that place is the defect.
 
 ## Checking it

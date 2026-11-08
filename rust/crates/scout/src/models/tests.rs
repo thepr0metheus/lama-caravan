@@ -12,7 +12,7 @@ use super::*;
 use crate::config::ScoutConfig;
 use crate::http_client::HttpClient;
 use crate::state::ScoutState;
-use crate::tests::{HandClock, StandIn, TestFolder};
+use crate::tests::{HandClock, HandDisks, StandIn, TestFolder};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -33,8 +33,8 @@ const RECORD: &str = ".caravan-downloads.json";
 #[derive(Default)]
 struct Cells {
     held: Mutex<Vec<String>>,
-    live: Mutex<BTreeSet<i64>>,
-    loading: Mutex<BTreeSet<i64>>,
+    live: Mutex<BTreeSet<String>>,
+    loading: Mutex<BTreeSet<String>>,
 }
 
 impl CellsInUse for Cells {
@@ -42,12 +42,17 @@ impl CellsInUse for Cells {
         self.held.lock().unwrap().clone()
     }
 
-    fn live_ports(&self) -> BTreeSet<i64> {
+    fn live_cells(&self) -> BTreeSet<String> {
         self.live.lock().unwrap().clone()
     }
 
-    fn loading_ports(&self) -> BTreeSet<i64> {
+    fn loading_cells(&self) -> BTreeSet<String> {
         self.loading.lock().unwrap().clone()
+    }
+
+    /// The test's cells are called by their names: no port is leased here.
+    fn called(&self, cells: &BTreeSet<String>) -> Vec<String> {
+        cells.iter().cloned().collect()
     }
 }
 
@@ -63,6 +68,7 @@ struct Rig {
     work: CacheKeeper,
     cells: Arc<Cells>,
     clock: Arc<HandClock>,
+    disks: Arc<HandDisks>,
 }
 
 impl Rig {
@@ -80,6 +86,7 @@ impl Rig {
         let clock = HandClock::at(1000);
         let splits = Arc::new(SplitGguf::new().unwrap());
         let report: Progress = Arc::new(|_, _| {});
+        let disks = Arc::new(HandDisks::default());
         let parts = ShelfParts::new(
             Arc::clone(&config),
             report,
@@ -87,6 +94,7 @@ impl Rig {
             Arc::<HandClock>::clone(&clock),
             Arc::new(HttpClient::new()),
             Arc::clone(&splits),
+            Arc::<HandDisks>::clone(&disks),
         )
         .with_view_word(can);
         let (models, work_models) =
@@ -102,7 +110,7 @@ impl Rig {
             )
         };
         let (keeper, work) = (keeper_of(&models), keeper_of(&work_models));
-        Self { folder, cache, config, state, models, keeper, work_models, work, cells, clock }
+        Self { folder, cache, config, state, models, keeper, work_models, work, cells, clock, disks }
     }
 
     /// A file in the cache this scout did not download.
@@ -143,13 +151,13 @@ impl Rig {
     }
 
     /// A start of these files that got as far as a running process.
-    fn ran(&self, port: i64, files: &[&str]) {
-        self.begin(port, files);
-        self.keeper.uses.commit(port);
+    fn ran(&self, cell: &str, files: &[&str]) {
+        self.begin(cell, files);
+        self.keeper.uses.commit(cell);
     }
 
-    fn begin(&self, port: i64, files: &[&str]) {
-        self.keeper.uses.begin(port, &files.iter().map(|file| (*file).to_string()).collect::<Vec<_>>());
+    fn begin(&self, cell: &str, files: &[&str]) {
+        self.keeper.uses.begin(cell, &files.iter().map(|file| (*file).to_string()).collect::<Vec<_>>());
     }
 
     /// The files in the cache, its hidden ones not.
@@ -790,13 +798,60 @@ fn the_parts_of_a_split_model_are_named_from_its_first() {
 }
 
 #[test]
+fn a_start_may_bring_fewer_parts_of_a_split_than_its_name_says() {
+    let splits = SplitGguf::new().unwrap();
+    let six = "ds/iq1m/set-00001-of-00006.gguf";
+    let five: Vec<String> = (1..=5).map(|at| format!("ds/iq1m/set-{at:05}-of-00006.gguf")).collect();
+    assert_eq!(
+        splits.brought(six, Some(&json!({"parts": 5}))).unwrap(),
+        five,
+        "an IST-DAS set: its sixth part is the Engram, named apart"
+    );
+    assert_eq!(splits.brought(six, Some(&json!({"parts": 1}))).unwrap(), [six], "a part read for its metadata comes alone");
+    assert_eq!(splits.brought(six, None).unwrap().len(), 6, "no word: every part, as the name says");
+    assert_eq!(
+        splits.brought(six, Some(&json!({"path": "/lib/x", "size": 3}))).unwrap().len(),
+        6,
+        "a hint silent on parts: every part"
+    );
+    assert_eq!(splits.brought(six, Some(&json!({"parts": null}))).unwrap().len(), 6, "null is no word");
+    for wrong in [json!(0), json!(7), json!(-1), json!("5"), json!(2.5)] {
+        let refused = splits.brought(six, Some(&json!({"parts": wrong}))).err().unwrap();
+        assert!(refused.message.contains("which has 6"), "{wrong}: {}", refused.message);
+    }
+    assert_eq!(splits.brought("org/big.gguf", Some(&json!({"parts": 1}))).unwrap(), ["org/big.gguf"], "one file is one part");
+    assert!(splits.brought("org/big.gguf", Some(&json!({"parts": 2}))).is_err(), "and no more");
+}
+
+#[test]
+fn a_split_brings_only_the_parts_its_start_asks_for() {
+    // The controller holds parts 1 and 2 of three, as the library holds an IST-DAS set: the last is named apart.
+    const T1: &str = "org/t/q/t-00001-of-00003.gguf";
+    const T2: &str = "org/t/q/t-00002-of-00003.gguf";
+    let controller = controller_of(&[(T1, b"one"), (T2, b"two")]);
+    let rig = Rig::new("brought").with_controller(&controller);
+    rig.models.ensure(T1, &Fetch { hint: Some(json!({"parts": 2})), ..fetch() }).unwrap();
+    assert_eq!(fs::read(rig.cache.join(T2)).unwrap(), b"two");
+    let asked = [format!("/api/models/download?path={T1}"), format!("/api/models/download?path={T2}")];
+    assert_eq!(controller.targets(), asked, "the third is not asked for");
+    // Without the word the third is asked for, and its lack refuses the start.
+    let rig = Rig::new("brought-all").with_controller(&controller);
+    assert!(rig.models.ensure(T1, &fetch()).is_err(), "every part, as the name says");
+    // A number past the split refuses before a byte is fetched.
+    let rig = Rig::new("brought-wrong").with_controller(&controller);
+    let before = controller.targets().len();
+    assert!(rig.models.ensure(T1, &Fetch { hint: Some(json!({"parts": 4})), ..fetch() }).is_err());
+    assert_eq!(controller.targets().len(), before, "nothing fetched");
+}
+
+#[test]
 fn only_a_cell_s_own_scratch_is_cleared() {
     let rig = Rig::new("scratch");
     rig.put(".cells/22001/made.bin", b"x");
     let other = rig.put(".cells/22002/made.bin", b"x");
-    assert!(rig.models.clear_scratch(22001));
-    assert!(!rig.cache.join(".cells/22001").exists() && other.exists());
-    assert!(!rig.models.clear_scratch(22001), "there was none");
+    assert!(rig.models.clear_scratch("c22001"));
+    assert!(!rig.cache.join(".cells/c22001").exists() && other.exists());
+    assert!(!rig.models.clear_scratch("c22001"), "there was none");
 }
 
 #[test]
@@ -1187,38 +1242,43 @@ fn the_budget_is_a_whole_number_of_bytes_and_null_takes_it_off() {
 fn the_log_of_starts_is_newest_first_and_a_model_that_ran_keeps_its_word() {
     let rig = Rig::new("uses");
     let uses = &rig.keeper.uses;
-    rig.begin(22001, &[A, "", "  ", C_MM]);
+    rig.begin("c22001", &[A, "", "  ", C_MM]);
     let first = &uses.entries()[0];
-    assert_eq!((&first["files"], &first["port"], &first["ok"]), (&json!([A, C_MM]), &json!(22001), &json!(false)));
-    rig.begin(22002, &[B]);
-    uses.commit(22001);
+    assert_eq!((&first["files"], &first["cell"], &first["ok"]), (&json!([A, C_MM]), &json!("c22001"), &json!(false)));
+    rig.begin("c22002", &[B]);
+    uses.commit("c22001");
     let row = |entry: &Value| {
-        (entry["files"][0].as_str().unwrap().to_string(), entry["port"].as_i64().unwrap(), entry["ok"].as_bool().unwrap())
+        (
+            entry["files"][0].as_str().unwrap().to_string(),
+            entry["cell"].as_str().unwrap().to_string(),
+            entry["ok"].as_bool().unwrap(),
+        )
     };
-    assert_eq!(uses.entries().iter().map(row).collect::<Vec<_>>(), [(B.to_string(), 22002, false), (A.to_string(), 22001, true)]);
-    rig.begin(22003, &[A]);
+    let entry = |file: &str, cell: &str, ok: bool| (file.to_string(), cell.to_string(), ok);
+    assert_eq!(uses.entries().iter().map(row).collect::<Vec<_>>(), [entry(B, "c22002", false), entry(A, "c22001", true)]);
+    rig.begin("c22003", &[A]);
     assert_eq!(
         uses.entries().iter().map(row).collect::<Vec<_>>(),
-        [(A.to_string(), 22003, true), (B.to_string(), 22002, false)],
+        [entry(A, "c22003", true), entry(B, "c22002", false)],
         "a model that ran is not unmade by a start that may fail"
     );
-    uses.commit(99999);
+    uses.commit("c99999");
     assert_eq!(uses.entries().len(), 2);
-    rig.begin(22009, &["", "  "]);
+    rig.begin("c22009", &["", "  "]);
     assert_eq!(uses.entries().len(), 2, "a start that names no file is no entry");
     for at in 0..30 {
-        rig.begin(23000 + at, &[&format!("m{at}.gguf")]);
+        rig.begin(&format!("c{}", 23000 + at), &[&format!("m{at}.gguf")]);
     }
     assert_eq!(uses.entries().len(), 20);
     assert_eq!(uses.entries()[0]["files"], json!(["m29.gguf"]));
     rig.state.change(|doc| {
         doc.insert(
             "modelUse".to_string(),
-            json!([1, "x", {"files": []}, {"files": [3]}, {"files": ["a.gguf"], "port": 1, "ok": true}, {"nofiles": 1}]),
+            json!([1, "x", {"files": []}, {"files": [3]}, {"files": ["a.gguf"], "cell": "c1", "ok": true}, {"nofiles": 1}]),
         )
     });
     assert_eq!(uses.entries().len(), 1, "junk is skipped, a sound entry is read");
-    assert_eq!(uses.newest(1), [json!({"files": ["a.gguf"], "port": 1, "ok": true})]);
+    assert_eq!(uses.newest(1), [json!({"files": ["a.gguf"], "cell": "c1", "ok": true})]);
     assert_eq!(uses.newest(0), Vec::<Value>::new());
 }
 
@@ -1227,7 +1287,7 @@ fn nothing_is_trimmed_while_no_model_is_known_to_have_run() {
     let rig = Rig::shelf("trim-waiting");
     let before = rig.left();
     assert_eq!(rig.keeper.trim(), json!({"removed": 0, "freedBytes": 0, "waiting": true}), "unknown is not nothing");
-    rig.begin(22005, &[A]);
+    rig.begin("c22005", &[A]);
     assert_eq!(rig.keeper.trim()["waiting"], json!(true), "a start that reached no running process is no model that ran");
     assert_eq!(rig.left(), before);
     assert_eq!(rig.keeper.set_keep(&json!(1)).unwrap()["waiting"], json!(true));
@@ -1237,9 +1297,9 @@ fn nothing_is_trimmed_while_no_model_is_known_to_have_run() {
 #[test]
 fn a_trim_keeps_the_last_model_with_its_files_and_takes_what_is_older_and_never_a_foreign_file() {
     let rig = Rig::shelf("trim");
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
     let result = rig.keeper.trim();
     assert_eq!(rig.left(), sorted(vec![C, C_MM, FOREIGN]));
     assert_eq!(result, json!({"removed": 5, "freedBytes": 87, "waiting": false}), "A, B, both parts and the folder as one entry");
@@ -1251,17 +1311,17 @@ fn a_trim_keeps_the_last_model_with_its_files_and_takes_what_is_older_and_never_
 fn a_trim_keeps_as_many_models_as_the_setting_says() {
     let rig = Rig::shelf("trim-two");
     rig.keeper.keep.set(&json!(2)).unwrap();
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
     rig.keeper.trim();
     assert_eq!(rig.left(), sorted(vec![B, C, C_MM, FOREIGN]));
 
     let rig = Rig::shelf("trim-five");
     rig.keeper.keep.set(&json!(5)).unwrap();
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
     rig.keeper.trim();
     assert_eq!(rig.left(), sorted(vec![A, B, C, C_MM, FOREIGN]), "and what never ran in this log is not one of them");
 }
@@ -1269,20 +1329,20 @@ fn a_trim_keeps_as_many_models_as_the_setting_says() {
 #[test]
 fn a_kept_model_keeps_every_part_and_a_folder_stays_or_goes_whole() {
     let rig = Rig::shelf("trim-parts");
-    rig.ran(22001, &[S1]);
-    rig.ran(22002, &[C]);
+    rig.ran("c22001", &[S1]);
+    rig.ran("c22002", &[C]);
     rig.keeper.set_keep(&json!(2)).unwrap();
     assert!(rig.cache.join(S1).exists() && rig.cache.join(S2).exists(), "the engine opens the other parts by name");
 
     let rig = Rig::shelf("trim-folder-goes");
-    rig.ran(22001, &[FOLDER]);
-    rig.ran(22002, &[C]);
+    rig.ran("c22001", &[FOLDER]);
+    rig.ran("c22002", &[C]);
     rig.keeper.trim();
     assert!(!rig.cache.join(FOLDER).exists());
 
     let rig = Rig::shelf("trim-folder-stays");
-    rig.ran(22001, &[C]);
-    rig.ran(22002, &[FOLDER]);
+    rig.ran("c22001", &[C]);
+    rig.ran("c22002", &[FOLDER]);
     rig.keeper.trim();
     assert!(rig.cache.join(FOLDER).join("FP32/weights.bin").is_file() && !rig.cache.join(C).exists());
 }
@@ -1290,17 +1350,17 @@ fn a_kept_model_keeps_every_part_and_a_folder_stays_or_goes_whole() {
 #[test]
 fn a_running_process_or_a_live_cell_keeps_its_model_whatever_its_age() {
     let rig = Rig::shelf("trim-held");
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[C]);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[C]);
     rig.cells.held.lock().unwrap().push(rig.cache.join(A).to_string_lossy().into_owned());
     rig.keeper.trim();
     assert!(rig.cache.join(A).exists() && rig.cache.join(C).exists() && !rig.cache.join(B).exists());
 
     let rig = Rig::shelf("trim-starting");
-    rig.ran(22001, &[A]);
-    rig.begin(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
-    rig.cells.live.lock().unwrap().insert(22002);
+    rig.ran("c22001", &[A]);
+    rig.begin("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
+    rig.cells.live.lock().unwrap().insert("c22002".to_string());
     rig.keeper.trim();
     assert!(rig.cache.join(B).exists(), "a cell still starting has asked for its files from its first moment");
     assert!(!rig.cache.join(A).exists());
@@ -1309,10 +1369,10 @@ fn a_running_process_or_a_live_cell_keeps_its_model_whatever_its_age() {
     assert!(!rig.cache.join(B).exists(), "the same start that failed is no model that ran");
 
     let rig = Rig::shelf("trim-live");
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
-    rig.cells.live.lock().unwrap().insert(22001);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
+    rig.cells.live.lock().unwrap().insert("c22001".to_string());
     rig.keeper.trim();
     assert!(
         rig.cache.join(A).exists() && !rig.cache.join(B).exists(),
@@ -1323,8 +1383,8 @@ fn a_running_process_or_a_live_cell_keeps_its_model_whatever_its_age() {
 #[test]
 fn a_start_that_never_ran_takes_no_place_from_the_model_that_did() {
     let rig = Rig::shelf("trim-not-ran");
-    rig.ran(22001, &[A]);
-    rig.begin(22002, &[B]);
+    rig.ran("c22001", &[A]);
+    rig.begin("c22002", &[B]);
     rig.keeper.trim();
     assert!(rig.cache.join(A).exists(), "the last model that ran");
     assert!(!rig.cache.join(B).exists(), "the newest asked for, its start not over and its cell not alive");
@@ -1333,8 +1393,8 @@ fn a_start_that_never_ran_takes_no_place_from_the_model_that_did() {
 #[test]
 fn a_trim_leaves_a_file_being_written_until_its_download_is_over() {
     let rig = Rig::shelf("trim-flight");
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[C, C_MM]);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[C, C_MM]);
     let tmp = rig.ours("org/b/q4/b-Q4.gguf.tmp", &[b'x'; 3]);
     rig.models.flying(&tmp, true);
     rig.keeper.trim();
@@ -1348,9 +1408,9 @@ fn a_trim_leaves_a_file_being_written_until_its_download_is_over() {
 fn lowering_the_setting_trims_at_once_and_raising_it_or_a_refused_number_takes_nothing() {
     let rig = Rig::shelf("trim-set");
     rig.keeper.keep.set(&json!(3)).unwrap();
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
     let result = rig.keeper.set_keep(&json!(1)).unwrap();
     assert_eq!((&result["keep"], &result["waiting"]), (&json!(1), &json!(false)));
     assert!(!rig.cache.join(A).exists() && !rig.cache.join(B).exists() && rig.cache.join(C).exists());
@@ -1363,17 +1423,17 @@ fn lowering_the_setting_trims_at_once_and_raising_it_or_a_refused_number_takes_n
 }
 
 /// A cache of models that weigh gibibytes and take no room: A 10, B 20, C and its projector 35, the rest 57, all of them this scout's, and one foreign file.
-fn weighed(name: &str, budget: i64, live: &[i64]) -> Rig {
+fn weighed(name: &str, budget: i64, live: &[&str]) -> Rig {
     const GIB: u64 = 1 << 30;
     let rig = Rig::new(name);
     for (rel, size) in [(A, 10), (B, 20), (C, 30), (C_MM, 5), (S1, 7), (S2, 8), ("fold/x.gguf", 42)] {
         rig.ours_of(rel, size * GIB);
     }
     rig.put(FOREIGN, b"f");
-    rig.ran(22001, &[A]);
-    rig.ran(22002, &[B]);
-    rig.ran(22003, &[C, C_MM]);
-    rig.cells.live.lock().unwrap().extend(live);
+    rig.ran("c22001", &[A]);
+    rig.ran("c22002", &[B]);
+    rig.ran("c22003", &[C, C_MM]);
+    rig.cells.live.lock().unwrap().extend(live.iter().map(|cell| cell.to_string()));
     rig.keeper.set_budget(&json!(budget << 30)).unwrap();
     rig
 }
@@ -1385,8 +1445,8 @@ fn a_budget_keeps_the_newest_that_fit_and_lets_an_older_one_take_the_room_of_one
         (55, &[][..], vec![B, C, C_MM]),
         (50, &[][..], vec![A, C, C_MM]),
         (30, &[][..], vec![A, B]),
-        (40, &[22002][..], vec![A, B]),
-        (5, &[22003][..], vec![C, C_MM]),
+        (40, &["c22002"][..], vec![A, B]),
+        (5, &["c22003"][..], vec![C, C_MM]),
     ] {
         let rig = weighed(&format!("budget-{budget}"), budget, live);
         let mut want = want;
@@ -1488,10 +1548,10 @@ fn foreign_files_go_only_with_the_figure_the_operator_was_shown() {
 fn a_deletion_of_foreign_files_prunes_empty_folders_but_not_the_hidden_ones() {
     let rig = Rig::new("foreign-prune");
     let scratch = rig.put(".cells/22001/x", b"1");
-    fs::create_dir_all(rig.cache.join(".cells/22002")).unwrap();
+    fs::create_dir_all(rig.cache.join(".cells/c22002")).unwrap();
     rig.put("org/zz/lonely.gguf", &[b'x'; 4]);
     assert_eq!(rig.keeper.delete_foreign(Some(&json!(4))).unwrap()["removed"], json!(1));
-    assert!(scratch.is_file() && rig.cache.join(".cells/22002").is_dir(), "a cell's scratch not yet filled");
+    assert!(scratch.is_file() && rig.cache.join(".cells/c22002").is_dir(), "a cell's scratch not yet filled");
     assert!(!rig.cache.join("org").exists());
 }
 
@@ -1509,7 +1569,7 @@ fn the_figures_are_reused_for_some_seconds_and_measured_again_after_a_deletion()
     assert_eq!(rig.keeper.facts()["keep"], json!(4), "the setting is never reused");
     rig.clock.pass(21);
     assert_eq!(rig.keeper.facts()["foreign"]["bytes"], json!(109));
-    rig.ran(22001, &[C]);
+    rig.ran("c22001", &[C]);
     rig.keeper.keep.set(&json!(1)).unwrap();
     rig.keeper.trim();
     assert_eq!(rig.keeper.facts()["managedBytes"], json!(30), "a trim makes the next report measure again");
@@ -1557,12 +1617,12 @@ fn a_move_that_is_refused_deletes_nothing_and_the_cache_stays() {
         assert_eq!(rig.models.cache_dir(), rig.cache, "{path}");
         assert_eq!(rig.left(), before, "{path}");
     }
-    rig.cells.loading.lock().unwrap().extend([22005, 22003]);
+    rig.cells.loading.lock().unwrap().extend(["c22005", "c22003"].map(String::from));
     let hdd = rig.folder.path.join("hdd");
     let refused = rig.keeper.move_to(&text(&hdd), &Value::Null).err().unwrap();
     assert_eq!(
         (refused.status, refused.message.as_str()),
-        (409, "the cache does not move while a cell is bringing its model: :22003, :22005 — try again when it runs")
+        (409, "the cache does not move while a cell is bringing its model: c22003, c22005 — try again when it runs")
     );
     assert!(!hdd.exists(), "a refused move makes no folder on the disk it named");
     assert_eq!(rig.models.cache_dir(), rig.cache);
@@ -1614,7 +1674,7 @@ fn the_cache_is_not_turned_off_with_no_way_to_read_or_while_a_start_brings_its_f
     assert_eq!(rig.left(), before);
     assert!(!rig.models.off.is_off());
     fs::create_dir_all(&library).unwrap();
-    rig.cells.loading.lock().unwrap().insert(22003);
+    rig.cells.loading.lock().unwrap().insert("c22003".to_string());
     assert_eq!(
         rig.keeper.set_off(&json!(true), &json!(library.to_string_lossy())).err().map(|refused| refused.status),
         Some(409)
@@ -1643,13 +1703,13 @@ fn a_cache_that_is_off_brings_nothing_to_this_disk() {
 }
 
 /// A cell's scratch folder on the cache with a file of this many bytes in it.
-fn made(rig: &Rig, port: i64, bytes: usize) -> PathBuf {
-    made_on(&rig.models, port, bytes)
+fn made(rig: &Rig, cell: &str, bytes: usize) -> PathBuf {
+    made_on(&rig.models, cell, bytes)
 }
 
 /// The same on the shelf `models`.
-fn made_on(models: &ModelFetcher, port: i64, bytes: usize) -> PathBuf {
-    let folder = models.scratch(port);
+fn made_on(models: &ModelFetcher, cell: &str, bytes: usize) -> PathBuf {
+    let folder = models.scratch(cell);
     fs::create_dir_all(&folder).unwrap();
     fs::write(folder.join("pack.bin"), vec![b'p'; bytes]).unwrap();
     folder
@@ -1708,9 +1768,9 @@ fn a_split_model_of_another_size_brings_all_its_parts_again() {
 fn what_the_cells_made_is_counted_and_goes_with_clear_and_with_the_cache_going_off() {
     let rig = Rig::new("scratch");
     rig.ours(A, &[b'x'; 10]);
-    let (idle, running) = (made(&rig, 22001, 100), made(&rig, 22002, 200));
+    let (idle, running) = (made(&rig, "c22001", 100), made(&rig, "c22002", 200));
     assert_eq!(rig.keeper.facts()["managedBytes"], 310, "what the board says the cache holds is what lies in it");
-    rig.cells.live.lock().unwrap().insert(22002);
+    rig.cells.live.lock().unwrap().insert("c22002".to_string());
     let cleared = rig.keeper.clear_unheld();
     assert!(!idle.exists(), "made from a model that went");
     assert!(running.exists(), "a running cell writes there");
@@ -1731,10 +1791,10 @@ fn a_folder_in_the_scratch_with_no_port_s_name_is_not_taken() {
     let rig = Rig::new("scratch-other");
     let other = rig.cache.join(".cells/not-a-port");
     fs::create_dir_all(&other).unwrap();
-    made(&rig, 22001, 1);
+    made(&rig, "c22001", 1);
     rig.keeper.clear_unheld();
     assert!(other.exists());
-    assert!(!rig.models.scratch(22001).exists());
+    assert!(!rig.models.scratch("c22001").exists());
 }
 
 #[test]
@@ -1742,23 +1802,23 @@ fn what_a_cell_made_goes_when_the_trim_takes_its_model_and_stays_while_the_model
     let rig = Rig::new("scratch-trim");
     rig.ours(A, &[b'x'; 10]);
     rig.ours(B, &[b'x'; 10]);
-    let (a, b, unknown) = (made(&rig, 1, 1), made(&rig, 2, 1), made(&rig, 3, 1));
-    rig.keeper.uses.begin(1, &[A.to_string()]);
-    rig.keeper.commit(1);
+    let (a, b, unknown) = (made(&rig, "c1", 1), made(&rig, "c2", 1), made(&rig, "c3", 1));
+    rig.keeper.uses.begin("c1", &[A.to_string()]);
+    rig.keeper.commit("c1");
     assert!(a.exists(), "the model that ran stays, and what was made from it");
     assert!(!b.exists() && !unknown.exists(), "no model of the log stands behind these");
-    rig.keeper.uses.begin(2, &[B.to_string()]);
-    made(&rig, 2, 1);
-    rig.keeper.commit(2);
+    rig.keeper.uses.begin("c2", &[B.to_string()]);
+    made(&rig, "c2", 1);
+    rig.keeper.commit("c2");
     assert!(!a.exists(), "A left the cache: keep is one model");
-    assert!(rig.models.scratch(2).exists());
+    assert!(rig.models.scratch("c2").exists());
     assert!(!rig.cache.join(A).exists());
 }
 
 #[test]
 fn the_trim_takes_no_scratch_while_the_log_knows_no_model_that_ran() {
     let rig = Rig::new("scratch-waiting");
-    let kept = made(&rig, 1, 1);
+    let kept = made(&rig, "c1", 1);
     assert_eq!(rig.keeper.trim()["waiting"], true);
     assert!(kept.exists(), "unknown is not nothing");
 }
@@ -1769,11 +1829,11 @@ fn room_is_made_from_what_was_not_used_for_longest_and_only_until_there_is_enoug
     let (a, b, c, foreign) =
         (rig.ours(A, &[b'x'; 10]), rig.ours(B, &[b'x'; 10]), rig.ours(C, &[b'x'; 10]), rig.put(FOREIGN, b"mine"));
     let never_logged = rig.ours("org/n/never.gguf", &[b'x'; 10]);
-    let scratch_of_a = made(&rig, 1, 1);
-    for (port, file) in [(1, A), (2, B), (3, C)] {
-        rig.keeper.uses.begin(port, &[file.to_string()]);
+    let scratch_of_a = made(&rig, "c1", 1);
+    for (cell, file) in [("c1", A), ("c2", B), ("c3", C)] {
+        rig.keeper.uses.begin(cell, &[file.to_string()]);
     }
-    rig.cells.live.lock().unwrap().insert(3);
+    rig.cells.live.lock().unwrap().insert("c3".to_string());
     // The disk has the room of the copies that are gone.
     let free = || Some([&a, &b, &c, &never_logged].iter().filter(|path| !path.exists()).count() as u64);
     assert_eq!(rig.keeper.room_until(1, 1, &free), Ok(()));
@@ -1795,25 +1855,31 @@ fn room_is_made_from_what_was_not_used_for_longest_and_only_until_there_is_enoug
 #[test]
 fn a_copy_that_would_not_fit_is_refused_before_a_byte_is_written() {
     let rig = Rig::new("no-room");
-    // A length no disk has: the answer is refused by its head, and its body never read.
-    let head = b"HTTP/1.1 200 OK\r\nContent-Length: 1152921504606846976\r\nConnection: close\r\n\r\nx".to_vec();
+    // 1 GB, and the 2 GB the machine keeps beside a copy, on a disk with 2 GB free: the answer is refused by its head, and its body never read.
+    let head = b"HTTP/1.1 200 OK\r\nContent-Length: 1073741824\r\nConnection: close\r\n\r\nx".to_vec();
     let controller = StandIn::serving(move |_| head.clone());
     let rig = rig.with_controller(&controller);
+    rig.disks.has(&rig.cache, Some(2 << 30));
     let refused = rig.models.ensure(A, &Fetch::default()).unwrap_err();
-    assert!(
-        refused.message.contains("no room for a-Q4.gguf: it takes 1073741824.0 GB"),
-        "no keeper stands: the disk says it, {refused:?}"
+    let words = format!(
+        "no room for a-Q4.gguf: it takes 1.0 GB and {} has 2.0 GB free, with every copy no cell is using gone. Nothing was copied. {}",
+        rig.cache.display(),
+        Shelf::CACHE.when_full
     );
-    assert!(refused.message.contains("Nothing was copied. Move the cache to a bigger folder"), "{refused:?}");
+    assert!(refused.message.contains(&words), "no keeper stands: the disk says it, {refused:?}");
     let asked = Arc::new(Mutex::new(Vec::new()));
     let heard = Arc::clone(&asked);
-    rig.models.room_comes_from(Arc::new(move |bytes, label| {
-        heard.lock().unwrap().push((bytes, label.to_string()));
+    rig.models.room_comes_from(Arc::new(move |bytes, label, free| {
+        heard.lock().unwrap().push((bytes, label.to_string(), free()));
         Err(format!("the keeper's words for {label}"))
     }));
     let refused = rig.models.ensure(A, &Fetch::default()).unwrap_err();
     assert!(refused.message.contains("the keeper's words for a-Q4.gguf"), "{refused:?}");
-    assert_eq!(*asked.lock().unwrap(), [(1 << 60, "a-Q4.gguf".to_string())], "the keeper was asked first, for the file");
+    assert_eq!(
+        *asked.lock().unwrap(),
+        [(1 << 30, "a-Q4.gguf".to_string(), Some(2 << 30))],
+        "the keeper was asked first, for the file, and handed what the cache's disk has free"
+    );
     assert!(!rig.cache.join(A).exists());
     assert!(!rig.cache.join(A).with_extension("tmp").exists(), "not a byte");
     assert!(!rig.cache.join("org").exists(), "and no folder made for it is left");
@@ -1875,18 +1941,22 @@ fn copy_on(models: &ModelFetcher, rel: &str, size: u64) -> PathBuf {
 #[test]
 fn each_shelf_keeps_what_its_cells_make_in_its_own_folder() {
     let rig = Rig::new("work-chosen");
-    assert_eq!(rig.models.scratch(22001), rig.cache.join(".cells/22001"), "the cache's cells: in the cache's folder, as always");
     assert_eq!(
-        rig.work_models.scratch(22009),
-        rig.cache.join(".strata/.cells/22009"),
+        rig.models.scratch("c22001"),
+        rig.cache.join(".cells/c22001"),
+        "the cache's cells: in the cache's folder, as always"
+    );
+    assert_eq!(
+        rig.work_models.scratch("c22009"),
+        rig.cache.join(".strata/.cells/c22009"),
         "none chosen: a folder of its own, where nothing is written, for no start that needs it begins"
     );
     assert!(!rig.work_models.folder_chosen());
     let work = work_of(&rig, "ssd");
     assert!(rig.work_models.folder_chosen());
-    assert_eq!(rig.work_models.scratch(22009), work.join(".cells/22009"));
-    assert_eq!(rig.models.scratch(22001), rig.cache.join(".cells/22001"), "the cache's cells stay where they were");
-    let new = made_on(&rig.work_models, 22009, 10);
+    assert_eq!(rig.work_models.scratch("c22009"), work.join(".cells/c22009"));
+    assert_eq!(rig.models.scratch("c22001"), rig.cache.join(".cells/c22001"), "the cache's cells stay where they were");
+    let new = made_on(&rig.work_models, "c22009", 10);
     let copy = copy_on(&rig.work_models, B, 20);
     fs::write(work.join("operator.txt"), b"his").unwrap();
     let back = rig.work.set_work(&json!(""), &Value::Null).unwrap();
@@ -1904,14 +1974,14 @@ fn each_shelf_keeps_what_its_cells_make_in_its_own_folder() {
 fn the_board_hears_what_each_shelf_keeps_and_each_counts_only_its_own() {
     let rig = Rig::new("work-facts");
     rig.ours(A, &[b'x'; 30]);
-    made(&rig, 22001, 100);
+    made(&rig, "c22001", 100);
     assert_eq!(rig.keeper.facts()["managedBytes"], 130, "what the cache's cells made takes its disk like a copy");
     let quiet = json!({"dir": rig.cache.join(".strata").to_string_lossy(), "chosen": false, "budgetBytes": 300i64 << 30, "budgetChosen": false});
     assert_eq!(rig.work.work_facts(), quiet, "no folder: nothing to measure, and the limit is the owner's 300 GB");
     let work = work_of(&rig, "ssd");
     copy_on(&rig.work_models, B, 20);
     copy_on(&rig.work_models, C, 25);
-    made_on(&rig.work_models, 22009, 70);
+    made_on(&rig.work_models, "c22009", 70);
     rig.work.forget_figures();
     let facts = rig.work.work_facts();
     assert_eq!(facts["dir"], json!(work.to_string_lossy()));
@@ -1926,12 +1996,12 @@ fn the_board_hears_what_each_shelf_keeps_and_each_counts_only_its_own() {
 fn the_folder_for_strata_s_files_does_not_move_while_a_cell_keeps_files_there_or_brings_its_model() {
     let rig = Rig::new("work-busy");
     let first = work_of(&rig, "ssd");
-    let writing = made_on(&rig.work_models, 22009, 5);
-    rig.cells.live.lock().unwrap().insert(22009);
+    let writing = made_on(&rig.work_models, "c22009", 5);
+    rig.cells.live.lock().unwrap().insert("c22009".to_string());
     let hdd = json!(rig.folder.path.join("hdd").to_string_lossy());
     let refused = rig.work.set_work(&hdd, &Value::Null).unwrap_err();
     assert_eq!(refused.status, 409);
-    assert!(refused.message.contains(":22009"), "{}", refused.message);
+    assert!(refused.message.contains("c22009"), "{}", refused.message);
     assert!(writing.exists() && rig.work_models.cache_dir() == first, "nothing moved");
     assert!(!rig.folder.path.join("hdd").exists(), "and a refused move made no folder on the disk it named");
     rig.cells.live.lock().unwrap().clear();
@@ -1939,12 +2009,12 @@ fn the_folder_for_strata_s_files_does_not_move_while_a_cell_keeps_files_there_or
     let refused = rig.work.set_work(&hdd, &Value::Null).unwrap_err();
     assert!(refused.message.contains("a cell that reads its model there"), "{}", refused.message);
     rig.cells.held.lock().unwrap().clear();
-    rig.cells.loading.lock().unwrap().insert(22011);
+    rig.cells.loading.lock().unwrap().insert("c22011".to_string());
     let refused = rig.work.set_work(&hdd, &Value::Null).unwrap_err();
     assert_eq!(refused.status, 409);
-    assert!(refused.message.contains(":22011"), "{}", refused.message);
+    assert!(refused.message.contains("c22011"), "{}", refused.message);
     rig.cells.loading.lock().unwrap().clear();
-    rig.cells.live.lock().unwrap().insert(22010);
+    rig.cells.live.lock().unwrap().insert("c22010".to_string());
     assert!(rig.work.set_work(&hdd, &Value::Null).is_ok(), "a running cell with no files here keeps running where it is");
     assert!(!writing.exists(), "the stopped cell's files went");
 }
@@ -1967,7 +2037,7 @@ fn the_folder_for_strata_s_files_may_not_lie_in_the_cache_s_and_the_cache_may_no
 fn the_cache_cleared_or_turned_off_leaves_strata_s_shelf_alone() {
     let rig = Rig::new("work-apart");
     let work = work_of(&rig, "ssd");
-    let (stopped, copy) = (made_on(&rig.work_models, 1, 10), copy_on(&rig.work_models, B, 20));
+    let (stopped, copy) = (made_on(&rig.work_models, "c1", 10), copy_on(&rig.work_models, B, 20));
     rig.ours(A, &[b'x'; 5]);
     let cleared = rig.keeper.clear_unheld();
     assert_eq!(cleared["freedBytes"], 5, "only the cache's copy");
@@ -2000,16 +2070,16 @@ fn strata_s_models_stay_after_their_start_and_only_its_limit_takes_the_oldest() 
     rig.work.set_budget(&json!(2i64 << 30)).unwrap();
     let gib = 1u64 << 30;
     // A start names its files before they come, as a start does (Cells::asks), and the trim at its end sees them.
-    rig.work.uses.begin(22009, &[A.to_string()]);
-    let (a, made_a) = (copy_on(&rig.work_models, A, gib), made_on(&rig.work_models, 22009, 3));
-    rig.work.commit(22009);
-    rig.work.uses.begin(22010, &[B.to_string()]);
+    rig.work.uses.begin("c22009", &[A.to_string()]);
+    let (a, made_a) = (copy_on(&rig.work_models, A, gib), made_on(&rig.work_models, "c22009", 3));
+    rig.work.commit("c22009");
+    rig.work.uses.begin("c22010", &[B.to_string()]);
     let b = copy_on(&rig.work_models, B, gib / 2);
-    rig.work.commit(22010);
+    rig.work.commit("c22010");
     assert!(a.exists() && b.exists() && made_a.exists(), "1.5 GiB in a 2 GiB shelf: both stay after their cells stopped");
-    rig.work.uses.begin(22011, &[C.to_string()]);
+    rig.work.uses.begin("c22011", &[C.to_string()]);
     let c = copy_on(&rig.work_models, C, gib);
-    rig.work.commit(22011);
+    rig.work.commit("c22011");
     assert!(!a.exists() && !made_a.exists(), "the oldest went, and what was made from it");
     assert!(b.exists() && c.exists());
     assert_eq!(rig.models.downloaded.paths(), Vec::<PathBuf>::new(), "the cache's record never heard of them");
@@ -2019,12 +2089,12 @@ fn strata_s_models_stay_after_their_start_and_only_its_limit_takes_the_oldest() 
 fn each_shelf_keeps_its_own_log_and_a_strata_start_takes_no_place_from_the_cache_s_last_model() {
     let rig = Rig::new("work-log");
     work_of(&rig, "ssd");
-    rig.keeper.uses.begin(22001, &[A.to_string()]);
+    rig.keeper.uses.begin("c22001", &[A.to_string()]);
     let a = rig.ours(A, &[b'a'; 10]);
-    rig.keeper.commit(22001);
-    rig.work.uses.begin(22009, &[B.to_string()]);
+    rig.keeper.commit("c22001");
+    rig.work.uses.begin("c22009", &[B.to_string()]);
     let b = copy_on(&rig.work_models, B, 20);
-    rig.work.commit(22009);
+    rig.work.commit("c22009");
     rig.keeper.trim();
     assert!(a.exists(), "the cache keeps its last model: Strata's start is not one of its starts");
     assert!(b.exists());
@@ -2035,29 +2105,40 @@ fn each_shelf_keeps_its_own_log_and_a_strata_start_takes_no_place_from_the_cache
 #[test]
 fn a_copy_that_would_pass_strata_s_limit_makes_room_from_the_oldest_and_one_bigger_than_the_limit_is_refused() {
     let rig = Rig::new("work-room");
-    work_of(&rig, "ssd");
+    let work = work_of(&rig, "ssd");
     rig.work.set_budget(&json!(2i64 << 30)).unwrap();
     let gib = 1u64 << 30;
     let (a, b) = (copy_on(&rig.work_models, A, gib), copy_on(&rig.work_models, B, gib / 2));
-    for (port, file) in [(1, A), (2, B)] {
-        rig.work.uses.begin(port, &[file.to_string()]);
+    for (cell, file) in [("c1", A), ("c2", B)] {
+        rig.work.uses.begin(cell, &[file.to_string()]);
     }
+    // The disk is the test's: a roomy one leaves the limit alone to refuse, whatever disk the test runs on.
     let roomy = || Some(1u64 << 50);
     assert_eq!(rig.work.room_until(gib / 2, 0, &roomy), Ok(()), "2 GiB with it: it fits as they are");
     assert!(a.exists() && b.exists());
     assert_eq!(rig.work.room_until(gib, 0, &roomy), Ok(()));
     assert!(!a.exists() && b.exists(), "the oldest went, and only as much as the new one needs");
-    rig.cells.live.lock().unwrap().insert(2);
+    rig.cells.live.lock().unwrap().insert("c2".to_string());
     let short = rig.work.room_until(gib * 2, 0, &roomy).unwrap_err();
     assert_eq!(short, room::Short::Budget { budget: 2 * gib, held: gib / 2 }, "the copy a running cell reads stays");
-    let words = rig.work.make_room(gib * 3, "big.gguf").unwrap_err();
+    let words = rig.work.make_room(gib * 3, "big.gguf", &roomy).unwrap_err();
     assert!(
         words.contains("no room for big.gguf: it takes 3.0 GB, more than the 2.0 GB the folder for Strata's files may keep"),
         "{words}"
     );
     assert!(words.contains("Nothing was copied. Raise its limit"), "{words}");
-    let words = rig.work.make_room(gib * 2, "m.gguf").unwrap_err();
+    let words = rig.work.make_room(gib * 2, "m.gguf", &roomy).unwrap_err();
     assert!(words.contains("may keep 2.0 GB, 0.5 GB of which are models a running cell uses"), "{words}");
+    // Within the limit, and short on the disk: 0.5 GB and the 2 GB the machine keeps beside a copy do not go into 1 GB.
+    assert_eq!(
+        rig.work.make_room(gib / 2, "s.gguf", &|| Some(gib)),
+        Err(format!(
+            "no room for s.gguf: it takes 0.5 GB and {} has 1.0 GB free, with every copy no cell is using gone. Nothing was copied. {}",
+            work.display(),
+            Shelf::WORK.when_full
+        )),
+        "the disk refuses in its own words"
+    );
     assert!(b.exists());
 }
 
@@ -2100,14 +2181,14 @@ fn a_cache_that_moves_takes_the_scout_s_files_and_leaves_the_others() {
     let rig = Rig::new("move-carry");
     rig.ours(A, &[b'a'; 30]);
     rig.put(FOREIGN, b"theirs");
-    made(&rig, 22001, 5);
+    made(&rig, "c22001", 5);
     let hdd = rig.folder.path.join("hdd/models");
     let said = rig.keeper.move_to(&json!(hdd.to_string_lossy()), &json!("move")).unwrap();
     assert_eq!(said["moving"], true);
     moved(&rig);
     assert_eq!(rig.models.cache_dir(), hdd);
     assert_eq!(fs::read(hdd.join(A)).unwrap(), vec![b'a'; 30]);
-    assert!(hdd.join(".cells/22001/pack.bin").exists(), "what a stopped cell made goes with the cache it lies in");
+    assert!(hdd.join(".cells/c22001/pack.bin").exists(), "what a stopped cell made goes with the cache it lies in");
     assert!(rig.models.downloaded.has(&hdd.join(A)), "the record went too, and names the file where it is now");
     assert!(!rig.cache.join(A).exists() && !rig.cache.join(RECORD).exists() && !rig.cache.join(".cells").exists());
     assert!(rig.cache.join(FOREIGN).exists(), "a file this scout did not download stays where it was");
@@ -2148,6 +2229,24 @@ fn a_move_onto_a_file_of_the_same_name_or_by_a_word_it_does_not_know_is_refused_
 }
 
 #[test]
+fn a_move_the_new_folder_s_disk_cannot_take_is_refused_before_anything_is_written() {
+    let rig = Rig::new("move-no-room");
+    let copy = rig.ours_of(A, 1 << 29);
+    let hdd = rig.folder.path.join("hdd");
+    // 0.5 GB fits in 2 GB, the 2 GB the machine keeps beside it does not; the cache's own disk has as much as ever: the move asks the disk it goes to.
+    rig.disks.has(&hdd, Some(2 << 30));
+    let answer = rig.keeper.move_to(&json!(hdd.to_string_lossy()), &json!("move"));
+    assert_eq!(
+        answer.map_err(|refused| (refused.status, refused.message)),
+        Err((409, format!("{} has 2.0 GB free, and the move needs 0.5 GB with 2.0 GB to spare", hdd.display()))),
+        "the disk it goes to refuses it, in its words"
+    );
+    assert!(copy.exists() && !hdd.join(A).exists(), "nothing was written");
+    assert_eq!(rig.models.cache_dir(), rig.cache, "the setting stays");
+    assert!(!rig.models.relocation.is_moving());
+}
+
+#[test]
 fn a_move_that_fails_on_the_way_takes_its_copies_back_and_says_why() {
     let rig = Rig::new("move-fails");
     let (from, to) = (rig.folder.path.join("from"), rig.folder.path.join("to"));
@@ -2157,7 +2256,9 @@ fn a_move_that_fails_on_the_way_takes_its_copies_back_and_says_why() {
         relocate::FileMove { from: from.clone(), to: to.clone(), names: vec!["x/one.bin".to_string(), "x/two.bin".to_string()] };
     let switched = Arc::new(Mutex::new(false));
     let flag = Arc::clone(&switched);
-    files.start(&Shelf::CACHE, &rig.models.relocation, 0, Box::new(move || *flag.lock().unwrap() = true)).unwrap();
+    files
+        .start(&Shelf::CACHE, &rig.models.relocation, 0, rig.disks.as_ref(), Box::new(move || *flag.lock().unwrap() = true))
+        .unwrap();
     moved(&rig);
     assert!(!*switched.lock().unwrap(), "the setting stays");
     assert!(from.join("x/one.bin").exists(), "the old file stays");
@@ -2170,7 +2271,7 @@ fn a_move_that_fails_on_the_way_takes_its_copies_back_and_says_why() {
 fn the_folder_for_strata_s_files_moves_with_its_models_and_what_its_cells_made() {
     let rig = Rig::new("work-carry");
     let first = work_of(&rig, "hdd1");
-    made_on(&rig.work_models, 22009, 50);
+    made_on(&rig.work_models, "c22009", 50);
     copy_on(&rig.work_models, A, 30);
     let second = rig.folder.path.join("hdd2");
     let said = rig.work.set_work(&json!(second.to_string_lossy()), &json!("move")).unwrap();
@@ -2179,7 +2280,7 @@ fn the_folder_for_strata_s_files_moves_with_its_models_and_what_its_cells_made()
         (&json!(true), &json!(80 + fs::metadata(first.join(RECORD)).unwrap().len()))
     );
     moved(&rig);
-    assert_eq!(fs::read(second.join(".cells/22009/pack.bin")).unwrap().len(), 50);
+    assert_eq!(fs::read(second.join(".cells/c22009/pack.bin")).unwrap().len(), 50);
     assert_eq!(fs::metadata(second.join(A)).unwrap().len(), 30, "the copy went with it");
     assert!(rig.work_models.downloaded.has(&second.join(A)), "and its record, naming it where it is now");
     assert!(!first.join(".cells").exists() && !first.join(A).exists(), "the old folder keeps nothing of the scout's");

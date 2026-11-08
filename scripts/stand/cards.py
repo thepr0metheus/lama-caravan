@@ -10,10 +10,11 @@ from pathlib import Path
 
 
 class StandCards:
-    #: The sizes of a real two-card machine, so the rack on the stand reads like the rack at home.
+    #: The sizes of a real two-card machine, so the rack on the stand reads like the rack at home; and its buses: two cards on that
+    #: processor share its 16 lanes, 8 each, the 3090 at its own PCIe 4.0 and the 5090 at 5.0 (read on the machine, 2026-11-03).
     CARDS = (
-        {"index": 0, "name": "NVIDIA GeForce RTX 3090", "mib": 24576, "uuid": "GPU-stand-0"},
-        {"index": 1, "name": "NVIDIA GeForce RTX 5090", "mib": 32760, "uuid": "GPU-stand-1"},
+        {"index": 0, "name": "NVIDIA GeForce RTX 3090", "mib": 24576, "uuid": "GPU-stand-0", "pcie_gen": 4, "pcie_width": 8},
+        {"index": 1, "name": "NVIDIA GeForce RTX 5090", "mib": 32760, "uuid": "GPU-stand-1", "pcie_gen": 5, "pcie_width": 8},
     )
     #: What the desktop holds of the second card: memory that is no cell's, drawn on the rack as somebody else's.
     OUTSIDE_MIB = {1: 412}

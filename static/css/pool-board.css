@@ -549,11 +549,12 @@
 .pb .pb-card:hover .pb-deny-add, .pb .pb-card:focus-within .pb-deny-add { opacity: 1; }
 .pb .pb-deny-add:hover, .pb .pb-deny-add:focus-visible { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent-strong, var(--accent)); }
 
-/* «Напрямую» (1.3.675, option В2): on the top of the column of pools and pinned there while the pools scroll under it; a row for each
-   model a client calls without a pool now, its lamp lit while a request runs, the clients that call it at its end. */
+/* «Напрямую» (1.3.675, option В2): the first block of the column of pools, not pinned (the owner, 2026-11-06) — it is
+   simply always the top block, and the reader block stands directly below it; a row for each model a client calls without
+   a pool now, its lamp lit while a request runs, the clients that call it at its end. */
 .pb-direct {
-  position: sticky; top: 0; z-index: 4; margin: 0 0 12px; padding: 7px 12px; border: 1px dashed var(--line); border-radius: 12px;
-  background: var(--bg); box-shadow: 0 8px 12px -10px color-mix(in srgb, #000 40%, transparent);
+  margin: 0 0 12px; padding: 7px 12px; border: 1px dashed var(--line); border-radius: 12px;
+  background: var(--bg);
 }
 .pb-direct-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; color: var(--muted); font-size: 11px; }
 .pb-direct-title { font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text); }
@@ -572,6 +573,38 @@
 /* The row's dots stand on the block's edges, where a pool card's input and a pool row's output stand. */
 .pb-direct-row > .pb-dot.in { left: -20px; }
 .pb-direct-row > .pb-dot.out { right: -20px; }
+
+/* The reader block (static/js/reader-block.js, docs/vision-describe.md): one row per pool, for the model the operator names as
+   the reader of a picture none of that pool's rows can take. It is not a pool card: nothing is routed through it, so it has no
+   ladder, no input dot and no mode switch — only the dot a cable is pulled from, at the row's right edge. `data-t-state` is the
+   word the rule answered (rust/crates/rules/src/media_reader.rs, `Reader::word()`), put on the pool by
+   rust/crates/admin/src/cloud/pool_state.rs; the colours below say which answer is which, and nothing here works a state out —
+   scripts/check_media_reader_board.py holds these selectors to the arms of `word()`, so a state invented here goes red. */
+/* 12 px under it too: the first pool card stood flush against it (2026-11-07). */
+.pb-reader-block { margin: 12px 0; padding: 7px 12px; border: 1px dashed var(--line); border-radius: 12px; background: var(--bg); }
+.pb-reader-head { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.pb-reader-rows { list-style: none; margin: 0; padding: 0; }
+.pb .pb-reader-row {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; align-items: center;
+  margin: 5px 0 0; padding: 4px 12px 4px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); font-size: 12px;
+}
+.pb-reader-named { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pb-reader-answer { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The answers the board's row can show, each with its own colour because each says a different thing: the only state that
+   reads; the absence of the operator's decision; an absence of a promise; a name the caravan cannot check; a name that cannot
+   take the word. `itself` has no colour here, and that is said rather than left as a hole: it answers only where a pool is
+   named, and the board's row names none (contract/media_reader_board.json, `board_shows: false`). A state the board can show
+   without a colour here is a word the rule has and the board does not know. */
+.pb .pb-reader-row[data-t-state="reads"] .pb-reader-answer { color: var(--good); }
+.pb .pb-reader-row[data-t-state="cannot take"] .pb-reader-answer { color: var(--bad); }
+.pb .pb-reader-row[data-t-state="unknown"] .pb-reader-answer { color: var(--bad); }
+.pb .pb-reader-row[data-t-state="not said"] .pb-reader-answer,
+.pb .pb-reader-row[data-t-state="nothing"] .pb-reader-answer { color: var(--muted); }
+/* The row whose reader read a picture is lit by what the request names (pool-flow.js), not by the wiring being drawn: until the
+   reader is really called nothing lights here, and a row that lit because a cable was drawn would be a blink the board invented. */
+.pb .pb-reader-row.on-path { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+/* A reader cable lands on a model, as a pool row's does; the outline is the same, said for its own kind. */
+.pb.dragging-reader .pb-model[data-pb-model] { outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: -1px; }
 
 /* The windows of Routing: what a client is blocked from, and the move to clients without sets (pool-board.js, denyHtml and moveHtml). */
 .pb-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, #000 45%, transparent); }

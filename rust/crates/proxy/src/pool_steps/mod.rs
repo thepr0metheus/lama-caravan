@@ -29,6 +29,9 @@ pub struct MachineRow {
     pub output: MachineOutput,
     /// When the request leaves the model's queue if it has to wait, and where to.
     pub leave: QueueLeave,
+    /// The row said it cannot read the pictures the request carries, and the board's reader reads them for it before it is
+    /// asked (`exchange/reading.rs`). False for a row that reads them, and for a request with none.
+    pub read_first: bool,
 }
 
 /// A row of a pool that goes to a provider.
@@ -40,6 +43,9 @@ pub struct CloudRow {
     pub provider: CloudProvider,
     /// The model the row asks for.
     pub model: String,
+    /// The row said it cannot read the pictures the request carries, and the board's reader reads them for it before it is
+    /// asked (`exchange/reading.rs`). False for a row that reads them, and for a request with none.
+    pub read_first: bool,
 }
 
 /// What a pool says of one request.
@@ -67,6 +73,9 @@ pub struct PoolQuestion<'a> {
     pub excluded: &'a BTreeSet<String>,
     /// Whether a machine's model has a place free now.
     pub free: &'a dyn Fn(&MachineOutput) -> bool,
+    /// Whether the board's reader reads this request's pictures for a row that cannot (`MediaAnswer::Readable`): such a row
+    /// is then a candidate, and is chosen as `read_first`. Without it a row that cannot read a picture is no candidate.
+    pub reads: bool,
 }
 
 /// An account that rests after its provider refused it.
@@ -160,11 +169,17 @@ impl PoolSteps {
                     row_id: chosen.step_id.clone(),
                     output: output.clone(),
                     leave: QueueLeave::at_admission(policy, way_on),
+                    read_first: chosen.read_first,
                 })
             }
             (None, Some(provider)) => {
                 let model = chosen.said.get("model").and_then(Value::as_str).map_or_else(String::new, str::to_string);
-                RowChoice::Cloud(CloudRow { row_id: chosen.step_id.clone(), provider: provider.clone(), model })
+                RowChoice::Cloud(CloudRow {
+                    row_id: chosen.step_id.clone(),
+                    provider: provider.clone(),
+                    model,
+                    read_first: chosen.read_first,
+                })
             }
             (None, None) => RowChoice::Refused(PoolRefusal::of_context(ask.pool)),
         };

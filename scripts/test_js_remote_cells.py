@@ -4,9 +4,11 @@
 What's pinned for an action: WHAT goes out on the wire (calls(): path,
 method, body), WHAT the operator sees (toastText()), and WHAT stays in state
 (the sets _stoppingCells/_pendingCellActions/_deletingSlots/_reservingCells/
-_newReservedCells/_pendingRemoteStarts). A history of fixes: instant busy and
-pending state (87f5ea7), port selection skipping proxy ports (4bfeeab), a
-"starting" card shown before the real one appears.
+_newReservedCells). A history of fixes: instant busy and
+pending state (87f5ea7), a "starting" card shown before the real one appears.
+Since 2026-11-08 a cell is known by its id alone (cellId): it holds a port only
+while it runs, the one its scout leased — no body, key, question or title here
+names a port, and the port picker, swap, exclusions and scan are gone.
 
 fetch is a recorder (_js_globals.mjs): calls land in __fetchCalls, the reply
 comes from __fetchReply[path] or defaults to {ok:true}; __status makes api()
@@ -81,7 +83,7 @@ const F = (fields) => { globalThis.__fields = { toast: toastEl(), ...fields }; }
 const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, nodes: [] });
   F({}); globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true, "dialogs.appConfirmTyped": async () => true };
-  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear();
+  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingCellActions, rc._reservingCells]) c.clear();
   // The cell form's hearers and its keeper (the cell window, cell-settings.js) are the module's one form's: none between pins.
   rc.CELL_FORM.keeper = null; rc.CELL_FORM.watching = false; for (const k of Object.keys(rc.CELL_FORM.listeners)) rc.CELL_FORM.listeners[k].length = 0;
   delete globalThis.MutationObserver; };
@@ -109,6 +111,17 @@ ERC_RESULT = ('{ calls: calls(), toast: toastText(), asked: globalThis.__asked, 
 
 # The model-cache panel of the cell form, as fake elements the page writes to, and the form opened over them.
 OPEN_FORM = 'try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
+# Three kept cells of machine h1 on the board, by their ids: c22013 configured (a cell made before 2026-11-07 keeps its old
+# port in its name only), c3f9a02b1 configured, c0a1b2c3d reserved. None runs, so none has a port. The form is filled for one by
+# its id, and its machine is read from its row.
+KEPT_CELLS = (
+    'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: ['
+    '{ isSlot: true, clientId: "h1", cellId: "c22013", port: null, phase: "stopped", model: "model", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } },'
+    ' { isSlot: true, clientId: "h1", cellId: "c3f9a02b1", port: null, phase: "stopped", model: "other", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/other.gguf" } },'
+    ' { isSlot: true, clientId: "h1", cellId: "c0a1b2c3d", port: null, phase: "reserved", slotConfig: {} }] }] });'
+    # The dialog as the form's first opening wires it (wireCellKindToggle): a dataset to mark, nothing to find in it.
+    ' F({ llamaRemoteEditOverlay: { hidden: true, dataset: {}, querySelector: () => null, hasAttribute: () => true, focus() {} },'
+    ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });')
 CACHE_PANEL = (
     'const panel = { note: { textContent: "kept" }, status: { textContent: "" }, '
     'btn: { disabled: false, textContent: "Clear", classList: { add() {}, remove() {} } }, start: { disabled: false, title: "" }, '
@@ -186,107 +199,94 @@ PINS = [
      'await (async () => { await rc.setRouteContextPrefer("h","a","primary","8192",true); return toastText(); })()',
      '"Error: nope"',
      'negative: отказ сервера доходит до оператора тостом'),
-    ('ntp_default_empty',
+    ('port_helpers_are_gone',
      '',
-     'rc.nextTopologyCellPort()',
-     '22001',
-     'positive: nextTopologyCellPort: пустая топология → 22001 (from по умолчанию из cellPortRange)'),
-    ('ntp_gap_fill',
-     'st.topology.nodes = [{ servers: [{ port: 22001 }, { port: 22003 }] }];',
-     'rc.nextTopologyCellPort()',
-     '22002',
-     'positive: nextTopologyCellPort: заняты 22001 и 22003 → дыра 22002 заполняется'),
-    ('ntp_proxy_blocks_gap',
-     'st.topology.nodes = [{ servers: [{ port: 22001 }, { port: 22003 }] }]; st.topology.proxies = [{ port: 22002 }];',
-     'rc.nextTopologyCellPort()',
-     '22004',
-     'defect-history: nextTopologyCellPort (4bfeeab): прокси держит 22002 → объединение портов ячеек и прокси → 22004'),
-    ('ntp_string_ports_count',
-     'st.topology.nodes = [{ servers: [{ port: "22001" }] }]; st.topology.proxies = [{ port: "22002" }];',
-     'rc.nextTopologyCellPort()',
-     '22003',
-     'boundary: nextTopologyCellPort: строковые порты ячейки и прокси тоже считаются занятыми → 22003'),
-    ('ntp_bad_ports_ignored',
-     'st.topology.nodes = [{ servers: [{ port: 0 }, { port: "abc" }, {}] }]; st.topology.proxies = [{}];',
-     'rc.nextTopologyCellPort()',
-     '22001',
-     'negative: nextTopologyCellPort: порт 0 / "abc" / отсутствующий не занимают ничего → 22001'),
-    ('ntp_proxy_only_at_from',
-     'st.topology.proxies = [{ port: 22001 }];',
-     'rc.nextTopologyCellPort()',
-     '22002',
-     'positive: nextTopologyCellPort: прокси на самом from → 22002 (без единой ячейки)'),
-    ('ntp_range_override',
-     'st.topology.cellPortRange = { from: 30001, to: 30999 };',
-     'rc.nextTopologyCellPort()',
-     '30001',
-     'positive: cellPortRange: диапазон берётся из topology.cellPortRange (не из state) → from=30001'),
-    ('ntp_range_zero_falls_back',
-     'st.topology.cellPortRange = { from: 0 };',
-     'rc.nextTopologyCellPort()',
-     '22001',
-     'boundary: cellPortRange: from=0 ложный → дефолт 22001'),
-    ('ntp_range_to_not_enforced',
-     'st.topology.cellPortRange = { from: 22001, to: 22002 }; st.topology.nodes = [{ servers: [{ port: 22001 }, { port: 22002 }] }];',
-     'rc.nextTopologyCellPort()',
-     '22003',
-     'as-is: КАК ЕСТЬ: верхняя граница `to` не проверяется — при полном диапазоне 22001–22002 выдаётся 22003'),
-    ('fse_client_match_string_port',
-     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1", tag: "a" }] };',
-     'rc.findSlotEntry("h1", "22001") ?? null',
-     '{"port": 22001, "clientId": "h1", "tag": "a"}',
-     'positive: findSlotEntry: числовой port записи и строковый запрос совпадают по String() → запись (undefined приводится к null через ??)'),
-    ('fse_wrong_host',
-     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1" }] };',
-     'rc.findSlotEntry("h2", 22001) ?? null',
-     'null',
-     'negative: findSlotEntry: другой хост → undefined (null через ??)'),
-    ('fse_wrong_port',
-     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1" }] };',
-     'rc.findSlotEntry("h1", 22002) ?? null',
-     'null',
-     'negative: findSlotEntry: другой порт → undefined (null через ??)'),
-    ('fse_controller_id_is_no_host',
-     'st.topology.server = { llamaServers: [{ port: 22002, tag: "local" }, { port: 22001, clientId: "h1" }] };',
-     '[rc.findSlotEntry("controller", 22002) ?? null, rc.findSlotEntry("controller", 22001) ?? null]',
-     '[null, null]',
-     'negative: findSlotEntry: id контроллера — не машина: запись без clientId (ячейка контроллера до шага 6.9) им больше не находится, и чужая запись того же порта — тоже'),
-    ('fse_client_skips_controller_entry',
-     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "" }] };',
-     'rc.findSlotEntry("h1", 22001) ?? null',
-     'null',
-     'negative: findSlotEntry: клиент не видит контроллерную запись (clientId "") того же порта'),
-    ('fse_no_server_block',
+     '["openPortPicker", "usedTopologyPorts", "nextTopologyCellPort", "findSlotEntry", "openRemoteFormForHost", "_trCellPort", "_expandedCellCfgs"].filter((n) => n in rc)',
+     '[]',
+     'defect-guard: выбора порта, обмена портами, исключений и скана больше нет (их маршруты у контроллера — 404), нет и «следующего '
+     'свободного порта»: порт ячейке даёт её скаут при старте; ячейку знают по id, а не по hostId:port'),
+    ('checked_llama_goes',
      '',
-     'rc.findSlotEntry("h1", 22001) ?? null',
+     'rc.cellConfigChecked({ RUNNER: "llama-server", MODEL_FILE: "m/a.gguf" })',
+     '{"config": {"RUNNER": "llama-server", "MODEL_FILE": "m/a.gguf"}, "refused": ""}',
+     'cellConfigChecked: модель llama.cpp с файлом — без отказа, конфиг как есть'),
+    ('checked_llama_no_model',
+     '',
+     'rc.cellConfigChecked({ RUNNER: "llama-server" }).refused',
+     json.dumps(en("selectModel"), ensure_ascii=False),
+     'negative: cellConfigChecked: модели нет — «выберите модель»'),
+    ('checked_command',
+     '',
+     '[rc.cellConfigChecked({ RUNNER: "custom" }).refused, rc.cellConfigChecked({ CELL_KIND: "command", COMMAND: "run.sh" }).refused]',
+     json.dumps([en("enterCommand"), ""], ensure_ascii=False),
+     'cellConfigChecked: команда без команды — отказ; negative: ячейка-команда с командой идёт'),
+    ('checked_vllm_takes_the_picked_model',
+     'globalThis.__vllmIn = { RUNNER: "vllm", VLLM_MODEL: "" };',
+     '(() => { const got = rc.cellConfigChecked(globalThis.__vllmIn, " Org/Model "); return [got.config.VLLM_MODEL, got.refused, globalThis.__vllmIn.VLLM_MODEL]; })()',
+     '["Org/Model", "", ""]',
+     'cellConfigChecked: vLLM без своей модели берёт выбранную в списке; negative: пришедший конфиг не тронут'),
+    ('checked_vllm_keeps_its_own',
+     '',
+     '[rc.cellConfigChecked({ RUNNER: "vllm", VLLM_MODEL: "own" }, "picked").config.VLLM_MODEL, rc.cellConfigChecked({ RUNNER: "vllm" }, "").refused]',
+     json.dumps(["own", en("selectModel")], ensure_ascii=False),
+     'cellConfigChecked: своя модель vLLM остаётся своей; negative: ни своей, ни выбранной — «выберите модель»'),
+    ('checked_kv_needs_flash',
+     '',
+     '[rc.cellConfigChecked({ MODEL_FILE: "m/a.gguf", ENABLE_FLASH_ATTN: "0", CACHE_TYPE_V: "q8_0" }).refused, rc.cellConfigChecked({ MODEL_FILE: "m/a.gguf", ENABLE_FLASH_ATTN: "1", CACHE_TYPE_V: "q8_0" }).refused]',
+     json.dumps([en("kvCacheNeedsFlash", type="q8_0"), ""], ensure_ascii=False),
+     'cellConfigChecked: сжатый кэш V без flash attention — отказ словами с типом; negative: с flash attention идёт'),
+    ('board_cell_by_its_id',
+     'st.topology.nodes = [{ id: "h1", servers: [{ cellId: "c22001", port: null, tag: "a" }] }, { id: "h2", servers: [{ cellId: "c3f9a02b1", port: 22007, tag: "b" }] }];',
+     '[rc.boardCell("c22001")?.tag ?? null, rc.boardCell("c3f9a02b1")?.tag ?? null]',
+     '["a", "b"]',
+     'positive: boardCell — строка ячейки на доске по её id, на любой машине; порт прогона у строки (у работающей) роли не играет'),
+    ('board_cell_not_by_a_port',
+     'st.topology.nodes = [{ id: "h1", servers: [{ cellId: "c3f9a02b1", port: 22001 }, { port: 22002 }] }];',
+     '[rc.boardCell("c22001"), rc.boardCell("22001"), rc.boardCell("22002"), rc.boardCell(""), rc.boardCell(null), rc.boardCell("nope")]',
+     '[null, null, null, null, null, null]',
+     'negative: ячейку не находят по порту её прогона — ни «c<порт>», ни голым номером; строка без cellId — ничья; пустой и неизвестный id — '
+     'null, а не первая попавшаяся строка'),
+    ('board_cell_without_nodes',
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });',
+     'rc.boardCell("c22001")',
      'null',
-     'negative: findSlotEntry: topology.server отсутствует → undefined без броска'),
-    ('fse_first_duplicate_wins',
-     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1", tag: "first" }, { port: 22001, clientId: "h1", tag: "second" }] };',
-     'rc.findSlotEntry("h1", 22001) ?? null',
-     '{"port": 22001, "clientId": "h1", "tag": "first"}',
-     'boundary: findSlotEntry: при дубликатах возвращается первая запись'),
+     'negative: в ответе нет nodes — null без броска'),
+    ('form_cell_is_the_kept_cell_the_form_holds',
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true });',
+     '(() => { const a = rc.formCell("tr-")?.cellId ?? null; const b = rc.formCell("te-"); rc.CELL_FORM.fill(rc.CellForm.newKey("h1"), { hidden: true }); return [a, b, rc.formCell("tr-")]; })()',
+     '["c22013", null, null]',
+     'formCell: строка доски той сохранённой ячейки, которую держит форма tr-; negative: у другой формы её нет, у новой ячейки (ещё без id) — тоже'),
+    ('form_cell_skips_a_row_the_board_keeps_no_record_of',
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ isSlot: false, clientId: "h1", cellId: "c22013", port: 22013, phase: "running" }] }] }); try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "c22013"); } catch (e) {}',
+     'rc.formCell("tr-")',
+     'null',
+     'negative: ячейка, о которой контроллер не хранит записи (сирота, isSlot=false), — не сохранённая ячейка формы'),
     ('csa_stop_wire_and_state',
      '',
-     'await (async () => { await rc.cellServiceAction("h1", "22001", "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"stop\\"}"}], "toast": "", "pending": "stop", "stopping": ["h1:22001"]}',
-     'defect-history: cellServiceAction (87f5ea7): stop — на провод {hostId, port:22001 (Number из строки), action}; сразу после await pending="stop" и _stoppingCells держат ключ (их снимет таймер 1200 мс); тоста нет'),
+     'await (async () => { await rc.cellServiceAction("c22001", "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"stop\\"}"}], "toast": "", "pending": "stop", "stopping": ["c22001"]}',
+     'defect-history: cellServiceAction (87f5ea7): stop — на провод {cellId, action}; сразу после await pending="stop" и _stoppingCells держат id ячейки (их снимет таймер 1200 мс); тоста нет'),
     ('csa_start_clears_pending',
      '',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "", "pending": null, "stopping": []}',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"start\\"}"}], "toast": "", "pending": null, "stopping": []}',
      'defect-history: cellServiceAction: start — pending снят сразу после ответа, _stoppingCells пуст, тоста нет'),
+    ('csa_body_carries_no_port_nor_machine',
+     '',
+     'await (async () => { await rc.cellServiceAction("c22001", "restart"); await rc.cellServiceAction("c3f9a02b1", "enable"); return calls().map((c) => Object.keys(JSON.parse(c.body))); })()',
+     '[["cellId", "action"], ["cellId", "action"]]',
+     'negative: тело действия — только id ячейки и действие: ни port, ни hostId (контроллер знает машину ячейки, порт даёт скаут при старте)'),
     ('csa_boot_clears_pending',
      '',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "boot"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"boot\\"}"}], "toast": "", "pending": null, "stopping": []}',
+     'await (async () => { await rc.cellServiceAction("c22001", "boot"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"boot\\"}"}], "toast": "", "pending": null, "stopping": []}',
      'positive: cellServiceAction: boot идёт по ветке start — pending снят сразу'),
     ('csa_library_model_starts_like_any',
      'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return true; };'
      ' globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: true, bringing: { id: "mv-1" } };',
      r'''await (async () => {
        const handlers = [];
-       const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22001", nodeCellRunner: "llama-server",
+       const btn = { dataset: { nodeCellLaunch: "h1", cellId: "c22001", nodeCellRunner: "llama-server",
                                 nodeCellLibrary: "NAS", nodeCellLibraryFiles: "model, mmproj" },
                      addEventListener: (ev, fn) => handlers.push(fn) };
        const root = { querySelectorAll: (sel) => (sel === "[data-node-cell-launch]" ? [btn] : []) };
@@ -296,19 +296,19 @@ PINS = [
        await handlers[0]();
        for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
        return ({ asked: globalThis.__asked, body: calls().map((c) => c.body), toast: toastText(), choose: typeof rc.askWhereFrom }); })()''',
-     json.dumps({"asked": [en("dlgStartPort", port="22001")],
-                 "body": [json.dumps({"hostId": "h1", "port": 22001, "action": "start"}, separators=(",", ":"))],
+     json.dumps({"asked": [en("dlgStartCell", cell="c22001")],
+                 "body": [json.dumps({"cellId": "c22001", "action": "start"}, separators=(",", ":"))],
                  "toast": "", "choose": "undefined"}, ensure_ascii=False),
      'negative: ▶ у ячейки с моделью в библиотеке — обычное подтверждение старта, без вопроса «с диска или из '
      'библиотеки» и без поля modelFrom на проводе: ответ читали только ячейки контроллера, скаут читает модель на '
-     'месте; и ответ сервера «везу модель» больше ничего не говорит'),
+     'месте; и ответ сервера «везу модель» больше ничего не говорит; без имени на кнопке ячейку называет её id, не порт'),
     ('csa_engine_cell_start_speaks_of_the_model',
      'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return false; };'
      ' st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "custom" }, { id: "ollama", engineCell: true }], artifacts: [], models: [], paths: {} });',
      r'''await (async () => {
        const ask = async (runner, model) => {
          const handlers = [];
-         const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22031", nodeCellRunner: runner, nodeCellModel: model },
+         const btn = { dataset: { nodeCellLaunch: "h1", cellId: "c3f9a02b1", nodeCellRunner: runner, nodeCellModel: model },
                        addEventListener: (ev, fn) => handlers.push(fn) };
          const root = { querySelectorAll: (sel) => (sel === "[data-node-cell-launch]" ? [btn] : []) };
          document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
@@ -317,10 +317,10 @@ PINS = [
        };
        await ask("ollama", "qwen3:8b"); await ask("custom", "bash run.sh"); await ask("lmstudio", "m");
        return { asked: globalThis.__asked, calls: calls() }; })()''',
-     json.dumps({"asked": [en("dlgStartModel", model="qwen3:8b", port="22031"), en("dlgStartCommand", port="22031"),
-                           en("dlgStartCommand", port="22031")], "calls": []}, ensure_ascii=False),
+     json.dumps({"asked": [en("dlgStartModel", model="qwen3:8b"), en("dlgStartCommand", cell="bash run.sh"),
+                           en("dlgStartCommand", cell="m")], "calls": []}, ensure_ascii=False),
      'positive: ▶ у ячейки в Ollama спрашивает о её модели — модель загрузится в память (движка); negative: у командной '
-     'ячейки — о команде, как прежде; раннер, которого реестр не называет ячейкой движка (lmstudio здесь), — тоже о команде; '
+     'ячейки — о команде, названной так, как её показывает доска; раннер, которого реестр не называет ячейкой движка (lmstudio здесь), — тоже о команде; '
      'отказ в диалоге — ни одного запроса'),
     ('csa_line_switch_names_its_model',
      'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return false; };',
@@ -334,51 +334,52 @@ PINS = [
          rc.bindServerSlotControls(root);
          await handlers[0]();
        };
-       await press("[data-node-cell-launch]", { nodeCellLaunch: "h1", nodeCellPort: "22001", nodeCellRunner: "llama-server", nodeCellModel: "Qwen3-Embedding-0.6B" });
-       await press("[data-node-cell-stop]", { nodeCellStop: "h1", nodeCellPort: "22001", nodeCellModel: "Qwen3-Embedding-0.6B" });
-       await press("[data-node-cell-stop]", { nodeCellStop: "h1", nodeCellPort: "22002" });
+       await press("[data-node-cell-launch]", { nodeCellLaunch: "h1", cellId: "c22001", nodeCellRunner: "llama-server", nodeCellModel: "Qwen3-Embedding-0.6B" });
+       await press("[data-node-cell-stop]", { nodeCellStop: "h1", cellId: "c22001", nodeCellModel: "Qwen3-Embedding-0.6B" });
+       await press("[data-node-cell-stop]", { nodeCellStop: "h1", cellId: "c3f9a02b1" });
        return { asked: globalThis.__asked, calls: calls() }; })()''',
-     json.dumps({"asked": [en("dlgStartModel", model="Qwen3-Embedding-0.6B", port="22001"),
-                           en("dlgStopModel", model="Qwen3-Embedding-0.6B", port="22001"),
-                           en("dlgStopPort", port="22002")], "calls": []}, ensure_ascii=False),
+     json.dumps({"asked": [en("dlgStartModel", model="Qwen3-Embedding-0.6B"),
+                           en("dlgStopModel", model="Qwen3-Embedding-0.6B"),
+                           en("dlgStopCell", cell="c3f9a02b1")], "calls": []}, ensure_ascii=False),
      'defect-history: тумблер свёрнутой строки спрашивал «Start the server on :22001?» без имени модели — искал её в '
      'карточке через closest("article"), а вокруг строки карточки нет; теперь имя едет в атрибутах ▶/⏹ (живая проверка '
-     '2026-09-26); negative: у кнопки без имени — вопрос про порт; отказ — ни одного запроса'),
+     '2026-09-26); negative: у кнопки без имени — вопрос о ячейке по её id, ни в одном вопросе нет порта; отказ — ни одного запроса'),
     ('csa_engine_start_short_asks_then_forces',
      'globalThis.__asked = [];'
      ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__asked.push({ msg, opts }); return true; };'
      ' let n = 0; globalThis.__fetchReply["/api/topology/server-cell/action"] = () => (++n === 1'
-     ' ? { ok: false, hostId: "h1", port: 22041, action: "start", short: { model: "big:70b", needBytes: 45097156608, freeBytes: 1048576000, basis: "weights" } }'
-     ' : { ok: true, hostId: "h1", port: 22041, action: "start" });',
-     'await (async () => { await rc.cellServiceAction("h1", 22041, "start"); return { bodies: calls().map((c) => c.body), asked: globalThis.__asked, pending: rc._pendingCellActions.get("h1:22041") ?? null, toast: toastText() }; })()',
-     json.dumps({"bodies": ['{"hostId":"h1","port":22041,"action":"start"}',
-                            '{"hostId":"h1","port":22041,"action":"start","force":true}'],
-                 "asked": [{"msg": en("cellEngineShort", model="big:70b", need="≥ 42.0 GB", free="1000 MB", port="22041"),
+     ' ? { ok: false, hostId: "h1", cellId: "c22041", action: "start", short: { model: "big:70b", needBytes: 45097156608, freeBytes: 1048576000, basis: "weights" } }'
+     ' : { ok: true, hostId: "h1", cellId: "c22041", action: "start" });',
+     'await (async () => { await rc.cellServiceAction("c22041", "start"); return { bodies: calls().map((c) => c.body), asked: globalThis.__asked, pending: rc._pendingCellActions.get("c22041") ?? null, toast: toastText() }; })()',
+     json.dumps({"bodies": ['{"cellId":"c22041","action":"start"}',
+                            '{"cellId":"c22041","action":"start","force":true}'],
+                 "asked": [{"msg": en("cellEngineShort", model="big:70b", need="≥ 42.0 GB", free="1000 MB"),
                             "opts": {"confirmLabel": en("cellStartAnyway"), "scene": "start"}}],
                  "pending": None, "toast": ""}, ensure_ascii=False),
      'positive: ячейка в движке не влезет — контроллер не стартует её, а спрашивает: вопрос с числами («≥» — только '
-     'файл, не меньше), согласие — тот же старт с force; тоста «не удалось» нет, метка «запускается» снята'),
+     'файл, не меньше) и без порта, согласие — тот же старт с force; тоста «не удалось» нет, метка «запускается» снята'),
     ('csa_engine_start_short_declined',
      'globalThis.__asked = [];'
      ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__asked.push(msg); return false; };'
      ' globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, short: { model: "google/gemma-4-e4b", needBytes: 7000000000, freeBytes: 4294967296, basis: "engine" } };',
-     'await (async () => { await rc.cellServiceAction("h1", 22041, "start"); return { n: calls().length, asked: globalThis.__asked, pending: rc._pendingCellActions.get("h1:22041") ?? null, toast: toastText() }; })()',
-     json.dumps({"n": 1, "asked": [en("cellEngineShort", model="google/gemma-4-e4b", need="≈ 6.5 GB", free="4.0 GB", port="22041")],
+     'await (async () => { await rc.cellServiceAction("c22041", "start"); return { n: calls().length, asked: globalThis.__asked, pending: rc._pendingCellActions.get("c22041") ?? null, toast: toastText() }; })()',
+     json.dumps({"n": 1, "asked": [en("cellEngineShort", model="google/gemma-4-e4b", need="≈ 6.5 GB", free="4.0 GB")],
                  "pending": None, "toast": ""}, ensure_ascii=False),
      'negative: «нет» — второго старта нет, метка снята, тоста нет; boundary: оценка не по одному файлу — «≈», а не «≥»'),
-    ('csa_port_nan_body',
+    ('csa_no_cell_sends_nothing',
      '',
-     'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":null,\\"action\\":\\"start\\"}"}], "pending": null}',
-     'as-is: КАК ЕСТЬ: нечисловой порт → Number("abc")=NaN → на провод уходит port:null, запрос не блокируется'),
+     'await (async () => { const said = await rc.cellServiceAction("", "start"); return { said, calls: calls(), toast: toastText(), pending: [...rc._pendingCellActions.keys()], stopping: [...rc._stoppingCells] }; })()',
+     json.dumps({"said": False, "calls": [], "toast": "⚠️ " + en("cellActionFailed"), "pending": [], "stopping": []}, ensure_ascii=False),
+     'negative: кнопка без id ячейки (доска нарисована не так) — ничего не уходит, ни одной метки «идёт», и оператор слышит, что ничего не '
+     'сделано; раньше нечисловой порт уходил на провод как port:null'),
     ('csa_reply_busy_hint',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "slot already in progress" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "⚠️ slot already in progress — this host runs one server slot at a time — wait for the current start to finish", "pending": null, "stopping": []}',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"start\\"}"}], "toast": "⚠️ slot already in progress — this host runs one server slot at a time — wait for the current start to finish", "pending": null, "stopping": []}',
      'defect-history: cellServiceAction: ответ ok:false с «already/in progress» → тост с ошибкой И подсказкой cellSlotBusyHint'),
     ('csa_reply_busy_case_insensitive',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "Already Running here" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return toastText(); })()',
      '"⚠️ Already Running here — this host runs one server slot at a time — wait for the current start to finish"',
      'boundary: cellServiceAction: регэксп busy нечувствителен к регистру («Already Running») → подсказка добавлена'),
     ('csa_says_how_it_went',
@@ -386,11 +387,11 @@ PINS = [
      r'''await (async () => {
        const asked = async (reply, boom) => {
          globalThis.__fetchReply["/api/topology/server-cell/action"] = reply;
-         return rc.cellServiceAction("h1", 22001, "start");
+         return rc.cellServiceAction("c22001", "start");
        };
        const out = { done: await asked({ ok: true }), refused: await asked({ ok: false, error: "boom" }) };
        globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: true };
-       out.stop = await rc.cellServiceAction("h1", 22001, "stop");
+       out.stop = await rc.cellServiceAction("c22001", "stop");
        return out;
      })()''',
      '{"done": true, "refused": false, "stop": true}',
@@ -398,64 +399,113 @@ PINS = [
     ('csa_says_how_it_went_declined_short',
      'globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;'
      ' globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, short: { model: "m", needBytes: 1, freeBytes: 0, basis: "weights" } };',
-     'await rc.cellServiceAction("h1", 22001, "start")',
+     'await rc.cellServiceAction("c22001", "start")',
      'false',
      'negative: оператор не стал запускать ячейку движка, которой не хватает места: это тоже «не запущено»'),
     ('csa_says_how_it_went_failed_request',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { __status: 502, error: "unreachable" };',
-     'await rc.cellServiceAction("h1", 22001, "start")',
+     'await rc.cellServiceAction("c22001", "start")',
      'false',
      'negative: запрос не прошёл (502, сеть): причина сказана тостом, ответ — false, а не молчаливый успех'),
     ('csa_reply_plain_error',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "boom" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "⚠️ boom", "pending": null, "stopping": []}',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"start\\"}"}], "toast": "⚠️ boom", "pending": null, "stopping": []}',
      'negative: cellServiceAction: ответ ok:false «boom» → тост «⚠️ boom» без подсказки busy'),
     ('csa_reply_result_error_precedence',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, result: { error: "nested" }, error: "outer" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return toastText(); })()',
      '"⚠️ nested"',
      'positive: cellServiceAction: result.error имеет приоритет над error верхнего уровня'),
     ('csa_reply_false_no_text',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return toastText(); })()',
      '"⚠️ the action failed"',
      'boundary: cellServiceAction: ok:false без текста → t("cellActionFailed")'),
     ('csa_reply_ok_missing_no_toast',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { result: "whatever" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return toastText(); })()',
      '""',
      'negative: cellServiceAction: ответ без поля ok (не === false) → тоста нет'),
     ('csa_stop_reply_error_keeps_pending',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "boom" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"stop\\"}"}], "toast": "⚠️ boom", "pending": "stop", "stopping": ["h1:22001"]}',
+     'await (async () => { await rc.cellServiceAction("c22001", "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"stop\\"}"}], "toast": "⚠️ boom", "pending": "stop", "stopping": ["c22001"]}',
      'as-is: КАК ЕСТЬ: агент отверг stop (ok:false), но pending/_stoppingCells всё равно висят до таймера 1200 мс — тост «⚠️ boom» при занятых кнопках'),
     ('csa_throw_500_start',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { __status: 500, error: "nope" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "Error: nope", "pending": null, "stopping": []}',
+     'await (async () => { await rc.cellServiceAction("c22001", "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"start\\"}"}], "toast": "Error: nope", "pending": null, "stopping": []}',
      'negative: cellServiceAction: api бросил (500 «nope») → catch: тост «Error: nope», pending и stopping очищены'),
     ('csa_throw_500_stop',
      'globalThis.__fetchReply["/api/topology/server-cell/action"] = { __status: 500, error: "nope" };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
-     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"stop\\"}"}], "toast": "Error: nope", "pending": null, "stopping": []}',
+     'await (async () => { await rc.cellServiceAction("c22001", "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("c22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\",\\"action\\":\\"stop\\"}"}], "toast": "Error: nope", "pending": null, "stopping": []}',
      'negative: cellServiceAction: stop при 500 → catch снимает _stoppingCells и pending немедленно (без таймера), тост «Error: nope»'),
     ('dss_success',
      '',
-     'await (async () => { await rc.deleteServerSlot("h1", "22001"); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
-     '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001}"}], "toast": "", "deleting": []}',
-     'positive: deleteServerSlot: на провод {hostId, port:22001 (Number)}; после успеха _deletingSlots пуст, тоста нет'),
+     'await (async () => { await rc.deleteServerSlot("c22001"); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
+     '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\"}"}], "toast": "", "deleting": []}',
+     'positive: deleteServerSlot: на провод {cellId} — без hostId и порта; после успеха _deletingSlots пуст, тоста нет'),
     ('dss_deleting_set_before_wire',
      'globalThis.__snap = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._deletingSlots]; };',
-     'await (async () => { await rc.deleteServerSlot("h1", 22001); return globalThis.__snap; })()',
-     '["h1:22001"]',
-     'positive: deleteServerSlot: ключ h1:22001 лежит в _deletingSlots уже на первом renderTopology — до запроса'),
+     'await (async () => { await rc.deleteServerSlot("c22001"); return globalThis.__snap; })()',
+     '["c22001"]',
+     'positive: deleteServerSlot: id ячейки лежит в _deletingSlots уже на первом renderTopology — до запроса'),
     ('dss_error_500',
      'globalThis.__fetchReply["/api/topology/server-slot/delete"] = { __status: 500, error: "nope" };',
-     'await (async () => { await rc.deleteServerSlot("h1", 22001); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
-     '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001}"}], "toast": "Error: nope", "deleting": []}',
-     'as-is: КАК ЕСТЬ: при 500 ключ снят, а тост показывает сырой String(Error) — «Error: nope»'),
+     'await (async () => { await rc.deleteServerSlot("c22001"); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
+     '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"cellId\\":\\"c22001\\"}"}], "toast": "Error: nope", "deleting": []}',
+     'as-is: КАК ЕСТЬ: при 500 метка снята, а тост показывает сырой String(Error) — «Error: nope»'),
+    ('dss_no_cell_sends_nothing',
+     '',
+     'await (async () => { await rc.deleteServerSlot(""); return { calls: calls(), deleting: [...rc._deletingSlots] }; })()',
+     '{"calls": [], "deleting": []}',
+     'negative: без id ячейки удалять нечего — ни запроса, ни метки'),
+    ('bind_delete_names_the_cell_and_sends_its_id',
+     'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return true; };',
+     r'''await (async () => {
+       const press = async (dataset) => {
+         const handlers = [];
+         const btn = { dataset, addEventListener: (ev, fn) => handlers.push(fn) };
+         const root = { querySelectorAll: (q) => (q === "[data-node-slot-del]" ? [btn] : []) };
+         document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+         rc.bindServerSlotControls(root);
+         handlers[0]();
+         for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+       };
+       await press({ nodeSlotDel: "c22001", cellId: "c22001", nodeCellModel: "Qwen3-8B" });
+       await press({ nodeSlotDel: "c3f9a02b1", cellId: "c3f9a02b1" });
+       return { asked: globalThis.__asked, sent: calls().map((c) => [c.path, c.body]) }; })()''',
+     json.dumps({"asked": [en("dlgDeleteCell", cell="Qwen3-8B"), en("dlgDeleteCell", cell="c3f9a02b1")],
+                 "sent": [["/api/topology/server-slot/delete", '{"cellId":"c22001"}'],
+                          ["/api/topology/server-slot/delete", '{"cellId":"c3f9a02b1"}']]}, ensure_ascii=False),
+     '✕ спрашивает о ячейке так, как её называет доска (имя едет с кнопкой), а без имени — её id; negative: ни порта в вопросе, ни порта на проводе'),
+    ('bind_boot_sends_the_cell_and_its_switch',
+     '',
+     r'''await (async () => {
+       const handlers = [];
+       const btn = { dataset: { nodeCellBoot: "h1", cellId: "c22001", nodeCellBootAction: "enable" }, addEventListener: (ev, fn) => handlers.push(fn) };
+       const root = { querySelectorAll: (q) => (q === "[data-node-cell-boot]" ? [btn] : []) };
+       document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+       rc.bindServerSlotControls(root);
+       await handlers[0]();
+       return calls().map((c) => c.body); })()''',
+     json.dumps(['{"cellId":"c22001","action":"enable"}']),
+     'автозапуск: ↥ шлёт id ячейки со своей кнопки и своё действие; negative: без порта и без машины'),
+    ('bind_configure_opens_the_form_of_the_cell',
+     KEPT_CELLS,
+     r'''await (async () => {
+       const handlers = [];
+       const btn = { dataset: { nodeCellStart: "h1", cellId: "c3f9a02b1", nodeRole: "host" }, addEventListener: (ev, fn) => handlers.push(fn) };
+       const root = { querySelectorAll: (q) => (q === "[data-node-cell-start]" ? [btn] : []) };
+       document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+       rc.bindServerSlotControls(root);
+       handlers[0]();
+       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+       return [rc.CELL_FORM.holds("c3f9a02b1"), rc.CELL_FORM.cellId(), globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()''',
+     '[true, "c3f9a02b1", false]',
+     '⚙ открывает форму той ячейки, чей id на кнопке, — её машину форма берёт из строки доски; окно показано'),
     ('dtca_yes_named',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }];',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',
@@ -491,56 +541,11 @@ PINS = [
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
      '{"calls": [{"path": "/api/topology/client/agent/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Error: nope"}',
      'negative: deleteTopologyClientAgent: 500 → тост «Error: nope»'),
-    ('sls_yes_named',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.hosts = [{ id: "h1", name: "Box A" }]; rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
-     'await (async () => { await rc.submitLlamaStop("h1"); return ({ calls: calls(), toast: toastText(), stoppingHosts: [...rc._stoppingHosts], pending: [...rc._pendingRemoteStarts.keys()], confirm: globalThis.__msg }); })()',
-     '{"calls": [{"path": "/api/topology/client-llama/stop", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "", "stoppingHosts": ["h1"], "pending": [], "confirm": {"msg": "Stop llama-server on Box A?\\n\\nThe model will be unloaded from VRAM. The admin panel stays up.", "opts": {"confirmLabel": "Stop", "scene": "stop"}}}',
-     'positive: submitLlamaStop: диалог с именем машины «Box A» из её записи хоста; pending-старт h1 снят; на провод {hostId}; после await _stoppingHosts ещё держит h1 (таймер 1500 мс); тоста нет'),
-    ('sls_no',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
-     'await (async () => { await rc.submitLlamaStop("h1"); return ({ calls: calls(), toast: toastText(), stoppingHosts: [...rc._stoppingHosts], pending: [...rc._pendingRemoteStarts.keys()], confirm: globalThis.__msg }); })()',
-     '{"calls": [], "toast": "", "stoppingHosts": [], "pending": ["h1"], "confirm": {"msg": "Stop llama-server on h1?\\n\\nThe model will be unloaded from VRAM. The admin panel stays up.", "opts": {"confirmLabel": "Stop", "scene": "stop"}}}',
-     'negative: submitLlamaStop: отказ → нет запроса, pending-старт остаётся, имя в диалоге = hostId (хоста нет)'),
-    ('sls_names_the_host_not_the_client',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; st.topology.clients = [{ id: "h1", name: "Client name" }];',
-     'await (async () => { await rc.submitLlamaStop("h1"); return globalThis.__msg.msg.split("?")[0]; })()',
-     '"Stop llama-server on h1"',
-     'negative: клиент с тем же id — запись оператора, не машина: ячейки стоят на хосте, и имя берётся из записи хоста'),
-    ('sls_500_silent',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/client-llama/stop"] = { __status: 500, error: "nope" };',
-     'await (async () => { await rc.submitLlamaStop("h1"); return ({ calls: calls(), toast: toastText(), stoppingHosts: [...rc._stoppingHosts], pending: [...rc._pendingRemoteStarts.keys()], confirm: globalThis.__msg }); })()',
-     '{"calls": [{"path": "/api/topology/client-llama/stop", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "", "stoppingHosts": [], "pending": [], "confirm": {"msg": "Stop llama-server on h1?\\n\\nThe model will be unloaded from VRAM. The admin panel stays up.", "opts": {"confirmLabel": "Stop", "scene": "stop"}}}',
-     'as-is: КАК ЕСТЬ: 500 при остановке проглатывается — _stoppingHosts снят, но тоста НЕТ (catch(_) без toast)'),
-    ('rprs_entry_frozen',
-     '',
-     '(rc.registerPendingRemoteStart({ hostId: "h1", port: 22001, modelName: "m" }), rc._pendingRemoteStarts.get("h1"))',
-     '{"phase": "starting", "startedAt": 1700000100000, "hostId": "h1", "port": 22001, "modelName": "m"}',
-     'positive: registerPendingRemoteStart: запись phase=starting, startedAt = замороженный Date.now (1700000100 с), поля info'),
-    ('rprs_info_phase_overrides_default',
-     '',
-     '(rc.registerPendingRemoteStart({ hostId: "h1", phase: "downloading", startedAt: 5 }), rc._pendingRemoteStarts.get("h1"))',
-     '{"phase": "downloading", "startedAt": 5, "hostId": "h1"}',
-     'as-is: КАК ЕСТЬ: ...info идёт после дефолтов — phase/startedAt из info перекрывают «starting»/Date.now'),
     ('rsif_empty_false',
      '',
      'rc.remoteStartupInFlight()',
      'false',
      'negative: remoteStartupInFlight: ничего не стартует → false'),
-    ('rsif_pending_true',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
-     'rc.remoteStartupInFlight()',
-     'true',
-     'positive: remoteStartupInFlight: есть pending phase=starting → true'),
-    ('rsif_false_after_clear',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc.clearPendingRemoteStart("h1");',
-     '({ inFlight: rc.remoteStartupInFlight(), size: rc._pendingRemoteStarts.size })',
-     '{"inFlight": false, "size": 0}',
-     'negative: clearPendingRemoteStart: после очистки → false, карта пуста'),
-    ('rsif_pending_timeout_phase_false',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "timeout";',
-     'rc.remoteStartupInFlight()',
-     'false',
-     'boundary: remoteStartupInFlight: pending с phase=timeout не считается стартующим → false'),
     ('rsif_server_startup_phases',
      '',
      '["resolving", "downloading", "loading", "running", "stopped", "error"].map((ph) => { st.topology.server = { llamaServers: [{ isRemote: true, phase: ph }] }; return ph + "=" + rc.remoteStartupInFlight(); })',
@@ -551,27 +556,6 @@ PINS = [
      'rc.remoteStartupInFlight()',
      'false',
      'negative: remoteStartupInFlight: локальный (isRemote:false) сервер в downloading не считается → false'),
-    ('nsch_no_pending_empty',
-     '',
-     'rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" })',
-     '""',
-     'negative: nodeStartingCardHtml: без pending-старта → ""'),
-    ('nsch_other_host_pending_empty',
-     'rc.registerPendingRemoteStart({ hostId: "h2", port: 22001 });',
-     'rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" })',
-     '""',
-     'negative: nodeStartingCardHtml: pending на другом хосте → ""'),
-    ('nsch_card_full',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001, modelName: "m", clientIp: "10.0.0.5" });',
-     'norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9", servers: [] }))',
-     '"<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.5:22001</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:12px;padding:2px 0\\">m</div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>"',
-     'positive: nodeStartingCardHtml: полная карточка — clientIp:port, pill loading, кнопка ✕, строка модели, «starting…»'),
-    ('nsch_card_minimal_node_ip',
-     'rc.registerPendingRemoteStart({ hostId: "h1" });',
-     'norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" }))',
-     '"<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.9</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>"',
-     'boundary: nodeStartingCardHtml: без clientIp/port/modelName → адрес = node.ip без порта, строки модели нет'),
-    # ── second-pair-of-eyes tranche: exports the snapshot had never named ──
     ('rename_agent_wire',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  Hotel  ";',
      'await (async () => { await rc.renameTopologyAgent("box-a", "ag1", "old"); return calls(); })()',
@@ -640,42 +624,6 @@ PINS = [
      '[rc.surviving_nvidiaSmiSource([], "c1"), rc.surviving_nvidiaSmiSource(null, "c1")]',
      '["local","local"]',
      'boundary: пустой и отсутствующий список — контроллер, а не падение'),
-    ('nsch_phase_timeout_keeps_a_dismissable_card',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "timeout";',
-     '(h => ({ shown: h !== "", dismiss: h.includes("data-pending-remote-dismiss=\\"h1\\""),'
-     ' says: h.includes("Timed out"), spinner: h.includes("topology-spinner"),'
-     ' pending: [...rc._pendingRemoteStarts.keys()] }))(rc.nodeStartingCardHtml({ id: "h1" }))',
-     '{"shown": true, "dismiss": true, "says": true, "spinner": false, "pending": ["h1"]}',
-     'positive: истёкший старт ОСТАЁТСЯ карточкой с ✕ и говорит про таймаут — раньше карточка исчезала вместе с единственной кнопкой снятия, а запись жила дальше'),
-    ('nsch_phase_error_says_failed',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "error";',
-     '(h => ({ failed: h.includes("Start failed"), timeout: h.includes("Timed out") }))(rc.nodeStartingCardHtml({ id: "h1" }))',
-     '{"failed": true, "timeout": false}',
-     'negative: отказ и таймаут — разные надписи, а не одна на оба случая'),
-    ('nsch_no_record_still_empty',
-     '',
-     'rc.nodeStartingCardHtml({ id: "nobody" })',
-     '""',
-     'negative: записи нет вообще — по-прежнему пусто, карточка ниоткуда не берётся'),
-    ('rsp_pending_only_while_starting',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
-     '(() => { const a = rc.remoteStartPending("h1");'
-     ' rc._pendingRemoteStarts.get("h1").phase = "timeout"; const b = rc.remoteStartPending("h1");'
-     ' rc._pendingRemoteStarts.get("h1").phase = "error"; const c = rc.remoteStartPending("h1");'
-     ' return [a, b, c, rc.remoteStartPending("nobody")]; })()',
-     '[true,false,false,false]',
-     'positive+negative: «старт в полёте» — только фаза starting; истёкший и отказавший НЕ считаются, иначе остановленные ячейки хоста навсегда читаются как стартующие'),
-    ('nsch_server_running_clears_pending',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); globalThis.__stubReturns["topology-render.topologyServerPhase"] = () => "running";',
-     '({ html: rc.nodeStartingCardHtml({ id: "h1", servers: [{ port: 22001 }] }), pending: [...rc._pendingRemoteStarts.keys()] })',
-     '{"html": "", "pending": []}',
-     'positive: nodeStartingCardHtml: у узла есть сервер с фазой ≠ stopped (заглушка topologyServerPhase → running) → "" и pending снят'),
-    ('nsch_server_stopped_keeps_card',
-     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); globalThis.__stubReturns["topology-render.topologyServerPhase"] = () => "stopped";',
-     '({ html: norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9", servers: [{ port: 22001 }] })), pending: [...rc._pendingRemoteStarts.keys()] })',
-     '{"html": "<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.9:22001</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>", "pending": ["h1"]}',
-     'negative: nodeStartingCardHtml: все серверы узла stopped (заглушка → stopped) → карточка остаётся, pending жив'),
-    # ── the machine a scout reports: its own record ──
     ('host_record_by_id',
      'st.topology.hosts = [{ id: "h1", name: "Box A" }]; st.topology.clients = [{ id: "h1", name: "Client name" }, { id: "c9", name: "C9" }];',
      '[rc.topologyHost("h1").name, rc.topologyHost("c9"), rc.topologyHost("")]',
@@ -842,26 +790,25 @@ PINS = [
      'negative: отказ — словами отказавшего, доска не тронута'),
     # ── a cell in an engine from the "+" on its model's line (2026-09-26, the operator's choice B) ──
     ('erc_plus_asks_nothing',
-     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { cell: { hostId: "h1", port: 22001 } };',
+     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { ok: true, slot: { id: "c3f9a02b1", hostId: "h1" }, cell: { id: "c3f9a02b1", hostId: "h1" } };',
      'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return ' + ERC_RESULT + '; })()',
      json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama", "model": "qwen2.5:0.5b"}), "toast": "", "asked": [],
-                 "reserving": [], "fresh": ["h1:22001"], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+                 "reserving": [], "fresh": ["c3f9a02b1"], "snap": [["h1", {"startedAt": 1700000100000}]]}),
      'positive: «+» у модели не спрашивает ничего — строка уже назвала движок и модель; на провод {hostId, engine, '
-     'model}; спиннер машины на следующем свободном порту, пока ячейка не на доске; вспышка новой ячейки'),
-    ('erc_plus_takes_the_next_free_port',
-     ERC_SETUP + ' st.topology.nodes = [{ id: "h1", servers: [{ port: 22001 }] }]; st.topology.proxies = [{ port: 22002 }];',
-     'await (async () => { await rc.reserveEngineCell("h1", "lmstudio", "google/gemma-4-e4b"); return { snap: globalThis.__snap, fresh: [...rc._newReservedCells] }; })()',
-     '{"snap": [["h1", {"port": 22003, "startedAt": 1700000100000}]], "fresh": ["h1:22003"]}',
-     'boundary: порт — следующий свободный по всему флоту: мимо ячейки 22001 и прокси 22002'),
+     'model}; спиннер машины, пока ячейка не на доске; вспышка новой ячейки — по id из ответа контроллера'),
+    ('erc_plus_takes_no_port',
+     ERC_SETUP + ' st.topology.nodes = [{ id: "h1", servers: [{ cellId: "c22001", port: 22001 }] }]; st.topology.proxies = [{ port: 22002 }];',
+     'await (async () => { await rc.reserveEngineCell("h1", "lmstudio", "google/gemma-4-e4b"); return { body: JSON.parse(calls()[0].body), snap: globalThis.__snap }; })()',
+     json.dumps({"body": {"hostId": "h1", "engine": "lmstudio", "model": "google/gemma-4-e4b"}, "snap": [["h1", {"startedAt": 1700000100000}]]}),
+     'negative: резерв не берёт порта — ни в запросе, ни в метке машины: порт ячейке даёт её скаут при старте (раньше — «следующий свободный по флоту», мимо ячейки 22001 и прокси 22002)'),
     ('erc_one_reserve_at_a_time',
-     ERC_SETUP + ' rc._reservingCells.set("h1", { port: 22005, startedAt: 1 });',
+     ERC_SETUP + ' rc._reservingCells.set("h1", { startedAt: 1 });',
      'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return ' + ERC_RESULT + '; })()',
-     json.dumps({"calls": [], "toast": "", "asked": [], "reserving": [["h1", {"port": 22005, "startedAt": 1}]], "fresh": [],
+     json.dumps({"calls": [], "toast": "", "asked": [], "reserving": [["h1", {"startedAt": 1}]], "fresh": [],
                  "snap": None}),
-     'negative: машина уже резервирует ячейку — второй «+» не берёт второй порт: ни запроса, ни рендера, прежний '
-     'спиннер не тронут'),
+     'negative: машина уже делает ячейку — второй «+» не делает вторую: ни запроса, ни рендера, прежний спиннер не тронут'),
     ('erc_other_machine_does_not_block',
-     ERC_SETUP + ' rc._reservingCells.set("h2", { port: 22005, startedAt: 1 });',
+     ERC_SETUP + ' rc._reservingCells.set("h2", { startedAt: 1 });',
      'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return calls().length; })()',
      '1',
      'boundary: резерв на другой машине этой не мешает'),
@@ -875,20 +822,20 @@ PINS = [
      'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen9"); return ' + ERC_RESULT + '; })()',
      json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama", "model": "qwen9"}),
                  "toast": "Error: Ollama has no model qwen9 on this machine", "asked": [], "reserving": [], "fresh": [],
-                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+                 "snap": [["h1", {"startedAt": 1700000100000}]]}),
      'negative: отказ контроллера (engine_cells.py) — его словами; спиннер снят, вспышки нет'),
     # What a reserve does with the controller's answer (postReserve — the one way
     # in since the Reserve-cell stub left in 1.3.393).
-    ('erc_reply_slot_alias',
-     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { slot: { hostId: "h1", port: 22008 } };',
+    ('erc_reply_names_the_cell_by_its_id',
+     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { ok: true, cell: { id: "c0a1b2c3d", hostId: "h1" } };',
      'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return [...rc._newReservedCells]; })()',
-     '["h1:22008"]',
-     'positive: ответ с полем slot (вместо cell) тоже принимается → вспышка «h1:22008»'),
-    ('erc_reply_without_the_cell_falls_back',
-     ERC_SETUP,
+     '["c0a1b2c3d"]',
+     'positive: вспыхивает ячейка по id, который ей дал контроллер (cell.id ответа)'),
+    ('erc_reply_without_a_cell_flashes_nothing',
+     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { ok: true, slot: { hostId: "h1", port: 22008 } };',
      'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return { fresh: [...rc._newReservedCells], reserving: [...rc._reservingCells.entries()] }; })()',
-     '{"fresh": ["h1:22001"], "reserving": []}',
-     'boundary: ответ {ok:true} без cell/slot → ключ вспышки из машины и порта, который ждали, «h1:22001»'),
+     '{"fresh": [], "reserving": []}',
+     'negative: ответ без cell.id — вспыхивать нечему: ключ не выдумывается ни из машины и порта (так было: «h1:22001»), ни из порта ответа'),
     ('erc_button_carries_its_line',
      ERC_SETUP,
      'await (async () => { await rc.reserveEngineButton({ dataset: { engineReserve: "h1", engineKind: "lmstudio", engineModel: "google/gemma-4-e4b" } }); return calls(); })()',
@@ -897,7 +844,7 @@ PINS = [
     # ── Apply without a model: said first, nothing asked, nothing sent ──
     ('apply_without_model_says_so_first',
      'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; };'
-     ' globalThis.__asked = () => asked; F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "" } });',
+     ' globalThis.__asked = () => asked; F({ "tr-MODEL_FILE": { value: "" } });',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), globalThis.__asked(), calls()]; })()',
      json.dumps([en("selectModel"), 0, []], ensure_ascii=False),
      'модель не выбрана («＋ Add model» открывает пустое поле) — сразу «выберите модель», без вопроса «применить?» и без '
@@ -905,22 +852,22 @@ PINS = [
     # ── vLLM without a path: a model picked in the list is not a path on THIS machine ──
     ('apply_vllm_with_a_pick_and_no_path_names_the_pick',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
-     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" },'
+     ' F({ "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" },'
      ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => [c.path, JSON.parse(c.body).config.VLLM_MODEL])]; })()',
-     json.dumps([en("topologyRemoteStartSent", host="box-a"), [["/api/topology/client-llama/start", "Omni-AWQ/org/AWQ"]]]),
+     json.dumps([en("saved"), [["/api/topology/server-cell/save-config", "Omni-AWQ/org/AWQ"]]]),
      'defect-history (2026-10-17, 2026-11-03): выбор в списке — это место среди моделей контроллера, на любой машине: путь на самой машине больше не нужен, и Apply не просит его вписать'),
     ('apply_vllm_with_nothing_picked_still_says_select_a_model',
-     'F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "  " } });',
+     'F({ "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "" }, "tr-MODEL_FILE": { value: "  " } });',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls()]; })()',
      json.dumps([en("selectModel"), []], ensure_ascii=False),
      'negative: ни выбора, ни пути — по-прежнему «выберите модель»'),
     ('apply_vllm_with_a_typed_path_goes_on',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
-     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "/mnt/lib/Omni-AWQ" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" },'
+     ' F({ "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "/mnt/lib/Omni-AWQ" }, "tr-MODEL_FILE": { value: "Omni-AWQ/org/AWQ" },'
      ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
-     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
+     json.dumps([en("saved"), ["/api/topology/server-cell/save-config"]]),
      'negative: путь вписан — запрос уходит как раньше, выбор в списке ему не мешает'),
     # ── Flash attention and the V cache: the pair llama.cpp stops at is never offered, and never sent ──
     ('new_cell_opens_with_flash_attention_on',
@@ -969,31 +916,31 @@ PINS = [
      'negative: что сказано в настройках машины («0»), остаётся как сказано — «включён» стоит только там, где сказать было нечего'),
     ('apply_refuses_quantized_v_cache_without_flash_attention',
      'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; }; globalThis.__asked = () => asked;'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" } });',
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" } });',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), globalThis.__asked(), calls()]; })()',
      json.dumps([en("kvCacheNeedsFlash", type="q8_0"), 0, []], ensure_ascii=False),
      'сжатый кэш V при выключенном flash attention — отказ сразу, словами с типом и выходом, без вопроса «применить?» и без запроса '
      '(раньше ячейка падала 4 раза, а карточка показывала последнюю строку лога)'),
     ('apply_with_flash_attention_on_goes_on',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: true }, "tr-CACHE_TYPE_V": { value: "q8_0" },'
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: true }, "tr-CACHE_TYPE_V": { value: "q8_0" },'
      ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
-     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
+     json.dumps([en("saved"), ["/api/topology/server-cell/save-config"]]),
      'negative: та же пара с включённым flash attention уходит как раньше'),
     ('apply_with_f16_v_cache_and_flash_attention_off_goes_on',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "f16" },'
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "f16" },'
      ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
-     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
-     'negative: flash attention выключен, но кэш V из чисел (f16) — запускается: отказ только для сжатого'),
+     json.dumps([en("saved"), ["/api/topology/server-cell/save-config"]]),
+     'negative: flash attention выключен, но кэш V из чисел (f16) — сохраняется: отказ только для сжатого'),
     # ── A cell's Apply only SAVES: a running cell keeps its old settings until it restarts, and the toast says so ──
     ('apply_of_a_stopped_cell_says_saved',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
-     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped" }] }] });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", cellId: "c22013", port: null, phase: "stopped" }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "c22013"); } catch (e) {}'
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
      ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path), globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
      json.dumps([en("saved"), ["/api/topology/server-cell/save-config"], True]),
@@ -1001,10 +948,10 @@ PINS = [
     # ── The new-cell wizard's Create: its button was the question, and Apply does not ask it again (1.3.638) ──
     ('apply_confirmed_by_its_caller_asks_nothing',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
-     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped" }] }] });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", cellId: "c22013", port: null, phase: "stopped" }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "c22013"); } catch (e) {}'
      ' globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return false; };'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
      ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { const asked = await rc.submitRemoteLlamaStart(); const before = [asked, globalThis.__asked.length, calls().length];'
      ' const sure = await rc.submitRemoteLlamaStart({ confirmed: true }); return [before, sure, globalThis.__asked.length, calls().map((c) => c.path)]; })()',
@@ -1012,9 +959,9 @@ PINS = [
      'negative: Apply спрашивает, и «нет» не сохраняет ничего; positive: вызов от «Создать» мастера (confirmed) не спрашивает второй раз и сохраняет'),
     ('apply_of_a_running_cell_says_it_keeps_its_old_settings',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
-     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "running", gpuMem: { "0": 18350, "1": 24364 } }] }] });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", cellId: "c22013", port: 22013, phase: "running", gpuMem: { "0": 18350, "1": 24364 } }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "c22013"); } catch (e) {}'
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
      ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path), globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
      json.dumps([en("savedKeepsRunning"), ["/api/topology/server-cell/save-config"], True]),
@@ -1022,14 +969,14 @@ PINS = [
      'прежние настройки до перезапуска (выбранное на 70B деление между картами «ничего не сделало»); теперь тост говорит это словами'),
     ('apply_of_a_cell_that_runs_nothing_yet_says_saved',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }],'
-     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "starting", gpuMem: {} },'
-     ' { isSlot: true, clientId: "h1", port: 22014, phase: "running", gpuMem: { "0": 100 } }] }] });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "22013"); } catch (e) {}'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", cellId: "c22013", port: 22013, phase: "starting", gpuMem: {} },'
+     ' { isSlot: true, clientId: "h1", cellId: "c3f9a02b1", port: 22014, phase: "running", gpuMem: { "0": 100 } }] }] });'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], "c22013"); } catch (e) {}'
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
      ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return toastText(); })()',
      json.dumps(en("saved")),
-     'negative: другая ячейка той же машины работает, а эта ещё нет — «Saved.»: вопрос о ЭТОЙ ячейке (по порту), не о машине'),
+     'negative: другая ячейка той же машины работает, а эта ещё нет — «Saved.»: вопрос о ЭТОЙ ячейке (по её id), не о машине'),
     # ── The compute target follows the fields that decide the cards: a vLLM cell's TENSOR_PARALLEL and ENV pin ──
     # The form's `change` listener is bound once, when the form first opens; it reads the fields by id when it fires.
     ('change_of_tensor_parallel_redraws_the_cards_tile',
@@ -1049,11 +996,11 @@ PINS = [
      'и только при них: negative: чужое поле (CTX_SIZE) плитку не трогает'),
     ('apply_for_another_runner_ignores_the_llama_fields',
      'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
-     ' F({ "tr-PORT": { value: "22013" }, "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "org/m" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" },'
+     ' F({ "tr-RUNNER": { value: "vllm" }, "tr-VLLM_MODEL": { value: "org/m" }, "tr-ENABLE_FLASH_ATTN": { checked: false }, "tr-CACHE_TYPE_V": { value: "q8_0" },'
      ' llamaRemoteEditOverlay: { hidden: false }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), calls().map((c) => c.path)]; })()',
-     json.dumps([en("topologyRemoteStartSent", host="box-a"), ["/api/topology/client-llama/start"]]),
-     'negative: у vLLM поля формы llama.cpp скрыты и ничего не значат — «сжатый кэш V без flash attention» его запуск не останавливает'),
+     json.dumps([en("saved"), ["/api/topology/server-cell/save-config"]]),
+     'negative: у vLLM поля формы llama.cpp скрыты и ничего не значат — «сжатый кэш V без flash attention» его сохранение не останавливает'),
     # ── Speculation switched on: the type the draft is for, as a model pick writes it ──
     # The switch is bound once, when the form opens first; its handler reads the
     # fields by id when it fires, so the pin keeps the handler it caught.
@@ -1068,54 +1015,83 @@ PINS = [
      ' sw.checked = true; globalThis.__trListeners.spec({ target: sw }); const on = globalThis.__fields["tr-SPEC_TYPE"].value;'
      ' sw.checked = false; globalThis.__trListeners.spec({ target: sw }); return [on, globalThis.__fields["tr-SPEC_TYPE"].value]; };'
      ' return [fire("m/dflash-x.gguf", "draft-mtp"), fire("g/mtp/head.gguf", ""), fire("", "draft-eagle3"), fire("", "")]; })()',
-     json.dumps([["draft-dflash", ""], ["draft-mtp", ""], ["draft-eagle3", ""], ["draft-mtp", ""]]),
+     json.dumps([["draft-dflash", "none"], ["draft-mtp", "none"], ["draft-eagle3", "none"], ["draft-mtp", "none"]]),
      'включённая спекуляция пишет тип черновика, как выбор модели: DFlash остаётся DFlash (раньше — тип семейства '
      'draft-mtp поверх него), голова из папки mtp/ — draft-mtp; без файла — тип семейства, иначе draft-mtp; '
-     'negative: выключенная — пусто'),
+     'выключенная — none, слово сборщика для «нет» (2026-11-07; было пусто)'),
+    # Switched off, the start loads no draft: the builder's rule (cell-plan.js CellDraft) over the form as the switch left it.
+    # Until 2026-11-07 off wrote an empty type and kept the file, and the builder launches a file with no type by its own.
+    ('spec_switch_off_loads_no_draft',
+     'const sw = { type: "checkbox", checked: true, closest: () => null,'
+     ' addEventListener: (ev, fn) => { if (ev === "change") (globalThis.__trListeners ||= {}).spec ||= fn; } };'
+     ' F({ "tr-SPEC_ENABLED": sw });'
+     ' try { (await import(pathToFileURL(process.env.JS_ROOT + "/remote-cells.js").href + "?spec-switch")).openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
+     ' globalThis.__P = await import(pathToFileURL(process.env.JS_ROOT + "/cell-plan.js").href);'
+     ' globalThis.__FM = await import(pathToFileURL(process.env.JS_ROOT + "/form.js").href);',
+     '(() => { const P = globalThis.__P; const file = "Qwen3.8-27B-GGUF/unsloth/default/mtp-Qwen3.8-27B-Q4_0.gguf";'
+     ' st.setState({ ...st.state, models: [{ path: "m/model.gguf", familyDefaults: {} }] });'
+     ' const sw = { type: "checkbox", checked: true, closest: () => null,'
+     '   dispatchEvent: (ev) => { if (ev.type === "change") globalThis.__trListeners.spec({ target: sw }); } };'
+     ' F({ "tr-SPEC_ENABLED": sw, "tr-SPEC_TYPE": { value: "draft-mtp" }, "tr-SPEC_DRAFT_MODEL_FILE": { value: file }, "tr-MODEL_FILE": { value: "m/model.gguf" } });'
+     ' const f = () => globalThis.__fields; const rule = () => P.CellDraft.start(P.CellFields.ofConfig({ SPEC_TYPE: f()["tr-SPEC_TYPE"].value,'
+     '   SPEC_DRAFT_MODEL_FILE: f()["tr-SPEC_DRAFT_MODEL_FILE"].value }));'
+     ' sw.checked = false; globalThis.__trListeners.spec({ target: sw }); const off = rule();'
+     # What the form's Apply sends (readConfigForm): the config the controller saves and builds the start's command from.
+     ' const sent = globalThis.__FM.readConfigForm("tr-");'
+     ' const offWords = [f()["tr-SPEC_TYPE"].value, f()["tr-SPEC_DRAFT_MODEL_FILE"].value === file, off.loads, off.spec,'
+     '   sent.SPEC_TYPE, sent.SPEC_DRAFT_MODEL_FILE === file];'
+     ' sw.checked = true; globalThis.__trListeners.spec({ target: sw }); const on = rule();'
+     ' const onWords = [f()["tr-SPEC_TYPE"].value, on.loads, on.spec];'
+     # The new-cell wizard's switch writes the form through CellForm.set, which fires the switch's own change.
+     ' rc.CELL_FORM.set("SPEC_ENABLED", "0"); const wiz = [sw.checked, f()["tr-SPEC_TYPE"].value, rule().loads];'
+     ' rc.CELL_FORM.set("SPEC_ENABLED", "1"); wiz.push(f()["tr-SPEC_TYPE"].value, rule().loads);'
+     ' return [offWords, onWords, wiz, P.CellDraft.OFF]; })()',
+     json.dumps([["none", True, False, None, "none", True], ["draft-mtp", True, "draft-mtp"], [False, "none", False, "draft-mtp", True], "none"]),
+     'positive (дефект 2026-11-07): выключенная спекуляция пишет none, файл черновика остаётся в поле, а старт по правилу сборщика его '
+     'не грузит и типа не говорит; включённая снова — тип самого файла, файл грузится; так же — переключатель мастера новой ячейки '
+     '(CellForm.set); negative: «выключено» больше не пустой тип, при котором сборщик грузил названный файл'),
     # ── A start that is already under way: a notice that names the machine, not an error ──
     # The form's own fields are set after it opens: opening it needs the whole page.
-    ('start_already_loading_names_the_host',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [{ name: "RTX 5090" }] }] });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
-     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });'
-     ' globalThis.__fetchReply["/api/topology/client-llama/start"] = { __status: 409, error: "startup already in progress" };',
-     'await (async () => { await rc.submitRemoteLlamaStart(); return { toast: toastText(), closed: globalThis.__fields.llamaRemoteEditOverlay.hidden,'
-     ' pending: [...rc._pendingRemoteStarts.values()].map((p) => [p.hostId, p.hostName, p.modelName, p.port, p.gpuName]) }; })()',
-     json.dumps({"toast": en("topologyRemoteStartAlreadyInProgress", host="box-a"), "closed": True,
-                 "pending": [["h1", "box-a", "model.gguf", 22013, "RTX 5090"]]}),
-     'defect-history: повторный запуск («startup already in progress») называл переменную client, которой в этой '
-     'функции нет — ReferenceError: окно закрывалось молча, без уведомления и без перерисовки; теперь «модель уже '
-     'загружается на box-a» и запись «загружается» с именем машины'),
-    ('start_already_loading_unknown_host',
-     'st.setTopology({ ...st.topology, hosts: [] }); try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
-     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });'
-     ' globalThis.__fetchReply["/api/topology/client-llama/start"] = { __status: 409, error: "model already starting" };',
-     'await (async () => { await rc.submitRemoteLlamaStart(); return { toast: toastText(),'
-     ' pending: [...rc._pendingRemoteStarts.values()].map((p) => [p.hostId, p.hostName]) }; })()',
-     json.dumps({"toast": en("topologyRemoteStartAlreadyInProgress", host="h1"), "pending": [["h1", "h1"]]}),
-     'boundary: машины нет в топологии — уведомление и запись называют её id, как успешный запуск'),
-    ('start_sent_names_the_host',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {}'
-     ' F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
-     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });',
-     'await (async () => { await rc.submitRemoteLlamaStart(); return { toast: toastText(), closed: globalThis.__fields.llamaRemoteEditOverlay.hidden,'
-     ' pending: [...rc._pendingRemoteStarts.values()].map((p) => [p.hostId, p.hostName, p.clientIp]) }; })()',
-     json.dumps({"toast": en("topologyRemoteStartSent", host="box-a"), "closed": True, "pending": [["h1", "box-a", "192.0.2.21"]]}),
-     'positive: принятый запуск — «команда отправлена» с именем машины и та же запись «загружается»'),
+    ('new_cell_save_makes_it_and_holds_its_id',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;'
+     ' globalThis.__fetchReply["/api/topology/server-cell/save-config"] = { ok: true, hostId: "h1", cellId: "c3f9a02b1" };',
+     'await (async () => { const f = rc.CELL_FORM; const before = [f.holds(rc.CellForm.newKey("h1")), f.cellId()];'
+     ' const first = await f.save({ confirmed: true }); const after = [f.holds("c3f9a02b1"), f.holds(rc.CellForm.newKey("h1")), f.cellId(), [...rc._newReservedCells]];'
+     ' const second = await f.save({ confirmed: true });'
+     ' const sent = calls().map((c) => { const b = JSON.parse(c.body); return [c.path, b.cellId ?? null, b.hostId ?? null, "port" in b, "PORT" in b.config]; });'
+     ' return { before, first, after, second, sent, toast: toastText() }; })()',
+     json.dumps({"before": [True, ""], "first": True, "after": [True, False, "c3f9a02b1", ["c3f9a02b1"]], "second": True,
+                 "sent": [["/api/topology/server-cell/save-config", None, "h1", False, False],
+                          ["/api/topology/server-cell/save-config", "c3f9a02b1", None, False, False]], "toast": en("saved")}),
+     'новая ячейка (мастер, «＋ Add model»): Apply сохраняет её по машине — без cellId и без порта, — контроллер делает ячейку и называет её '
+     'id; форма держит её с этих пор по id, и второй Apply сохраняет ту же ячейку, а не делает вторую; вспышка — по id; negative: в конфиге нет PORT'),
+    ('new_cell_save_refused_stays_new',
+     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }] }); ' + OPEN_FORM +
+     ' F({ "tr-MODEL_FILE": { value: "m/model.gguf" }, llamaRemoteEditOverlay: { hidden: false },'
+     ' llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;'
+     ' globalThis.__fetchReply["/api/topology/server-cell/save-config"] = { __status: 500, error: "disk full" };',
+     'await (async () => { const f = rc.CELL_FORM; const said = await f.save({ confirmed: true }); return [said, f.cellId(), f.holds(rc.CellForm.newKey("h1")), [...rc._newReservedCells], toastText()]; })()',
+     json.dumps([False, "", True, [], "Error: disk full"]),
+     'negative: отказ контроллера — ячейка не сделана: форма держит её как новую, id не выдуман, вспышки нет, отказ сказан'),
+    ('apply_sends_no_port_even_with_a_port_input_on_the_page',
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true }); F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" },'
+     ' llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
+     'await (async () => { await rc.CELL_FORM.save({ confirmed: true }); const b = JSON.parse(calls()[0].body); return [calls()[0].path, Object.keys(b).sort(), b.cellId, "PORT" in b.config]; })()',
+     json.dumps(["/api/topology/server-cell/save-config", ["cacheModels", "cellId", "config"], "c22013", False]),
+     'negative: сохранённая ячейка уходит по id — {cellId, config, cacheModels}, без hostId и port, а в конфиге нет PORT, даже если на странице осталось поле порта'),
     # ── The form's title: which cell it sets up, not which engine ──
-    ('title_existing_cell', '', 'rc.cellFormTitle("h1 · gpu0", "22009", true)',
-     json.dumps(en("remoteCellTitle", port="22009", host="h1 · gpu0")),
-     'defect-history: форма настроенной ячейки называет её саму — порт и машину; было «Add llama server» у любой '
-     'ячейки, у настроенной Strata тоже (живая проверка 2026-10-13)'),
-    ('title_new_cell', '', 'rc.cellFormTitle("h1", "22011", false)',
-     json.dumps(en("remoteNewCellTitle", port="22011", host="h1")),
-     'новая ячейка («＋ Add model»): «настройки новой ячейки на :порт» — слова подсказки самой кнопки'),
-    ('title_no_port', '', 'rc.cellFormTitle("h1", "", true)',
-     json.dumps(en("remoteNewCellTitleNoPort", host="h1")),
-     'negative: формы без порта сегодня нет, но и тогда заголовок — без пустого «:»'),
+    ('title_existing_cell', '', 'rc.cellFormTitle("h1 · gpu0", "Qwen3-8B", true)',
+     json.dumps(en("remoteCellTitle", cell="Qwen3-8B", host="h1 · gpu0"), ensure_ascii=False),
+     'defect-history: форма настроенной ячейки называет её саму — по модели, как доска, — и машину; было «Add llama server» у любой '
+     'ячейки, у настроенной Strata тоже (живая проверка 2026-10-13); порта в заголовке нет'),
+    ('title_new_cell', '', 'rc.cellFormTitle("h1", "", false)',
+     json.dumps(en("remoteNewCellTitle", host="h1")),
+     'новая ячейка («＋ Add model»): «настройки новой ячейки» — без порта, которого у неё нет'),
+    ('title_unconfigured_is_a_new_cells', '', '[rc.cellFormTitle("h1", "c22011", false), rc.cellFormTitle("h1", "", true)]',
+     json.dumps([en("remoteNewCellTitle", host="h1")] * 2),
+     'negative: сохранённая, но не настроенная ячейка (резерв) — заголовок новой, её id не показывается; без имени — тоже, а не пустые кавычки'),
     ('title_names_every_card', '',
      '[rc.cellFormMachine("h1", [{ name: "NVIDIA GeForce RTX 3090" }, { name: "NVIDIA GeForce RTX 5090" }], "NVIDIA GeForce RTX 3090"),'
      ' rc.cellFormMachine("h1", [{ name: "NVIDIA GeForce RTX 5090" }, { name: "NVIDIA GeForce RTX 5090" }], ""),'
@@ -1126,22 +1102,23 @@ PINS = [
     ('title_on_open_names_both_cards',
      'globalThis.__title = () => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [] }] });'
      ' F({ llamaRemoteEditTitle: { textContent: "", parentElement: { querySelector: () => ({}) } } });'
-     ' try { rc.openLlamaRemoteEdit("h1", "NVIDIA GeForce RTX 3090", [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], "22011"); } catch (e) {}'
+     ' try { rc.openLlamaRemoteEdit("h1", "NVIDIA GeForce RTX 3090", [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], ""); } catch (e) {}'
      ' const v = globalThis.__fields.llamaRemoteEditTitle.textContent; try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {} return v; };',
      '__title()',
-     json.dumps(en("remoteNewCellTitle", port="22011", host="h1 · RTX 3090 + RTX 5090")),
+     json.dumps(en("remoteNewCellTitle", host="h1 · RTX 3090 + RTX 5090")),
      'форма открывается с заголовком, который называет обе карты машины, а не карту из первого аргумента'),
     ('title_on_open',
-     'globalThis.__title = (slot, port) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: slot ? [slot] : [] }] });'
+     'globalThis.__title = (slot, id) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: slot ? [slot] : [] }] });'
      ' F({ llamaRemoteEditTitle: { textContent: "", parentElement: { querySelector: () => ({}) } } });'
-     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], port); } catch (e) {}'
+     ' try { rc.openLlamaRemoteEdit("h1", "gpu0", [], id); } catch (e) {}'
      ' const v = globalThis.__fields.llamaRemoteEditTitle.textContent; try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {} return v; };',
-     '[__title({ isSlot: true, clientId: "h1", port: 22009, slotConfig: { RUNNER: "strata", MODEL_FILE: "m.gguf" } }, 22009),'
-     ' __title(null, 22011)]',
-     json.dumps([en("remoteCellTitle", port="22009", host="h1 · gpu0"),
-                 en("remoteNewCellTitle", port="22011", host="h1 · gpu0")]),
-     'форма открывается с заголовком своей ячейки: у настроенной на :22009 — «настройки ячейки», у новой на '
-     ':22011 — «настройки новой ячейки»'),
+     '[__title({ isSlot: true, clientId: "h1", cellId: "c22009", port: 22009, phase: "running", model: "Qwen3-8B", slotConfig: { RUNNER: "strata", MODEL_FILE: "m.gguf" } }, "c22009"),'
+     ' __title({ isSlot: true, clientId: "h1", cellId: "c3f9a02b1", port: null, model: "", slotConfig: { RUNNER: "custom", COMMAND: "run.sh" } }, "c3f9a02b1"),'
+     ' __title(null, "")]',
+     json.dumps([en("remoteCellTitle", cell="Qwen3-8B", host="h1 · gpu0"), en("remoteCellTitle", cell="c3f9a02b1", host="h1 · gpu0"),
+                 en("remoteNewCellTitle", host="h1 · gpu0")], ensure_ascii=False),
+     'форма открывается с заголовком своей ячейки: у настроенной — её модель, у ячейки без модели в имени — её id; у новой — «настройки новой '
+     'ячейки»; negative: порт работающей ячейки (22009) в заголовок не попадает'),
     # ── the model-cache panel: its words are the page's, the status line is not the note ──
     ('purge_result_is_said_in_the_pages_words_on_the_status_line',
      CACHE_PANEL + OPEN_FORM + ' globalThis.__fetchReply["/api/topology/client-llama/purge-cache"] = { ok: true, result: { removed: 3, freedBytes: 12340000000 } };',
@@ -1173,28 +1150,29 @@ PINS = [
     # The 🌐 of a cell that serves its own page (cell-page.js, 1.3.613) is a link: the browser follows it in this tab.
     # ── The cell form for the cell window (cell-settings.js): one form, heard when filled, saved and closed ──
     ('cellform_holds_the_cell_it_was_filled_for',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });',
-     '(() => { const f = rc.CELL_FORM; f.fill("h1", "22013", { hidden: true }); const a = [f.holds("h1", "22013"), f.holds("h1", 22013), f.holds("h1", "22014"), f.holds("h2", "22013")];'
-     ' f.fill("h1", "", { hidden: true }); return [...a, f.holds("h1", "")]; })()',
-     json.dumps([True, True, False, False, False]),
-     "the form holds the cell it was filled for (a port as text or number); negative: another port, another machine, and a "
-     "new cell (no port yet) are not held"),
+     KEPT_CELLS,
+     '(() => { const f = rc.CELL_FORM; const filled = f.fill("c22013", { hidden: true }); const a = [filled, f.holds("c22013"), f.holds("c3f9a02b1"), f.holds("h1"), f.holds(""), f.key()];'
+     ' f.fill(rc.CellForm.newKey("h1"), { hidden: true }); const b = [f.holds(rc.CellForm.newKey("h1")), f.holds("c22013"), f.cellId()];'
+     ' const stray = f.fill("c-gone", { hidden: true }); return [...a, ...b, stray, f.key()]; })()',
+     json.dumps([True, True, False, False, False, "c22013", True, False, "", False, "new:h1"]),
+     "the form holds the cell it was filled for, by its id; a cell not made yet is held under its machine's new key; negative: "
+     "another cell, the machine's id and an empty key are not held, and a key of no cell the board shows fills nothing — the form keeps what it held"),
     ('cellform_filled_heard_without_the_dialog',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });',
-     '(() => { const heard = []; rc.CELL_FORM.on("filled", (...a) => heard.push(a.length)); rc.CELL_FORM.fill("h1", "22013", { hidden: true });'
-     ' const shut = globalThis.__fields.llamaRemoteEditOverlay.hidden; rc.CELL_FORM.fill("h1", "22013");'
+     KEPT_CELLS,
+     '(() => { const heard = []; rc.CELL_FORM.on("filled", (...a) => heard.push(a.length)); rc.CELL_FORM.fill("c22013", { hidden: true });'
+     ' const shut = globalThis.__fields.llamaRemoteEditOverlay.hidden; rc.CELL_FORM.fill("c22013");'
      ' return [heard, shut, globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
      json.dumps([[0, 0], True, False]),
      "a filling is heard, with nothing carried; the window's own filling shows no dialog; negative: the dialog's own does"),
     ('cellform_saved_heard_with_the_config_sent',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true }); F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" },'
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true }); F({ "tr-MODEL_FILE": { value: "m/model.gguf" },'
      ' llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
-     'await (async () => { const heard = []; rc.CELL_FORM.on("saved", (cfg) => heard.push([cfg.PORT, cfg.MODEL_FILE]));'
+     'await (async () => { const heard = []; rc.CELL_FORM.on("saved", (cfg) => heard.push(["PORT" in cfg, cfg.MODEL_FILE]));'
      ' const ok = await rc.CELL_FORM.save(); return [ok, heard, calls().map((c) => c.path)]; })()',
-     json.dumps([True, [["22013", "m/model.gguf"]], ["/api/topology/server-cell/save-config"]]),
-     "the window's Apply is the dialog's: it saves, answers true, and the save is heard with the config sent"),
+     json.dumps([True, [[False, "m/model.gguf"]], ["/api/topology/server-cell/save-config"]]),
+     "the window's Apply is the dialog's: it saves, answers true, and the save is heard with the config sent — which carries no PORT"),
     ('cellform_save_refused_or_declined_is_false',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true }); F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "m/model.gguf" },'
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true }); F({ "tr-MODEL_FILE": { value: "m/model.gguf" },'
      ' llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } }); globalThis.__fetchCalls.length = 0;',
      'await (async () => { const heard = []; rc.CELL_FORM.on("saved", () => heard.push(1));'
      ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; const declined = await rc.CELL_FORM.save();'
@@ -1203,33 +1181,33 @@ PINS = [
      json.dumps([False, False, 0, 1]),
      "negative: a declined question and a failed save answer false and are not heard as saved — the window keeps its edits"),
     ('open_dialog_shows_the_edits_the_window_keeps',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true });',
      'await (async () => { const heard = []; rc.CELL_FORM.on("filled", () => heard.push("filled")); const asked = [];'
-     ' rc.CELL_FORM.keepBy({ keeps: (h, p) => h === "h1" && String(p) === "22013", leave: async () => { asked.push(1); return true; } });'
-     ' await rc.openRemoteFormForHost("h1", "22013"); return [heard, asked.length, globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
+     ' rc.CELL_FORM.keepBy({ keeps: (k) => k === "c22013", leave: async () => { asked.push(1); return true; } });'
+     ' await rc.openCellForm("c22013"); return [heard, asked.length, globalThis.__fields.llamaRemoteEditOverlay.hidden]; })()',
      json.dumps([[], 0, False]),
      "the dialog of the cell whose edits the window keeps comes up with the form as it stands — not filled again, nothing asked"),
     ('open_dialog_for_another_cell_asks_first',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true });',
      'await (async () => { const heard = []; rc.CELL_FORM.on("filled", () => heard.push("filled")); let answer = false; const asked = [];'
-     ' rc.CELL_FORM.keepBy({ keeps: () => false, leave: async (h, p) => { asked.push([h, String(p)]); return answer; } });'
-     ' await rc.openRemoteFormForHost("h1", "22014"); const first = [heard.length, globalThis.__fields.llamaRemoteEditOverlay.hidden, rc.CELL_FORM.holds("h1", "22013")];'
-     ' answer = true; await rc.openRemoteFormForHost("h1", "22014");'
-     ' return [first, heard.length, globalThis.__fields.llamaRemoteEditOverlay.hidden, rc.CELL_FORM.holds("h1", "22014"), asked]; })()',
-     json.dumps([[0, True, True], 1, False, True, [["h1", "22014"], ["h1", "22014"]]]),
+     ' rc.CELL_FORM.keepBy({ keeps: () => false, leave: async (k) => { asked.push(k); return answer; } });'
+     ' await rc.openCellForm("c3f9a02b1"); const first = [heard.length, globalThis.__fields.llamaRemoteEditOverlay.hidden, rc.CELL_FORM.holds("c22013")];'
+     ' answer = true; await rc.openCellForm("c3f9a02b1");'
+     ' return [first, heard.length, globalThis.__fields.llamaRemoteEditOverlay.hidden, rc.CELL_FORM.holds("c3f9a02b1"), asked]; })()',
+     json.dumps([[0, True, True], 1, False, True, ["c3f9a02b1", "c3f9a02b1"]]),
      "negative: edits the window keeps are not dropped by a dialog for another cell without the operator's word — declined, the "
-     "form keeps its cell and no dialog comes up; agreed, the form is filled for the other and its dialog shown"),
+     "form keeps its cell and no dialog comes up; agreed, the form is filled for the other and its dialog shown; the keeper is asked by the cell's id"),
     ('open_dialog_kept_for_a_cell_the_form_no_longer_holds_fills',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true });',
      'await (async () => { const heard = []; rc.CELL_FORM.on("filled", () => heard.push("filled"));'
-     ' rc.CELL_FORM.keepBy({ keeps: () => true, leave: async () => true }); await rc.openRemoteFormForHost("h1", "22099");'
-     ' return [heard, rc.CELL_FORM.holds("h1", "22099")]; })()',
+     ' rc.CELL_FORM.keepBy({ keeps: () => true, leave: async () => true }); await rc.openCellForm("c0a1b2c3d");'
+     ' return [heard, rc.CELL_FORM.holds("c0a1b2c3d")]; })()',
      json.dumps([["filled"], True]),
      "negative: a keeper's word alone does not show the form as it stands — the form holds another cell, so it is filled for this one"),
     ('open_dialog_to_add_a_model_never_shows_the_kept_form',
-     'st.setTopology({ ...st.topology, hosts: [{ id: "h1", name: "box-a", ip: "192.0.2.21", gpus: [] }], nodes: [{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: 22013, phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "m/model.gguf", KV_OFFLOAD: "0" } }] }] }); F({ llamaRemoteEditOverlay: { hidden: true, hasAttribute: () => true, focus() {} }, llamaRemoteEditStart: { textContent: "Apply", disabled: false, classList: { add() {}, remove() {} } } });' + ' rc.CELL_FORM.fill("h1", "22013", { hidden: true });',
+     KEPT_CELLS + ' rc.CELL_FORM.fill("c22013", { hidden: true });',
      'await (async () => { const asked = []; rc.CELL_FORM.keepBy({ keeps: () => true, leave: async () => { asked.push(1); return true; } });'
-     ' await rc.openRemoteFormForHost("h1", "22013", { pickModel: true }); return asked.length; })()',
+     ' await rc.openCellForm("c22013", { pickModel: true }); return asked.length; })()',
      '1',
      "negative: «+ Add model» is a new choice of a model — the form is filled afresh (asked first), never shown as it stood"),
     ('cellform_set_writes_as_typing_would',
@@ -1241,13 +1219,13 @@ PINS = [
      "a write is the form's own: the value (a box by \"1\"/\"0\"), then input and change that bubble — the form's listeners redraw "
      "what reads it and mark an optional toggle as stated; negative: a field the form has not is not written"),
     ('cellform_checked_locked_settle',
-     'F({ "tr-MMAP": { type: "checkbox", checked: true }, "tr-PORT": { value: "22013", readOnly: true }, "tr-CTX_SIZE": { value: "1" },'
+     'F({ "tr-MMAP": { type: "checkbox", checked: true }, "tr-HEALTH_PATH": { value: "", disabled: true }, "tr-CTX_SIZE": { value: "1" },'
      ' "tr-EXTRA_ARGS": { value: "--ctx-size 8192" } }); globalThis.__fetchCalls.length = 0;',
-     'await (async () => { const f = rc.CELL_FORM; const a = [f.checked("MMAP"), f.checked("NOPE"), f.locked("PORT"), f.locked("CTX_SIZE"), f.locked("NOPE")];'
+     'await (async () => { const f = rc.CELL_FORM; const a = [f.checked("MMAP"), f.checked("NOPE"), f.locked("HEALTH_PATH"), f.locked("CTX_SIZE"), f.locked("PORT"), f.locked("NOPE")];'
      ' await f.settle("CTX_SIZE"); const before = calls().length; await f.settle("EXTRA_ARGS"); return [...a, before, calls().map((c) => c.path)]; })()',
-     json.dumps([True, False, True, False, False, 0, ["/api/parse-extra-args"]]),
-     "the box as the form draws it, a locked port; leaving EXTRA_ARGS asks the controller which flags have fields of their own, "
-     "as leaving it in the dialog does; negative: leaving another field asks nothing"),
+     json.dumps([True, False, True, False, False, False, 0, ["/api/parse-extra-args"]]),
+     "the box as the form draws it, a field switched off is locked; leaving EXTRA_ARGS asks the controller which flags have fields of their own, "
+     "as leaving it in the dialog does; negative: leaving another field asks nothing, and the form has no port to lock — a cell's port is its scout's"),
     ('cellform_place_map_none_for_another_runner',
      'F({ "tr-RUNNER": { value: "vllm" } });',
      '(() => { const box = { innerHTML: "old map" }; return [rc.CELL_FORM.placeMap(box), box.innerHTML, rc.CELL_FORM.placeMap(null)]; })()',
@@ -1266,7 +1244,7 @@ PINS = [
      '',
      r'''await (async () => {
        const handlers = [];
-       const a = { dataset: { cellPage: "h1:22021" }, addEventListener: (ev, fn) => handlers.push([ev, fn]) };
+       const a = { dataset: { cellPage: "c22021" }, addEventListener: (ev, fn) => handlers.push([ev, fn]) };
        const root = { querySelectorAll: (q) => (q === "[data-cell-page]" ? [a] : []) };
        document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
        rc.bindServerSlotControls(root);
@@ -1276,6 +1254,11 @@ PINS = [
      json.dumps({"bound": ["click"], "stopped": 1, "prevented": 0, "calls": 0}),
      "the card's 🌐 is the browser's to follow: the card under it hears nothing of the click; negative: the link is not "
      "held back (no preventDefault) and nothing is asked of the controller"),
+    ('cell_button_selector_quotes_the_id',
+     'globalThis.__css = globalThis.CSS; delete globalThis.CSS;',
+     '(() => { try { return [rc.CellButton.selector("data-node-cell-stop", "c22001"), rc.CellButton.selector("data-node-cell-launch", \'c"x\')]; } finally { if (globalThis.__css) globalThis.CSS = globalThis.__css; } })()',
+     json.dumps(['[data-node-cell-stop][data-cell-id="c22001"]', '[data-node-cell-launch][data-cell-id="c\\"x"]']),
+     'кнопку ячейки находят по её data-cell-id (мгновенная метка «идёт» на нажатой кнопке); boundary: кавычка в id экранируется и без CSS.escape'),
 ]
 
 _fail = []
@@ -1343,6 +1326,14 @@ def main():
         ok = have == want
         check(ok, msg if ok else f"{msg}\n        ожидалось {json.dumps(want, ensure_ascii=False)[:300]}\n        получено  {json.dumps(have, ensure_ascii=False)[:300]}")
     print(f"порядок: {len(PINS)} пинов дают те же значения в обратном порядке" if not _fail else "")
+    # The port picker, its swap, the exclusions and the scan left with their controller routes (404): the module draws none of
+    # their markup and sends none of their requests, and no cell's button is read by a port any more.
+    print("ушло с доски:")
+    js = (ROOT / "static" / "js" / "remote-cells.js").read_text(encoding="utf-8")
+    for gone in ("port-picker", "port-tile", "port-scan", "data-pick-port", "data-swap-port", "data-release-port",
+                 "/api/port-exclusions", "reassign-port", "swap-port", "data-cell-port-reassign", "nodeCellPort",
+                 "data-node-cell-port", "nodeStartPort", "cellPort"):
+        check(gone not in js, f"negative: в remote-cells.js нет «{gone}»")
     print()
     if _fail:
         print(f"FAILED ({len(_fail)}):")

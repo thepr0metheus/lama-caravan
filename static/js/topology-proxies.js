@@ -1,13 +1,13 @@
-// Agent cards and the proxy-route form/registry.
+// Agent cards and the proxy routes' registry. A client has no port of its own (2026-11-07): the form that gave one left.
 import { _cvProxyToAgent } from "./canvas.js";
-import { option } from "./form.js";
 import { t } from "./i18n.js";
-import { setTopology, state, topology, ui } from "./state.js";
+import { topology } from "./state.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { AgentRow, FoldSlot } from "./card-rows.js";
 import {
   routeAddressTip,
   routeErrBadgeHtml,
+  routeRowClient,
   routeHandleHtml,
   routeIncident,
   routeStateFace,
@@ -21,9 +21,7 @@ import {
   sortedLaneCards,
   sortedTopologyClients,
 } from "./topology-activity.js";
-import { refreshTopology, renderTopology,
-} from "./topology-render.js";
-import { $, api, escapeHtml, isStaleCopy, toast } from "./utils.js";
+import { escapeHtml } from "./utils.js";
 
 // True if the proxy's agent was manually deleted (tombstoned) — not in client.agents anymore.
 export function _cvProxyIsTombstoned(p) {
@@ -107,15 +105,14 @@ export function topologyAgentCard(client, agent, routeMap, { fold = false } = {}
   // handles move to the line, so exactly one element per route carries them.
   const lineRoute = (role, route) => {
     if (!route) return null;
-    const proxy = (topology?.proxies || []).find((p) => p.id === route.proxyId);
-    const port = proxy?.port || String(route.proxyId || "").split(":").pop() || "";
     const usage = topologyRouteUsage(route);
     const model = String(route.modelName || "").trim();
+    // No number: an agent is pointed at no port of its own any more (2026-11-07).
     return {
-      role, port, address: routeAddressTip(route, port), face: routeStateFace(usage),
+      role, port: "", address: routeAddressTip(route), face: routeStateFace(usage),
       model, locked: !!model && !route.modelNameAuto, waitSec: routeWaitSec(route).sec,
       limit: Number(route.contextLength || 0) > 0 ? Number(route.contextLength) : 0,
-      errBadge: routeErrBadgeHtml(port), anchor: routeHandleHtml(client, agent, role, route, usage),
+      errBadge: routeErrBadgeHtml(routeRowClient(route)), anchor: routeHandleHtml(client, agent, role, route, usage),
     };
   };
   const line = new AgentRow({
@@ -206,8 +203,8 @@ export function clientNeedsCaption(agentCount) {
 // hidden: it comes back separately, so Routing says it out loud. Silently
 // dropping a routed input is exactly absence rendered as normality.
 export function canvasBoardClients(proxies) {
-  const byPort = new Map();
-  for (const p of proxies || []) byPort.set(String(p.port), p);
+  const byId = new Map();
+  for (const p of proxies || []) byId.set(String(p.id), p);
   const rows = [];
   const claimed = new Set();
   // Ports are claimed in name order (a port belongs to the first agent that names
@@ -225,8 +222,7 @@ export function canvasBoardClients(proxies) {
         .map((r) => ({ ...r, name: shownName.get(String(r.agentId)) || r.agentId })))) {
       const own = [];
       for (const route of (row?.routes || [])) {
-        const port = String(route?.proxyId || "").split(":").pop();
-        const proxy = byPort.get(port);
+        const proxy = byId.get(String(route?.proxyId || ""));
         if (proxy && !claimed.has(String(proxy.id))) { own.push(proxy); claimed.add(String(proxy.id)); }
       }
       if (own.length) rows.push({ key: `${client.id}::${row.agentId}`, clientId: client.id,
@@ -283,73 +279,6 @@ export function topologyServerUpstreamHost(s, node) {
   return (s && s.clientIp) || (node && node.ip) || "127.0.0.1";
 }
 
-// The whole list of ports goes out on a save, built from this page's copy of the topology with
-// the version of the routes it was built from. The controller refuses a list built from an older
-// version than its own (409, `stale`) and answers the current topology: the list is built again
-// from that, once — a tab left open since the morning would otherwise bring back a port deleted
-// since, or undo a key given since (2026-10-08). `build(routes)` answers the list to save, or
-// null to save nothing; then so does this.
-export async function saveProxyRoutes(build) {
-  const post = () => {
-    const routes = build(topologyProxyRoutes());
-    return routes ? api("/api/agent-proxies/config", { method: "POST",
-      body: JSON.stringify({ routes, revision: topology?.proxyRevisions?.routes || "" }) }) : null;
-  };
-  try {
-    return await post();
-  } catch (err) {
-    if (!isStaleCopy(err)) throw err;
-    setTopology(err.data.topology);
-    const data = await post();
-    if (data) toast(t("staleCopyRetried"));
-    return data;
-  }
-}
-
-export async function connectTopologyProxyToLlama(proxyId, llamaPort, llamaHost) {
-  const targetHost = (llamaHost || "").trim() || "127.0.0.1";
-  // There used to be a SECOND, near-verbatim copy of the route-build logic
-  // here, and the drift came from exactly that: a field added to one never
-  // showed up in the other. Now it's one list with a targeted replacement of
-  // a single route — this file has exactly one rebuild boundary left.
-  let changed = null;
-  const data = await saveProxyRoutes((rebuilt) => {
-    const routes = rebuilt.map((route) => (
-      `skynet:proxy:${route.port}` === proxyId
-        ? { ...route, upstreamHost: targetHost, upstreamPort: Number(llamaPort),
-            upstreamType: "llama", providerId: "" }
-        : route));
-    changed = routes.find((route) => `skynet:proxy:${route.port}` === proxyId) || null;
-    return changed ? routes : null;
-  });
-  if (!data) {
-    toast("Proxy route not found");
-    return;
-  }
-  await refreshTopology();
-  toast(`${changed.label || changed.port} -> llama ${targetHost}:${llamaPort}: ok`);
-}
-
-export async function toggleTopologyGroupCloudFallback(groupKey) {
-  // Per-client toggle: flips cloud fallback for every local (llama) proxy in the group.
-  const sorted = (topology?.proxies || []).slice().sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
-  const group = groupedTopologyProxies(sorted).find((g) => g.key === groupKey);
-  const proxies = group ? group.proxies : [];
-  const eligible = proxies.filter((p) => p.cloudFallbackEligible && String(p.upstreamType || "llama") !== "cloud");
-  if (!eligible.length) { toast("Connect this client's fallback proxy to a cloud provider first"); return; }
-  const active = eligible.some((p) => p.cloudFallbackProviderId);
-  const providerId = active ? "" : proxyGroupCloudProviderId(eligible[0]);
-  if (!active && !providerId) { toast("Connect this client's fallback proxy to a cloud provider first"); return; }
-  for (const proxy of eligible) {
-    await api("/api/agent-proxies/route-policy", {
-      method: "POST",
-      body: JSON.stringify({ port: proxy.port, cloudFallbackProviderId: providerId }),
-    });
-  }
-  await refreshTopology();
-  toast(active ? "cloud fallback disabled" : "cloud fallback enabled");
-}
-
 // A client of the entry (kind "consumer", 2026-10-12) never feeds a router: its one cable leads
 // to a pool, and the pool's rows decide — the same rule the server's normalizer keeps
 // (rust/crates/admin/src/proxies/dsl.rs), which clears its router binding on every save.
@@ -361,204 +290,11 @@ export function isEntryClient(proxy) {
   return String(proxy?.kind || "") === "consumer";
 }
 
-export function topologyProxyRoutes() {
-  // IMPORTANT: preserve the router binding + ownership fields so that saving
-  // the full routes array (add/edit/delete a single proxy) never wipes them.
-  return (topology?.proxies || []).map((proxy) => ({
-    label: proxy.label || "",
-    port: Number(proxy.port),
-    upstreamHost: proxy.upstreamHost || "127.0.0.1",
-    upstreamPort: Number(proxy.upstreamPort || 8080),
-    upstreamType: proxy.upstreamType || "llama",
-    providerId: proxy.providerId || "",
-    enabled: proxy.enabled !== false,
-    mode: proxy.mode || "open",
-    priority: Number(proxy.priority || 0),
-    preemptible: proxy.preemptible !== false,
-    clientTimeoutSeconds: Number(proxy.clientTimeoutSeconds || 0),
-    cloudFallbackProviderId: proxy.cloudFallbackProviderId || "",
-    // A consumer's key never reaches the page (it is shown once, when it is made): its route goes
-    // back without one, and the controller keeps the stored key (PolicyOwnedFields).
-    ...(proxy.apiKey === undefined ? {} : { apiKey: proxy.apiKey || "" }),
-    // Same preservation rule as connectTopologyProxyToLlama: a consumer keeps
-    // kind="consumer" and its intentional empty router binding.
-    kind: proxy.kind || "",
-    // An explicit "" is a port detached from every router on purpose (the server keeps it free:
-    // 503 until bound); only an ABSENT binding is a fresh port's, which the default takes. With
-    // `||` the rebuild sent "" back as router:default, so saving or deleting ANY port quietly
-    // bound every detached port to the default Routing again (2026-10-04).
-    routerId: !feedsRouters(proxy) ? "" : (proxy.routerId ?? "router:default"),
-    // A client's set is given by its own door (POST /api/consumers/set): the list goes back
-    // without it, and the controller keeps the stored one (PolicyOwnedFields).
-    role: proxy.role || "",
-    clientId: proxy.clientId || "",
-    ...(Number(proxy.contextLength) > 0 ? { contextLength: Number(proxy.contextLength) } : {}),
-    ...(proxy.contextAuto === undefined || proxy.contextAuto === null
-      ? {} : { contextAuto: !!proxy.contextAuto }),
-    // The name the port advertises its model under, and its lock: a route the page sent back
-    // without them lost them until the next apply of the client's assignment — and a client
-    // that asked in between found no model under its own name.
-    ...(String(proxy.modelName || "").trim() ? { modelName: String(proxy.modelName).trim() } : {}),
-    ...(proxy.modelNameAuto ? { modelNameAuto: true } : {}),
-    // A closed port and the route's own thresholds are not the page's to send: the
-    // controller keeps them when a save leaves them out (PolicyOwnedFields).
-  })).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
-}
-
-export function nextTopologyProxyPort() {
-  const ports = topologyProxyRoutes().map((route) => Number(route.port || 0));
-  return Math.max(8080, ...ports) + 1;
-}
-
-export function renderTopologyProxyForm() {
-  if (!ui.topologyProxyFormOpen) return "";
-  const editingProxy = (topology?.proxies || []).find((proxy) => proxy.id === ui.topologyProxyEditingId);
-  const isNew = !editingProxy;
-  const values = editingProxy ? {
-    label: editingProxy.label || "",
-    port: editingProxy.port || "",
-    upstreamHost: editingProxy.upstreamHost || "127.0.0.1",
-    upstreamPort: editingProxy.upstreamPort || 8080,
-    mode: editingProxy.mode || "open",
-    apiKey: editingProxy.apiKey || "",
-  } : {
-    label: "",
-    port: nextTopologyProxyPort(),
-    upstreamHost: "127.0.0.1",
-    upstreamPort: 8080,
-    mode: "open",
-    apiKey: "",
-  };
-  // Show advanced section open if editing and has a non-default mode. Queue/priority is
-  // configured on the Router canvas (queue nodes), not here.
-  const advancedOpen = !isNew && (values.mode !== "open" || !!values.apiKey);
-  return `
-    <div class="topology-policy-overlay" data-topology-proxy-overlay>
-      <div class="topology-policy-modal proxy-form-modal" role="dialog" aria-modal="true" aria-label="${isNew ? "Add Standalone Proxy" : "Edit Proxy Port"}">
-        <div class="topology-card-head">
-          <strong>${isNew ? "Add Standalone Proxy" : "Edit Proxy Port"}</strong>
-          <button class="icon-action compact" type="button" data-topology-proxy-cancel aria-label="Close" title="Close">×</button>
-        </div>
-        <div class="topology-proxy-form" data-topology-proxy-form="1">
-          <label>Name<input name="label" placeholder="agent-a primary" value="${escapeHtml(String(values.label))}" autofocus></label>
-          <div class="proxy-form-row">
-            <label>Port<input name="port" type="number" min="1024" max="65535" value="${escapeHtml(String(values.port))}"></label>
-          </div>
-          <div class="proxy-form-row">
-            <label>To host<input name="upstreamHost" value="${escapeHtml(String(values.upstreamHost))}"></label>
-            <label>To port<input name="upstreamPort" type="number" min="1" max="65535" value="${escapeHtml(String(values.upstreamPort))}"></label>
-          </div>
-          <details class="proxy-form-advanced"${advancedOpen ? " open" : ""}>
-            <summary>Advanced</summary>
-            <label>Mode
-              <select name="mode">
-                ${["open", "paused", "drain"].map((mode) => `<option value="${mode}"${values.mode === mode ? " selected" : ""}>${mode}</option>`).join("")}
-              </select>
-            </label>
-            <label class="proxy-nokey-row">
-              <input type="checkbox" name="noApiKey"${values.apiKey ? "" : " checked"} data-proxy-nokey>
-              <span>${escapeHtml(t("proxyNoKeyLabel"))}</span>
-            </label>
-            <label class="proxy-apikey-label"${values.apiKey ? "" : " hidden"}>${escapeHtml(t("proxyApiKeyLabel"))}
-              <span class="proxy-apikey-row">
-                <input name="apiKey" placeholder="${escapeHtml(t("proxyApiKeyPlaceholder"))}" value="${escapeHtml(String(values.apiKey))}" autocomplete="off" spellcheck="false">
-                <button class="mini-link" type="button" data-proxy-genkey title="${escapeHtml(t("proxyApiKeyGenTip"))}">🎲</button>
-              </span>
-              <span class="muted proxy-apikey-hint">${escapeHtml(t("proxyApiKeyHint"))}</span>
-            </label>
-          </details>
-          <div class="proxy-route-actions">
-            <button class="primary-mini-action" type="button" data-topology-proxy-save>Save</button>
-            <button class="mini-link" type="button" data-topology-proxy-cancel>Cancel</button>
-            <!-- Deleting a port had no button anywhere: bridges could be removed
-                 from the Cloud card and agent routes only by reconcile noticing
-                 they were unreferenced, so a port made by hand could be edited
-                 forever and never taken away. It belongs beside the settings it
-                 was created with — but only when there is something to delete;
-                 the same form is also the ADD form, where Delete would offer to
-                 remove a port that does not exist yet. -->
-            ${editingProxy ? `<button class="mini-link danger" type="button" data-topology-proxy-delete
-              title="${escapeHtml(t("proxyDeleteTip"))}">${escapeHtml(t("proxyDelete"))}</button>` : ""}
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-export function readTopologyProxyForm() {
-  const form = document.querySelector("[data-topology-proxy-form]");
-  if (!form) return null;
-  return {
-    label: form.querySelector('[name="label"]')?.value.trim() || "",
-    port: Number(form.querySelector('[name="port"]')?.value || 0),
-    upstreamHost: form.querySelector('[name="upstreamHost"]')?.value.trim() || "127.0.0.1",
-    upstreamPort: Number(form.querySelector('[name="upstreamPort"]')?.value || 8080),
-    enabled: true,
-    mode: form.querySelector('[name="mode"]')?.value || "open",
-    // The checkbox is the statement; the text field is only where the key
-    // lives when there is one. Reading the field regardless would let a key
-    // typed and then waved off with the checkbox stay in force.
-    apiKey: form.querySelector('[data-proxy-nokey]')?.checked
-      ? "" : (form.querySelector('[name="apiKey"]')?.value.trim() || ""),
-  };
-}
-
-// What the port form shows, and so all an edit may change. Everything else a route carries —
-// its router, owner and role, window, wait budget, upstream kind, whether it is switched on —
-// stays as it was: the edited route used to be rebuilt from the form alone, so a detached port
-// came back bound to the default Routing, a port lost its owner, its window and its wait budget,
-// and a port someone had switched off came back on (2026-10-04).
-const PROXY_FORM_FIELDS = ["label", "port", "upstreamHost", "upstreamPort", "mode", "apiKey"];
-
-export async function saveTopologyProxyForm() {
-  const read = readTopologyProxyForm();
-  if (!read) return;
-  const editing = ui.topologyProxyEditingId;
-  let refusal = "", gone = false;
-  const data = await saveProxyRoutes((rebuilt) => {
-    const before = rebuilt.find((row) => `skynet:proxy:${row.port}` === editing);
-    // The port this form edits was deleted in another tab: saving would bring it back.
-    if (editing && !before) {
-      gone = true;
-      refusal = t("staleCopyPortGone", { port: editing.split(":").pop() });
-      return null;
-    }
-    const route = before ? { ...before, ...Object.fromEntries(PROXY_FORM_FIELDS.map((k) => [k, read[k]])) } : read;
-    const existingRoutes = rebuilt.filter((row) => row !== before);
-    if (existingRoutes.some((row) => Number(row.port) === Number(route.port))) {
-      refusal = "proxy port already exists";
-      return null;
-    }
-    return [...existingRoutes, route].sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
-  });
-  if (!data) {
-    if (gone) {
-      ui.topologyProxyFormOpen = false;
-      ui.topologyProxyEditingId = "";
-      renderTopology();
-    }
-    toast(refusal);
-    return;
-  }
-  ui.latestSystemMonitor = data.monitor || ui.latestSystemMonitor;
-  ui.topologyProxyFormOpen = false;
-  ui.topologyProxyEditingId = "";
-  await refreshTopology();
-  toast("proxy route saved");
-}
-
-export function editTopologyProxy(proxyId) {
-  ui.topologyProxyEditingId = proxyId;
-  ui.topologyProxyFormOpen = true;
-  renderTopology();
-}
-
 export function topologyProxyGroupInfo(proxy) {
   const label = String(proxy.label || "").trim();
   const match = label.match(/^(.*)\s+(primary|fallback)$/i);
   if (!match) {
-    return { key: `single:${proxy.id}`, title: label || `proxy ${proxy.port}`, role: "", grouped: false };
+    return { key: `single:${proxy.id}`, title: label || String(proxy.id || ""), role: "", grouped: false };
   }
   return {
     key: `group:${match[1].trim().toLowerCase()}`,
@@ -651,14 +387,14 @@ export function groupedTopologyProxies(proxies) {
     ...group,
     proxies: group.proxies.sort((a, b) => {
       const order = { primary: 0, fallback: 1 };
-      return (order[a.topologyRole] ?? 10) - (order[b.topologyRole] ?? 10) || Number(a.port || 0) - Number(b.port || 0);
+      return (order[a.topologyRole] ?? 10) - (order[b.topologyRole] ?? 10) || String(a.label || "").localeCompare(String(b.label || ""));
     }),
   }));
 }
 
 export function proxyGroupCloudProviderId(proxy) {
   // Find the group this proxy belongs to, then find a cloud sibling within it.
-  const sorted = (topology?.proxies || []).slice().sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+  const sorted = (topology?.proxies || []).slice().sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
   const group = groupedTopologyProxies(sorted).find((g) => g.proxies.some((p) => p.id === proxy.id));
   if (!group) return "";
   const cloud = group.proxies.find((p) => String(p.upstreamType || "llama") === "cloud" && p.providerId);

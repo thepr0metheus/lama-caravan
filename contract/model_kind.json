@@ -134,5 +134,59 @@
    "path": "/v1/chat/completions",
    "serves": false
   }
+ ],
+ "pool": [
+  {
+   "rows": [
+    {"kind": {"jobs": ["llm"], "inputs": ["text", "image"]}},
+    {"kind": {"jobs": ["llm"], "inputs": ["text"]}}
+   ],
+   "word": "image",
+   "answer": "takes",
+   "why": "the picture goes to the row that promised it; the text row beside it is no candidate for this request"
+  },
+  {
+   "rows": [
+    {"kind": {"jobs": ["llm"], "inputs": ["text"]}},
+    {"kind": null}
+   ],
+   "word": "image",
+   "answer": "unsaid",
+   "why": "no row promised the picture, and one said nothing of its inputs: an unknown promise is not a promise that it cannot read"
+  },
+  {
+   "rows": [
+    {"kind": {"jobs": ["llm"], "inputs": ["text"]}},
+    {"kind": {"jobs": ["llm"], "inputs": ["text"]}}
+   ],
+   "word": "image",
+   "answer": "cannot",
+   "why": "every row that may serve said it reads text alone: the entry refuses, or a wired reader describes the picture"
+  },
+  {
+   "rows": [
+    {"serves": false},
+    {"kind": null}
+   ],
+   "word": "image",
+   "answer": "unsaid",
+   "why": "a row that serves nothing is no part of the promise; the row that serves says nothing, so the absence stands"
+  },
+  {
+   "rows": [
+    {"serves": false}
+   ],
+   "word": "image",
+   "answer": "no row",
+   "why": "no row may serve at all: the pool's own refusal says why, and this rule has nothing to refuse against"
+  },
+  {
+   "rows": [
+    {"kind": {"jobs": ["llm"], "inputs": ["text"]}}
+   ],
+   "word": "text",
+   "answer": "takes",
+   "why": "the negative case: a text row takes text, and the rule must not refuse the work the row exists for"
+  }
  ]
 }

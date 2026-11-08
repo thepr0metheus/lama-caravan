@@ -7,8 +7,8 @@ copy written by hand into five pages; this one was not given the link. Now scrip
 from one template, and what a page may do differently is the one table AppHeader.PAGES (check_header.py holds the pages to it).
 
 Pinned by value: the way back is the first thing in the bar of every page, to /board, with the same words and hook; the pages
-differ in exactly the table's six things (the title, the tagline, the tour, the «Security» entry, what stands before the account,
-the view the way back is for) and in which of the caravan's two model pages the page itself is, and in nothing else; every id a
+differ in exactly the table's five things (the title, the tagline, the tour, the «Security» entry, the view the way back is
+for) and in which of the caravan's two model pages the page itself is, and in nothing else; every id a
 script finds the bar's parts by is on every page; the words the bar carries before a language
 is loaded are the English ones of the shared dictionary (a page must not flash other words); the generator puts a bar in once and
 leaves a second run alone; and the rule that hides the way back keys on the link's own word (`data-view-only="machine"`, on the
@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gen_header import ACRONYM, AppHeader, ROOT  # noqa: E402
+from gen_header import ACRONYM, AppHeader, Page, ROOT  # noqa: E402
 import check_header  # noqa: E402
 
 _fail = []
@@ -118,7 +118,7 @@ def test_the_way_back():
 
 
 def test_what_differs():
-    print("what the pages differ in — the table's six things and nothing else:")
+    print("what the pages differ in — the table's five things and nothing else:")
     for name, (title, key, tagline, tour, security) in EXPECT.items():
         bar = BARS[name]
         h1 = re.search(r'<h1 class="page-title" data-t="header-page-title"( data-i18n="([^"]+)")?>([^<]*)</h1>', bar.text)
@@ -130,10 +130,6 @@ def test_what_differs():
     # The skeleton: take each bar's own five things out and what is left must be the same text on every page.
     def skeleton(name):
         text = BARS[name].text
-        row = AppHeader.PAGES[name]
-        for piece in (row.actions, ):
-            if piece:
-                text = text.replace("".join(f"      {line}\n" for line in piece.split("\n")), "")
         text = re.sub(r'\n\s*<span class="brand-acronym"[^\n]*</span>', "", text)
         text = re.sub(r'\n\s*<button id="userMenuSecurity"[^\n]*</button>', "", text)
         text = re.sub(r'\n\s*<button type="button" class="ob-btn-head".*?</button>', "", text, flags=re.S)
@@ -144,11 +140,15 @@ def test_what_differs():
         return text
     base = skeleton("board")
     for name in AppHeader.PAGES:
-        check(skeleton(name) == base, f"{name}: with its six things taken out, its bar is the board's, character for character")
-    check(AppHeader.PAGES["models"].actions == "",
-          "/models adds nothing before the account: its link to /hf is the bar's own now, on every page (2026-10-24)")
-    check('id="hfDiskBadge"' in AppHeader.PAGES["hf"].actions and "/models" not in AppHeader.PAGES["hf"].actions,
-          "/hf adds its disk badge before the account, and no link to what is on disk: the bar has the Models page")
+        check(skeleton(name) == base, f"{name}: with its five things taken out, its bar is the board's, character for character")
+    # A page adds nothing of its own to the bar (2026-11-03): /hf's disk chip stood beside the account and pushed the bar past a
+    # 1440-px window in five of the six languages, by 35 px in English and 131 in Russian, while every other page fit.
+    check("actions" not in Page.__dataclass_fields__, "the table has no place for markup a page adds to the bar: no page adds any")
+    check(all('hfDiskBadge' not in bar.text and 'hf-disk-badge' not in bar.text for bar in BARS.values()),
+          "the disk's free space is in no bar")
+    side = re.search(r'<section class="hfp-side">.*?</section>', (ROOT / "static" / "hf.html").read_text(encoding="utf-8"), re.S)
+    chip, token = (side.group(0).find(x) if side else -1 for x in ('id="hfDiskBadge"', 'id="hfToken"'))
+    check(-1 < chip < token, "/hf says its disk's free space in its side panel, just before the HF token: the two things a download needs")
 
 
 def test_the_parts_scripts_find():
@@ -157,8 +157,6 @@ def test_the_parts_scripts_find():
         extra = []
         if EXPECT[name][4]:
             extra.append("userMenuSecurity")
-        if name == "hf":
-            extra += ["hfDiskBadge"]
         if EXPECT[name][3]:
             extra.append("obBtnLabel")
         check(bar.ids() == sorted(COMMON_IDS + extra), f"{name}: ids {sorted(set(bar.ids()) - set(COMMON_IDS))} besides the common {len(COMMON_IDS)}")

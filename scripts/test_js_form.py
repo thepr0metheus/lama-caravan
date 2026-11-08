@@ -20,7 +20,10 @@ slot. VALUES are pinned:
   text — as-is (every caller passes its own strings, never user input);
 - mcFormatMtime depends on Node's locale — the snapshot runs under en_US/UTC;
 - a file only a library holds is a picker row like any other, with a 📚 chip
-  naming the library (escaped: the name is the operator's).
+  naming the library (escaped: the name is the operator's);
+- the estimate line names a speculative draft the start loads, as its own part
+  of the files and the whole, and says under it what is not counted of it —
+  nothing for a draft that is off, "—" for one the library has not (2026-11-07).
 
 The DOM is replaced by a field dict (globalThis.__fields in _js_globals.mjs):
 getElementById(id) returns the dict's entry or null, the same as a browser
@@ -29,6 +32,7 @@ together with the real constants/i18n/utils/state/memory/command-preview.
 
 Run: python3 scripts/test_js_form.py
 """
+import html as html_lib
 import json
 import os
 import subprocess
@@ -73,9 +77,11 @@ globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._t
 }
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/form.js").href);
 const F = (o) => { globalThis.__fields = o; return m.readConfigForm(""); };
-const base = { PORT: { value: " 22001 " }, MODEL_FILE: { value: "a.gguf" }, MMPROJ_FILE: { value: "mm.gguf" }, SPEC_DRAFT_MODEL_FILE: { value: "d.gguf" },
+// A PORT input stays on the page here on purpose: no form has one any more (a cell's port is its scout's to lease at each
+// start), and a config read off a page that still had one must carry none.
+const base = { PORT: { value: " 22001 " }, CTX_SIZE: { value: " 8192 " }, MODEL_FILE: { value: "a.gguf" }, MMPROJ_FILE: { value: "mm.gguf" }, SPEC_DRAFT_MODEL_FILE: { value: "d.gguf" },
   ENABLE_FLASH_ATTN: { checked: true }, KV_OFFLOAD: { checked: true }, MMAP: { checked: true }, FIT: { checked: false } };
-const pick = (c) => ({ PORT: c.PORT, MODEL_FILE: c.MODEL_FILE, MMPROJ_FILE: c.MMPROJ_FILE, DRAFT: c.SPEC_DRAFT_MODEL_FILE, RUNNER: c.RUNNER,
+const pick = (c) => ({ HAS_PORT: "PORT" in c, CTX: c.CTX_SIZE, MODEL_FILE: c.MODEL_FILE, MMPROJ_FILE: c.MMPROJ_FILE, DRAFT: c.SPEC_DRAFT_MODEL_FILE, RUNNER: c.RUNNER,
   KIND: c.CELL_KIND, DIR: c.LLAMA_MODELS_DIR, FA: c.ENABLE_FLASH_ATTN, KV: c.KV_OFFLOAD, MMAP: c.MMAP, FIT: c.FIT, THREADS: c.THREADS,
   COMMAND: c.COMMAND, VLLM: c.VLLM_MODEL, NAME: c.MODEL_NAME, TRUST: c.TRUST_REMOTE_CODE, SEQS: c.MAX_NUM_SEQS, KVDT: c.KV_CACHE_DTYPE,
   PARSER: c.REASONING_PARSER, TTS: c.TTS_ENGINE, PAGE: c.PAGE_URL, n: Object.keys(c).length });
@@ -121,8 +127,8 @@ const out = {
                  none: m.jobChips([]), unknown: m.jobChips(["sorcery"]),
                  compound: m.jobChips(["speech-translate"]) } },
 };
-globalThis.__fields = { "tr-PORT": { value: "9" }, PORT: { value: "1" } };
-out.prefixed = m.readConfigForm("tr-").PORT;
+globalThis.__fields = { "tr-THREADS": { value: "9" }, THREADS: { value: "1" } };
+out.prefixed = m.readConfigForm("tr-").THREADS;
 const items = [{ dataset: { search: "Qwen3 8B" }, hidden: false }, { dataset: { search: "gemma" }, hidden: false }, { dataset: {}, hidden: false }];
 m.mcFilterList({ children: items }, "QWEN"); out.filter = { q: items.map((i) => i.hidden) };
 m.mcFilterList({ children: items }, ""); out.filter.blank = items.map((i) => i.hidden);
@@ -458,7 +464,41 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   };
   out.barRunning = { running: running({ phase: "running", gpuMem: { 0: 5632 } }), stopped: running({ phase: "stopped", gpuMem: { 0: 5632 } }), noCell: running(null) };
   TR_GPUS.length = 0;
-  delete globalThis.__stubReturns["llama-edit.runnerRegistry"];
+  globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => JSON.parse(process.env.RUNNERS_JSON);
+  globalThis.__fields = keep;
+  st.setState(saved);
+}
+// The estimate line of a cell with a speculative draft (2026-11-07) — the live case of 2026-10-27, a 27B with its projector and its
+// MTP head on a 31.8 GB card, whose line had no draft in it: "Model 16.4 GB + MMProj 0.87 GB = Files 17.2 GB | … Runtime ≈ 27.3 GB".
+// Form and memory are real; the line, its hook and the words under it are read off the box.
+{
+  const saved = st.state, keep = globalThis.__fields;
+  const MODEL = "Qwen3.8-27B-GGUF/unsloth/UD-Q4_K_XL/Qwen3.8-27B-UD-Q4_K_XL.gguf";
+  const MMPROJ = "Qwen3.8-27B-GGUF/unsloth/default/mmproj-BF16.gguf";
+  const MTP = "Qwen3.8-27B-GGUF/unsloth/default/mtp-Qwen3.8-27B-Q4_0.gguf";
+  const models = [{ path: MODEL, kind: "model", sizeGb: 16.4, capability: "vision_likely", suggestedDraft: MTP,
+                    ggufMeta: { blockCount: 64, headCount: 24, headCountKv: 4, keyLength: 256, embeddingLength: 5120 } },
+                  { path: MMPROJ, kind: "mmproj", sizeGb: 0.87 }, { path: MTP, kind: "draft", sizeGb: 1.28, ggufMeta: { blockCount: 65 } }];
+  TR_GPUS.push({ index: 1, name: "NVIDIA GeForce RTX 5090", memoryTotalMiB: 32607, memoryFreeMiB: 32000, memoryUsedMiB: 607 });
+  const box = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] }, aside = { innerHTML: "" };
+  const draw = (fields, list = models) => {
+    st.setState({ ...saved, config: {}, models: list });
+    globalThis.__fields = { "tr-modelInsight": box, "tr-asideVramBar": aside, "tr-MODEL_FILE": { value: MODEL, dataset: {} },
+      "tr-MMPROJ_FILE": { value: MMPROJ }, "tr-SPEC_DRAFT_MODEL_FILE": { value: MTP }, "tr-SPEC_TYPE": { value: "draft-mtp" },
+      "tr-CTX_SIZE": { value: "65536" }, "tr-CACHE_TYPE_K": { value: "q8_0" }, "tr-CACHE_TYPE_V": { value: "q8_0" }, "tr-DEVICE": { value: "CUDA1" },
+      "tr-BATCH_SIZE": { value: "2048" }, "tr-UBATCH_SIZE": { value: "512" }, ...fields };
+    box.innerHTML = "";
+    try { m.renderModelInsight("tr-"); } catch (e) { return "threw: " + String((e && e.message) || e); }
+    const h = box.innerHTML;
+    const figure = (label) => (h.match(new RegExp(`${label}[^<]*<strong[^>]*>([^<]*)</strong>`)) || [])[1] ?? null;
+    return { hook: (h.match(/data-t="cell-remote-draft" data-t-state="([a-z]+)"/) || [])[1] ?? null, draft: figure("Draft"), files: figure("Files"),
+             model: figure("Model"), runtime: figure("Runtime"), note: (h.match(/<div class="insight-draft"[^>]*>([^<]*)<\/div>/) || [])[1] ?? null,
+             said: h.includes("Draft"), raw: h.includes("<b>mtp</b>") };
+  };
+  out.draftLine = { mtp: draw({}), none: draw({ "tr-SPEC_TYPE": { value: "none" } }), noFile: draw({ "tr-SPEC_DRAFT_MODEL_FILE": { value: "" } }),
+                    ram: draw({ "tr-SPEC_DRAFT_N_GPU_LAYERS": { value: "0" } }),
+                    unsized: draw({ "tr-SPEC_DRAFT_MODEL_FILE": { value: "x/<b>mtp</b>.gguf" } }) };
+  TR_GPUS.length = 0;
   globalThis.__fields = keep;
   st.setState(saved);
 }
@@ -486,7 +526,7 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
                   running: pools(plan(51201), { slot: { phase: "running", gpuMem: { 0: 5632 } } }), stopped: pools(plan(51201), { slot: { phase: "stopped" } }) };
   cpu.ram = {};
   TR_GPUS.length = 0;
-  delete globalThis.__stubReturns["llama-edit.runnerRegistry"];
+  globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => JSON.parse(process.env.RUNNERS_JSON);
   globalThis.__fields = keep;
 }
 // Picking a model writes its draft and the type that draft is for, by the one
@@ -647,6 +687,35 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   try { m.maybeAutofillModelHelpersPfx("tr-"); } catch (e) { out.pickThenWriteError = String((e && e.stack) || e).split("\n").slice(0, 4).join(" | "); }
   const f = globalThis.__fields;
   out.pickThenWrite = [f["tr-MMPROJ_FILE"].value, f["tr-SPEC_DRAFT_MODEL_FILE"].value, f["tr-SPEC_TYPE"].value, f["tr-SPEC_ENABLED"].checked];
+  // A runner that names its companions itself (the registry's ownCompanions: Strata's DeepSeek sets, 2026-11-03): the drafter and the
+  // picture reader the cell names stay through the form's open — of another repository, paired with the model by no list — and are
+  // offered by name; the same files under another runner are another repository's: stale, and the list's suggestion (none) goes over them.
+  const DS = "D/i/IQ1_M/d-IQ1_M-00001-of-00006.gguf", DSPARK = "U/u/Q8_0/dspark-d.gguf", DMM = "D/i/default/mmproj-d.gguf";
+  const REG = [{ id: "strata-ds", ownCompanions: ["STRATA_ENGRAM_FILE", "STRATA_META_FILE", "SPEC_DRAFT_MODEL_FILE", "MMPROJ_FILE"] }, { id: "llama-server" }];
+  const opened = (runner) => {
+    st.setState({ ...st.state, config: {}, artifacts: [], models: [
+      { path: DS, kind: "model", sizeGb: 120, compatibleMmprojs: [], suggestedMmproj: "", compatibleDrafts: [], suggestedDraft: "" },
+      { path: DSPARK, kind: "draft", sizeGb: 8 }, { path: DMM, kind: "mmproj", sizeGb: 1 }] });
+    const draft = select(DSPARK), mmproj = select(DMM);
+    draft.allowed = [DSPARK]; mmproj.allowed = [DMM];
+    // The draft picker's labels of its last drawing: the drafter is offered by its name, not as a file outside the scanned list.
+    const pushed = draft.appendChild.bind(draft);
+    draft.labels = [];
+    draft.appendChild = (o) => { draft.labels.push(o.textContent); pushed(o); };
+    Object.defineProperty(draft, "innerHTML", { set() { this.allowed = []; this._v = ""; this.labels = []; }, get() { return ""; } });
+    globalThis.__fields = { "tr-MODEL_FILE": select(DS), "tr-MMPROJ_FILE": mmproj, "tr-SPEC_DRAFT_MODEL_FILE": draft,
+                            "tr-SPEC_TYPE": { value: "" }, "tr-SPEC_ENABLED": { checked: false, closest: () => null } };
+    globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => REG;
+    globalThis.__stubReturns["llama-edit.effectiveRunnerId"] = () => runner;
+    let error = null;
+    try { m.maybeAutofillModelHelpersPfx("tr-"); } catch (e) { error = String((e && e.message) || e); }
+    delete globalThis.__stubReturns["llama-edit.effectiveRunnerId"];
+    const g = globalThis.__fields;
+    const d = g["tr-SPEC_DRAFT_MODEL_FILE"];
+    return [g["tr-MMPROJ_FILE"].value, d.value, g["tr-SPEC_TYPE"].value, d.allowed, d.labels.filter((label) => label.includes("dspark")), error];
+  };
+  out.ownCompanions = { strataDs: opened("strata-ds"), llama: opened("llama-server") };
+  globalThis.__stubReturns["llama-edit.runnerRegistry"] = () => [];
   document.createElement = made; globalThis.CSS = keepCss;
   globalThis.__fields = keep;
   st.setState(saved);
@@ -683,7 +752,7 @@ check(got["ratedChoices"] == [["rated/a/Q4/m.gguf", "like"], ["plain/a/Q4/m.gguf
       f"выбор модели знает оценку папки, в которой она лежит (владелец, 2026-10-31: «в месте, где выбираем»); negative: у другой модели и у файла прямо в библиотеке её нет (got {got['ratedChoices']})")
 _form_js = (ROOT / "static" / "js" / "form.js").read_text(encoding="utf-8")
 check('<span class="mc-item-name">${escapeHtml(fname)}</span>${ModelRating.markHtml(item.rating, t)}' in _form_js, "строка выбора рисует оценку сразу за именем файла")
-check(got["exports"] == 46, "form.js экспортирует 46 имён (пересчитай при изменении охвата; +ModelCompanions, 2026-10-17; +mcOpen, раунд 10; "
+check(got["exports"] == 45, "form.js экспортирует 45 имён (пересчитай при изменении охвата; −syncPortChipsEl, 2026-11-08: у формы нет поля порта; +ModelCompanions, 2026-10-17; +mcOpen, раунд 10; "
       "+modelChoiceOf, +mcAwaitPick; +ModelAlias, 2026-10-25; +ModelChoices, 1.3.638; +modelWindowFor, 1.3.651)")
 a = got["alias"]
 check(a[:2] == ["gemma-4-12b-it-q5_k_m", "qwen3.8-flash-next-ud-iq4_xs"],
@@ -701,18 +770,20 @@ check(got["classicGone"] == [],
 print("readConfigForm — поля:")
 rc = got["rc"]
 check(rc["llama"]["n"] == 150 and rc["empty"]["n"] == 150,
-      "конфиг всегда из 150 ключей, даже с пустой формы (1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T; 1.3.550: +TRUST_REMOTE_CODE; 1.3.697: +CPU_OFFLOAD_GB; "
-      "1.3.555: +MAX_NUM_SEQS, KV_CACHE_DTYPE, REASONING_PARSER; 1.3.611: +TTS_ENGINE; 1.3.613: +PAGE_URL)")
+      "конфиг всегда из 150 ключей, даже с пустой формы (2026-11-08: −HOST, ячейка слушает петлю своей машины; −PORT, порт даёт скаут при старте; 1.3.512: +4 поля Strata; 1.3.515: +3 поля GR00T; 1.3.550: +TRUST_REMOTE_CODE; 1.3.697: +CPU_OFFLOAD_GB; "
+      "1.3.555: +MAX_NUM_SEQS, KV_CACHE_DTYPE, REASONING_PARSER; 1.3.611: +TTS_ENGINE; 1.3.613: +PAGE_URL; 2.0.x: +STRATA_ENGRAM_FILE, STRATA_META_FILE)")
 check(rc["named"]["NAME"] == "gemma" and rc["namedWhisper"]["NAME"] == "ear" and rc["llama"]["NAME"] == "",
       "MODEL_NAME (1.3.507) — имя модели на входе машины, у любого раннера, без пробелов; поля нет — пусто")
-check(rc["llama"]["PORT"] == "22001", "порт обрезан от пробелов")
+check(rc["llama"]["CTX"] == "8192", "числовое поле обрезано от пробелов")
+check(rc["llama"]["HAS_PORT"] is False and rc["empty"]["HAS_PORT"] is False,
+      "negative: в конфиге нет PORT — даже когда на странице осталось поле порта: порт ячейки берёт её скаут при старте")
 check(rc["llama"]["FA"] == "1" and rc["empty"]["FA"] == "0", "чекбокс → \"1\"; отсутствующий чекбокс → \"0\"")
 check(rc["llama"]["THREADS"] == "", "отсутствующее числовое поле → \"\", не undefined")
 check(rc["llama"]["KV"] == "1", "необязательный тумблер со значением в конфиге читает чекбокс")
 check(rc["llama"]["MMAP"] == "" and rc["llama"]["FIT"] == "",
       "необязательный тумблер без значения и не тронутый → \"\" — даже при включённом чекбоксе")
 check(got["dirtyFit"] == "0", "тронутый (dirty) необязательный тумблер читает чекбокс: \"0\"")
-check(got["prefixed"] == "9", "префикс формы \"tr-\" читает tr-PORT, а не PORT")
+check(got["prefixed"] == "9", "префикс формы \"tr-\" читает tr-THREADS, а не THREADS")
 check(got["hfLink"] == {"href": "/hf?q=Qwen%2FQwen3-GGUF", "text": "HF", "target": None, "rel": None, "cls": "mc-hf-link",
                         "title": "Open Qwen/Qwen3-GGUF in HF Browser", "stopped": 1, "other": False, "flat": False, "empty": False},
       "ссылка «HF» у поля модели — обычная ссылка на страницу HF каравана с репозиторием в запросе, в ЭТОЙ ЖЕ вкладке (2026-10-17): без target и без стрелки ↗; щелчок по ней не открывает список "
@@ -854,6 +925,39 @@ check(got.get("awaitEstimate") == {"pending": [False, False, True, True, False],
       "1.3.390); negative: обычная форма с пустым полем — модель конфига, как было: размер и подсказка на месте, "
       f"полоса рисуется (у машины карта на 32 ГБ) (got {got.get('awaitEstimate')})")
 
+print("строка оценки с черновиком спекуляции (живой случай 2026-10-27):")
+dl = got.get("draftLine") or {}
+
+
+def gb_of(text):
+    """The number of a figure the line shows ("27.9 GB"), or None."""
+    return float(text.split()[0]) if text and text.split()[0].replace(".", "", 1).isdigit() else None
+
+
+mtp_line, none_line = dl.get("mtp") or {}, dl.get("none") or {}
+check(mtp_line.get("hook") == "cards" and mtp_line.get("draft") == "1.28 GB" and mtp_line.get("model") == "16.4 GB",
+      f"в строке своя часть «Draft 1.28 GB» с крючком cell-remote-draft (cards) — между MMProj и Files (got {mtp_line})")
+check(gb_of(mtp_line.get("files")) is not None and gb_of(none_line.get("files")) is not None
+      and abs(gb_of(mtp_line["files"]) - gb_of(none_line["files"]) - 1.28) < 0.06
+      and abs(gb_of(mtp_line.get("runtime")) - gb_of(none_line.get("runtime")) - 1.28) < 0.06,
+      f"positive (дефект): файлы и Runtime больше на 1.28 — черновик в сумме (got {mtp_line.get('files')}, {mtp_line.get('runtime')} "
+      f"против {none_line.get('files')}, {none_line.get('runtime')})")
+check(html_lib.unescape(mtp_line.get("note") or "") == "⚡ The draft's own KV cache is not counted.",
+      f"под строкой сказано, что собственный KV-кэш черновика не посчитан, — а не пропущено молча (got {mtp_line.get('note')!r})")
+for name in ("none", "noFile"):
+    line = dl.get(name) or {}
+    check(line.get("hook") is None and line.get("said") is False and line.get("note") is None and line.get("files") == "17.3 GB",
+          f"negative ({name}): SPEC_TYPE none или файла нет — ни части «Draft», ни строки о нём; файлы — модель с проектором (got {line})")
+ram_line = dl.get("ram") or {}
+check(ram_line.get("hook") == "ram" and ram_line.get("draft") == "1.28 GB" and ram_line.get("runtime") == mtp_line.get("runtime")
+      and html_lib.unescape(ram_line.get("note") or "").startswith("⚡ The draft is in RAM (SPEC_DRAFT_N_GPU_LAYERS 0)"),
+      f"SPEC_DRAFT_N_GPU_LAYERS 0 — черновик в RAM: так и сказано, в целом он есть (got {ram_line})")
+un_line = dl.get("unsized") or {}
+check(un_line.get("hook") == "unsized" and un_line.get("draft") == "—" and un_line.get("runtime") == none_line.get("runtime")
+      and html_lib.unescape(un_line.get("note") or "") == "⚡ The draft x/<b>mtp</b>.gguf is not in the library: neither its size nor its KV cache is counted."
+      and un_line.get("raw") is False,
+      f"черновика нет в библиотеке — «Draft —» и сказано, какого файла нет (экранировано), а не 0 в сумме (got {un_line})")
+
 rp = got.get("ramPlan") or {}
 note = "keeps its weights in memory · needs 50.0 GB free, plus 2.00 GB left for the system"
 check(rp.get("short") == {"add": "50.0 GB", "wontFit": True, "fill": "bad", "note": note, "mine": False, "vramNote": None},
@@ -956,6 +1060,15 @@ check(comp["noRow"] == [[], []],
 check(got["pickThenWrite"] == ["G/b/Q8/mmproj-g.gguf", "G/b/Q8/mtp-g.gguf", "draft-mtp", True],
       "выбор модели пишет проектор и черновик в пикеры, у которых уже варианты ЭТОЙ модели (соседняя папка кванта): значения остались, "
       f"тип — draft-mtp, ускорение включено; пикеры с вариантами прежней модели значения сбросили бы (got {got['pickThenWrite']}, {got.get('pickThenWriteError')})")
+own = got["ownCompanions"]
+check(own["strataDs"] == ["D/i/default/mmproj-d.gguf", "U/u/Q8_0/dspark-d.gguf", "draft-dspark", ["", "U/u/Q8_0/dspark-d.gguf"],
+                         ["U/u/Q8_0/dspark-d.gguf"], None],
+      "раннер, который сам находит спутников модели (ownCompanions — наборы DeepSeek в Strata): открытие формы оставляет проектор и драфтер, "
+      "которые назвала ячейка, хотя список моделей их модели не сопоставил и они из другого репозитория; драфтер предложен по имени, "
+      f"тип ускорения — по удержанному файлу (got {own['strataDs']})")
+check(own["llama"] == ["", "", "", [""], [], None],
+      "negative: те же файлы у llama-server — чужой репозиторий, «устаревшие», и подсказка списка (ничего) ложится поверх: "
+      f"правило списка для остальных раннеров прежнее (got {own['llama']})")
 check(got["heldDraft"] == [["x/mtp/d.gguf", "draft-mtp", True], ["", "", False]],
       "тип ускорения следует за тем, что поле УДЕРЖАЛО: поле приняло черновик — draft-mtp включён; поле значения не приняло "
       f"(нет такого пункта) — тип пуст и ускорение выключено, а не draft-mtp без файла (got {got['heldDraft']})")

@@ -6,6 +6,7 @@ use crate::config::args::LlamaArgs;
 use crate::config::builder::CellCommand;
 use crate::domain::runner::{Config, RunnerRegistry};
 use crate::fleet::cell_assets::CellAssets;
+use crate::fleet::cell_doorway::CellDoorway;
 use crate::fleet::cell_words::CellWords;
 use crate::fleet::controller_machine::ControllerMachine;
 use crate::fleet::launch_files::LaunchFiles;
@@ -55,9 +56,9 @@ impl<'app> TopologyServer<'app> {
         value.filter(|said| !said.is_boolean() && !said.is_null()).and_then(Coerce::int).filter(|number| *number > 0)
     }
 
-    fn parked_row(&self, slot: &Value, client: &Value, reading: &ServerReading<'_>) -> Value {
+    /// A cell that does not run: no port — the scout leases one when it starts (Papyrus `caravan-scout-port-lease`).
+    fn parked_row(&self, cell: &str, slot: &Value, client: &Value, reading: &ServerReading<'_>) -> Value {
         let host_id = Coerce::text(slot.get("hostId"));
-        let port = slot.get("port").cloned().unwrap_or(Value::Null);
         let config = slot.get("config").map_or_else(Map::new, Coerce::fields);
         let model_path = SlotModel::path(self.app, slot);
         let runner = self.app.runners.for_config(&config);
@@ -65,15 +66,15 @@ impl<'app> TopologyServer<'app> {
         let phase = if SlotModel::configured(self.app, slot) { "stopped" } else { "reserved" };
         let cells = CellCommand::of(self.app);
         let trained = self.trained_of(&cells, &model_path, reading.models_dir);
-        let (boot_enabled, boot_supported) = Self::boot_fields(client, Some(&port));
+        let (boot_enabled, boot_supported) = Self::boot_fields(client, cell);
         let name = {
             let said = Coerce::text(client.get("name"));
             if said.is_empty() { host_id.clone() } else { said }
         };
         let ip = Coerce::stripped(client.get("ip"));
         json!({
-            "id": format!("slot:{host_id}:{}", Coerce::str_of(Some(&port))),
-            "name": name, "port": port, "host": ip,
+            "id": format!("slot:{cell}"), "cellId": cell,
+            "name": name, "port": null, "host": ip,
             "model": ModelCheckpoints::display_name(&model_path),
             "cellLabel": runner.artifact_label(&config, reading.quant_words),
             "cellMeta": self.cell_meta(None, &config, is_command),
@@ -95,7 +96,7 @@ impl<'app> TopologyServer<'app> {
             "commandHistory": slot.get("commandHistory").filter(|said| Coerce::truthy(Some(*said))).cloned().unwrap_or_else(|| json!([])),
             "savedCommand": if is_command { self.saved_command(&config) } else { String::new() },
             "bootEnabled": boot_enabled, "bootSupported": boot_supported,
-            "pid": null, "lastError": "", "crash": null, "firewall": null, "reachable": null,
+            "pid": null, "lastError": "", "crash": null,
         })
     }
 
@@ -128,7 +129,7 @@ impl<'app> TopologyServer<'app> {
         })
     }
 
-    /// What a machine's cell says of itself as a row to draw; `None` for a cell with nothing to say yet.
+    /// What a machine's cell says of itself as a row to draw; `None` for a cell with nothing to say yet, or a report that names no cell.
     fn live_row_of<'row>(client: &'row Value, node: &'row Value, slots: &'row Map<String, Value>) -> Option<LiveRow<'row>> {
         let mut phase = Coerce::text(node.get("phase"));
         let running = Coerce::truthy(node.get("running"));
@@ -139,19 +140,15 @@ impl<'app> TopologyServer<'app> {
             return None;
         }
         let ip = Coerce::stripped(client.get("ip"));
-        let host_id = Coerce::text(client.get("id"));
-        let mut port = node.get("port").filter(|port| Coerce::truthy(Some(*port))).cloned();
-        if port.is_none() && phase == "error" {
-            port = slots
-                .values()
-                .find(|slot| Coerce::text(slot.get("hostId")) == host_id)
-                .and_then(|slot| slot.get("port"))
-                .cloned();
+        if ip.is_empty() {
+            return None;
         }
-        let port = port.filter(|_| !ip.is_empty())?;
-        let slot = port.as_i64().and_then(|port| slots.get(&ServerCells::slot_key(&host_id, port)));
+        let cell = ServerCells::node_cell(node)?;
+        // The port the scout leased this run, while it holds one; none is said as none.
+        let port = node.get("port").filter(|port| Coerce::truthy(Some(*port))).cloned().unwrap_or(Value::Null);
+        let slot = slots.get(&cell);
         let config = slot.and_then(|slot| slot.get("config")).map_or_else(Map::new, Coerce::fields);
-        Some(LiveRow { client, node, slot, config, port, ip, phase, running })
+        Some(LiveRow { client, node, slot, config, cell, port, ip, phase, running })
     }
 
     /// The cells the machines report, then the ones only the board keeps.
@@ -171,7 +168,7 @@ impl<'app> TopologyServer<'app> {
             quant_words: &ModelCheckpoints::FORMAT_HINTS,
         };
         let mut servers = Vec::new();
-        let mut live_keys: Vec<(String, Value)> = Vec::new();
+        let mut live_cells: Vec<String> = Vec::new();
         for client in hosts.values() {
             let nodes: Vec<Value> = match client.get("llamaNodes").and_then(Value::as_array).filter(|nodes| !nodes.is_empty()) {
                 Some(nodes) => nodes.clone(),
@@ -181,19 +178,18 @@ impl<'app> TopologyServer<'app> {
             };
             for node in &nodes {
                 if let Some(row) = Self::live_row_of(client, node, &slots) {
-                    live_keys.push((Coerce::text(client.get("id")), row.port.clone()));
+                    live_cells.push(row.cell.clone());
                     servers.push(self.live_row(&row, &reading));
                 }
             }
         }
         let empty = json!({});
-        for slot in slots.values() {
-            let host_id = Coerce::text(slot.get("hostId"));
-            let port = slot.get("port").cloned().unwrap_or(Value::Null);
-            if live_keys.iter().any(|(id, held)| *id == host_id && *held == port) {
+        for (cell, slot) in &slots {
+            if live_cells.contains(cell) {
                 continue;
             }
-            servers.push(self.parked_row(slot, hosts.get(&host_id).unwrap_or(&empty), &reading));
+            let host_id = Coerce::text(slot.get("hostId"));
+            servers.push(self.parked_row(cell, slot, hosts.get(&host_id).unwrap_or(&empty), &reading));
         }
         servers
     }
@@ -236,14 +232,13 @@ mod tests {
     use crate::tests::{HandClock, TestApp, TestFolder};
 
     #[test]
-    fn a_running_cell_s_row_says_a_closed_port_only_when_it_stays_closed() {
+    fn a_running_cell_s_row_says_nothing_of_an_address_of_its_own() {
         let folder = TestFolder::new("row-port");
         let clock = HandClock::at(1000);
         let app = TestApp::with_clock(&folder.path, &[], clock.clone());
-        // A port below any a test or a system hands out: nothing listens there, and no test running beside this one can make it answer.
-        let port = 1;
+        // A machine that said no scout address: nothing reaches its cells, and the row does not guess.
         let client = json!({"id": "box", "ip": "127.0.0.1"});
-        let node = json!({"port": port, "phase": "running", "running": true});
+        let node = json!({"port": 1, "phase": "running", "running": true, "firewall": {"state": "restricted"}});
         let slots = Map::new();
         let row = TopologyServer::live_row_of(&client, &node, &slots).unwrap();
         let facts = LiveFacts {
@@ -260,21 +255,16 @@ mod tests {
             trained: None,
         };
         let cells = TopologyServer::of(&app);
-        assert_eq!(
-            cells.live_progress(&row, &facts)["reachable"],
-            Value::Null,
-            "closed a moment: the row says nothing of a firewall"
-        );
-        clock.pass(10);
-        assert_eq!(
-            cells.live_progress(&row, &facts)["reachable"],
-            Value::Null,
-            "nobody looked for ten seconds: the count starts then"
-        );
-        clock.pass(5);
-        assert_eq!(cells.live_progress(&row, &facts)["reachable"], Value::Null);
-        clock.pass(5);
-        assert_eq!(cells.live_progress(&row, &facts)["reachable"], json!(false), "it stayed closed: now the row says so");
+        let progress = cells.live_progress(&row, &facts);
+        for gone in ["reachable", "firewall"] {
+            assert!(
+                progress.get(gone).is_none(),
+                "negative: a cell listens on its machine's loopback, whom its port lets in is no word of the board's: {gone}"
+            );
+        }
+        clock.pass(20);
+        let health = cells.live_health(&row, false, None);
+        assert_eq!(health.word, None, "no way to the cell: its health is not known, and not drawn as down");
     }
 
     #[test]

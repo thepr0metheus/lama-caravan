@@ -9,8 +9,9 @@ completion>0 and duration >100ms, the status class, the error row class, a
 model truncated at 24 characters, a rescue badge with the output trail),
 empty states, loading (a request with limit and event=finished,blocked, the date in
 the request, an error into the wrapper), an event cache by date, the event
-list, the full detail card with Raw JSON always expanded, the modal is
-created once and reused.
+list, the full detail card with Raw JSON always expanded (the Stream section names
+the lines the journal counted and did not read, 2026-11-04, and says nothing when nothing was missed),
+the modal is created once and reused.
 
 The DOM is the `globalThis.__fields` dict; `document.createElement` here
 creates elements that get registered in the dict by id (the module builds the
@@ -54,7 +55,7 @@ const F = () => globalThis.__fields;
 const fire = (id, type) => (F()[id].listeners[type] || []).forEach((fn) => fn({ target: F()[id] }));
 const calls = () => globalThis.__fetchCalls.map((c) => c.path);
 const ROW = (over = {}, item = {}) => ({ time: 1_700_000_070, event: "finished", item: { route: "hotel", client: "10.0.0.7", startedAt: 1_700_000_070, status: 200, durationMs: 2500, upstreamType: "llama", request: { model: "gpt-5.6-terra-extended-long-name" }, stream: { usage: { prompt_tokens: 100, completion_tokens: 50 } }, ...item }, ...over });
-const ROWS = () => [ROW({}, { rescued: { hops: 0, trail: [] } }), ROW({}, { route: "scout", client: "10.0.0.8", status: 502, error: "boom", upstreamType: "cloud", durationMs: 90, stream: null }), ROW({}, { route: "saved", upstreamType: "cloud", rescued: { hops: 1, trail: [{ from: "srv:22001", status: 400 }] }, durationMs: 65000 })];
+const ROWS = () => [ROW({}, { rescued: { hops: 0, trail: [] } }), ROW({}, { route: "scout", client: "10.0.0.8", status: 502, error: "boom", upstreamType: "cloud", durationMs: 90, stream: null }), ROW({}, { route: "saved", upstreamType: "cloud", rescued: { hops: 1, trail: [{ from: "mm:3f9a02b1c4d5", status: 400 }] }, durationMs: 65000 })];
 const reqUrl = () => "/api/agent-proxy-logs?limit=500&event=finished%2Cblocked" + (m.historyCurrentDate ? "&date=" + m.historyCurrentDate : "");
 const evUrl = () => "/api/agent-proxy-logs?limit=500" + (m.historyCurrentDate ? "&date=" + m.historyCurrentDate : "");
 const load = async (rows, extra = {}) => { globalThis.__fetchReply[reqUrl()] = { rows, dates: [m.historyCurrentDate || "2026-09-05"], date: m.historyCurrentDate || "2026-09-05", ...extra }; await m.loadRequestHistory(); };
@@ -84,7 +85,7 @@ PINS = [
     ("row_client_labels_not_read", 'st.ui.latestSystemMonitor = { clientLabels: { "10.0.0.7": "lab-box" } };',
      'await (async () => { await load([ROW()]); const h = wrap().innerHTML; st.ui.latestSystemMonitor = null; return [h.includes("<b>hotel</b><span class=\\"history-sub\\">10.0.0.7</span>"), h.includes("lab-box")]; })()',
      '[true,false]', "negative: подписи клиентов монитора больше не читаются (ушли с его списком клиентов в 6.9) — в ячейке адрес как есть"),
-    ("row_error_and_rescued", '', 'await (async () => { await load(ROWS()); const h = wrap().innerHTML; return [(h.match(/history-row-error/g) || []).length, h.includes(\'history-status-err">502<\'), h.includes(">90ms<"), (h.match(/history-tag-cloud/g) || []).length, h.includes("Failed exits before this answer: srv:22001 (400)"), h.includes(">1.1m<"), (h.match(/>—</g) || []).length >= 2, (h.match(/history-tag-rescued/g) || []).length]; })()',
+    ("row_error_and_rescued", '', 'await (async () => { await load(ROWS()); const h = wrap().innerHTML; return [(h.match(/history-row-error/g) || []).length, h.includes(\'history-status-err">502<\'), h.includes(">90ms<"), (h.match(/history-tag-cloud/g) || []).length, h.includes("Failed exits before this answer: mm:3f9a02b1c4d5 (400)"), h.includes(">1.1m<"), (h.match(/>—</g) || []).length >= 2, (h.match(/history-tag-rescued/g) || []).length]; })()',
      '[1,true,true,2,true,true,true,1]', "ошибка — класс строки и статус err; облако — тег; спасённый — бэйдж с трейлом; минуты; прочерки без токенов/TPS"),
     ("tps_needs_completion_and_duration", '', 'await (async () => { await load([ROW({}, { durationMs: 100 }), ROW({}, { stream: { usage: { prompt_tokens: 5, completion_tokens: 0 } } })]); const h = wrap().innerHTML; return (h.match(/history-td-tps">—</g) || []).length; })()',
      '2', "boundary: длительность ≤100 мс или ноль completion — TPS не считается"),
@@ -114,6 +115,17 @@ PINS = [
     ("detail_full_sections", '', '(h => [h.includes("Upstream error body"), h.includes("&quot;code&quot;: 400"), h.includes("model: gpt"), h.includes("<td>2500 ms</td>"), h.includes("waited: 800 m"), h.includes("<details"), h.includes("Raw JSON")])(m.renderHistoryDetailFull({ upstreamErrorBody: "{\\"code\\":400}", cloudMeta: { model: "gpt" }, item: { durationMs: 2500, queue: { queuedMs: 800 } } }))',
      '[true,true,true,true,true,false,true]', "детали: секции как в логе, но Raw JSON всегда раскрыт (без details)"),
     ("detail_error_without_body", '', '(h => [h.includes("log-detail-value\\">boom"), h.includes("Upstream error body")])(m.renderHistoryDetailFull({ item: { error: "boom" } }))', '[true,false]', "ошибка без тела апстрима — отдельной строкой"),
+    # 2026-11-04: the Stream section is what the journal has to say about a stream; a line past 1 MiB was counted and not read,
+    # and a stream read only in pieces has no events — so the section used to disappear with the number that names it.
+    ("detail_stream_and_what_was_not_read", '',
+     '(h => [h.includes("log-detail-label\\">Stream"), h.includes("log-detail-key\\">Events</td>"), h.includes("log-detail-key\\">Text chars</td>"), h.includes("log-detail-key\\">Finish</td>"), h.includes("log-detail-key\\">Tokens</td>")])(m.renderHistoryDetailFull({ item: { stream: { events: 4, deltaTextChars: 9, finishReasons: ["stop"], usage: { total_tokens: 20 } } } }))',
+     '[true,true,true,true,true]', "секция Stream: события, буквы, причина окончания, токены"),
+    ("detail_past_cap_named_when_there_is_one", '',
+     '(h => [h.includes("log-detail-label\\">Stream"), h.includes("lines not read (past 1 MiB)"), h.includes("<td>2</td>")])(m.renderHistoryDetailFull({ item: { stream: { events: 0, deltaTextChars: 0, finishReasons: [], usage: {}, done: false, linesPastCap: 2 } } }))',
+     '[true,true,true]', "negative: поток, прочитанный только кусками (событий ноль), всё равно показывает секцию и число строк, которые не прочитались"),
+    ("detail_no_past_cap_row_when_nothing_was_missed", '',
+     '(h => [h.includes("log-detail-key\\">Events</td>"), h.includes("lines not read (past 1 MiB)"), h.includes("<td>2</td>")])(m.renderHistoryDetailFull({ item: { stream: { events: 3, deltaTextChars: 5, finishReasons: [], usage: {}, done: true, linesPastCap: 0 } } }))',
+     '[true,false,false]', "отсутствие называется: Stream, прочитанный целиком, молчит о пределе — строки нет, когда нечего назвать"),
     ("popup_created_and_bound", '', '(() => { m.openHistoryDetailPopup(ROW()); const p = F().historyDetailPanel; return [!!p, p.innerHTML.includes("history-detail-popup-title"), p.innerHTML.includes("hotel · :"), "hidden" in p.attrs, p.className]; })()',
      '[true,true,false,false,"history-detail-overlay"]', "попап деталей создан, заголовок — сводка строки, показан"),
     ("popup_close_and_reuse", '', '(() => { m.openHistoryDetailPopup(ROW()); const n = globalThis.__created.length; m.closeHistoryDetailPopup(); const hidden = "hidden" in F().historyDetailPanel.attrs; m.openHistoryDetailPopup(ROW()); return [hidden, globalThis.__created.length > n, "hidden" in F().historyDetailPanel.attrs]; })()',

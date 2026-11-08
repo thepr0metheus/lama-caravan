@@ -73,6 +73,9 @@ const RUNNER_JOBS = {
   prism: ["llm"],
   vllm: ["llm"],
   strata: ["llm"],
+  // A DeepSeek-V4.1 cell is a chat: the table lacked Strata's DeepSeek runner, and its cells said no job (2026-11-03).
+  "strata-ds": ["llm"],
+  inferssd: ["llm"],
   whisper: ["asr"],
   moonshine: ["asr", "tts"],
   transcribe: ["asr"],

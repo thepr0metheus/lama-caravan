@@ -502,6 +502,34 @@ PINS = [
      'true,true,true,true,true,false,true,true,true,true,true,false,'
      '"<button type=\\"button\\" class=\\"hfp-btn\\" data-act=\\"jobs\\" data-t=\\"hf-downloads-toggle\\" aria-expanded=\\"true\\">⬇ Downloads · 3 running · 63% ▴</button>",true,[true,true]]',
      "задания: кнопка — сколько идёт и средний %, прерванные, янтарная при прерванных или ошибке; только прерванные — список закрыт; строки: «Отмена» у идущих (id или uid), ✕ у ошибки, пусто у готового и отменяемого; полоса не шире 100%; прерванные — «Продолжить» только при манифесте"),
+
+    ("dock_partial_of_a_job_says_its_files_left", "",
+     r"""(() => { dl.interrupted = [{ title: "a/m", current_file: "m-00004.gguf", destDir: "m/a/IQ1_M", total_files: 2, total_bytes: 74 * GIB, total_bytes_done: 8 * GIB, resumable: true },
+          { title: "a/m", current_file: "one.gguf", destDir: "m/a/Q8", total_files: 1, total_bytes: 4 * GIB, total_bytes_done: GIB, resumable: true },
+          { title: "b/n", current_file: "n.gguf", total_files: 3, total_bytes: 0, total_bytes_done: 300 * MIB, resumable: false }];
+        dl.jobsOpen = true; const h = dl.html(() => null); const mark = 'hfp-job-label hfp-warn">';
+        const label = (id) => { const at = h.indexOf(`data-t="hf-download-interrupted" data-t-id="${id}"`); const from = h.indexOf(mark, at) + mark.length; return h.slice(from, h.indexOf("</div>", from)); };
+        return [label("m-00004.gguf"), label("one.gguf"), label("n.gguf")]; })()""",
+     '["Interrupted — 8.0 GB / 74.0 GB downloaded · 2 files left","Interrupted — 1.0 GB / 4.0 GB downloaded","Interrupted — 300 MB on disk, source unknown"]',
+     "прерванное задание из нескольких файлов говорит, сколько файлов осталось; из одного — как раньше; negative: без манифеста — «источник неизвестен» и без счёта файлов"),
+
+    ("discard_of_a_job_says_the_rest_of_it_goes_too", "",
+     r"""await (async () => { const row = { destDir: "m/a/IQ1_M", current_file: "m-00004.gguf", total_files: 3, total_bytes_done: GIB };
+        const single = { destDir: "m/a/Q8", current_file: "one.gguf", total_files: 1, total_bytes_done: GIB };
+        dl.interrupted = [row, single]; answers = [false, false];
+        await dl.discard(row.destDir, "m-00004.gguf"); await dl.discard(single.destDir, "one.gguf");
+        return [asked.map((a) => a[1]), posts.length, dl.interrupted.length]; })()""",
+     '[["m-00004.gguf: 1.0 GB will be deleted, and the rest of its job (2 more) will not be downloaded. Downloading it again starts from zero.",'
+     '"one.gguf: 1.0 GB will be deleted. Downloading it again starts from zero."],0,2]',
+     "удалить прерванное задание из нескольких файлов: окно говорит, что остальные его файлы не скачаются; из одного файла — прежние слова; «нет» ничего не шлёт"),
+
+    ("resume_brings_the_whole_job", "",
+     r"""await (async () => { const row = { destDir: "m/a/IQ1_M", current_file: "m-00004.gguf", repo: A, title: A, total_files: 2, resumable: true };
+        dl.interrupted = [row]; replies["/api/hf/download/status?job=j7"] = new Promise(() => {});
+        replies["/api/hf/download/resume"] = { ok: true, jobId: "j7" }; await dl.resume(row.destDir, "m-00004.gguf"); await settle();
+        return dl.jobs.map((j) => [j.jobId, j.totalFiles, j.state]); })()""",
+     '[["j7",2,"resuming"]]',
+     "продолжение — всё задание строки: число файлов берётся из строки, а не 1 (строка без числа — 1, пин resume_turns_a_partial_into_a_job)"),
 ]
 
 

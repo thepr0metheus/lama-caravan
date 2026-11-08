@@ -42,7 +42,7 @@ exclusively through files under the data folder:
 | `subscription_usage.rs` | `SubscriptionUsage`: what each subscription account last said of its windows. |
 | `admission.rs`, `queue.rs` | `Admission`: one request's wait. `ModelQueue`, `Seat`, `Slot`: the queue of each model, a place as an object. |
 | `places.rs` | `MachinePlaces`, `PlacesWatch`: how many requests a model takes at once. |
-| `upstream.rs` | `UpstreamCall`: a request on its way to a machine's model or a cell, with the spare way. |
+| `upstream.rs`, `entry_wait.rs` | `UpstreamCall`: a request on its way to a machine's model or a cell. `EntryWait`: the wait for a machine's entry that does not take the request. |
 | `provider_request.rs`, `provider_call.rs`, `provider_access.rs` | What goes out to a provider, the call itself, and what it takes outside a request: trust, a renewed token, the usage page. |
 | `relay.rs` | An answer on its way to the client: `StreamRelay`, `WholeRelay`, `TranslatedRelay`, `ResponsesRelay`, `WholeRead`. |
 | `client.rs` | `ClientSide`: everything written to the client goes through here. |
@@ -101,7 +101,8 @@ What happens to one `POST /v1/chat/completions` arriving on the entry:
 6. **A row of a machine: its queue.** For a *streaming* request `client.open_stream` sends `200` + SSE
    headers **immediately**. Then `Admission::wait`:
    - **Capacity.** The queue is partitioned per model: `MachineOutput::group` is `host:port/model` for a
-     model of a machine's entry and `host:port` for a cell or an engine. `MachinePlaces::of` says how many
+     model of a machine's entry (the port is its scout's) and `host:port` for an engine; a cell is reached through its machine's
+     model since 2026-11-07. `MachinePlaces::of` says how many
      requests it takes at once (`places.rs`), the policy's `maxSlots` being the fallback. A request is admitted when
      it is first in its line **and** fewer than that many places are taken (`Seat::try_take`). A place is an object,
      `Slot`: it goes back when it is dropped, on any way out of a request, a thread's panic included.
@@ -166,8 +167,18 @@ What happens to one `POST /v1/chat/completions` arriving on the entry:
    object as JSON when it asked for `stream: false`; a client that did not ask for a stream gets one chat completion
    (`ChunkFold`); a buffered Anthropic response is converted whole by `AnthropicToChat::whole`. Native llama/OpenAI SSE is
    passed through line-by-line until `data: [DONE]` (`StreamRelay`); non-streaming bodies are relayed with the first 1 MiB
-   captured for the summary (`WholeRelay`). Every chunk updates byte/chunk counters and `StreamFold` accumulates delta
+   captured for the summary (`WholeRelay`). Lines are read whole, up to `Lines::LIMIT` (1 MiB): the event that ends a stream is the
+   biggest one, and a 64 KB read used to split it, so a long answer reached the client with no last chunk and the journal had no word for
+   what it missed. A line past the cap still goes to the client, but as pieces and never as an event, and `StreamFold` counts what it
+   could not read as `linesPastCap`: a stream read in pieces does not present itself as whole, and `done` stays what the provider said, not
+   the `[DONE]` the caravan writes to end its own client's stream. Every chunk updates byte/chunk counters and `StreamFold` accumulates delta
    chars, usage, timings and finish reasons; the board's stop is looked at between chunks and ends with `Ending::Stopped`.
+   A client that speaks the Messages API is answered in that shape, so `StreamFold` reads it too: the text is the block's delta, the end word is
+   `stop_reason`, and the provider's own word that the stream is complete is `message_stop` — `[DONE]` is never in a Messages stream.
+   Where those words sit in an event is said once, in `MessagesWords`, which the translation reads as well; a tool argument being built
+   (`input_json_delta`) is no text said, so the fold's letters are text only. Before this the journal counted the events of such a stream and said
+   nothing about what they said: `deltaTextChars: 0`, no finish reason, and `done: false` for an answer the provider ended. Pinned by
+   `contract/summaries.json`.
    The keepalive also covers the *forwarding* phase: if the client has seen no bytes for 20 s during slow prompt
    processing, the same thread writes one, so there is no second writer to split a real chunk. If the SSE stream is
    already open when an error hits, the error is encoded as an SSE `error` event + `[DONE]` instead of an HTTP status; a
@@ -200,6 +211,8 @@ Everything a request changes is a field of `Proxy`: nothing lives in a global. `
 active/recent bookkeeping behind one lock, and changing a request there costs a lock and no disk.
 `state/agent-proxy-state.json` is the live snapshot the controller's board polls. One thread writes it
 (`Proxy::write_state`, by `files::AtomicFile`), so no two writers can race.
+It is written whenever the board changes and every 5 s besides, so on the NAS it lives in memory, `/tmp` of the container
+(`AGENT_PROXY_STATE_FILE` in `deploy/nas/compose.yaml`, 2026-11-03): on the disk it was the caravan's most frequent write.
 
 The file also carries `subscriptionUsage` — each subscription account's last
 reading of its limit windows — which the controller judges for the rows' switch
@@ -246,8 +259,8 @@ counts it (`journalFailures`), and the state file says how many.
 
 ## `places.rs`
 
-How many requests a model takes at once. A queue group is one server (`"host:port"`), or one model of a machine's
-entry (`"host:port/model"`), matching the `upstream` field stamped on active items so the controller can group requests.
+How many requests a model takes at once. A queue group is one server (`"host:port"`, an engine's), or one model of a machine's
+entry (`"host:port/model"`, the scout's port), matching the `upstream` field stamped on active items so the controller can group requests.
 `MachinePlaces::of` asks a cell's `/slots` for its true `--parallel` count, and a machine's entry
 `GET /v1/models/<name>` for `caravan.slots`, each kept 5 s, with 800 ms of patience on a request's way and last-known-good
 semantics (a flapping probe never clobbers a discovered count back to "auto"). An engine next to the cells (an output of
@@ -403,7 +416,7 @@ keeps it for the journal: where no chunk carried the usage, what the provider ha
 far as it was told — is what the journal row holds (1.3.586). Pinned by `contract/translate.json`.
 
 - Key names: `RequestFields::model_named`, `ChatToResponses`, `ResponsesToChat`, `ResponsesPassthrough`, `ChatToAnthropic`,
-  `AnthropicToChat`, `AnthropicUsage`, `ChunkFold`.
+  `AnthropicToChat`, `AnthropicUsage`, `MessagesWords`, `ChunkFold`.
 
 ## `rust/crates/rules/src/summaries.rs`
 
@@ -413,7 +426,9 @@ message/role counts, prompt char counts, image parts, tool count and a
 truncated last-text preview; `ResponseSummary` and `StreamFold`
 pull usage, finish reasons and llama.cpp's exact per-request `timings` (the
 authoritative TPS source) from buffered bodies and SSE tail chunks
-respectively.
+respectively. `StreamFold` reads the two shapes a relay carries — the chat chunk, and the Messages event a client that speaks Messages
+gets as it came — and both read the same words: `MessagesWords` says where an event's text, end word, usage and model are, and the
+translation reads through it too, so the fold does not keep its own copy of where they live.
 
 - Owns: preview truncation, usage/timings extraction.
 - Key names: `RequestSummary`, `ResponseSummary`, `StreamFold`, `UsageWords`, `ProviderBodyWords`.
@@ -444,8 +459,8 @@ OpenAI's API, picking a running copy by the `model` a request names (scout
   (`model_named`), as for an engine's model — a JSON body's `model`, or a recording's
   form field `model` (1.3.628).
 - Each model has a queue of its own: `MachineOutput::group` is
-  `host:port/model` — the `upstream` stamped on its requests — where a cell's
-  and an engine's is `host:port`. The scout's port serves every model of its
+  `host:port/model` — the `upstream` stamped on its requests — where an
+  engine's is `host:port`. The scout's port serves every model of its
   machine, and one queue for all of them would hold a model back behind
   another's work.
 - Its places are the scout's word (scout 2.29): `MachinePlaces`
@@ -461,13 +476,19 @@ OpenAI's API, picking a running copy by the `model` a request names (scout
   their models, and Hermes's "none" to gemma had to keep working).
 - A model none of whose copies runs or starts carries `stopped`: a pool passes its
   row by without asking (`pool_steps/rows.rs`, as a stopped cell's).
-- The spare way (the owner's decision 3, 2026-10-12; `UpstreamCall::next_spare`, 1.3.655):
-  when the entry does not answer before the first byte — no connection, or one
-  dropped — the request goes straight to a running copy on its own port
-  (`copyPorts`, the output's word from the machine's last report), each copy once
-  per leg, then on as before (the pool's next row). The event `machine_entry_spare`
-  names the output and the port. A refusal of the entry (404, 503) is its answer:
-  no spare way then.
+- A machine's entry that does not take the request — the connection refused, or
+  dropped before the first byte of the answer, as while its scout restarts — is waited
+  for (`EntryWait`, 2026-11-08): asked again every quarter of a second, 15 s at the most,
+  then on as before (the pool's next row, or 502). The service starts a scout 3 s after it
+  ended and the scout listens 45 ms later, so a restart's gap is about 3.3 s. The event
+  `machine_entry_wait` names the output and says how long it waited, how many times it
+  knocked and whether the entry took the request in the end. A machine that is off
+  (no route, a connect that times out) is not waited for, nor is a server of another
+  kind (an engine). A refusal of the entry (404, 503) is its answer.
+  Until 2026-11-08 the request went straight to a running copy on its own port instead
+  (`machine_entry_spare`, the owner's decision 3 of 2026-10-12). The cells listen on their
+  machine's loopback since step 7 of Papyrus `caravan-scout-port-lease`, and that way is
+  closed; `copyPorts` stays on the output as what says that a copy runs.
 
 ## `rust/crates/wire/src/body.rs`
 

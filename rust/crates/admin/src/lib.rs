@@ -28,4 +28,4 @@ pub mod topology;
 pub mod web;
 
 /// The controller's version: the board shows it.
-pub const VERSION: &str = "2.0.0";
+pub const VERSION: &str = "2.1.0";

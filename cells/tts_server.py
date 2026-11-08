@@ -43,8 +43,10 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -57,6 +59,36 @@ def log(msg):
     print(msg, flush=True)
 
 
+class VramProbe:
+    """The VRAM free on the card a CUDA engine of this cell would take — torch's device 0 under the cell's environment —
+    read by a Python of its own.
+
+    Read in the cell's process, CUDA would come up there, and what comes up stays: the cards could no longer be hidden
+    from the engine (Device), and a cell sent to the CPU kept a CUDA context on the very card it was sent away from. The
+    reader holds a context of its own while it reads, so what it reads is short of what the engine finds by that much —
+    a few hundred MB, an error toward the CPU."""
+
+    #: What the reader runs: the free and total bytes of device 0, or "none" when torch sees no CUDA device.
+    SCRIPT = ("import torch\n"
+              "print(*torch.cuda.mem_get_info()) if torch.cuda.is_available() else print('none')\n")
+    #: How long the reader may take, seconds: torch imported from a cold disk, and CUDA's start.
+    SECONDS = 120
+
+    def __init__(self, python=None):
+        self.python = python or sys.executable
+
+    def free(self, env):
+        """Free bytes on that card; None when torch sees no CUDA device. Raises when the reader does not say."""
+        done = subprocess.run([self.python, "-c", self.SCRIPT], env=dict(env), capture_output=True, text=True,
+                              timeout=self.SECONDS)
+        lines = done.stdout.strip().splitlines()
+        if done.returncode != 0 or not lines:
+            told = (done.stderr.strip().splitlines() or [f"exit {done.returncode}"])[-1]
+            raise RuntimeError(f"the VRAM reader said nothing: {told}")
+        words = lines[-1].split()
+        return None if words == ["none"] else int(words[0])
+
+
 class Device:
     """Where the engine runs, and why there.
 
@@ -64,40 +96,49 @@ class Device:
     because VRAM was short looks exactly like one running on the GPU the
     operator picked, and runs many times slower. One line at start-up is not
     somewhere anybody looks afterwards — /health says it (device, deviceReason).
+
+    The CPU is made true for the whole process: the cards are hidden from it (CUDA_VISIBLE_DEVICES="") before the
+    engine's package is imported (VoiceEngine.load). An engine's device argument alone left two of them on the card a
+    cell said it had left: CosyVoice2 puts itself on any card torch sees (cosyvoice/cli/model.py), and F5-TTS its own
+    Whisper on the card its import saw (f5_tts/infer/utils_infer.py).
     """
 
-    #: The VRAM an engine wants FREE before it goes on the card, GB.
-    NEED_GB = 2.5
+    #: A GB as the caravan's figures count it.
+    GB = 1024 ** 3
 
-    def __init__(self, env=None):
+    def __init__(self, env=None, probe=None):
         self.env = os.environ if env is None else env
+        self.probe = VramProbe() if probe is None else probe
         self.name = ""
         self.reason = ""
 
-    def pick(self, need_gb=NEED_GB):
-        """cuda when TTS_DEVICE says so or enough VRAM is actually FREE, else cpu.
+    def pick(self, need_gb):
+        """cuda when TTS_DEVICE says so or `need_gb` of VRAM is actually FREE, else cpu.
         The GPU cells (gemma/whisper) usually own almost all VRAM — starting one
         more CUDA model would OOM, and a CPU XTTS (~1-3 s per sentence) beats a
         dead cell. TTS_DEVICE=cuda|cpu overrides the guess."""
-        dev = str(self.env.get("TTS_DEVICE", "")).lower()
-        if dev in ("cuda", "cpu"):
-            self.name, self.reason = dev, "TTS_DEVICE"
-            return dev
+        said = str(self.env.get("TTS_DEVICE", "")).lower()
+        if said in ("cuda", "cpu"):
+            return self.on(said, "TTS_DEVICE")
         try:
-            import torch
-            if torch.cuda.is_available():
-                free, _total = torch.cuda.mem_get_info()
-                if free >= need_gb * 1024 ** 3:
-                    self.name = "cuda"
-                    return "cuda"
-                log(f"device: only {free / 1024 ** 3:.1f} GB VRAM free "
-                    f"(< {need_gb} GB) -> cpu")
-                self.reason = f"only {free / 1024 ** 3:.1f} GB VRAM free, needs {need_gb} GB"
+            free = self.probe.free(self.env)
         except Exception as e:  # noqa: BLE001
-            log(f"device probe failed ({e}) -> cpu")
-            self.reason = f"probe failed: {e}"
-        self.name = "cpu"
-        return "cpu"
+            return self.on("cpu", f"probe failed: {e}")
+        if free is None:
+            return self.on("cpu", "torch sees no CUDA device")
+        # Rounded down: a card short of the need never reads as holding it.
+        shown = math.floor(free * 100 / self.GB) / 100
+        if free >= need_gb * self.GB:
+            return self.on("cuda", f"{shown:.2f} GB VRAM free, needs {need_gb:.1f} GB")
+        return self.on("cpu", f"only {shown:.2f} GB VRAM free, needs {need_gb:.1f} GB")
+
+    def on(self, name, reason):
+        """The device, with its reason; on the CPU the cards hidden from the process — a card it pins as well."""
+        self.name, self.reason = name, reason
+        if name == "cpu":
+            self.env["CUDA_VISIBLE_DEVICES"] = ""
+        log(f"device: {name} — {reason}")
+        return name
 
 
 class VoiceEngine:
@@ -112,6 +153,20 @@ class VoiceEngine:
     aliases = {}
     #: The longest sample the engine takes a voice from, seconds; 0: any — it cuts a longer one itself.
     max_sample = 0
+    #: How much more than its measured peak (`peak_mib`) an engine wants free, percent: the measurement tried one sample
+    #: and one text, and a peak may fall between two readings.
+    MARGIN_PERCENT = 20
+
+    # `peak_mib` — the most VRAM the engine's process was seen to hold, MiB (nvidia-smi --query-compute-apps, read
+    # every 0.5 s through its load and its first sentences) — is each engine's own, beside how it was measured. There
+    # is no default: one engine's figure is not another's. Until 2026-11 one 2.5 GB stood for all three, and
+    # CosyVoice2, which took 4.2 at its peak, went on any card with 2.5 free.
+
+    @property
+    def need_gb(self):
+        """The VRAM the engine wants FREE before it goes on the card, GB: its measured peak and MARGIN_PERCENT more,
+        rounded up to a tenth."""
+        return math.ceil(self.peak_mib * (100 + self.MARGIN_PERCENT) * 10 / (100 * 1024)) / 10
 
     def told(self, lang):
         """The language as the engine is told it — refused when the engine reads no such language."""
@@ -128,6 +183,12 @@ class VoiceEngine:
         return {} if speed == 1.0 else {"speed": speed}
 
     def load(self, device):
+        """The device asked first, by the engine's own need, and the engine made there: an engine's package may look
+        for a card as it is imported, and a card hidden after CUDA came up in the process is not hidden."""
+        self.make(device.pick(self.need_gb))
+
+    def make(self, dev):
+        """The engine's package imported and its model loaded on `dev`."""
         raise NotImplementedError
 
     def speak(self, text, lang, sample, speed):
@@ -141,11 +202,13 @@ class XttsEngine(VoiceEngine):
     languages = ("en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar", "zh-cn", "hu", "ko", "ja", "hi")
     #: XTTS's one odd code.
     aliases = {"zh": "zh-cn"}
+    #: An RTX 3090, 2026-10-22, a 5 s English sample and a 110-character text: 2094 MiB once loaded, 2434 MiB after
+    #: three sentences — the most seen.
+    peak_mib = 2434
 
-    def load(self, device):
+    def make(self, dev):
         os.environ.setdefault("COQUI_TOS_AGREED", "1")
         from TTS.api import TTS                      # pip install coqui-tts
-        dev = device.pick()
         log(f"xtts: loading tts_models/multilingual/multi-dataset/xtts_v2 ({dev}) …")
         self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(dev)
 
@@ -162,20 +225,16 @@ class CosyVoiceEngine(VoiceEngine):
     name = "cosyvoice"
     #: Its speech tokenizer takes no longer prompt: it asserts on one past 30 s, and the cell said so as a 500.
     max_sample = 30
+    #: An RTX 3090, 2026-10-22, a 5 s English sample and a 110-character text: 2918 MiB once loaded, 4332 MiB while it
+    #: spoke — the most seen —, 3048 MiB after.
+    peak_mib = 4332
 
-    def load(self, device):
+    def make(self, dev):
         # run_tts.sh puts ~/CosyVoice(+Matcha-TTS) on PYTHONPATH and downloads
         # pretrained_models/CosyVoice2-0.5B on first run.
-        # CosyVoice2 takes no device argument — cosyvoice/cli/model.py hardcodes
-        # cuda-if-visible, so a cell asking for CPU used to land there only via the
-        # CUDA_VISIBLE_DEVICES= the Device tile writes alongside TTS_DEVICE. Ask
-        # the Device anyway: it is what keeps a low-VRAM host off the GPU, fp16 is
-        # a CUDA-only ask, and this log line is the only place the device is stated.
-        dev = device.pick()
-        if dev == "cpu":
-            # Bites only while nothing has touched CUDA yet — true for an explicit
-            # TTS_DEVICE=cpu, which returns before torch is ever imported.
-            os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+        # CosyVoice2 takes no device argument — cosyvoice/cli/model.py puts itself
+        # on any card torch sees. On the CPU it sees none: the Device hid the cards
+        # before this import. fp16 is a CUDA-only ask.
         from cosyvoice.cli.cosyvoice import CosyVoice2
         model_dir = os.path.expanduser(
             os.environ.get("COSYVOICE_MODEL", "~/CosyVoice/pretrained_models/CosyVoice2-0.5B"))
@@ -217,10 +276,13 @@ class F5Engine(VoiceEngine):
     that it downloads the first time."""
 
     name = "f5"
+    #: An RTX 3090, 2026-10-22, a 5 s English sample and a 110-character text: 2214 MiB while it loaded — the most
+    #: seen —, 1028–1118 MiB serving. A sample sent without its words makes F5 load its own Whisper onto the same
+    #: device: not in this figure, not measured.
+    peak_mib = 2214
 
-    def load(self, device):
+    def make(self, dev):
         from f5_tts.api import F5TTS                 # pip install f5-tts
-        dev = device.pick()
         log(f"f5: loading F5-TTS ({dev}) …")
         self.f5 = F5TTS(device=dev)
 

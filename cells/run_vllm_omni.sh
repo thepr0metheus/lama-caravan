@@ -298,6 +298,7 @@ say "serving $NAME on port $PORT: weights from $SERVE_DIR"
 # own `--served-model-name` with 404 "The model ... does not exist" (2026-10-22).
 export PATH="$VENV/bin:$PATH" VLLM_WORKER_MULTIPROC_METHOD=spawn MAX_JOBS="${MAX_JOBS:-4}" VLLM_SKIP_MODEL_NAME_VALIDATION=1
 cd "$OMNI_HOME"
+# On the machine's loopback, as every cell listens: the scout reaches it there (rules::CellDoor::LISTEN).
 # shellcheck disable=SC2086
-exec vllm serve "$SERVE_DIR" --omni --served-model-name "$NAME" --host 0.0.0.0 --port "$PORT" \
+exec vllm serve "$SERVE_DIR" --omni --served-model-name "$NAME" --host 127.0.0.1 --port "$PORT" \
     --stage-init-timeout 1800 --init-timeout 2400 --trust-remote-code $SERVE_FLAGS --deploy-config "$YAML"

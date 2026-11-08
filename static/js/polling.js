@@ -206,7 +206,7 @@ export function bindMonitorDrawer() {
 
 export function renderSystemMonitor(data) {
   ui.latestSystemMonitor = data;
-  if (activeView === "topology" && topology && !ui.topologyProxyFormOpen && !topologyPointerDrag) {
+  if (activeView === "topology" && topology && !topologyPointerDrag) {
     refreshTopologyActivityState();
   }
 }
@@ -321,7 +321,7 @@ export async function refreshTopologyMonitor() {
     // restart) leaves systemMonitorInflight stuck true and silently kills
     // this poll loop until the page is reloaded.
     ui.latestSystemMonitor = mergeMonitor(await api(monitorUrl(), { signal: AbortSignal.timeout(4000) }));
-    if (topology && !ui.topologyProxyFormOpen && !topologyPointerDrag) {
+    if (topology && !topologyPointerDrag) {
       refreshTopologyActivityState();
     }
   } catch (err) {

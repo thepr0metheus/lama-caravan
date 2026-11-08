@@ -9,7 +9,8 @@ The runners' rows and the modes come from the program's own tables (contract/con
 keeps no copy of them. Pinned by value, each claim with a positive and a negative: the wav bytes (header, samples,
 clipping, the rate brought down, base64 in chunks); the recorder (why it refuses before asking, what it asks the
 browser for, what a refusal of the browser becomes, the wav it hands over, the microphone let go); which cells the
-card offers the window to and with what; the window — its modes, voices, system prompt and memory note by the runner,
+card offers the window to and with what (the cell by its id: it holds a port only while it runs, and neither the button nor
+the window draws or sends one); the window — its modes, voices, system prompt and memory note by the runner,
 what one exchange sends and shows, what the talk so far carries, a refusal and a failure as messages, an answer that
 comes back to a closed window, the way out. For a cell that keeps voices (Qwen3-TTS, 1.3.608): its list asked, said
 while asked, failed or empty; a sample recorded, used only on the operator's word, kept on the cell under a name.
@@ -20,6 +21,7 @@ Run: python3 scripts/test_js_voice_talk.py
 """
 import html
 import json
+import re
 import os
 import subprocess
 import sys
@@ -116,9 +118,9 @@ const bytes = (u8) => Array.from(u8);
 {
   const btn = (h) => { const b = String(h).match(/<button[^>]*>/); if (!b) return null;
     const a = (n) => (b[0].match(new RegExp(" " + n + '="([^"]*)"')) || [])[1] ?? null;
-    return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"),
+    return { t: a("data-t"), id: a("data-t-id"), cell: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"),
              hears: a("data-cell-talk-hears"), name: a("data-cell-talk-name"), title: a("title"), disabled: /\sdisabled[\s>]/.test(b[0]) }; };
-  const cell = (runner, hears = null) => new TalkCell({ hostId: "m1", port: 22022, name: "LFM <one>", runner, hears });
+  const cell = (runner, hears = null) => new TalkCell({ cellId: "c22022", name: "LFM <one>", runner, hears });
   out.modesOf = {
     lfm: cell("lfm-audio").modes().map((m) => m.id),
     qwen: cell("qwen3-omni").modes().map((m) => m.id),
@@ -143,10 +145,16 @@ const bytes = (u8) => Array.from(u8);
     vllm: cell("vllm").buttonHtml(true),
     vllmStopped: cell("vllm").buttonHtml(false),
   };
-  const fake = { dataset: { cellTalk: "m1", nodeCellPort: "22022", cellTalkName: "x", cellTalkRunner: "llama-server", cellTalkHears: "true" } };
+  const fake = { dataset: { cellTalk: "c22022", cellTalkName: "x", cellTalkRunner: "llama-server", cellTalkHears: "true" } };
   const back = TalkCell.fromButton(fake);
-  out.fromButton = [back.hostId, back.port, back.name, back.runner, back.hears,
+  out.fromButton = [back.cellId, back.name, back.runner, back.hears,
     TalkCell.fromButton({ dataset: { ...fake.dataset, cellTalkHears: "" } }).hears];
+  // A button of the old shape (the machine in data-cell-talk, the port beside it): no port is read off it, and no field holds one.
+  const old = TalkCell.fromButton({ dataset: { cellTalk: "m1", nodeCellPort: "22022", cellTalkRunner: "lfm-audio" } });
+  out.fromOld = [old.cellId, "port" in old, "hostId" in old];
+  // A cell the card gives no name: the window is titled by its id, never by a port.
+  const nameless = new TalkCell({ cellId: "c22022", runner: "lfm-audio" });
+  out.title = [nameless.title, new TalkCell({ cellId: "c22022", name: "LFM", runner: "lfm-audio" }).title];
 }
 
 // ── the window ──
@@ -184,15 +192,18 @@ const doc = () => {
   return d;
 };
 const ANSWER = { ok: true, mode: "spoken-chat", status: 200, text: "Two plus two is four.", audio: "UklGRg==", audioType: "audio/wav", error: "", ms: { first: 800, total: 1500 } };
+// Every window's head, as drawn: the name and the ✕, and no port after the name.
+const heads = [];
+const headOf = (w) => { const h = w.html(); heads.push(h.slice(0, h.indexOf('<div class="talk-modes"'))); return h; };
 {
   const calls = [];
   const played = [];
   const d = doc();
   const rec = new FakeRecorder();
-  const qwen = new TalkCell({ hostId: "m1", port: 22023, name: "Qwen3-Omni", runner: "qwen3-omni" });
+  const qwen = new TalkCell({ cellId: "c3f9a02b1", name: "Qwen3-Omni", runner: "qwen3-omni" });
   const w = TalkWindow.open(qwen, { call: async (path, opts) => { calls.push([path, JSON.parse(opts.body)]); return ANSWER; },
     recorder: rec, clock: ticks(1000, 3400, 1000, 2000), play: async (src, onStart) => { played.push(src); onStart(); }, doc: d });
-  out.qOpen = facts(w.html());
+  out.qOpen = facts(headOf(w));
   out.qMounted = [d.appended.length, d.listeners.map((x) => x[0]), TalkWindow.current === w];
   out.qStart = await w.toggleRecord();
   out.qRecording = facts(w.html());
@@ -213,10 +224,10 @@ const ANSWER = { ok: true, mode: "spoken-chat", status: 200, text: "Two plus two
 }
 {
   const calls = [];
-  const lfm = new TalkCell({ hostId: "m1", port: 22022, name: "LFM", runner: "lfm-audio" });
+  const lfm = new TalkCell({ cellId: "c22022", name: "LFM", runner: "lfm-audio" });
   const w = TalkWindow.open(lfm, { call: async (path, opts) => { calls.push(JSON.parse(opts.body)); return ANSWER; },
     recorder: new FakeRecorder(), clock: ticks(0, 0, 0, 0, 0, 0), play: async () => {}, doc: doc() });
-  out.lOpen = facts(w.html());
+  out.lOpen = facts(headOf(w));
   await w.toggleRecord(); await w.toggleRecord();
   await w.toggleRecord(); await w.toggleRecord();
   out.lHistory = calls.map((c) => c.history.length);
@@ -234,7 +245,7 @@ const ANSWER = { ok: true, mode: "spoken-chat", status: 200, text: "Two plus two
   fresh.close();
 }
 {
-  const failing = new TalkCell({ hostId: "m1", port: 22025, name: "whisper", runner: "whisper" });
+  const failing = new TalkCell({ cellId: "c22025", name: "whisper", runner: "whisper" });
   const replies = [
     { ok: true, mode: "transcription", status: 500, text: "", audio: "", audioType: "", error: "model is loading", ms: { first: 10, total: 12 } },
     { ok: true, mode: "transcription", status: 200, text: "", audio: "", audioType: "", error: "", ms: { first: 10, total: 12 } },
@@ -252,7 +263,7 @@ const ANSWER = { ok: true, mode: "spoken-chat", status: 200, text: "Two plus two
   w.close();
 }
 {
-  const mic = new TalkCell({ hostId: "m1", port: 22022, name: "LFM", runner: "lfm-audio" });
+  const mic = new TalkCell({ cellId: "c22022", name: "LFM", runner: "lfm-audio" });
   const w = TalkWindow.open(mic, { call: async () => ANSWER, recorder: new FakeRecorder(new TalkError("talkMicNotSecure")), doc: doc() });
   out.micStart = await w.toggleRecord();
   out.mic = facts(w.html());
@@ -265,7 +276,7 @@ const ANSWER = { ok: true, mode: "spoken-chat", status: 200, text: "Two plus two
 {
   let release;
   const slow = new Promise((r) => { release = r; });
-  const cellA = new TalkCell({ hostId: "m1", port: 22023, name: "A", runner: "qwen3-omni" });
+  const cellA = new TalkCell({ cellId: "c3f9a02b1", name: "A", runner: "qwen3-omni" });
   const a = TalkWindow.open(cellA, { call: async () => slow, recorder: new FakeRecorder(), clock: ticks(0, 0, 0), play: async () => {}, doc: doc() });
   await a.toggleRecord();
   const pending = a.toggleRecord();
@@ -279,7 +290,7 @@ const ANSWER = { ok: true, mode: "spoken-chat", status: 200, text: "Two plus two
 }
 {
   const calls = [];
-  const two = new TalkCell({ hostId: "m1", port: 22030, name: "two", runner: "two-chats", hears: true });
+  const two = new TalkCell({ cellId: "c22030", name: "two", runner: "two-chats", hears: true });
   const w = TalkWindow.open(two, { call: async (p, o) => { calls.push(JSON.parse(o.body)); return ANSWER; }, recorder: new FakeRecorder(),
     clock: ticks(0, 0, 0, 0, 0, 0), play: async () => {}, doc: doc() });
   await w.toggleRecord(); await w.toggleRecord();
@@ -330,7 +341,7 @@ const sampleFacts = (html) => {
     return { ok: true, mode: "speech", status: 200, text: "", audio: "UklGRg==", audioType: "audio/wav", error: "", ms: { first: 1, total: 2 } };
   };
   const rec = new FakeRecorder();
-  const tts = new TalkCell({ hostId: "m1", port: 22027, name: "Qwen3-TTS", runner: "qwen3-tts" });
+  const tts = new TalkCell({ cellId: "c5e01d7aa", name: "Qwen3-TTS", runner: "qwen3-tts" });
   const w = TalkWindow.open(tts, { call, recorder: rec, clock: ticks(0, 0, 0, 0, 0, 0, 0, 0), play: async () => {}, doc: doc() });
   out.tAsking = [sampleFacts(w.html()), facts(w.html()).voices, w.voice, calls.map((c) => c[0])];
   // A Base checkpoint: no voices of its own, one kept on it — the window offers a sample.
@@ -370,30 +381,30 @@ const sampleFacts = (html) => {
   w.close();
 }
 {
-  const failing = TalkWindow.open(new TalkCell({ hostId: "m1", port: 22027, name: "Qwen3-TTS", runner: "qwen3-tts" }),
-    { call: async () => { throw new Error("the cell on 10.0.0.5:22027 did not answer"); }, recorder: new FakeRecorder(), doc: doc() });
+  const failing = TalkWindow.open(new TalkCell({ cellId: "c5e01d7aa", name: "Qwen3-TTS", runner: "qwen3-tts" }),
+    { call: async () => { throw new Error("cell c5e01d7aa did not answer"); }, recorder: new FakeRecorder(), doc: doc() });
   await flush();
   out.tFailed = [sampleFacts(failing.html()), facts(failing.html()).voices, failing.voice];
   failing.close();
-  const empty = TalkWindow.open(new TalkCell({ hostId: "m1", port: 22027, name: "Qwen3-TTS", runner: "qwen3-tts" }),
+  const empty = TalkWindow.open(new TalkCell({ cellId: "c5e01d7aa", name: "Qwen3-TTS", runner: "qwen3-tts" }),
     { call: async () => ({ ok: true, status: 200, voices: [], stored: [], error: "", ms: {} }), recorder: new FakeRecorder(), doc: doc() });
   await flush();
   out.tEmpty = [sampleFacts(empty.html()), facts(empty.html()).voices];
   empty.close();
-  const refusedList = TalkWindow.open(new TalkCell({ hostId: "m1", port: 22027, name: "Qwen3-TTS", runner: "qwen3-tts" }),
+  const refusedList = TalkWindow.open(new TalkCell({ cellId: "c5e01d7aa", name: "Qwen3-TTS", runner: "qwen3-tts" }),
     { call: async () => ({ ok: true, status: 404, voices: [], stored: [], error: "The model does not support Speech API", ms: {} }),
       recorder: new FakeRecorder(), doc: doc() });
   await flush();
   out.tRefusedList = sampleFacts(refusedList.html()).voicesSaid;
   refusedList.close();
   // A CustomVoice checkpoint: voices of its own, and a sample it would refuse is not offered.
-  const custom = TalkWindow.open(new TalkCell({ hostId: "m1", port: 22028, name: "Qwen3-TTS CustomVoice", runner: "qwen3-tts" }),
+  const custom = TalkWindow.open(new TalkCell({ cellId: "c0d1e2f3a", name: "Qwen3-TTS CustomVoice", runner: "qwen3-tts" }),
     { call: async () => ({ ok: true, status: 200, voices: ["aiden", "vivian"], stored: [], error: "", ms: {} }), recorder: new FakeRecorder(), doc: doc() });
   await flush();
   out.tCustom = [sampleFacts(custom.html()), facts(custom.html()).voices, custom.voice, await custom.toggleSample(), custom.sample];
   custom.close();
   const lfmCalls = [];
-  const lfm = TalkWindow.open(new TalkCell({ hostId: "m1", port: 22022, name: "LFM", runner: "lfm-audio" }),
+  const lfm = TalkWindow.open(new TalkCell({ cellId: "c22022", name: "LFM", runner: "lfm-audio" }),
     { call: async (p) => { lfmCalls.push(p); return ANSWER; }, recorder: new FakeRecorder(), doc: doc() });
   lfm.pick("speech");
   await flush();
@@ -407,6 +418,13 @@ const sampleFacts = (html) => {
   const t4 = new TalkTurn({ role: "system", text: "sneaky" }).role;
   out.sent = [t1, t2, t3, t4];
 }
+{
+  // Opened last: a window opened closes the one before it.
+  const unnamed = TalkWindow.open(new TalkCell({ cellId: "c22022", runner: "lfm-audio" }), { call: async () => ANSWER, recorder: new FakeRecorder(), doc: doc() });
+  out.unnamedHead = headOf(unnamed);
+  unnamed.close();
+}
+out.heads = heads;
 console.log(JSON.stringify(out));
 """
 
@@ -471,10 +489,10 @@ def main():
           "llama.cpp: only a cell whose server said it hears; not said is not yes")
     check(m["custom"] == [] and m["personaplex"] == [], "a command and a duplex server: nothing (negative)")
     b = o["btn"]
-    check(b["running"] == {"t": "cell-talk", "host": "m1", "port": "22022", "runner": "lfm-audio", "hears": "",
+    check(b["running"] == {"t": "cell-talk", "id": "c22022", "cell": "c22022", "port": None, "runner": "lfm-audio", "hears": "",
                            "name": "LFM &lt;one&gt;", "title": en["talkOpenTitle"], "disabled": False},
-          f"a running cell of a talking runner: the 🎙 with its cell: {b['running']}")
-    check(b["stopped"] == {"t": None, "host": None, "port": None, "runner": None, "hears": None, "name": None,
+          f"a running cell of a talking runner: the 🎙 with its cell's id as its address and data-t-id; negative: no port beside it: {b['running']}")
+    check(b["stopped"] == {"t": None, "id": None, "cell": None, "port": None, "runner": None, "hears": None, "name": None,
                            "title": en["talkOpenStopped"], "disabled": True},
           f"a stopped one: the 🎙 shut, saying why, and no hook to press: {b['stopped']}")
     check(b["llamaHears"]["hears"] == "true" and b["llamaHears"]["t"] == "cell-talk", "a llama.cpp cell that hears gets it")
@@ -485,11 +503,14 @@ def main():
                                   "transcription": True, "speech-translation": True},
           "this window's modes are those with a voice in them: a recording asked or a voice answered; negative: text-chat is not")
     check(b["custom"] == "" and b["customStopped"] == "", "a runner that does not talk gets none, running or not (negative)")
-    check(o["fromButton"] == ["m1", "22022", "x", "llama-server", True, None], f"the button names its cell back: {o['fromButton']}")
+    check(o["fromButton"] == ["c22022", "x", "llama-server", True, None], f"the button names its cell back by its id: {o['fromButton']}")
+    check(o["fromOld"] == ["m1", False, False],
+          f"negative: a button of the old shape gives no port and no machine — the window keeps the cell's id alone: {o['fromOld']}")
+    check(o["title"] == ["c22022", "LFM"], "a cell the card gives no name is called by its id; a named one by its name")
 
     print("the window — Qwen3-Omni:")
     q = o["qOpen"]
-    check(q["state"] == ["m1:22023", "ready"] and q["one"] == ["spoken-chat", en["talkModeSpokenChat"]] and q["modes"] == [],
+    check(q["state"] == ["c3f9a02b1", "ready"] and q["one"] == ["spoken-chat", en["talkModeSpokenChat"]] and q["modes"] == [],
           f"one mode: named, not a row of buttons: {q['state']} {q['one']}")
     check(q["voices"] == ["ethan*", "chelsie", "aiden"], f"the runner's speakers, the first picked: {q['voices']}")
     check(q["memory"] == en["talkMemory"].replace("{n}", "8"), f"what it remembers: {q['memory']}")
@@ -502,7 +523,7 @@ def main():
           "recording: the button stops and sends")
     check(o["qPickBusy"] is False, "no mode is picked while recording (negative)")
     call = o["qCall"]
-    check(call[0] == "/api/cell-talk" and call[1] == {"hostId": "m1", "port": 22023, "mode": "spoken-chat", "audio": "UklGRg==",
+    check(call[0] == "/api/cell-talk" and call[1] == {"cellId": "c3f9a02b1", "mode": "spoken-chat", "audio": "UklGRg==",
                                                        "history": [], "system": qsys, "voice": "ethan"},
           f"one exchange sends the recording, the system prompt and the voice to the controller: {call}")
     a = o["qAfter"]
@@ -535,7 +556,7 @@ def main():
           "the talk of the other mode stays on the screen after a switch (it is not sent: the history is the mode's own)")
     check(o["lFreshSpeech"] == en["talkHintText"], "an empty talk in speech has a hint of its own")
     check(o["lSayEmpty"] is None, "nothing is said for an empty text (negative)")
-    check(o["lSayBody"] == {"hostId": "m1", "port": 22022, "mode": "speech", "text": "Hello there.", "history": [], "voice": "us_female"},
+    check(o["lSayBody"] == {"cellId": "c22022", "mode": "speech", "text": "Hello there.", "history": [], "voice": "us_female"},
           f"speech sends the text and the voice, no system prompt: {o['lSayBody']}")
 
     print("the window — Qwen3-TTS: the cell's voices, a sample, a voice kept:")
@@ -543,7 +564,7 @@ def main():
     sf, opts, voice, paths = o["tAsking"]
     check(sf["voicesSaid"] == ["asking", en["talkVoicesAsking"]] and opts == [] and voice == "",
           f"while the cell is asked its voices, the window says so — no empty list, no voice made up: {sf['voicesSaid']}")
-    check(paths == ["/api/cell-talk/voices?hostId=m1&port=22027"], f"the window asks the controller for the cell's voices: {paths}")
+    check(paths == ["/api/cell-talk/voices?cell=c5e01d7aa"], f"the window asks the controller for the cell's voices, by its id: {paths}")
     check(sf["present"] is False, "negative: no sample is offered before the cell has said whether it has voices of its own")
     sf, opts, voice = o["tListed"]
     check(sf["voicesSaid"] == [] and [html.unescape(g) for g in sf["groups"]] == [en["talkVoicesKept"]]
@@ -553,7 +574,7 @@ def main():
           and not sf["forget"] and sf["use"] == [] and sf["consent"] is False and sf["keep"] == [" disabled", en["save"]],
           f"and the sample's part: nothing recorded, nothing to keep: {sf}")
     check(sf["pattern"] == voice_name, f"the name field takes the controller's rule of a voice's name: {sf['pattern']}")
-    check(o["tPlain"] == ["/api/cell-talk", {"hostId": "m1", "port": 22027, "mode": "speech", "text": "Привет.", "history": [], "voice": "grandpa"}],
+    check(o["tPlain"] == ["/api/cell-talk", {"cellId": "c5e01d7aa", "mode": "speech", "text": "Привет.", "history": [], "voice": "grandpa"}],
           f"a text without a sample goes in the voice picked, with no sample's fields: {o['tPlain']}")
     sf, state, _ = o["tSampling"]
     check(o["tSampleStart"] is True and sf["state"] == "recording" and sf["record"] == ["true", None, "■ " + en["stop"]]
@@ -573,25 +594,25 @@ def main():
     sf = o["tConsented"]
     check(sf["use"] == ["used", en["talkSampleInUse"]] and sf["consent"] is True and sf["keep"] == [" disabled", en["save"]],
           "with the tick the sample is the voice; no name yet, nothing to keep")
-    check(o["tSampled"] == ["/api/cell-talk", {"hostId": "m1", "port": 22027, "mode": "speech", "text": "Привет.", "sample": "UklGRg==",
+    check(o["tSampled"] == ["/api/cell-talk", {"cellId": "c5e01d7aa", "mode": "speech", "text": "Привет.", "sample": "UklGRg==",
                                                "sampleText": "Это мой голос.", "consent": True, "history": [], "voice": "grandpa"}],
           f"the text goes with the sample, its trimmed words and the consent: {o['tSampled']}")
     check(o["tBadName"] == [False, True, None, 0], f"negative: a name with a space cannot be kept, and is not sent: {o['tBadName']}")
     check(o["tGoodName"] == ["x", True, False], "a name of the rule, trimmed, opens the button as it is typed")
     error, notice, still, sent = o["tRefused"]
     check(error == "name collides with a built-in voice" and notice == en["talkKeepFailed"].replace("{error}", error) and still is True
-          and sent == ["/api/cell-talk/voice", {"hostId": "m1", "port": 22027, "name": "x", "sample": "UklGRg==",
+          and sent == ["/api/cell-talk/voice", {"cellId": "c5e01d7aa", "name": "x", "sample": "UklGRg==",
                                                "sampleText": "Это мой голос.", "consent": True}],
           f"the cell's refusal to keep is said, and the sample stays to try again: {notice}")
     paths, body, sf, opts, voice, notice, sample, words, name = o["tKept"]
-    check(paths == ["/api/cell-talk/voice", "/api/cell-talk/voices?hostId=m1&port=22027"] and body["name"] == "my-voice",
+    check(paths == ["/api/cell-talk/voice", "/api/cell-talk/voices?cell=c5e01d7aa"] and body["name"] == "my-voice",
           f"kept: then the cell is asked its voices again: {paths}")
     check(opts == ["grandpa", "my-voice*"] and voice == "my-voice" and notice == en["talkKept"].replace("{name}", "my-voice"),
           f"the kept voice is in the list and picked, and the window says where else it can be named: {opts}")
     check(sf["state"] == "none" and sf["sampleAudio"] == [] and sample is None and words == "" and name == "",
           "the sample is spent: kept on the cell, not in the window")
     sf, opts, voice = o["tFailed"]
-    check(sf["voicesSaid"] == ["failed", en["talkVoicesFailed"].replace("{error}", "the cell on 10.0.0.5:22027 did not answer")]
+    check(sf["voicesSaid"] == ["failed", en["talkVoicesFailed"].replace("{error}", "cell c5e01d7aa did not answer")]
           and opts == [] and voice == "" and sf["present"] is True,
           f"negative: a cell that did not answer: said, not an empty list; the runner's word offers the sample: {sf['voicesSaid']}")
     check(o["tRefusedList"] == ["failed", en["talkVoicesFailed"].replace("{error}", "The model does not support Speech API")],
@@ -627,6 +648,15 @@ def main():
           f"the talk so far is the mode's own: a switch starts a talk of its own: {o['twoHistory']}")
     check(o["sent"] == [{"role": "assistant", "text": "ok"}, None, {"role": "user", "text": "hi", "audio": "AAA="}, "user"],
           f"what a message carries forward; a failed answer nothing, an unknown role is the user's: {o['sent']}")
+
+    print("the cell by its id, no port:")
+    bodies = [o["qCall"][1], o["qSecond"], o["lSayBody"], o["tPlain"][1], o["tSampled"][1], o["tRefused"][3][1], o["tKept"][1]]
+    check(all("cellId" in body and "hostId" not in body and "port" not in body for body in bodies),
+          "negative: no request of the window names a machine or a port — the controller knows the port the cell's run leased")
+    check(len(o["heads"]) == 3 and all("talk-port" not in h and not re.search(r":\d{2,5}\b", h) for h in o["heads"]),
+          "negative: no window's head draws a port after the name")
+    check(f'🎙 {en["talkTitle"].replace("{name}", "c22022")}' in o["unnamedHead"],
+          "a cell the card names nothing: the window is titled by its id")
 
     print()
     if _fail:

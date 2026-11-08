@@ -5,8 +5,9 @@
 
 use crate::errors::AppError;
 use crate::log::{Log, Thousands};
+use crate::models::fetcher::ModelFetcher;
 use crate::models::shelf::Shelf;
-use os::Disk;
+use crate::models::space::FreeSpace;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 use std::fs;
@@ -34,13 +35,15 @@ impl Relocation {
         self.now.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Refuses while a move is under way, in words that say what moves where.
+    /// The move under way, in words that say what moves where; none, no words.
+    pub fn under_way(&self) -> Option<String> {
+        self.lock().0.as_ref().map(|moving| format!("{} is moving to {}", moving.moved.named, moving.to.display()))
+    }
+
+    /// Refuses while a move is under way, in its words.
     pub fn refuse_while_moving(&self) -> Result<(), AppError> {
-        match &self.lock().0 {
-            Some(moving) => Err(AppError::with_status(
-                format!("{} is moving to {}: try again when it is done", moving.moved.named, moving.to.display()),
-                409,
-            )),
+        match self.under_way() {
+            Some(words) => Err(AppError::with_status(format!("{words}: try again when it is done"), 409)),
             None => Ok(()),
         }
     }
@@ -92,6 +95,13 @@ impl Relocation {
     }
 }
 
+impl ModelFetcher {
+    /// A move of this shelf's files started (`FileMove::start`): the new folder's disk must keep beside them what the machine still writes, as this shelf's disks say what it has.
+    pub(super) fn start_move(&self, files: FileMove, switch: Box<dyn FnOnce() + Send>) -> Result<Value, AppError> {
+        files.start(self.shelf, &self.relocation, Self::LEFT_FREE, self.disks.as_ref(), switch)
+    }
+}
+
 /// One move of files: their names inside `from`, copied to the same names inside `to`.
 pub struct FileMove {
     /// The folder they leave.
@@ -112,8 +122,8 @@ impl FileMove {
         sizes.filter(std::fs::Metadata::is_file).map(|meta| meta.len()).sum()
     }
 
-    /// Refuses a move that would write over a file the new folder already holds, or that its disk cannot take with `left` bytes to spare.
-    fn refuse_what_cannot_go(&self, total: u64, left: u64) -> Result<(), AppError> {
+    /// Refuses a move that would write over a file the new folder already holds, or that its disk cannot take with `left` bytes to spare, as `disks` say what it has free.
+    fn refuse_what_cannot_go(&self, total: u64, left: u64, disks: &dyn FreeSpace) -> Result<(), AppError> {
         let taken: Vec<&String> =
             self.names.iter().filter(|name| fs::symlink_metadata(self.to.join(name)).is_ok()).take(3).collect();
         if !taken.is_empty() {
@@ -125,8 +135,7 @@ impl FileMove {
             );
             return Err(AppError::with_status(words, 409));
         }
-        let probe = self.to.ancestors().find(|folder| folder.exists()).unwrap_or(&self.to);
-        if let Some((_, free)) = Disk::usage(probe).filter(|(_, free)| *free < total.saturating_add(left)) {
+        if let Some(free) = disks.free_under(&self.to).filter(|free| *free < total.saturating_add(left)) {
             let gib = |bytes: u64| format!("{:.1} GB", bytes as f64 / f64::from(1u32 << 30));
             let words = format!(
                 "{} has {} free, and the move needs {} with {} to spare",
@@ -141,16 +150,17 @@ impl FileMove {
     }
 
     /// The move started on a thread of its own: the files copied, then `switch` turns the setting, then the old files go. `relocation` holds how far it is; a disk that cannot take it, or a file the
-    /// new folder already holds, refuses it before anything is written. `left`: what the new folder's disk must still have free when the files are in.
+    /// new folder already holds, refuses it before anything is written. `left`: what the new folder's disk must still have free when the files are in, as `disks` say what it has.
     pub fn start(
         self,
         moved: &'static Shelf,
         relocation: &Arc<Relocation>,
         left: u64,
+        disks: &dyn FreeSpace,
         switch: Box<dyn FnOnce() + Send>,
     ) -> Result<Value, AppError> {
         let total = self.bytes();
-        self.refuse_what_cannot_go(total, left)?;
+        self.refuse_what_cannot_go(total, left, disks)?;
         relocation.begin(moved, &self.to, total)?;
         let answer =
             json!({"moving": true, "dir": self.to.display().to_string(), "totalBytes": total, "files": self.names.len()});
@@ -276,7 +286,13 @@ mod tests {
         let refused = relocation.begin(&Shelf::CACHE, Path::new("/x"), 1).unwrap_err();
         assert_eq!(refused.status, 409);
         assert!(refused.message.contains("the folder for Strata's files is moving to /mnt/hdd"), "{}", refused.message);
+        assert_eq!(
+            relocation.under_way().as_deref(),
+            Some("the folder for Strata's files is moving to /mnt/hdd"),
+            "what a restart would cut"
+        );
         relocation.end(Some("x: no space".to_string()));
+        assert_eq!(relocation.under_way(), None, "negative: a move that ended is under way no more, a failed one too");
         assert_eq!(Value::Object(relocation.facts()), json!({"moveError": "x: no space"}));
         assert_eq!(relocation.ended(), 1);
         relocation.begin(&Shelf::CACHE, Path::new("/y"), 1).unwrap();

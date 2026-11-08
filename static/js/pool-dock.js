@@ -5,7 +5,7 @@
 // where it covers no neighbour and moves no cable.
 //
 // The board gives the readings (`reader`, PoolBoard.dockReader) and this draws them; it decides nothing.
-// A trace key is the board's own (PoolBoard.path): client:<port>, pool:<id>, row:<pool>/<row>,
+// A trace key is the board's own (PoolBoard.path): client:<client id>, pool:<id>, row:<pool>/<row>,
 // direct:<pool of one row> (a row of «Напрямую», 1.3.675), model:<key>.
 import { t } from "./i18n.js";
 import { escapeHtml } from "./utils.js";

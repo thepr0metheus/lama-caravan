@@ -44,6 +44,7 @@ NO_TAB = {
     # Non-llama runners: their panels replace the llama tabs entirely.
     "RUNNER": "runner selector, above the tabs",
     "CELL_KIND": "legacy mirror of RUNNER, not rendered",
+    "PORT": "not rendered: a cell's port is leased by its scout at each start (2026-11-08)",
     "COMMAND": "command-cell panel",
     "HEALTH_PATH": "command-cell panel",
     "ENV": "ENV block of the custom and vLLM runners",
@@ -71,6 +72,8 @@ NO_TAB = {
     "STRATA_KV": "Strata runner panel",
     "STRATA_DRAFT_VOCAB": "Strata runner panel",
     "STRATA_VRAM_RESERVE_MIB": "Strata runner panel",
+    "STRATA_ENGRAM_FILE": "Strata runner panel (DeepSeek: found in the library when the cell is saved)",
+    "STRATA_META_FILE": "Strata runner panel (DeepSeek: found in the library when the cell is saved)",
     "GR00T_BACKBONE": "GR00T runner panel",
     "GR00T_EMBODIMENT": "GR00T runner panel",
     "GR00T_DENOISING_STEPS": "GR00T runner panel",

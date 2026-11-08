@@ -248,6 +248,24 @@
    "why": "Strata — чат-модель (Qwen3.8-Flash-Next), тоже LLM"
   },
   {
+   "name": "strata_ds_cell",
+   "runner": "strata-ds",
+   "kinds": [],
+   "jobs": [
+    "llm"
+   ],
+   "why": "Strata · DeepSeek — чат-модель DeepSeek-V4.1-Flash; без строки в таблице её ячейка не называла работы (2026-11-03)"
+  },
+  {
+   "name": "inferssd_cell",
+   "runner": "inferssd",
+   "kinds": [],
+   "jobs": [
+    "llm"
+   ],
+   "why": "InferSSD — та же DeepSeek-V4.1-Flash, другой сервер: тоже LLM"
+  },
+  {
    "name": "gr00t_cell",
    "runner": "gr00t",
    "kinds": [],

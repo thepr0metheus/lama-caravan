@@ -8,17 +8,13 @@ pub(super) struct LiveRow<'row> {
     pub(super) node: &'row Value,
     pub(super) slot: Option<&'row Value>,
     pub(super) config: Config,
+    /// The cell's own id: what joins the report to its slot.
+    pub(super) cell: String,
+    /// The port leased for this run; null while it holds none.
     pub(super) port: Value,
     pub(super) ip: String,
     pub(super) phase: String,
     pub(super) running: bool,
-}
-
-impl LiveRow<'_> {
-    pub(super) fn number_port(&self) -> i64 {
-        // absent-ok: a port that is no number matches no cell.
-        self.port.as_i64().unwrap_or_default()
-    }
 }
 
 /// What a cell's health page and the board make of it.
@@ -52,12 +48,13 @@ impl<'app> TopologyServer<'app> {
         out
     }
 
-    /// What a cell's own health page says, for a cell whose command the operator wrote; the board's word on the rest.
-    pub(super) fn live_health(&self, row: &LiveRow<'_>, is_command: bool) -> LiveHealth {
+    /// What a cell's own health page says, for a cell whose command the operator wrote; the board's word on the rest. Both are
+    /// asked through the machine's scout (`way`); a machine with no way to its cells says nothing, and nothing is guessed.
+    pub(super) fn live_health(&self, row: &LiveRow<'_>, is_command: bool, way: Option<&CellDoorway>) -> LiveHealth {
         let remote = RemoteCells::of(self.app);
-        let number_port = row.number_port();
-        let body = (is_command && row.running).then(|| {
-            remote.command_cell_health(&row.ip, number_port, &self.app.runners.for_config(&row.config).health_path(&row.config))
+        let listening = row.node.get("listening").and_then(Value::as_bool);
+        let body = way.filter(|_| is_command && row.running).map(|way| {
+            remote.command_cell_health(way, &self.app.runners.for_config(&row.config).health_path(&row.config), listening)
         });
         let phase = Coerce::text(body.as_ref().and_then(|health| health.get("status")));
         let word = if is_command {
@@ -69,7 +66,7 @@ impl<'app> TopologyServer<'app> {
                 _ => None,
             }
         } else if row.running {
-            Some(remote.llama_health(&row.ip, number_port))
+            way.map(|way| remote.llama_health(way))
         } else {
             None
         };
@@ -125,23 +122,24 @@ impl<'app> TopologyServer<'app> {
         let (node, config) = (row.node, &row.config);
         let is_command = self.app.runners.for_config(config).row().command_path;
         let remote = RemoteCells::of(self.app);
-        let number_port = row.number_port();
+        let way = CellDoorway::of(self.app, row.client, &row.cell);
         let slot_model = Coerce::text(row.slot.and_then(|slot| slot.get("model")));
         let model_path = {
             let said = Coerce::text(node.get("modelPath"));
             if said.is_empty() { slot_model.clone() } else { said }
         };
-        let health = self.live_health(row, is_command);
+        let health = self.live_health(row, is_command, way.as_ref());
         let (effective, note) = Self::live_phase(row, &health, is_command);
         let mut modalities = if health.word.as_deref() == Some("ok") && !is_command {
-            remote.llama_modalities(&row.ip, number_port)
+            way.as_ref().and_then(|way| remote.llama_modalities(way))
         } else {
             None
         };
         if modalities.is_none() {
             modalities = Some(RemoteCells::normalize_modalities(node.get("modalities")));
         }
-        let about = if row.running && config.is_empty() { remote.cell_about(&row.ip, number_port) } else { json!({}) };
+        let about =
+            way.as_ref().filter(|_| row.running && config.is_empty()).map_or_else(|| json!({}), |way| remote.cell_about(way));
         let mut model_name = ModelCheckpoints::display_name(if slot_model.is_empty() { &model_path } else { &slot_model });
         if model_name.is_empty() {
             model_name = Coerce::text(about.get("model"));
@@ -162,7 +160,7 @@ impl<'app> TopologyServer<'app> {
 
     /// The first half of a live cell's card: what it is and where it stands.
     pub(super) fn live_card(&self, row: &LiveRow<'_>, facts: &LiveFacts, reading: &ServerReading<'_>) -> Value {
-        let LiveRow { client, node, config, port, ip, .. } = row;
+        let LiveRow { client, node, config, cell, port, ip, .. } = row;
         let id = Coerce::str_of(client.get("id"));
         let name = {
             let said = Coerce::stripped(client.get("name"));
@@ -171,7 +169,7 @@ impl<'app> TopologyServer<'app> {
         let disk_newer =
             node.get("launchDiskNewer").and_then(Value::as_array).map_or_else(Vec::new, |said| LaunchFiles::disk_newer(said));
         json!({
-            "id": format!("remote:{id}:{}", Coerce::str_of(Some(port))),
+            "id": format!("remote:{cell}"), "cellId": cell,
             "name": name, "port": port, "host": ip, "model": facts.model_name,
             "cellLabel": self.app.runners.for_config(config).artifact_label(config, reading.quant_words),
             "cellMeta": facts.meta, "modelPath": facts.model_path,
@@ -191,14 +189,13 @@ impl<'app> TopologyServer<'app> {
 
     /// The second half: how far it is, what it served, what its slot keeps.
     pub(super) fn live_progress(&self, row: &LiveRow<'_>, facts: &LiveFacts) -> Value {
-        let LiveRow { client, node, slot, config, port, ip, phase, running } = row;
+        let LiveRow { client, node, slot, config, cell, phase, running, .. } = row;
         let running = *running;
-        let remote = RemoteCells::of(self.app);
         let count = |key: &str| {
             let said = facts.health.body.as_ref().and_then(|own| own.get(key)).and_then(Value::as_i64).filter(|said| *said != 0);
             said.unwrap_or_else(|| Coerce::whole(node.get(key)))
         };
-        let (boot_enabled, boot_supported) = Self::boot_fields(client, Some(port));
+        let (boot_enabled, boot_supported) = Self::boot_fields(client, cell);
         let runner = self.app.runners.for_config(config);
         let ctx_max = node
             .get("ctxMax")
@@ -223,9 +220,8 @@ impl<'app> TopologyServer<'app> {
             "ctxMax": ctx_max,
             "ctxServed": Self::positive_int(node.get("ctxMax")),
             "ctxTrained": facts.trained,
-            "ctxUsed": node.get("ctxUsed"), "modalities": facts.modalities, "firewall": node.get("firewall"),
+            "ctxUsed": node.get("ctxUsed"), "modalities": facts.modalities,
             "lastError": last_error,
-            "reachable": if running { remote.port_said(ip, row.number_port()) } else { None },
             "isSlot": slot.is_some(), "isController": false, "slotConfig": config,
             "cacheModels": Coerce::truthy(slot.and_then(|slot| slot.get("cacheModels"))),
             "commandHistory": kept_list("commandHistory").unwrap_or_else(|| json!([])),

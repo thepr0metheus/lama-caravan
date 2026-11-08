@@ -258,6 +258,24 @@ impl SplitGguf {
         }
     }
 
+    /// The parts a start brings when it names `path`: every part, unless the controller's hint says how many of the first it brings (`parts`). Two files are not whole sets (2026-11-03): an
+    /// IST-DAS DeepSeek set's sixth part is the shared Engram table, published apart under its own name, so the set brings the five named like it; and Unsloth's 5.8 MB first part of a 508 GB set is
+    /// read only for its metadata, so it comes alone. The runner that names such a file says so; a number that is not 1 to the split's count is refused, not taken for another.
+    pub fn brought(&self, path: &str, hint: Option<&serde_json::Value>) -> Result<Vec<String>, crate::errors::AppError> {
+        let parts = self.parts(path);
+        let Some(said) = hint.and_then(|hint| hint.get("parts")).filter(|said| !said.is_null()) else {
+            return Ok(parts);
+        };
+        match said.as_u64().and_then(|count| usize::try_from(count).ok()) {
+            Some(count) if (1..=parts.len()).contains(&count) => Ok(parts.into_iter().take(count).collect()),
+            _ => Err(crate::errors::AppError::new(format!(
+                "the start asks for {said} part(s) of {path}, which has {} — a number from 1 to {}",
+                parts.len(),
+                parts.len()
+            ))),
+        }
+    }
+
     /// How many bytes a start's model files take on this machine: what the board counts a loading cell's reading against. `None` when no file could be measured: an unknown whole is no denominator.
     pub fn bytes_of(&self, paths: &[String]) -> Option<u64> {
         let mut total = 0;

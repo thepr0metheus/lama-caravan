@@ -375,26 +375,14 @@ main.hfp {
 .hfp-front-foot { font-size: 11px; color: var(--muted); }
 .hfp-front-foot a { color: var(--muted); }
 
-/* ── the header's two page controls ──────────────────────────────────────── */
-.hf-disk-badge { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+/* ── the disk's free space, beside the HF token ──────────────────────────────
+   It stood in the bar at the top, the one thing a page added there, and in a 1440-px window it pushed the bar past
+   the right edge in five of the six languages (scripts/gen_header.py says the rest). In the side panel it stays whole
+   (`flex: none`) and the benchmarks' progress gives way to it. */
+.hf-disk-badge { flex: none; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.hf-disk-badge[hidden] { display: none; }
 .hf-disk-badge.low { color: #e8b464; border-color: #8a6a30; }
 .hf-disk-badge.critical { color: #ec7063; border-color: #8a3030; font-weight: 600; }
-.hf-ondisk-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
-  color: var(--text);
-  font-weight: 650;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
-  border-radius: 8px;
-  font-size: 12px;
-  padding: 4px 12px;
-  white-space: nowrap;
-  text-decoration: none;
-  transition: box-shadow .15s ease, background .15s ease;
-}
-.hf-ondisk-btn:hover { background: color-mix(in srgb, var(--accent) 30%, var(--surface)); box-shadow: 0 0 10px 0 color-mix(in srgb, var(--accent) 30%, transparent); }
 
 /* ── the message and the question ────────────────────────────────────────── */
 #hfToast {

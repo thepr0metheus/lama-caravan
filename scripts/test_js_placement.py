@@ -12,7 +12,9 @@ llama.cpp (common/fit.cpp, b1141), и пишет поля ячейки, когд
   - что останавливает подгонку (FIT выключен, -ngl, --tensor-split, эксперты
     вручную) — тогда ячейка грузится как записано;
   - какие поля пишет каждая раскладка и каких НЕ трогает;
-  - неизвестное (число слоёв, RAM машины) названо, а не нарисовано нулём.
+  - неизвестное (число слоёв, RAM машины) названо, а не нарисовано нулём;
+  - черновик спекуляции (2026-11-07) — поверх того, что модель берёт от карты: llama-server грузит его
+    после модели, и подгонка модели о нём не знает; его часть в RAM — в RAM, и дорожки его называют.
 
 Модуль грузится в node по-настоящему (scripts/_js_harness.mjs), i18n тоже
 настоящий: ожидаемые строки берутся из static/js/i18n/en.js программно.
@@ -282,6 +284,49 @@ out.moeText = {
 };
 out.enMoe = { experts: en.placeRamExperts, layersExperts: en.placeRamLayersExperts, layers: en.placeRamLayers, none: en.placeRamNone,
   spillExperts: en.placeSpillExperts, spillDense: en.placeSpillDense, spillLayers: en.placeSpillLayers, fits: en.placeFits };
+
+// A speculative draft (cell-plan.js CellModel: draftCardsGb, draftRamGb), 2026-11-07: loaded after the model, so on top of what the
+// model takes of a card, and llama.cpp's fitting of the model knows nothing of it.
+{
+  const five = [cards[1]];
+  const onFive = (model, o = {}) => new PlacementPlan({ model, cards: five, limits: PlacementPlan.limitsFrom({ cards: five }), ramFreeGb: 51, cores: 16, ...o });
+  const withDraft = (p) => { const placed = p.placed(); return { ...brief(p), draft: placed.cards.map((c) => r2(c.draftGb)), ramDraft: r2(placed.ram.draftGb),
+                                                                  ramTotal: r2(placed.ram.totalGb) }; };
+  // The owner's case of 2026-10-27 on its 5090: 16.4 + 0.87 GB of files, 8.5 of KV, 1.63 of buffers, 64 layers, and its MTP draft of 1.28 GB.
+  const live = { weightsGb: 17.27, kvGb: 8.5, batchGb: 1.63, layers: 64, experts: 0 };
+  // A model whose layers fill the card to its handle: llama.cpp's margin of 1 GiB less the floor leaves 0.75 GB.
+  const filling = { weightsGb: 40, kvGb: 0, batchGb: 0.3, layers: 40, experts: 0 };
+  const lowered = PlacementPlan.limitsFrom({ cards: five })[0] - 2;
+  out.draft = {
+    live: withDraft(onFive({ ...live, draftCardsGb: 1.28 })), liveNone: withDraft(onFive(live)),
+    full: withDraft(onFive({ ...filling, draftCardsGb: 1.28 })), fullNone: withDraft(onFive(filling)),
+    lowered: withDraft(onFive({ ...filling, draftCardsGb: 1.28 }, { limits: [lowered] })),
+    loweredMargins: onFive({ ...filling, draftCardsGb: 1.28 }, { limits: [lowered] }).margins(),
+    two: withDraft(plan({ model: { ...small, draftCardsGb: 2 } })), twoNone: withDraft(plan({ model: small })),
+    // The 3090 left out of the model by its handle: what is left of each card is not what each had free.
+    twoLeftOut: withDraft(plan({ model: { ...small, draftCardsGb: 2 }, limits: [0, limitsOf()[1]] })),
+    ram: withDraft(onFive({ ...small, draftRamGb: 1.28 })), ramShort: withDraft(onFive({ ...small, draftRamGb: 1.28 }, { ramFreeGb: 1 })),
+    threads: [onFive({ ...small, draftRamGb: 1.28 }).fields().THREADS, onFive(small).fields().THREADS],
+    unknown: onFive({ ...small, layers: 0, draftCardsGb: 1.28 }).placed().ram.draftGb,
+  };
+  // The panel: a handle moved keeps the draft; the lanes and the verdict say it.
+  const draftFacts = (model) => facts({ model, cards: five });
+  out.draftPanel = {
+    kept: panelOf({ ...base }, draftFacts({ ...small, draftCardsGb: 1.28 })).panel.withLimit(1, 20).model.draftCardsGb,
+    card: (() => { const h = html({ ...base }, draftFacts({ ...small, draftCardsGb: 1.28 }));
+      const lane = h.split(`data-t="${H.card}"`)[1] || "";
+      return { text: shown((lane.match(/data-place-text>([^<]*)</) || [])[1] ?? null),
+               seg: [...lane.split("place-lane-foot")[0].matchAll(/class="place-seg weights" style="width:[\d.]+%" title="([^"]*)"/g)].map((m) => shown(m[1])) }; })(),
+    ram: (() => { const h = html({ ...base }, draftFacts({ ...small, draftRamGb: 1.28 }));
+      const lane = h.slice(h.indexOf(`data-t="${H.ram}"`));
+      return { text: shown((lane.match(/data-place-text>([^<]*)</) || [])[1] ?? null), verdict: attrs(h, H.verdict) }; })(),
+    spill: (() => { const p = onFive({ ...filling, draftRamGb: 1.28 }, { limits: [lowered] });
+      return shown((panelOf({ ...base }, draftFacts(p.model)).panel.verdictHtml(p, p.placed()).match(/data-t-state="[a-zA-Z]+">([^<]*)</) || [])[1] ?? null); })(),
+    noDraft: (() => { const h = html({ ...base }, draftFacts(small)); return h.includes(en.draftSize) || h.includes(fill(en.placeDraft, { gb: "" }).trim()); })(),
+  };
+  out.enDraft = { size: en.draftSize, part: en.placeDraft, spillLayers: en.placeSpillLayers, none: en.placeRamNone, cpu: en.placeCpuThreads,
+                  weights: en.placeWeights, kv: en.placeKvPart, buffers: en.placeBuffers, layers: en.placeCardLayers };
+}
 
 out.en = {
   placeOver: fill(en.placeOver, { layer: en.splitLayer }), placeOverHeld: fill(en.placeOverHeld, { fit: en.placeFitByLimits }),
@@ -607,10 +652,51 @@ check(bool(window_inputs) and handle and heavier == [],
 check(any(CssRules.specificity(".place-handle") < CssRules.specificity(sel) for sel, _ in window_inputs),
       "negative: один класс `.place-handle` им проигрывал — на живой доске ручка закрывала дорожку непрозрачным полем (2026-10-24)")
 
+print("черновик спекуляции — поверх модели, а не внутри её подгонки (2026-11-07):")
+dr, dp, ed = got["draft"], got["draftPanel"], got["enDraft"]
+check(dr["live"]["totals"] == [28.68] and dr["live"]["draft"] == [1.28] and dr["live"]["verdict"] == "fits"
+      and dr["liveNone"]["totals"] == [27.4] and dr["liveNone"]["draft"] == [0],
+      "positive (дефект 2026-10-27): 27B на 5090 — 27.4 ГБ модели и 1.28 черновика, 28.68 на карте, влезает; "
+      "negative: без черновика — 27.4, как было")
+check(dr["full"]["layers"] == [30] and dr["full"]["totals"] == [31.58] and dr["full"]["over"] == [True] and dr["full"]["verdict"] == "over",
+      "модель, подогнанная до ручки, оставляет черновику запас llama.cpp (1 ГиБ минус 0.25) — 0.75 ГБ, а ему нужно 1.28: карте мало, "
+      "«не влезет» (llama.cpp подгоняет модель, не зная о черновике, и черновик падает на нехватке памяти)")
+check(dr["fullNone"]["totals"] == [30.3] and dr["fullNone"]["over"] == [False] and dr["fullNone"]["verdict"] == "spill",
+      "negative: та же модель без черновика влезает с частью в RAM")
+check(dr["lowered"]["layers"] == [28] and dr["lowered"]["totals"] == [29.58] and dr["lowered"]["over"] == [False]
+      and dr["lowered"]["verdict"] == "spill" and dr["loweredMargins"] == [3072],
+      "ручка ниже на 2 ГБ — модели меньше, черновику хватает; запас, который пишет карта (--fit-target 3072), держит ему место")
+left = [23.6 - 0.25 - 9.85, 31.3 - 0.25 - 13.15]
+check(dr["two"]["draft"] == [round(2 * left[0] / sum(left), 2), round(2 * left[1] / sum(left), 2)]
+      and dr["two"]["layers"] == dr["twoNone"]["layers"] and dr["twoNone"]["totals"] == [9.85, 13.15]
+      and dr["two"]["totals"] == [round(9.85 + 2 * left[0] / sum(left), 2), round(13.15 + 2 * left[1] / sum(left), 2)],
+      f"две карты — черновик делится по месту, что осталось на каждой после модели (got {dr['two']['draft']}); слои модели те же")
+left_out = [23.6 - 0.25 - 0, 31.3 - 0.25 - 23]
+check(dr["twoLeftOut"]["layers"] == [0, 40]
+      and dr["twoLeftOut"]["draft"] == [round(2 * left_out[0] / sum(left_out), 2), round(2 * left_out[1] / sum(left_out), 2)],
+      f"3090 ручкой оставлена без модели — черновику на ней места больше: делится по оставшемуся месту (1.49 + 0.51), а не по "
+      f"свободному до модели (0.86 + 1.14) (got {dr['twoLeftOut']['draft']})")
+check(dr["ram"]["ramDraft"] == 1.28 and dr["ram"]["ramTotal"] == 1.28 and dr["ram"]["draft"] == [0] and dr["ram"]["verdict"] == "fits",
+      "черновик в RAM — его держит RAM, на карте его нет; вердикт — модели: она вся на карте")
+check(dr["ramShort"]["verdict"] == "ramShort" and dr["ramShort"]["ram"]["short"] is True,
+      "в RAM свободно 1 ГБ, черновику там нужно 1.28 — RAM не хватает")
+check(dr["threads"] == ["16", "1"], "черновик в RAM считает процессор — ему все ядра; negative: без него — один поток GPU-плитки")
+check(dr["unknown"] == 0, "negative: план, который не посчитать (слоёв не знаем), черновика никуда не кладёт")
+check(dp["kept"] == 1.28, "ручку двинули — черновик остался в плане")
+check(dp["card"]["text"] == fill_py(ed["layers"], n=40, gb="24.3 GB") + " — " + " · ".join([
+          fill_py(ed["weights"], gb="20.0 GB"), fill_py(ed["kv"], gb="2.0 GB"), fill_py(ed["buffers"], gb="1.0 GB"), fill_py(ed["part"], gb="1.3 GB")])
+      and dp["card"]["seg"] == ["weights · 20.0 GB", f"{ed['size']} · 1.3 GB"],
+      f"дорожка карты называет черновик среди частей и рисует его отдельным куском (got {dp['card']})")
+check(dp["ram"]["text"] == " · ".join([ed["none"], fill_py(ed["part"], gb="1.3 GB"), fill_py(ed["cpu"], n=16)]) and dp["ram"]["verdict"] == ["fits"],
+      f"дорожка RAM: «ничего от модели · черновик 1.3 ГБ» — а не «ничего» (got {dp['ram']['text']!r})")
+check(dp["spill"] == fill_py(ed["spillLayers"], n=12, total=40, gb="12.0 GB"),
+      f"вердикт говорит о слоях модели и их ГБ (12.0), черновик в RAM — слова дорожки (got {dp['spill']!r})")
+check(dp["noDraft"] is False, "negative: без черновика панель о нём молчит")
+
 print()
 if _fail:
     print(f"FAILED ({len(_fail)}):")
     for m in _fail:
         print("  - " + m)
     sys.exit(1)
-print("js placement OK: подгонка llama.cpp, удержанные планы, тензор, поля и панель")
+print("js placement OK: подгонка llama.cpp, удержанные планы, тензор, поля и панель, черновик спекуляции")

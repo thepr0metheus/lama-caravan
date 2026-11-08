@@ -52,6 +52,13 @@ COMPOSED = {
     "cell-gpu": "cell-memory.js: CellMemory.badge",
     # static/js/pool-board.js — the input dot of a card, the handle of a cable pulled from the right: data-t="${hook}" of PoolBoard.PULL
     "pb-pull-model": "pool-board.js: PoolBoard.pullHtml",
+    # static/js/reader-block.js — the reader block on Routing's Pools column (2026-11-06): the section and its one row for
+    # the whole board. Its data-t-state is the word the rule answered (rust/crates/rules/src/media_reader.rs,
+    # `Reader::word()`), held to the arms by scripts/check_media_reader_board.py, and the block's own state is `named` or
+    # `quiet` — a fact about the name, not about the pools. The row names itself by `data-t-id`: it is the board's row, so
+    # it has no pool's id to name itself by.
+    "pb-reader-block": "reader-block.js: ReaderBlock.HOOKS.block",
+    "pb-reader": "reader-block.js: ReaderBlock.HOOKS.row, data-t-id reader",
     # static/js/card-rows.js — a cell line's switch: its hook says what flipping it does
     "cell-row-start": "card-rows.js: CellRow.lead() by the switch's state",
     "cell-row-stop": "card-rows.js: CellRow.lead() by the switch's state",
@@ -95,7 +102,8 @@ COMPOSED = {
     "cell-remote-placement-fit": "placement.js: PlacementPanel.HOOKS.fit",
     "cell-remote-placement-threads": "placement.js: PlacementPanel.HOOKS.threads (the RAM lane's «Use N»)",
     # static/js/cell-window.js — a cell's window, variant Г (2026-10-24): CellWindow.HOOKS, data-t-id = the cell's key
-    # (host:port), a tab, panel, item, tile or button adds ":<its id>"; the band and its main button say their state.
+    # (its cellId since 2026-11-08: host:port before), a tab, panel, item, tile or button adds ":<its id>"; the band and its
+    # main button say their state.
     "cell-window": "cell-window.js: CellWindow.HOOKS.window (the dialog)",
     "cell-window-close": "cell-window.js: CellWindow.HOOKS.close (the ✕)",
     "cell-window-via": "cell-window.js: CellWindow.HOOKS.via (an engine cell's 127.0.0.1 port)",
@@ -105,10 +113,10 @@ COMPOSED = {
     "cell-window-panel": "cell-window.js: CellWindow.HOOKS.panel, data-t-id key:<tab>",
     "cell-window-more": "cell-window.js: CellWindow.HOOKS.more (the ⋯ button)",
     "cell-window-menu": "cell-window.js: CellWindow.HOOKS.menu (the ⋯ menu)",
-    "cell-window-item": "cell-window.js: CellWindow.HOOKS.item, data-t-id key:boot|copy|port|detail|delete",
+    "cell-window-item": "cell-window.js: CellWindow.HOOKS.item, data-t-id key:boot|copy|detail|delete",
     "cell-window-copy": "cell-window.js: CellWindow.HOOKS.copy (the address that copies itself)",
     "cell-window-tile": "cell-window.js: CellWindow.HOOKS.tile, data-t-id key:speed|context|window|gpu|ram",
-    "cell-window-button": "cell-window.js: CellWindow.HOOKS.button, data-t-id key:placement|configure|port|detail",
+    "cell-window-button": "cell-window.js: CellWindow.HOOKS.button, data-t-id key:placement|configure|detail",
     # static/js/cell-log.js — the server's own log in a cell window's Log tab (1.3.623): CellLog.HOOKS, data-t-id = the cell's
     # key; the section's data-t-state idle|loading|ok|error.
     "cell-log": "cell-log.js: CellLog.HOOKS.view (the section)",
@@ -156,8 +164,6 @@ COMPOSED = {
     "hf-confirm": "hf-page.js: HfDialog.confirm sets data-t on the overlay",
     # static/js/form.js — one per config tab, set on the constructed button
     "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
-    "agent-proxy-bind": "topology-activity.js: the clickable primary port chip",
-    "agent-bind-menu": "topology-activity.js: the proxy-port picker it opens",
     "cell-remote-translate-model": "index.html: NLLB model field (remote form)",
     "cell-remote-translate-src": "index.html: NLLB source language (remote form)",
     "cell-remote-translate-tgt": "index.html: NLLB target language (remote form)",

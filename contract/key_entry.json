@@ -21,14 +21,14 @@
   ],
   "route_for": {
     "routes": [
-      {"label": "a", "port": 1, "apiKey": "key-a"},
-      {"label": "b", "port": 2, "apiKey": " key-b "},
-      {"label": "off", "port": 3, "apiKey": "key-off", "enabled": false},
-      {"label": "open", "port": 4, "apiKey": ""},
-      {"label": "twin-1", "port": 5, "apiKey": "key-twin"},
-      {"label": "twin-2", "port": 6, "apiKey": "key-twin"},
-      {"label": "twin-off", "port": 7, "apiKey": "key-one", "enabled": false},
-      {"label": "one", "port": 8, "apiKey": "key-one"}
+      {"label": "a", "id": "client-1", "apiKey": "key-a"},
+      {"label": "b", "id": "client-2", "apiKey": " key-b "},
+      {"label": "off", "id": "client-3", "apiKey": "key-off", "enabled": false},
+      {"label": "open", "id": "client-4", "apiKey": ""},
+      {"label": "twin-1", "id": "client-5", "apiKey": "key-twin"},
+      {"label": "twin-2", "id": "client-6", "apiKey": "key-twin"},
+      {"label": "twin-off", "id": "client-7", "apiKey": "key-one", "enabled": false},
+      {"label": "one", "id": "client-8", "apiKey": "key-one"}
     ],
     "cases": [
       {"key": "key-a", "label": "a"},

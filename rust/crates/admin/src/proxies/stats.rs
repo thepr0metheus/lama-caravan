@@ -1,5 +1,6 @@
 //! Readers over the proxy's artifacts: its state file and its journal.
 
+use super::client_ids::FormerPorts;
 use crate::app::App;
 use crate::cloud::spend::JournalDays;
 use crate::common::entry::EntryDoor;
@@ -13,10 +14,13 @@ use std::sync::{Mutex, PoisonError};
 
 mod logs;
 
-/// One day of the journal, read once: today's file only for the bytes added since.
+/// One day of the journal, read once: today's file only for the bytes added since. A row names its client by its record's id; one
+/// written before 2026-11-07, by the number the client had then: both are kept as written, and the numbers are read through
+/// `FormerPorts` when they are asked for.
 #[derive(Clone, Default)]
 struct DaySeen {
     size: u64,
+    ids: BTreeMap<String, i64>,
     ports: BTreeMap<i64, i64>,
     embeddings: i64,
 }
@@ -24,6 +28,7 @@ struct DaySeen {
 /// What the journal's days said.
 pub struct StatsMemory {
     seen: Mutex<BTreeMap<String, DaySeen>>,
+    route_id: Regex,
     port: Regex,
     time: Regex,
     status: Regex,
@@ -35,6 +40,7 @@ impl StatsMemory {
     pub fn new() -> Result<Self, regex::Error> {
         Ok(Self {
             seen: Mutex::new(BTreeMap::new()),
+            route_id: Regex::new(r#""routeId":"([^"]+)""#)?,
             port: Regex::new(r#""port":(\d+)"#)?,
             time: Regex::new(r#""time":(\d+)"#)?,
             status: Regex::new(r#""status":(\d{3})"#)?,
@@ -60,7 +66,11 @@ impl StatsMemory {
         if !good {
             return;
         }
-        if let Some(port) = Self::first_number(&self.port, line) {
+        let id = self.route_id.captures(line).and_then(|found| found.get(1)).map(|id| id.as_str().to_string());
+        if let Some(id) = id {
+            let seen = day.ids.entry(id).or_insert(0);
+            *seen = (*seen).max(when);
+        } else if let Some(port) = Self::first_number(&self.port, line) {
             let seen = day.ports.entry(port).or_insert(0);
             *seen = (*seen).max(when);
         }
@@ -129,7 +139,7 @@ impl<'app> ProxyStats<'app> {
     pub fn summarize_item(label: &str, row: &Value, item: &Value, state: &str) -> Value {
         let said = |key: &str| item.get(key).filter(|value| Coerce::truthy(Some(*value)));
         let either = |key: &str| said(key).or_else(|| row.get(key).filter(|value| Coerce::truthy(Some(*value))));
-        let port = either("port");
+        let route_id = either("routeId");
         let upstream = either("upstream").cloned().unwrap_or_else(|| json!(""));
         let upstream_text = Coerce::str_of(Some(&upstream));
         let (host, upstream_port) = Self::upstream_place(said("upstreamHost"), said("upstreamPort"), &upstream_text);
@@ -139,7 +149,7 @@ impl<'app> ProxyStats<'app> {
         let word = |key: &str, otherwise: Value| said(key).cloned().unwrap_or(otherwise);
         let id = said("id").cloned().unwrap_or_else(|| {
             let moment = said("startedAt").or_else(|| said("finishedAt")).map_or_else(String::new, |at| Coerce::str_of(Some(at)));
-            json!(format!("{label}:{}:{moment}", port.map_or_else(|| "None".to_string(), |port| Coerce::str_of(Some(port)))))
+            json!(format!("{label}:{}:{moment}", route_id.map_or_else(|| "None".to_string(), |id| Coerce::str_of(Some(id)))))
         });
         let kind = {
             let named = either("upstreamType").map_or_else(String::new, |said| Coerce::str_of(Some(said)));
@@ -149,7 +159,7 @@ impl<'app> ProxyStats<'app> {
             "id": id,
             "state": state,
             "label": label,
-            "port": port,
+            "routeId": route_id,
             "upstream": upstream,
             "upstreamHost": host.filter(|said| Coerce::truthy(Some(said))).unwrap_or_else(|| json!("127.0.0.1")),
             "upstreamPort": upstream_port.filter(|said| Coerce::truthy(Some(said))).unwrap_or_else(|| json!(8080)),
@@ -238,16 +248,25 @@ impl<'app> ProxyStats<'app> {
         if last as f64 >= cutoff { last } else { 0 }
     }
 
-    /// `{proxy port: when it last answered well}`, over recent days.
-    pub fn ports_last_seen(&self, days: i64) -> BTreeMap<i64, i64> {
+    /// `{client id: when it last answered well}`, over recent days; a row of the old numbers counts for the client it became.
+    pub fn clients_last_seen(&self, days: i64, former: &FormerPorts) -> BTreeMap<String, i64> {
         let days = days.max(1);
         let cutoff = self.app.now() - (days * 86400) as f64;
-        let mut out: BTreeMap<i64, i64> = BTreeMap::new();
+        let mut out: BTreeMap<String, i64> = BTreeMap::new();
+        let mut note = |id: String, when: i64| {
+            let seen = out.entry(id).or_insert(0);
+            *seen = (*seen).max(when);
+        };
         for day in self.log_dates().iter().take(days as usize) {
-            // absent-ok: a day with no journal saw no port.
-            for (port, when) in self.day_seen(day).map(|seen| seen.ports).unwrap_or_default() {
-                let seen = out.entry(port).or_insert(0);
-                *seen = (*seen).max(when);
+            // absent-ok: a day with no journal saw no client.
+            let seen = self.day_seen(day).unwrap_or_default();
+            for (id, when) in seen.ids {
+                note(id, when);
+            }
+            for (port, when) in seen.ports {
+                if let Some(id) = former.id_of(port) {
+                    note(id.to_string(), when);
+                }
             }
         }
         out.retain(|_, when| *when as f64 >= cutoff);
@@ -264,8 +283,8 @@ pub struct LogQuery {
     pub limit: String,
     /// Comma-separated events.
     pub event: String,
-    /// One port.
-    pub port: String,
+    /// One client, by its record's id; `None` for every client.
+    pub route_id: Option<String>,
     /// A part of a route's name.
     pub route: String,
     /// One client's address.
@@ -274,7 +293,7 @@ pub struct LogQuery {
     pub errors: bool,
     /// Without what the state said beside each row.
     pub slim: bool,
-    /// Counts per port in place of rows.
+    /// Counts per client in place of rows.
     pub summary: bool,
     /// The last minutes only.
     pub since: String,

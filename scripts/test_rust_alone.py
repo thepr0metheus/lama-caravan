@@ -245,10 +245,14 @@ def run(caravan, check, base_url, provider):
     # A port of its own is no more: nothing would listen on it. The owner's word of 2026-11-02.
     made = asked("POST", "/api/agent-port", {"clientId": "x", "agentId": "x", "label": "x"})
     check.that(made[0] == 404, f"a new port of its own: {made[0]} {made[1]}")
-    reopened = asked("POST", "/api/agent-proxies/route-policy", {"port": client.get("port"), "portClosed": False})
+    reopened = asked("POST", "/api/agent-proxies/route-policy", {"routeId": client.get("routeId"), "portClosed": False})
     check.that(reopened[0] == 410, f"a client's port opened again: {reopened[0]} {reopened[1]}")
+    # A client is known by its record's id and has no number (the owner, 2026-11-07).
     routes = asked("GET", "/api/topology")[1].get("proxies") or []
-    check.that(all(row.get("portClosed") for row in routes), f"every client stays on the entry: {routes}")
+    check.that(routes and all(row.get("id") and "port" not in row and "portClosed" not in row for row in routes),
+               f"every client stands by its id, with no number: {routes}")
+    by_port = asked("POST", "/api/consumers/key", {"port": 23001})
+    check.that(by_port[0] == 400 and "routeId" in str(by_port[1]), f"a client asked by a number: {by_port[0]} {by_port[1]}")
     # What the entry used to hand to Python.
     status, said, _ = asked("PUT", "/v1/chat/completions", {}, port=first_port, headers=auth)
     check.that(status == 501, f"a method no client uses: {status} {said}")

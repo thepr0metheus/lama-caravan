@@ -2,8 +2,9 @@
 """Value snapshot: cells/strata_launch.py — what a Strata cell makes and runs at its start.
 
 The launcher reads Strata's own setup.py and runs Strata's own tools, so here it meets a
-stand-in Strata: a setup.py with the tables and rules the launcher reads (the real ones,
-v0.2.9, trimmed to the rows these pins use), tools that write what the real ones write,
+stand-in Strata: a setup.py with the tables and rules the launcher reads (the real ones, v0.2.11 —
+the rows and rules these pins use are the same there as in v0.2.9, checked 2026-11-05 —
+trimmed to the rows these pins use), tools that write what the real ones write,
 and an engine that is a file. A second stand-in has only v0.1.42's rules: a Strata put back
 has to keep starting. The engine arguments are pinned against the config Strata's
 own setup wrote on the GPU machine for IQ2_XS at 131072 tokens (2026-10-13): the launcher
@@ -88,6 +89,53 @@ def arch_numbers(value):
     if isinstance(value, str):
         return [int(x) for x in value.replace(",", ";").split(";") if x.strip()]
     return [int(x) for x in value or []]
+import json as _json
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parent
+DSV41_CONTEXT = 8192
+DSV41_PROFILES = _ROOT / "data" / "dsv41"
+_DS4 = [f"DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-{i:05d}-of-00004.gguf" for i in range(1, 5)]
+_DS6 = [f"DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-{i:05d}-of-00006.gguf" for i in range(1, 6)]
+MULTI_FILE_FAMILIES = {"deepseek41": {"name": "deepseek-v4.1-flash", "arch": "deepseek41", "models": {
+    "IST-DAS-1.75bpw": {"recipe": "ista", "profile": "profile-2.00.bin", "shards": _DS4, "shards6": _DS6},
+    "UD-IQ1_M": {"recipe": "udlow", "profile": "profile-2.00.bin", "shards": ["DeepSeek-V4.1-Flash-1017-UD-IQ1_M-00001-of-00005.gguf"]}}}}
+def _note(word):
+    with open(_ROOT / "runs.txt", "a") as runs:
+        runs.write(word + "\\n")
+def dsv41_exe(eng):
+    exe = _Path(eng).parent / "engine-dsv41" / "bin" / "strata-dsv41"
+    return exe if exe.is_file() else None
+def get_dsv41_engine(eng, hip, package=None, feed=None, archs=None):
+    if os.environ.get("FAKE_NO_FEED"):
+        return None
+    exe = _Path(eng).parent / "engine-dsv41" / "bin" / "strata-dsv41"
+    exe.parent.mkdir(parents=True, exist_ok=True)
+    exe.write_text("dsv41")
+    _note("engine")
+    return exe
+def dsv41_layout_of(md, present):
+    four = [bool(present(n)) for n in md["shards"]]
+    six = [bool(present(n)) for n in md.get("shards6") or []]
+    return "six" if six and any(six) and (not any(four) or (all(six) and not all(four))) else "four"
+def dsv41_pack_cmd(folder, shards, engram, meta, dspark, pack, mmproj=None):
+    import sys as _sys
+    return [_sys.executable, str(_ROOT / "tools" / "dsv41" / "pack_gguf.py"), "--model", str(folder), "--shards", *shards,
+            "--engram", str(engram), "--engram-meta", str(meta), "--dspark-gguf", str(dspark),
+            *(["--mmproj", str(mmproj)] if mmproj else []), "--out", str(pack)]
+def dsv41_pack_info(exe, pack, lib_dirs):
+    whole = (_Path(pack) / "tensors.txt").is_file()
+    return whole, "" if whole else "MISSING tensors.txt"
+def dsv41_pack_has_tower(pack):
+    return "image_token_id" in (_Path(pack) / "ds4.txt").read_text()
+def dsv41_prefill_chunk_args(cards, ram):
+    return ["--prefill-chunk", "8192"] if any(c.get("uma") for c in cards) else []
+def dsv41_config_env(cards):
+    return {"DS4_ASYNC_T": "4"} if any(c.get("uma") for c in cards) else {}
+def gpus():
+    return _json.loads(os.environ.get("FAKE_GPUS", '[{"index": 0, "name": "RTX 3090", "vram_gb": 24.0, "arch": "86"}, '
+                                                    '{"index": 1, "name": "RTX 5090", "vram_gb": 31.8, "arch": "120"}]'))
+def gpu_problem(card):
+    return card.get("problem")
 '''
 #: What v0.1.42 had: no package of its own, none of the rules v0.2 added.
 SETUP_V0142 = SETUP.replace("from strata_control import acquisition\n", "")
@@ -110,6 +158,35 @@ out = Path(sys.argv[sys.argv.index("--out") + 1])
 out.mkdir(parents=True, exist_ok=True)
 (out / "experts.bin").write_bytes(b"x")
 '''
+DS_PACK = '''
+import json, os, sys
+from pathlib import Path
+out = Path(sys.argv[sys.argv.index("--out") + 1])
+(out / "tokenizer").mkdir(parents=True, exist_ok=True)
+(out / "tokenizer" / "vocab.json").write_text("{}")
+if not os.environ.get("FAKE_PACK_BROKEN"):
+    (out / "tensors.txt").write_text("file 0 x")
+(out / "ds4.txt").write_text("image_token_id 1\\n" if "--mmproj" in sys.argv else "text only\\n")
+(out / "argv.json").write_text(json.dumps(sys.argv[1:]))
+with open(Path(__file__).resolve().parent.parent.parent / "runs.txt", "a") as runs:
+    runs.write("dspack\\n")
+'''
+DS_FIT = '''
+def plan(cards, ram_gb, disk_free_gb=None, context=8192, model=None, named=False):
+    return {"args": ["--tp", str(len(cards))] if len(cards) > 1 else [], "lines": [f"{model}: {len(cards)} card(s), {ram_gb:g} GB of RAM"],
+            "warnings": [], "verdict": "fits"}
+'''
+DS_CONTEXT = '''
+def read_limit(pack):
+    return None
+def problem(context, limit=None):
+    return "" if 8192 <= context <= (limit or 1048576) else f"context {context} is outside 8K to 1M"
+'''
+DS_ENGINE = '''
+from pathlib import Path
+def lib_dirs(exe):
+    return [str(Path(exe).parent.parent / "lib")]
+'''
 READER = '''
 class T:
     def __init__(self, name):
@@ -127,7 +204,10 @@ def strata_home(name="home", setup=SETUP, engine=True, build=None):
              "tools/gguf_reader.py": READER, "serve/server.py": "", "data/expert-profile.bin": "p",
              "data/expert-profile-coder.bin": "c", "data/draft_vocab_cyrillic.bin": "cyr",
              "data/draft_vocab_en.bin": "en", "strata_control/__init__.py": "", "strata_control/acquisition.py": "",
-             "engine/BUILD.json": json.dumps(build or {"cuda_dirs": ["/cuda/bin"]})}
+             "engine/BUILD.json": json.dumps(build or {"cuda_dirs": ["/cuda/bin"]}),
+             "tools/dsv41/pack_gguf.py": DS_PACK, "strata_control/dsv41_fit.py": DS_FIT,
+             "strata_control/dsv41_context.py": DS_CONTEXT, "strata_control/dsv41_engine.py": DS_ENGINE,
+             "data/dsv41/profile-2.00.bin": "hot"}
     if engine:
         files["engine/strata"] = "engine"
     for rel, text in files.items():
@@ -205,14 +285,17 @@ def section_the_config():
           == (str(HOME / "engine/strata"), str(HOME), str(WORK / "pack/tokenizer"), "qwen3.8-flash-next", 22009, 0,
               ["/cuda/bin"], "cyrillic", str(WORK / "engine.log")),
           "движок, его библиотеки CUDA из BUILD.json, токенизатор пака, имя, порт, карта 0, лог в рабочей папке")
+    check(cfg.get("drafting") == "mtp",
+          "выбор черновика записан словами, а не оставлен: с v0.2.10 сервер решает черновик по этому ключу, и его Auto — DFlash2; "
+          "оставленный ключ запустил бы не тот черновик, который назвала ячейка")
     check((WORK / "mtp/rt/draft_vocab.bin").read_text() == "cyr",
           "слою черновика положен словарь кириллицы из data/ Strata")
     check(json.loads((WORK / "pack/argv.json").read_text())
           == ["--gguf", str(ROOT_M / FIRST), "--out", str(WORK / "pack")],
           "пак собран из первой части инструментом Strata (iq_pack.py)")
     check(L.server_argv(path) == [sys.executable, str(HOME / "serve/server.py"), "--engine", "strata", "--config",
-                                  str(path), "--host", "0.0.0.0", "--port", "22009"],
-          "сервер Strata слушает 0.0.0.0 — доска и вход машины достают его по сети")
+                                  str(path), "--host", "127.0.0.1", "--port", "22009"],
+          "сервер Strata слушает петлю своей машины (2026-11-08, шаг 7): вход машины и дверь скаута достают его там, сеть — нет")
 
     cfg = json.loads(launch(HOME, ROOT_M, "--work", str(TMP / "trained")).config().read_text())
     check(cfg["args"][cfg["args"].index("--max-context") + 1] == "262144" and "--rope-scaling" not in cfg["args"],
@@ -222,6 +305,8 @@ def section_the_config():
     cfg = json.loads(L.config().read_text())
     check("--mtp" not in cfg["args"] and "--spec" not in cfg["args"] and cfg["model_name"] == "qwen3.8-flash-next",
           "negative: без слоя черновика — без --spec и --mtp; имя по умолчанию — семейства из setup.py")
+    check(cfg.get("drafting") == "off",
+          "слоя черновика нет — отсутствие названо словом «off», а не молчанием: оставленный ключ означал бы Auto, то есть DFlash2")
     check("--kv-resident" not in cfg["args"] and cfg["args"][cfg["args"].index("--kv") + 1] == "int8",
           "negative: окно 16384 (меньше 64K) — KV не уходит в ОЗУ")
     cfg = json.loads(launch(HOME, ROOT_M, "--work", str(TMP / "w8"), "--context", "8192").config().read_text())
@@ -289,11 +374,13 @@ def section_budget_packs():
           "negative: IQ2_XS бюджета не знает — все эксперты в ОЗУ, флага нет; настроек движка нет и ключа env нет")
     old = strata_home("no-budget", setup=SETUP.replace("def resident_budget_gib", "def resident_budget_was"))
     check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "b7")).config())
-          == "this Strata has no setup.resident_budget_gib — the caravan's launcher knows v0.2.9",
+          == f"this Strata has no setup.resident_budget_gib — the caravan's launcher knows {StrataLaunch.KNOWS}",
           "negative: в setup.py нет правила бюджета — отказ с его именем, а не догадка о числе")
+    check(StrataLaunch.KNOWS == "v0.2.11",
+          "отказ называет ту версию, откуда взяты правила этого стенда: иначе слова говорят про одну версию, а правила читались с другой")
     old = strata_home("no-kv-ram", setup=SETUP.replace("def kv_streaming_ram_gb", "def kv_streaming_ram_was"))
     check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "b8")).config())
-          == "this Strata has no setup.kv_streaming_ram_gb — the caravan's launcher knows v0.2.9",
+          == f"this Strata has no setup.kv_streaming_ram_gb — the caravan's launcher knows {StrataLaunch.KNOWS}",
           "negative: нет правила, сколько ОЗУ берёт KV, — отказ с его именем: бюджет без него был бы неверен")
 
 
@@ -395,7 +482,7 @@ def section_refusals():
           "negative: Strata не установлена — отказ с подсказкой")
     old = strata_home("old", setup=SETUP.replace("def kv_streaming_wanted", "def kv_streaming_was"))
     check(refused(lambda: launch(old, ROOT_M, "--work", str(TMP / "r10")).config())
-          == "this Strata has no setup.kv_streaming_wanted — the caravan's launcher knows v0.2.9",
+          == f"this Strata has no setup.kv_streaming_wanted — the caravan's launcher knows {StrataLaunch.KNOWS}",
           "negative: в setup.py нет нужного правила — отказ с его именем, а не догадка")
     check(refused(lambda: launch(HOME, ROOT_M, "--work", str(TMP / "r11"), "--mtp", str(TMP / "none.gguf")).config())
           == f"the draft layer's file is not here: {TMP / 'none.gguf'}",
@@ -450,6 +537,133 @@ def section_becomes_the_server():
           "а не за родителем, который ждал бы сервер")
 
 
+DS6 = [f"DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-{i:05d}-of-00006.gguf" for i in range(1, 6)]
+DS4 = [f"DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-{i:05d}-of-00004.gguf" for i in range(1, 5)]
+
+
+def ds_set(folder, parts=DS6):
+    """A set as the scout brings it: its parts in one folder, what it reads beside them in others."""
+    root = TMP / folder
+    for rel in [*(f"set/{name}" for name in parts), "e/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf",
+                "u/DeepSeek-V4.1-Flash-1017-UD-Q8_K_XL-00001-of-00009.gguf", "u/dspark.gguf", "d/mmproj.gguf"]:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("GGUF")
+    return root
+
+
+def ds_launch(home, root, *extra, env=None, first=DS6[0], mmproj=True, work=None):
+    files = ["--engram", str(root / "e/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf"),
+             "--meta", str(root / "u/DeepSeek-V4.1-Flash-1017-UD-Q8_K_XL-00001-of-00009.gguf"), "--dspark", str(root / "u/dspark.gguf")]
+    if mmproj:
+        files += ["--mmproj", str(root / "d/mmproj.gguf")]
+    args = StrataLaunch.parser().parse_args(["--strata-home", str(home), "22030", str(root / "set" / first), "--family", "deepseek41",
+                                             *files, "--work", str(work or TMP / f"{root.name}-work"), *extra])
+    return strata_launch.DeepSeekLaunch(args, env={"PATH": os.environ.get("PATH", ""), **(env or {})})
+
+
+class EnvOf:
+    """The process environment the stand-in setup.py reads (as the real one reads nvidia-smi and the feed), for one call."""
+
+    def __init__(self, **values):
+        self.values = values
+
+    def __call__(self, fn):
+        kept = {key: os.environ.get(key) for key in self.values}
+        os.environ.update(self.values)
+        try:
+            return fn()
+        finally:
+            for key, value in kept.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+def section_deepseek():
+    print("DeepSeek-V4.1-Flash на strata-dsv41:")
+    home = strata_home("ds-home")
+    root = ds_set("ds")
+    work = TMP / "ds-work"
+    runs = lambda word: (home / "runs.txt").read_text().split().count(word) if (home / "runs.txt").exists() else 0  # noqa: E731
+    path = ds_launch(home, root, "--name", "deepseek flash", work=work).config()
+    cfg = json.loads(path.read_text())
+    pack = work / "pack"
+    check(cfg["exe"] == str(home / "engine-dsv41/bin/strata-dsv41") and runs("engine") == 1,
+          "движка DeepSeek нет — запуск берёт его из подписанной ленты Strata (её get_dsv41_engine), один раз")
+    check(cfg["args"] == ["--pack", str(pack), "--max-context", "8192", "--eos", "1", "--vision", "on", "--dspark", "auto",
+                          "--dspark-conf", "0.65", "--tp", "2"],
+          "аргументы движка — как их пишет setup.py Strata: окно по умолчанию — проверенное движком (8192), картинки включены "
+          "(читатель картинок есть), DSpark auto, обе карты делят слои (--tp 2 из её плана)")
+    check(cfg["gpu"] == [0, 1] and cfg["gpus_asked"] is True and cfg["engine_ready_s"] == 3600 and cfg["arch"] == "deepseek41"
+          and cfg["model_name"] == "deepseek flash" and cfg["lib_dirs"] == [str(home / "engine-dsv41/lib")]
+          and cfg["log"] == str(work / "engine.log") and cfg["tokenizer"] == str(pack / "tokenizer"),
+          "конфиг сервера: все карты, час на первую загрузку, имя ячейки, библиотеки движка DeepSeek, журнал в рабочей папке")
+    check("drafting" not in cfg,
+          "negative: у DeepSeek ключа выбора черновика нет — её драфтер DSpark, и drafting.py не трогает модель, для которой он не сделан; "
+          "ключ здесь был бы словом о драфтере, которого этот запуск не использует")
+    argv = json.loads((pack / "argv.json").read_text())
+    check(argv == ["--model", str(root / "set"), "--shards", *DS6, "--engram", str(root / "e/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf"),
+                   "--engram-meta", str(root / "u/DeepSeek-V4.1-Flash-1017-UD-Q8_K_XL-00001-of-00009.gguf"),
+                   "--dspark-gguf", str(root / "u/dspark.gguf"), "--mmproj", str(root / "d/mmproj.gguf"), "--out", str(pack)],
+          "пак — по рецепту Strata для официального набора: пять частей шестичастной раскладки по именам, Engram, "
+          "часть метаданных Unsloth, драфтер и читатель картинок — каждый там, куда его принёс скаут")
+    check((pack / "expert-profile.bin").read_text() == "hot", "в пак положен профиль частых экспертов, который Strata шлёт с собой")
+    again = json.loads(ds_launch(home, root, work=work).config().read_text())
+    check(runs("dspack") == 1 and runs("engine") == 1 and again["model_name"] == "deepseek-v4.1-flash",
+          "второй старт тех же файлов берёт пак прошлого и движок, что уже есть; без имени — имя семейства из таблицы Strata")
+    longer = json.loads(ds_launch(home, root, "--context", "131072", work=work).config().read_text())
+    check(longer["args"][longer["args"].index("--max-context") + 1] == "131072" and runs("dspack") == 1,
+          "окно ячейки — её число; пак от окна не зависит")
+    text = json.loads(ds_launch(home, root, work=work, mmproj=False).config().read_text())
+    check(text["args"][text["args"].index("--vision") + 1] == "off" and runs("dspack") == 2
+          and "--mmproj" not in json.loads((pack / "argv.json").read_text()),
+          "negative: без читателя картинок — пак собран заново без него, и ячейка читает только текст")
+    four = ds_set("ds-four", parts=DS4)
+    json.loads(ds_launch(home, four, first=DS4[0], work=TMP / "ds-four-work").config().read_text())
+    check(json.loads((TMP / "ds-four-work/pack/argv.json").read_text())[3:7] == DS4,
+          "четырёхчастная раскладка, закреплённая Strata, — её четыре части")
+    one = EnvOf(FAKE_GPUS='[{"index": 1, "name": "RTX 5090", "vram_gb": 31.8, "arch": "120"}]')(
+        lambda: json.loads(ds_launch(home, root, work=work).config().read_text()))
+    check(one["gpu"] == 1 and "gpus_asked" not in one and "--tp" not in one["args"],
+          "boundary: одна карта — её номер, без деления слоёв")
+    print("  отказы DeepSeek:")
+    gone = ds_set("ds-gone")
+    (gone / "set" / DS6[2]).unlink()
+    check(refused(lambda: ds_launch(home, gone).config()) == f"the set's part is not here: {gone / 'set' / DS6[2]}",
+          "negative: части набора нет — отказ с её путём")
+    (root / "e/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf").rename(root / "e/away.gguf")
+    check(refused(lambda: ds_launch(home, root, work=work).config()).startswith("the Engram (DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf) is not here:"),
+          "negative: Engram не принесён — отказ, до движка и пака")
+    (root / "e/away.gguf").rename(root / "e/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf")
+    check(refused(lambda: ds_launch(home, root, first="DeepSeek-V4.1-Flash-1017-UD-IQ1_M-00001-of-00005.gguf").config())
+          == "Strata does not know DeepSeek-V4.1-Flash-1017-UD-IQ1_M-00001-of-00005.gguf as the first part of an IST-DAS DeepSeek-V4.1-Flash set",
+          "negative: набор не IST-DAS (у Unsloth свой рецепт) — отказ по имени")
+    old_home = strata_home("ds-old", setup=SETUP_V0142)
+    check(refused(lambda: ds_launch(old_home, root).config()) == "this Strata has no setup.MULTI_FILE_FAMILIES: DeepSeek needs Strata 0.2.9 or newer",
+          "negative: Strata без шагов DeepSeek — отказ с её версией")
+    fresh = strata_home("ds-fresh")
+    check(EnvOf(FAKE_NO_FEED="1")(lambda: refused(lambda: ds_launch(fresh, root).config())).startswith("Strata could not install DeepSeek's engine"),
+          "negative: лента не дала движок — отказ, а не старт без движка")
+    check(EnvOf(FAKE_GPUS="[]")(lambda: refused(lambda: ds_launch(home, root, work=work).config())).startswith("Strata finds no card"),
+          "negative: карт нет — отказ")
+    check(refused(lambda: ds_launch(home, root, "--context", "4096", work=work).config()) == "context 4096 is outside 8K to 1M",
+          "negative: окно вне того, что читает модель, — отказ словами Strata")
+    check(refused(lambda: ds_launch(home, root, work=TMP / "ds-broken", env={"FAKE_PACK_BROKEN": "1"}).config())
+          == f"the pack in {TMP / 'ds-broken/pack'} is not complete: MISSING tensors.txt",
+          "negative: движок говорит, что пак неполон, — отказ с его словами")
+    picked = []
+    keep = (strata_launch.DeepSeekLaunch.start, StrataLaunch.start)
+    strata_launch.DeepSeekLaunch.start = lambda self: picked.append(type(self).__name__)
+    StrataLaunch.start = lambda self: picked.append(type(self).__name__)
+    try:
+        strata_launch.main(["--strata-home", str(home), "22030", str(root / "set" / DS6[0]), "--family", "deepseek41"])
+        strata_launch.main(["--strata-home", str(HOME), "22009", str(ROOT_M / FIRST)])
+    finally:
+        strata_launch.DeepSeekLaunch.start, StrataLaunch.start = keep
+    check(picked == ["DeepSeekLaunch", "StrataLaunch"], "--family deepseek41 — запуск DeepSeek; без него — запуск Qwen, как раньше")
+
+
 def main():
     section_the_config()
     section_budget_packs()
@@ -458,6 +672,7 @@ def main():
     section_refusals()
     section_kept_with_the_cache()
     section_becomes_the_server()
+    section_deepseek()
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")
         for msg in _fail:

@@ -43,21 +43,29 @@ impl CommandStart {
         Ok((command, shell_line))
     }
 
-    fn answer(self) -> Result<Value, AppError> {
-        let (command, shell_line) = self.lines()?;
+    fn answer(mut self) -> Result<Value, AppError> {
+        // Every refusal that needs no port comes before the lease: a refusal leaves the cell holding nothing.
+        self.lines()?;
         let files = self.model_files()?;
-        let environment = self.start.process_env()?;
-        let start = &self.start;
-        let port = start.port()?;
-        if let Some(refusal) = start.busy(port).or_else(|| start.short_of_vram(port)).or_else(|| start.short_of_ram(port)) {
-            return Ok(refusal);
+        self.start.process_env()?;
+        let id = self.start.cell_id()?;
+        let cell = self.start.cells.table.at(&id);
+        {
+            let start = &self.start;
+            if let Some(refusal) = start.busy(&cell).or_else(|| start.short_of_vram(&id)).or_else(|| start.short_of_ram(&id)) {
+                return Ok(refusal);
+            }
         }
-        let (models, keeper) = start.shelf()?;
+        let (models, keeper) = self.start.shelf()?;
         let (models, keeper) = (Arc::clone(models), Arc::clone(keeper));
-        let cell = start.cells.table.at(port);
+        let port = self.start.lease_port(&cell)?;
+        // The line, its command and its environment as they are with the port filled in.
+        let (command, shell_line) = self.lines()?;
+        let environment = self.start.process_env()?;
         let ram_mib = self.ram_mib();
+        let start = &self.start;
         let model_path = StartRequest::word_of(&start.payload, "modelPath");
-        let name = ModelName::of(Some(&Value::Object(start.config.clone())), &model_path, port);
+        let name = ModelName::of(Some(&Value::Object(start.config.clone())), &model_path, &id);
         // Its files stay or go as the controller asks, as a llama cell's do. Kept, a model is written to the disk once; not kept, every start writes it again.
         let cache_models = start.cache_models();
         {
@@ -67,16 +75,17 @@ impl CommandStart {
             facts.cache_models = cache_models;
         }
         // What this start asks of its shelf, told before the first byte is copied.
-        start.cells.asks(port, &files, &keeper);
+        start.cells.asks(&cell, &files, &keeper);
         let shown = files.first().cloned().unwrap_or_else(|| Coerce::first_letters(&command, 80).to_string());
         let now = start.cells.clock.epoch() as i64;
-        start.cells.table.say(port, &json!({"phase": "resolving", "modelPath": shown, "downloadedBytes": 0, "totalBytes": 0, "error": "", "startedAt": now}));
+        start.cells.table.say(&id, &json!({"phase": "resolving", "modelPath": shown, "downloadedBytes": 0, "totalBytes": 0, "error": "", "startedAt": now}));
         let said = StartRequest::word_of(&start.payload, "healthPath");
         let health_path = if said.is_empty() { "/health".to_string() } else { Coerce::text(start.payload.get("healthPath")) };
         let launch = CommandLaunch {
             cells: Arc::clone(&start.cells),
             models,
             keeper,
+            id: id.clone(),
             port,
             cell,
             command,
@@ -89,8 +98,8 @@ impl CommandStart {
             health_path,
             ram_mib,
         };
-        start.in_background(port, move || launch.run());
-        Ok(json!({"ok": true, "status": "starting", "phase": "resolving", "port": port}))
+        start.in_background(&id, move || launch.run());
+        Ok(json!({"ok": true, "status": "starting", "phase": "resolving", "cellId": id, "port": port}))
     }
 
     /// `re.sub(r"^\s*exec\s+", "", line).strip()`.
@@ -137,6 +146,9 @@ struct CommandLaunch {
     /// The shelf its models are kept on, and its keeper.
     models: Arc<ModelFetcher>,
     keeper: Arc<CacheKeeper>,
+    /// The cell's own name.
+    id: String,
+    /// The port its run was leased.
     port: i64,
     /// The cell the request made: the cancel token. Taken on the request: a stop in between would otherwise be met by a fresh cell and missed.
     cell: Arc<Cell>,
@@ -153,11 +165,13 @@ struct CommandLaunch {
 
 impl CommandLaunch {
     fn holds(&self) -> bool {
-        self.cells.table.holds(self.port, &self.cell)
+        self.cells.table.holds(&self.id, &self.cell)
     }
 
+    /// A start that failed says why, and gives its port back: no run of it holds the port.
     fn say_failed(&self, words: &str) {
-        self.cells.table.say(self.port, &json!({"phase": "error", "error": words}));
+        self.cells.table.say(&self.id, &json!({"phase": "error", "error": words}));
+        self.cells.table.release(&self.cell);
     }
 
     /// Each model file where this machine reads it: in place, in the cache, or downloaded now. Without the download the failure was quiet: the cell came up on its port and said "model file not found" only in its own log.
@@ -168,7 +182,7 @@ impl CommandLaunch {
             let short = Path::new(raw).file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
             let label = if count > 1 { format!("{short} ({}/{count})", at + 1) } else { String::new() };
             let hint = self.hints.as_ref().and_then(|hints| hints.get(raw)).cloned();
-            let fetch = Fetch { report: true, label, use_cache: self.cache_models, port: self.port, hint };
+            let fetch = Fetch { report: true, label, use_cache: self.cache_models, cell: self.id.clone(), hint };
             held.push(self.models.ensure(raw, &fetch)?.display().to_string());
         }
         Ok(held)
@@ -185,24 +199,24 @@ impl CommandLaunch {
         let synced = assets.sync(&self.command);
         if !synced.is_empty() {
             let words: Vec<String> = synced.iter().map(|(name, word)| format!("{name}={}", Coerce::text(Some(word)))).collect();
-            Log::line(&format!("[llama-node] cell-assets :{} — {}", self.port, words.join(", ")));
+            Log::line(&format!("[llama-node] cell-assets {} — {}", self.id, words.join(", ")));
         }
     }
 
     /// What the cell makes from its model: on its models' shelf and kept with them, so that a start of the same model uses what the last one made; emptied at the start when they are not kept.
     fn scratch(&self) -> std::io::Result<String> {
         if !self.cache_models {
-            self.models.clear_scratch(self.port);
+            self.models.clear_scratch(&self.id);
         }
-        let scratch = self.models.scratch(self.port);
+        let scratch = self.models.scratch(&self.id);
         std::fs::create_dir_all(&scratch)?;
         Ok(scratch.display().to_string())
     }
 
     fn run(&self) {
-        let port = self.port;
+        let (port, id) = (self.port, self.id.clone());
         if !self.holds() {
-            Log::line(&format!("[llama-node] :{port} start cancelled — the cell was stopped before it began"));
+            Log::line(&format!("[llama-node] {id} start cancelled — the cell was stopped before it began"));
             return;
         }
         let held = match self.fetch() {
@@ -215,7 +229,7 @@ impl CommandLaunch {
             }
         };
         if !self.holds() {
-            Log::line(&format!("[llama-node] :{port} start cancelled — the cell was stopped mid-download"));
+            Log::line(&format!("[llama-node] {id} start cancelled — the cell was stopped mid-download"));
             return;
         }
         // `modelPath` is filled in for a second reason: the safe purge keeps the files of RUNNING cells by reading it (and `files`, the rest of them); left empty, a purge deletes the weights out from under a running cell.
@@ -232,8 +246,8 @@ impl CommandLaunch {
         let weight = self.cells.table.splits().bytes_of(&held);
         let now = self.cells.clock.epoch() as i64;
         let shown = Coerce::first_letters(&self.command, 80);
-        self.cells.table.say(port, &json!({"phase": "loading", "modelPath": shown, "downloadedBytes": 0, "totalBytes": 0, "error": "", "startedAt": now, "modelBytes": weight}));
-        let log_path = self.cells.logs.path("command-cell", port);
+        self.cells.table.say(&id, &json!({"phase": "loading", "modelPath": shown, "downloadedBytes": 0, "totalBytes": 0, "error": "", "startedAt": now, "modelBytes": weight}));
+        let log_path = self.cells.logs.path("command-cell", &id);
         self.sync_assets();
         let scratch = match self.scratch() {
             Ok(scratch) => scratch,
@@ -259,10 +273,10 @@ impl CommandLaunch {
     }
 
     fn settle(&self, runtime: Map<String, Value>, result: &Value, log_path: &Path) {
-        let port = self.port;
+        let (port, id) = (self.port, self.id.as_str());
         let ok = result.get("ok") == Some(&Value::Bool(true));
         if ok && !self.holds() {
-            Log::line(&format!("[llama-node] :{port} stopped during startup — terminating the fresh process"));
+            Log::line(&format!("[llama-node] {id} stopped during startup — terminating the fresh process"));
             self.cell.process.stop();
             return;
         }
@@ -272,11 +286,12 @@ impl CommandLaunch {
             self.say_failed(&said);
             return;
         }
-        self.cells.table.say(port, &json!({"phase": "running", "error": ""}));
+        self.cells.table.say(id, &json!({"phase": "running", "error": ""}));
         // A marker for re-adoption: the exec'd command line with $PORT expanded (the shell resolves it before exec, so ps shows the resolved form).
         let line = self.command.replace("$PORT", &port.to_string()).replace("~/", "");
         let record = NewRecord {
             kind: "command",
+            port: Some(port),
             // absent-ok: `result.get("pid") or 0`: a start that says no pid is found by its marker.
             pid: result.get("pid").and_then(Value::as_i64).unwrap_or(0),
             marker: Coerce::first_letters(&line, 120).to_string(),
@@ -288,9 +303,9 @@ impl CommandLaunch {
             name: self.name.clone(),
             ram_mib: self.ram_mib,
         };
-        self.cells.records.add(port, record);
+        self.cells.records.add(id, record);
         if self.cache_models {
-            self.keeper.commit(port);
+            self.keeper.commit(id);
         }
     }
 }

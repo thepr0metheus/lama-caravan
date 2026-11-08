@@ -86,16 +86,38 @@ impl<K: Eq + Hash, V: Clone> TtlCache<K, V> {
 /// What cloud-providers.json keeps beside its accounts and pools: one table for every reader and writer of the file. A key whose value is empty or of another shape is not written: an empty map and no map read the same.
 pub struct CloudFileKeys;
 
+/// What a kept key holds. Said once here, so a key cannot be written as one shape and read as another.
+pub enum Shape {
+    /// Names and figures. An empty map reads as no map, so the key is kept only when it has something in it.
+    Map,
+    /// An order the file keeps as it is.
+    List,
+    /// A name: a word, and the absence of a word is not a value. `CloudFileKeys::read` keeps only a named one, so a key
+    /// written as `""` is not kept — it is the operator not having named anything.
+    Word,
+}
+
 impl CloudFileKeys {
-    const KEPT: [(&'static str, bool); 5] =
-        [("levels", false), ("addedModels", false), ("boardProviders", true), ("schedules", false), ("modelJobs", false)];
+    /// The board's reader is named by the rule (`EntryModels::READER_FIELD`), so the table that writes the key and the
+    /// reading that reads it say one word.
+    const KEPT: [(&'static str, Shape); 6] = [
+        ("levels", Shape::Map),
+        ("addedModels", Shape::Map),
+        ("boardProviders", Shape::List),
+        ("schedules", Shape::Map),
+        ("modelJobs", Shape::Map),
+        (rules::EntryModels::READER_FIELD, Shape::Word),
+    ];
 
     /// The kept keys a parsed file holds, each only when it has the right shape and is not empty.
     pub fn read(parsed: Option<&Value>) -> Map<String, Value> {
         let mut out = Map::new();
-        for (key, is_list) in Self::KEPT {
-            let said =
-                parsed.and_then(|parsed| parsed.get(key)).filter(|said| if is_list { said.is_array() } else { said.is_object() });
+        for (key, shape) in Self::KEPT {
+            let said = parsed.and_then(|parsed| parsed.get(key)).filter(|said| match shape {
+                Shape::Map => said.is_object(),
+                Shape::List => said.is_array(),
+                Shape::Word => !Coerce::word(Some(*said)).is_empty(),
+            });
             if let Some(said) = said.filter(|said| Coerce::truthy(Some(*said))) {
                 out.insert(key.to_string(), said.clone());
             }
@@ -309,9 +331,12 @@ mod tests {
     #[test]
     fn a_cloud_file_keeps_only_what_has_its_shape() {
         let kept = CloudFileKeys::read(Some(
-            &json!({"levels": {"a": 1}, "addedModels": {}, "boardProviders": {"x": 1}, "schedules": [1], "other": 1}),
+            &json!({"levels": {"a": 1}, "addedModels": {}, "boardProviders": {"x": 1}, "schedules": [1], "other": 1, "reader": "gpt-6-luna"}),
         ));
-        assert_eq!(Value::Object(kept), json!({"levels": {"a": 1}}));
+        assert_eq!(Value::Object(kept), json!({"levels": {"a": 1}, "reader": "gpt-6-luna"}));
+        // A reader named as an empty string is not a value: it is the operator not having named anything, and keeping it
+        // would make "no reader" and "a reader named nothing" the same fact.
+        assert_eq!(CloudFileKeys::read(Some(&json!({"reader": ""}))), Map::new());
     }
 
     #[test]

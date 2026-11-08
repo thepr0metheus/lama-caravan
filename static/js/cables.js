@@ -216,7 +216,7 @@ export function drawTopologyCables() {
   const Routing = document.querySelector('[data-topology-router-input][data-router-id="router:default"]');
   (topology.proxies || []).filter(isEntryClient).forEach((p) => {
     const source = document.querySelector(`[data-topology-proxy-output][data-proxy-id="${CSS.escape(p.id)}"]`);
-    const activity = topologyItemsActivity((it, port) => port === Number(p.port));
+    const activity = topologyItemsActivity((it, id) => id === String(p.id));
     const cable = topologySvgPath(topologyPointFor(source, "center"), topologyPointFor(Routing, "center"),
       `topology-cable consumer ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)} ${topologyProxyClass(p.id)}`, "", `consumer:${p.id}`);
     if (!cable) noteCableDrop(`client ${p.label || p.id} -> routing`, { handleFound: !!source, routingFound: !!Routing });
@@ -231,8 +231,12 @@ export function drawTopologyCables() {
   // a model of the machine's entry, an engine's model; a kind unsaid is a cell's). Only a cell's lit
   // it before 1.3.665, and since 1.3.655 the pools' rows lead to the machine's models: the right half
   // of a lit path stayed dark (the owner, 2026-10-26: "I don't see the right part of the active lane").
+  // Since 1.3.675 a client goes to any model of a machine without a pool as well (Routing's direct column, a pool `live:<output>`):
+  // a leg lights the machine its output stands on, a pool's row or not, and a machine reached only that way has its cable while a
+  // request runs there or has just ended (the owner, 2026-11-03: "on the right cables the flow into it is not seen").
   const out = document.querySelector('[data-topology-router-output][data-router-id="router:default"]');
   const reach = PoolReach.of(topology);
+  const standsOn = PoolReach.machines(topology);
   const ends = [];
   const towards = (target, activity, what) => {
     const cable = topologySvgPath(topologyPointFor(out, "center"), topologyPointFor(target, "left"),
@@ -241,10 +245,13 @@ export function drawTopologyCables() {
     else ends.push({ el: target, lit: activity.state === "active" });
     paths.push(cable);
   };
-  reach.machines.forEach(({ key, outputs }) => towards(
-    document.querySelector(`.machine-glance[data-node-id="${CSS.escape(key)}"] > .node-head`),
-    topologyItemsActivity((it) => String(it.upstreamType || "llama") !== "cloud" && outputs.includes(String(it.routedOutputId || ""))),
-    `machine ${key}`));
+  const reached = reach.machines.map(({ key }) => key);
+  const direct = [...new Set(standsOn.values())].filter((key) => !reached.includes(key));
+  [...reached, ...direct].forEach((key) => {
+    const activity = topologyItemsActivity((it) => String(it.upstreamType || "llama") !== "cloud" && standsOn.get(String(it.routedOutputId || "")) === key);
+    if (!reached.includes(key) && activity.state === "idle") return;
+    towards(document.querySelector(`.machine-glance[data-node-id="${CSS.escape(key)}"] > .node-head`), activity, `machine ${key}`);
+  });
   reach.accounts.forEach((id) => towards(
     document.querySelector(`[data-board-provider="${CSS.escape(id)}"] > .node-head`),
     topologyItemsActivity((it) => String(it.cloudAccountId || "") === id),

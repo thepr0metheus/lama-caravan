@@ -5,7 +5,7 @@ use super::windows::{PoolWindows, RouteWindow};
 use crate::app::App;
 use crate::cloud::pools::PoolDesk;
 use crate::common::entry::{BuiltinClient, ClientFields, EntryDoor};
-use crate::domain::client_proxy::{PROXY_ID_PREFIX, ProxyRoute};
+use crate::proxies::client_ids::{ClientIds, FormerPorts};
 use crate::proxies::entry_settings::ConsumerAddress;
 use crate::proxies::stats::ProxyStats;
 use crate::store::topology::Topology;
@@ -22,11 +22,6 @@ impl<'app> BoardProxies<'app> {
     /// The rows of `app`.
     pub fn of(app: &'app App) -> Self {
         Self { app }
-    }
-
-    fn port_of(route: &Value) -> i64 {
-        // absent-ok: `int(route.get("port") or 0)`: a route with no port holds none.
-        Coerce::whole(route.get("port"))
     }
 
     /// `{proxy id: [(host, agent, role)]}`.
@@ -52,19 +47,18 @@ impl<'app> BoardProxies<'app> {
         held
     }
 
+    /// One client as the board is handed it: its record's id, the entry as its address, never a number of its own.
     fn row(
         route: &Value,
         holders: &BTreeMap<String, Vec<(String, String, String)>>,
-        last_seen: &BTreeMap<i64, i64>,
+        last_seen: &BTreeMap<String, i64>,
         routers: &Map<String, Value>,
         address: &ConsumerAddress,
     ) -> Value {
-        let port = Self::port_of(route);
-        let served = if port != 0 { last_seen.get(&port).copied() } else { None };
-        let id = format!("{PROXY_ID_PREFIX}{}", Coerce::str_of(route.get("port")));
+        let id = ClientIds::of(route);
+        let served = last_seen.get(&id).copied();
         let mut proxy = route.clone();
-        Coerce::put(&mut proxy, "id", json!(id));
-        Coerce::put(&mut proxy, "endpoint", json!(address.of(port)));
+        Coerce::put(&mut proxy, "endpoint", json!(address.client()));
         Coerce::put(&mut proxy, "keyTail", json!(EntryDoor::tail(&Coerce::text(route.get("apiKey")))));
         Coerce::put(
             &mut proxy,
@@ -108,7 +102,7 @@ impl<'app> BoardProxies<'app> {
     /// Every route of `proxy_config` as the board is handed it.
     pub fn rows(&self, proxy_config: &Value, address: &ConsumerAddress) -> Vec<Value> {
         let holders = self.holders();
-        let last_seen = ProxyStats::of(self.app).ports_last_seen(7);
+        let last_seen = ProxyStats::of(self.app).clients_last_seen(7, &FormerPorts::of(proxy_config));
         let routers: Map<String, Value> = proxy_config
             .get("routers")
             .and_then(Value::as_array)
@@ -137,17 +131,17 @@ impl<'app> BoardProxies<'app> {
 
     /// Every client with what it asked and was answered with an error, and what it called.
     pub fn annotate_tallies(&self, proxies: &mut [Value]) {
-        let ports: Vec<i64> =
-            proxies.iter().filter(|proxy| Coerce::text(proxy.get("kind")) == "consumer").map(Self::port_of).collect();
-        let misses = self.app.tallies.misses(self.app, &ports);
-        let calls = self.app.tallies.calls(self.app, &ports);
+        let ids: Vec<String> =
+            proxies.iter().filter(|proxy| Coerce::text(proxy.get("kind")) == "consumer").map(ClientIds::of).collect();
+        let misses = self.app.tallies.misses(self.app, &ids);
+        let calls = self.app.tallies.calls(self.app, &ids);
         for proxy in proxies.iter_mut().filter(|proxy| proxy.is_object() && Coerce::text(proxy.get("kind")) == "consumer") {
-            let port = Self::port_of(proxy);
+            let id = ClientIds::of(proxy);
             if let Some(found) = &misses {
-                Coerce::put(proxy, "misses", found.get(&port).cloned().unwrap_or_else(|| json!({"items": [], "more": 0})));
+                Coerce::put(proxy, "misses", found.get(&id).cloned().unwrap_or_else(|| json!({"items": [], "more": 0})));
             }
             if let Some(found) = &calls {
-                Coerce::put(proxy, "calls", found.get(&port).cloned().unwrap_or_else(|| json!([])));
+                Coerce::put(proxy, "calls", found.get(&id).cloned().unwrap_or_else(|| json!([])));
             }
         }
     }
@@ -216,11 +210,6 @@ impl<'app> BoardProxies<'app> {
         }
         format!("{host}:{port}")
     }
-
-    /// The URL of a port, by this controller's address.
-    pub fn port_url(&self, port: i64) -> String {
-        ProxyRoute::port_url(&self.app.paths.topology_server_ip, port)
-    }
 }
 
 #[cfg(test)]
@@ -242,14 +231,17 @@ mod tests {
     }
 
     #[test]
-    fn a_consumer_row_hides_its_key_and_says_its_holders() {
-        let route = json!({"port": 5, "kind": "consumer", "apiKey": "secret-key"});
-        let address = ConsumerAddress::new(&json!({}), "h", Some(true));
-        let holders = [("skynet:proxy:5".to_string(), vec![("a".to_string(), "b".to_string(), "primary".to_string())])].into();
-        let row = BoardProxies::row(&route, &holders, &[(5, 9)].into(), &Map::new(), &address);
+    fn a_client_row_hides_its_key_and_names_no_number() {
+        let route = json!({"id": "client-a", "kind": "consumer", "apiKey": "secret-key"});
+        let address = ConsumerAddress::new(&json!({"entry": {"port": 9, "publicUrl": "https://pub/v1"}}), "h", Some(true));
+        let holders = [("client-a".to_string(), vec![("a".to_string(), "b".to_string(), "primary".to_string())])].into();
+        let row = BoardProxies::row(&route, &holders, &[("client-a".to_string(), 9)].into(), &Map::new(), &address);
         assert!(row.get("apiKey").is_none());
+        assert!(row.get("port").is_none());
         assert_eq!(row["holders"], json!([{"hostId": "a", "agentId": "b", "role": "primary"}]));
         assert_eq!(row["lastRequestAt"], 9);
-        assert_eq!(row["id"], "skynet:proxy:5");
+        assert_eq!(row["id"], "client-a");
+        assert_eq!(row["endpoint"], "https://pub/v1");
+        assert_eq!(row["keyTail"], "-key");
     }
 }

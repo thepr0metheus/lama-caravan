@@ -114,6 +114,13 @@ impl Machine {
         if let Some(kept) = self.answers().listening.fresh(now, Self::LISTENING_LASTS) {
             return kept;
         }
+        self.listening_ports_now()
+    }
+
+    /// The same, asked of the OS now: what a port's lease goes by. A look kept from two seconds ago still names the port of a cell that
+    /// has stopped since, and a start right after the stop was refused a port that was free (2026-11-08).
+    pub fn listening_ports_now(&self) -> Option<BTreeSet<i64>> {
+        let now = self.clock.epoch();
         let ports = Listeners::ports(self.commands.as_ref());
         self.answers().listening = Kept { answer: ports.clone(), at: now };
         ports

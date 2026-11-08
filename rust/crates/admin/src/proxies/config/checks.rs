@@ -54,17 +54,15 @@ impl ProxyRevisions {
     }
 }
 
-/// The client ports a graph may start from.
+/// The clients a graph may start from: an input is `in:<client id>`, the id the board knows the client by (2026-11-07).
 pub struct PortInputs {
     pub(super) routes: Vec<Value>,
     pub(super) known: BTreeSet<String>,
 }
 
 impl PortInputs {
-    pub(super) const PREFIX: &'static str = "skynet:proxy:";
-
     pub(super) fn of_route(route: &Value) -> String {
-        format!("{}{}", Self::PREFIX, Coerce::str_of(route.get("port")))
+        ClientIds::of(route)
     }
 
     /// The inputs of these routes.
@@ -120,23 +118,22 @@ impl PortInputs {
 pub struct KeyAudit;
 
 impl KeyAudit {
-    /// Refuses routes the entry could not tell apart, and a closed port with no key.
+    /// Refuses clients the entry could not tell apart, and a client with no key: the entry is its only way in.
     pub fn enforce(routes: &[Value]) -> Result<(), AppError> {
         let routes: Vec<Value> = routes.iter().filter(|route| route.is_object()).cloned().collect();
         let mut found: Vec<String> = Vec::new();
-        for (key, ports) in EntryDoor::shared_keys(&routes) {
-            let list: Vec<String> = ports.iter().map(ToString::to_string).collect();
+        for (key, names) in EntryDoor::shared_keys(&routes) {
             found.push(format!(
-                "ports {} share one key (…{}) — the entry could not tell their agents apart; give each its own",
-                list.join(", "),
+                "clients {} share one key (…{}) — the entry could not tell them apart; give each its own",
+                names.join(", "),
                 EntryDoor::tail(&key)
             ));
         }
         for route in &routes {
-            if Coerce::truthy(route.get("portClosed")) && Coerce::stripped(route.get("apiKey")).is_empty() {
+            if Coerce::stripped(route.get("apiKey")).is_empty() {
                 found.push(format!(
-                    "port {} is closed and has no key — its agent would have no way in; give it a key first",
-                    Coerce::str_of(route.get("port"))
+                    "client {} has no key — it would have no way in; give it a key first",
+                    Coerce::text(route.get("label"))
                 ));
             }
         }

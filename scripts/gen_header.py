@@ -11,10 +11,15 @@ three. A rule written on the page where it was noticed is a rule the other four 
 So the bar is written HERE, once. This script puts it into each page between two marker comments;
 `check_header.py` (CI) fails when a page's bar is not what this template renders. What may differ
 from page to page is the table PAGES, and nothing else: its title, whether it has a tour to start,
-whether its script wires the account menu's «Security» entry, what it adds beside the account, and
-whether it carries the product's long name. Everything the bar must have everywhere — above all the
-way back to the main board, and the caravan's two model pages — is in the template and so cannot be
-left off one page.
+whether its script wires the account menu's «Security» entry, and whether it carries the product's
+long name. Everything the bar must have everywhere — above all the way back to the main board, and the
+caravan's two model pages — is in the template and so cannot be left off one page.
+
+A page adds nothing of its own to the bar. /hf did: its disk chip stood beside the account, and in a
+1440-px window it pushed the bar past the right edge in five of the six languages, by 35 px in English
+and 131 in Russian, while every other page fit (measured on the stand, 2026-11-03). The bar's width is
+measured once for all pages; what a page says of itself stands on the page — /hf's chip is in its side
+panel now, beside the HF token.
 
     python3 scripts/gen_header.py        # rewrite the bar of every page
     python3 scripts/check_header.py      # the guard: fails on a page whose bar is not the template's
@@ -52,8 +57,6 @@ class Page:
     tour: bool = True
     #: the page's script wires the account menu's «Security» entry (main.js: the board and Routing)
     security: bool = False
-    #: markup the page adds in front of the account chip, indented as it is to stand in the bar
-    actions: str = ""
     #: the way back is shown in this view of the page only ("" = in every view). The board's page is two pages: its
     #: main view is where back goes, and a machine's window is not
     back_only_in: str = ""
@@ -75,8 +78,7 @@ class AppHeader:
         "models": Page(file="models.html", title="Models on disk", title_key="modelsPage", tour=False),
         "system": Page(file="system.html", title="System &amp; settings", title_key="systemSubtitleBrand",
                        tour=False),
-        "hf": Page(file="hf.html", title="HuggingFace Browser",
-                   actions='<span id="hfDiskBadge" class="hf-disk-badge" hidden></span>'),
+        "hf": Page(file="hf.html", title="HuggingFace Browser"),
     }
 
     #: <header class="topbar" …> … </header>, as a page has it before and after the markers go in
@@ -193,7 +195,6 @@ class AppHeader:
     def render(cls, name):
         """The marked block of page `name`: both comments and the <header> between them, as the page holds it."""
         page = cls.PAGES[name]
-        added = "".join(f"      {line}\n" for line in page.actions.split("\n")) if page.actions else ""
         tour = f"      {cls._tour()}\n" if page.tour else ""
         return (
             f'  {cls.BEGIN}\n'
@@ -202,7 +203,6 @@ class AppHeader:
             f'    {cls._title(page)}\n'
             '    <div class="actions">\n'
             f'      {cls._pages(name)}\n'
-            f'{added}'
             f'      {cls._account(page)}\n'
             f'{tour}'
             f'      {cls._language()}\n'

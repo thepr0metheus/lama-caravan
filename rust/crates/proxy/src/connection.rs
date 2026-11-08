@@ -2,11 +2,11 @@
 
 use crate::client::ClientSide;
 use crate::exchange::{Asked, Exchange};
-use crate::front::{BeforeBody, BodyFor, Front, WithBody};
+use crate::front::{BeforeBody, BodyFor, Front, Serving, WithBody};
 use crate::proxy::Proxy;
 use crate::record::RequestRecord;
 use files::Settings;
-use rules::{ClientAddress, EntryRefusal, KeyEntry, OpenAiError, Pool, RequestSummary, Route, Told};
+use rules::{ClientAddress, EntryRefusal, KeyEntry, OpenAiError, RequestSummary, Route, Told};
 use serde_json::{Value, json};
 use std::io::{BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -89,7 +89,7 @@ impl<'a> Connection<'a> {
         match Front::with_body(settings, route, head, &body, body_for) {
             WithBody::Answer(answer) => self.answer(&answer),
             WithBody::Refuse(refusal) => self.refuse(head, Some(route), &refusal),
-            WithBody::Serve { pool, streaming } => self.serve_here(settings, head, route, *pool, body, streaming),
+            WithBody::Serve(serving) => self.serve_here(settings, head, route, body, serving),
         }
     }
 
@@ -98,10 +98,11 @@ impl<'a> Connection<'a> {
         let id = self.proxy.new_request_id();
         let told: Told = refusal.error.clone().into();
         let label = route.map_or("entry", |route| route.label.as_str());
-        let port = route.map_or(json!("entry"), |route| json!(route.port));
+        // A refusal before the key named a client is no client's: its row says the entry, and no id.
+        let route_id = route.map_or("", |route| route.id.as_str());
         let client = self.client_name(head);
         let item = json!({
-            "id": id, "route": label, "port": port, "method": head.method, "path": head.path(),
+            "id": id, "route": label, "routeId": route_id, "method": head.method, "path": head.path(),
             "status": told.status, "reason": refusal.reason, "client": client,
         });
         // A client gone before its refusal changes nothing here.
@@ -109,7 +110,8 @@ impl<'a> Connection<'a> {
         self.proxy.recorder.event("blocked", label, &id, Some(&item), json!({}));
     }
 
-    fn serve_here(self, settings: &Arc<Settings>, head: &RequestHead, route: &Route, pool: Pool, body: Vec<u8>, streaming: bool) {
+    fn serve_here(self, settings: &Arc<Settings>, head: &RequestHead, route: &Route, body: Vec<u8>, serving: Serving) {
+        let Serving { pool, streaming, reading } = serving;
         let started = self.proxy.clock.epoch();
         let content_type = head.headers.text_of("Content-Type");
         let record = RequestRecord {
@@ -123,10 +125,11 @@ impl<'a> Connection<'a> {
             pool_name: pool.name.clone(),
             summary: RequestSummary::of(&body, &content_type),
             client_deadline: started + settings.policy.queue.client_timeout(route.client_timeout_seconds) as f64,
+            reader_for: None,
         };
         let asked = Asked { headers: head.headers.clone(), target: head.target.clone(), body, streaming };
         let client = ClientSide::new(self.stream, Arc::clone(&self.proxy.clock));
-        Exchange::new(self.proxy, Arc::clone(settings), &record, pool, asked, client).run();
+        Exchange::new(self.proxy, Arc::clone(settings), &record, *pool, asked, client).reading(reading).run();
     }
 
     /// The sender as the journal names it: Routing's test of a client, from this machine itself and not through the DSM's proxy,

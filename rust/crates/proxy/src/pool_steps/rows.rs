@@ -3,7 +3,8 @@
 use super::{PoolQuestion, PoolSteps};
 use files::Settings;
 use rules::{
-    CloudProvider, Coerce, MachineOutput, PoolRow, RequestKind, ResponsesPassthrough, RowWork, UsageReserve, UsageWindow,
+    Carried, CloudProvider, Coerce, MachineOutput, PoolRow, Reader, RequestKind, ResponsesPassthrough, RowKind, RowWork,
+    UsageReserve, UsageWindow, Verdict, Wired,
 };
 use serde_json::{Map, Value, json};
 
@@ -17,6 +18,8 @@ pub(super) struct RowState {
     after_reason: Map<String, Value>,
     pub(super) target: Option<MachineOutput>,
     pub(super) provider: Option<CloudProvider>,
+    /// The row cannot read the request's pictures, and the board's reader reads them for it (`Sight::ReadFirst`).
+    pub(super) read_first: bool,
 }
 
 impl RowState {
@@ -30,6 +33,7 @@ impl RowState {
             after_reason: Map::new(),
             target: None,
             provider: None,
+            read_first: false,
         }
     }
 
@@ -62,6 +66,25 @@ impl RowState {
         self.after_reason.insert(field.to_string(), value);
         self
     }
+
+    /// The row marked to have the request's pictures read for it first — said in the pool's state too, so the board can tell
+    /// a row that reads from a row that is read for.
+    fn read_for(self) -> Self {
+        let mut row = self.then("readFirst", json!(true));
+        row.read_first = true;
+        row
+    }
+}
+
+/// What one row is to the pictures a request carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sight {
+    /// It reads them, or the request has none, or the row says nothing of its inputs: the request goes to it as it came.
+    Sees,
+    /// It said it cannot read them, and the board's reader reads them for it first.
+    ReadFirst,
+    /// It said it cannot read them, and nothing reads for it: no candidate for this request, for this reason.
+    Blind(&'static str),
 }
 
 /// What kind of request a row is judged for.
@@ -71,6 +94,13 @@ struct AskedWork {
     responses: bool,
     /// A chat's path: a subscription does nothing else.
     chat: bool,
+}
+
+/// What a request asks of every row: the kind of work its path names, and what its body carries. One argument,
+/// because both are read for each row and passing them apart is how a row came to be judged by only one of them.
+struct Asked<'a> {
+    work: AskedWork,
+    carried: &'a Carried,
 }
 
 impl PoolSteps {
@@ -85,7 +115,7 @@ impl PoolSteps {
         settings.models.schedules().closed(key, now, self.zone.as_ref())
     }
 
-    fn output_row(&self, ask: &PoolQuestion<'_>, step: &PoolRow, output: &str, now: f64) -> RowState {
+    fn output_row(&self, ask: &PoolQuestion<'_>, step: &PoolRow, output: &str, now: f64, asked: &Asked<'_>) -> RowState {
         let mut said = Map::new();
         said.insert("stepId".to_string(), json!(step.id));
         said.insert("kind".to_string(), json!("output"));
@@ -109,8 +139,12 @@ impl PoolSteps {
         if self.health.is_dead(output, now) {
             return row.unfit("unavailable");
         }
+        let mut row = match self.sight(ask, step, asked.carried) {
+            Sight::Blind(reason) => return row.unfit(reason),
+            Sight::ReadFirst => row.read_for(),
+            Sight::Sees => row,
+        };
         let free = (ask.free)(&machine);
-        let mut row = row;
         row.target = Some(machine);
         row.fit(if free { "ready" } else { "busy" })
     }
@@ -138,7 +172,7 @@ impl PoolSteps {
         step: &PoolRow,
         account: &str,
         model: &str,
-        work: AskedWork,
+        asked: &Asked<'_>,
         now: f64,
     ) -> RowState {
         let mut said = Map::new();
@@ -161,8 +195,8 @@ impl PoolSteps {
         else {
             return row.unfit("credential_missing");
         };
-        if (work.responses && !provider.subscription && !Self::RESPONSES_TYPES.contains(&provider.kind.as_str()))
-            || (provider.subscription && !work.chat)
+        if (asked.work.responses && !provider.subscription && !Self::RESPONSES_TYPES.contains(&provider.kind.as_str()))
+            || (provider.subscription && !asked.work.chat)
         {
             return row.unfit("format_unsupported");
         }
@@ -180,12 +214,29 @@ impl PoolSteps {
         if models.catalogue().lists(&provider.credential_account_id, model) == Some(false) {
             return row.unfit("model_unavailable");
         }
-        let mut row = row;
-        if provider.subscription {
-            row = self.subscription_row(ask, row, &provider, model, reset_at, now);
+        let row = match self.sight(ask, step, asked.carried) {
+            Sight::Blind(reason) => return row.unfit(reason),
+            Sight::ReadFirst => row.read_for(),
+            Sight::Sees => row,
+        };
+        self.by_account(ask, row, provider, model, reset_at, now)
+    }
+
+    /// A row that may serve, by what its account is: a subscription by its windows, a key ready now.
+    fn by_account(
+        &self,
+        ask: &PoolQuestion<'_>,
+        row: RowState,
+        provider: CloudProvider,
+        model: &str,
+        reset_at: f64,
+        now: f64,
+    ) -> RowState {
+        let mut row = if provider.subscription {
+            self.subscription_row(ask, row, &provider, model, reset_at, now)
         } else {
-            row = row.fit("ready");
-        }
+            row.fit("ready")
+        };
         row.provider = Some(provider);
         row
     }
@@ -281,10 +332,36 @@ impl PoolSteps {
             && ["primary_window", "secondary_window"].iter().all(|slot| rate.get(*slot).is_none_or(Value::is_null))
     }
 
+    /// What this row is to the pictures the request carries. Only a picture is asked, because this rule decides images: audio
+    /// keeps its own rule. A row that says nothing of its inputs is no refusal — the absence of a promise is not a promise
+    /// that it cannot read.
+    ///
+    /// Whether the row can take the picture is asked with `Wired::Nothing`: the question is the row's own promise, not the
+    /// wiring's. What reads for a row that cannot was decided by the entry, which asked the board's wiring through
+    /// `EntryModels::wired` — the only place that fills a promise — and said it as `reads`. A row that reads the picture
+    /// itself is never given a caption.
+    fn sight(&self, ask: &PoolQuestion<'_>, step: &PoolRow, carried: &Carried) -> Sight {
+        if carried.count("image") == 0 {
+            return Sight::Sees;
+        }
+        match ask.settings.models.row_kind(step) {
+            RowKind::Said(kind)
+                if matches!(carried.verdict(kind.takes(), &Wired::Nothing), Verdict::Reading(_, Reader::Nothing)) =>
+            {
+                if ask.reads { Sight::ReadFirst } else { Sight::Blind("media_unsupported") }
+            }
+            _ => Sight::Sees,
+        }
+    }
+
     pub(super) fn rows(&self, ask: &PoolQuestion<'_>, now: f64) -> Vec<RowState> {
-        let work = AskedWork {
-            responses: (!ask.path.is_empty() || !ask.body.is_empty()) && ResponsesPassthrough::is_request(ask.path, ask.body),
-            chat: ask.path.is_empty() || RequestKind::is_chat(ask.path),
+        let carried = Carried::of_body(ask.body);
+        let asked = Asked {
+            work: AskedWork {
+                responses: (!ask.path.is_empty() || !ask.body.is_empty()) && ResponsesPassthrough::is_request(ask.path, ask.body),
+                chat: ask.path.is_empty() || RequestKind::is_chat(ask.path),
+            },
+            carried: &carried,
         };
         ask.pool
             .rows
@@ -296,8 +373,8 @@ impl PoolSteps {
                     said.insert("kind".to_string(), json!("open"));
                     RowState::of(step, said).unfit("not_connected")
                 }
-                RowWork::Output(output) => self.output_row(ask, step, output, now),
-                RowWork::Account { account, model } => self.account_row(ask, step, account, model, work, now),
+                RowWork::Output(output) => self.output_row(ask, step, output, now, &asked),
+                RowWork::Account { account, model } => self.account_row(ask, step, account, model, &asked, now),
             })
             .collect()
     }

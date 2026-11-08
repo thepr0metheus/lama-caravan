@@ -1,5 +1,4 @@
 {
- "HOST": "Bind address. 0.0.0.0 exposes the server on the LAN.",
  "RUNNER": "Launch flavour of this cell: llama-server or a custom managed command. Legacy configs derive it from CELL_KIND.",
  "CELL_KIND": "Legacy launch-kind flag; superseded by RUNNER but still written for old readers.",
  "COMMAND": "Full shell command for a custom cell. $PORT expands to the cell port.",
@@ -26,6 +25,8 @@
  "STRATA_KV": "Strata's KV cache: int8 (default), q4_0 (half the memory, a little less exact) or k8v4 (8-bit keys, 4-bit values).",
  "STRATA_DRAFT_VOCAB": "Tokens the MTP draft layer guesses: cyrillic (English, code and the Cyrillic script — for Russian answers), cjk (Chinese, Japanese, Korean), en (English and code, the least VRAM) or fr (French).",
  "STRATA_VRAM_RESERVE_MIB": "VRAM Strata leaves free for other cells, in MiB (--vram-reserve-mib). Empty: none — Strata fills the card with cached experts at its start, and a cell started after it finds no room.",
+ "STRATA_ENGRAM_FILE": "DeepSeek-V4.1-Flash on Strata: the n-gram table every IST-DAS set reads (DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf, 111 GB), relative to the models directory. Empty: found in the library when the cell is saved.",
+ "STRATA_META_FILE": "DeepSeek-V4.1-Flash on Strata: the 5.8 MB first part of Unsloth's UD-Q8_K_XL set, read only for the Engram's hash parameters when the pack is made; the other eight parts are not brought. Empty: found in the library when the cell is saved.",
  "GR00T_BACKBONE": "The folder of the backbone the GR00T checkpoint names in its config.json (nvidia/Cosmos-Reason2-2B for N1.7). The scout brings it like the checkpoint; the cell never asks the hub for it. Empty: Cosmos-Reason2-2B/nvidia/BF16.",
  "GR00T_EMBODIMENT": "The robot the policy acts for, as an Isaac-GR00T embodiment tag. Empty: OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT, the base checkpoint's DROID arm. The cell answers only that robot's schema; another robot needs fine-tuning first.",
  "GR00T_DENOISING_STEPS": "Denoising steps of the action head, 1 to 64. Empty: the checkpoint's own (4). More steps take longer per request.",

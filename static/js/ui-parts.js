@@ -389,9 +389,9 @@ export class Lane extends Part {
  */
 export class RackLegend extends Part {
   /**
-   * @param rows [{name, figure, where, speed, owner, title, series|kind, on, pick, attrs}]
+   * @param rows [{name, figure, where, doing, owner, title, series|kind, on, pick, attrs}]
    * @param empty what it says when nothing holds anything
-   * @param heads the words over the columns: [figure's, speed's]
+   * @param heads the words over the columns: [figure's, doing's]
    */
   constructor({ rows = [], empty = "", heads = [] } = {}) {
     super();
@@ -403,7 +403,7 @@ export class RackLegend extends Part {
     const cls = `ui-legend-row ui-lane-c${look ? ` ui-lane-c${look}` : ""}${row.on ? " is-on" : ""}`;
     const words = `<span class="ui-lane-dot" aria-hidden="true"></span><strong class="ui-legend-name">${escapeHtml(row.name || "")}</strong>`
       + `<span class="ui-legend-figure">${escapeHtml(row.figure || "")}</span><span class="ui-legend-where">${escapeHtml(row.where || "")}</span>`
-      + `<span class="ui-legend-speed">${escapeHtml(row.speed || "")}</span>`;
+      + `<span class="ui-legend-doing">${escapeHtml(row.doing || "")}</span>`;
     const owner = row.owner ? Part.attr("data-lane-owner", row.owner) : "";
     return row.pick
       ? `<button type="button" class="${cls}" aria-pressed="${!!row.on}"${Part.attr("title", row.title)}${owner}${Part.extra(row.pick)}>${words}</button>`
@@ -414,7 +414,7 @@ export class RackLegend extends Part {
     const body = this.rows.length ? this.rows.map((row) => RackLegend.row(row)).join("")
       : `<p class="ui-legend-empty">${escapeHtml(this.empty)}</p>`;
     const heads = this.heads.length && this.rows.length ? `<div class="ui-legend-row ui-legend-heads"><span></span><span></span><span class="ui-legend-figure">${escapeHtml(this.heads[0] ?? "")}</span><span></span>`
-      + `<span class="ui-legend-speed">${escapeHtml(this.heads[1] ?? "")}</span></div>` : "";
+      + `<span class="ui-legend-doing">${escapeHtml(this.heads[1] ?? "")}</span></div>` : "";
     return `<div class="ui-legend">${heads}${body}</div>`;
   }
 }

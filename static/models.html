@@ -26,7 +26,8 @@
       display: flex;
       flex-direction: column;
     }
-    .topbar { position: sticky; top: 0; z-index: 30; }
+    /* Over the page's own heads. Where the bar sticks is its own rule, the same on every page (base.css; not on a phone, cards.css). */
+    .topbar { z-index: 30; }
 
     /* Two colours of their own on this page: the library's lilac and the
        blue of bytes on their way. Every 📚 and every ⇢ below wears them. */

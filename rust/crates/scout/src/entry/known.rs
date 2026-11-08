@@ -1,9 +1,10 @@
-//! The cells the controller keeps for this machine, as its answer to a heartbeat says them. A cell this scout has not started since its own start is then a model of its machine too, stopped: on 2026-10-25 the entry named 8 of
-//! the 17 ports the controller's pools led to. `None` until a controller has said them: not knowing the cells is not "no cells". What the network says is checked: a port that is no port, a field that is no text is left out.
+//! The cells the controller keeps for this machine, as its answer to a heartbeat says them, by their own names. A cell this scout has not started since its own start is then a model of its machine too,
+//! stopped: on 2026-10-25 the entry named 8 of the 17 ports the controller's pools led to. `None` until a controller has said them: not knowing the cells is not "no cells". What the network says is checked:
+//! a cell named in no cell's words, a field that is no text is left out. A cell is said with no port: it holds one only while it runs (Papyrus `caravan-scout-port-lease`).
 
 use crate::entry::names::ModelName;
 use crate::state::ScoutState;
-use rules::Coerce;
+use rules::{CellId, Coerce};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -18,9 +19,9 @@ pub struct KnownCell {
 }
 
 impl KnownCell {
-    /// What its settings call it now.
-    pub fn name(&self, port: i64) -> String {
-        ModelName::of(Some(&self.config), &self.model_path, port)
+    /// What its settings call it now; `id` names it when nothing else does.
+    pub fn name(&self, id: &str) -> String {
+        ModelName::of(Some(&self.config), &self.model_path, id)
     }
 }
 
@@ -41,12 +42,16 @@ impl KnownCells {
         Self { state }
     }
 
-    /// What a controller said, or `None` when it said no list.
-    pub fn clean(raw: Option<&Value>) -> Option<BTreeMap<i64, KnownCell>> {
+    /// What a controller said, or `None` when it said no list. A cell is named by its `id`; a list of before named ports, and is
+    /// read as no list: its cells come again with the controller's next answer, by their names.
+    pub fn clean(raw: Option<&Value>) -> Option<BTreeMap<String, KnownCell>> {
         let list = raw?.as_array()?;
+        if list.iter().any(|item| item.get("id").is_none() && item.get("port").is_some()) {
+            return None;
+        }
         let mut out = BTreeMap::new();
         for item in list.iter().take(Self::MAX) {
-            let Some(port) = item.get("port").and_then(Value::as_i64).filter(|port| (1..65536).contains(port)) else {
+            let Some(id) = item.get("id").filter(|id| id.is_string()).and_then(CellId::read) else {
                 continue;
             };
             let mut named = Map::new();
@@ -61,7 +66,7 @@ impl KnownCells {
                 .and_then(Value::as_str)
                 .map_or("", |path| Coerce::first_letters(path, Self::PATH_LETTERS))
                 .to_string();
-            out.insert(port, KnownCell { config: Value::Object(named), model_path: path });
+            out.insert(id, KnownCell { config: Value::Object(named), model_path: path });
         }
         Some(out)
     }
@@ -72,7 +77,7 @@ impl KnownCells {
             return;
         };
         let rows: Vec<Value> =
-            cells.iter().map(|(port, cell)| json!({"port": port, "config": cell.config, "modelPath": cell.model_path})).collect();
+            cells.iter().map(|(id, cell)| json!({"id": id, "config": cell.config, "modelPath": cell.model_path})).collect();
         self.state.change(|doc| doc.insert(Self::KEY.to_string(), Value::Array(rows)));
     }
 
@@ -83,15 +88,15 @@ impl KnownCells {
         }
     }
 
-    /// The cells by port, when a controller has said them.
-    pub fn ports(&self) -> Option<BTreeMap<i64, KnownCell>> {
+    /// The cells by name, when a controller has said them.
+    pub fn cells(&self) -> Option<BTreeMap<String, KnownCell>> {
         Self::clean(self.state.get(Self::KEY).as_ref())
     }
 
     /// What the controller's settings call the cell's model now, "" when it does not keep the cell.
-    pub fn name(&self, port: i64) -> String {
+    pub fn name(&self, id: &str) -> String {
         // absent-ok: "" says the controller does not keep the cell.
-        self.ports().and_then(|cells| cells.get(&port).map(|cell| cell.name(port))).unwrap_or_default()
+        self.cells().and_then(|cells| cells.get(id).map(|cell| cell.name(id))).unwrap_or_default()
     }
 }
 
@@ -102,18 +107,20 @@ mod tests {
     #[test]
     fn what_the_network_says_is_checked() {
         let said = json!([
-            {"port": 22001, "config": {"MODEL_NAME": "m", "SECRET": "x", "ALIAS": true, "RUNNER": 3}, "modelPath": "a/b.gguf"},
-            {"port": "22002"},
-            {"port": 70000},
-            {"port": true},
+            {"id": "c22001", "config": {"MODEL_NAME": "m", "SECRET": "x", "ALIAS": true, "RUNNER": 3}, "modelPath": "a/b.gguf"},
+            {"id": 22002},
+            {"id": "x"},
+            {"id": true},
             "text",
-            {"port": 22003, "config": [1], "modelPath": 5},
+            {"id": "c3f9a02b1", "config": [1], "modelPath": 5},
         ]);
         let cells = KnownCells::clean(Some(&said)).unwrap();
-        assert_eq!(cells.keys().copied().collect::<Vec<_>>(), [22001, 22003]);
-        assert_eq!(cells.get(&22001).unwrap().config, json!({"MODEL_NAME": "m", "RUNNER": "3"}));
-        assert_eq!(cells.get(&22003).unwrap().model_path, "");
+        assert_eq!(cells.keys().cloned().collect::<Vec<_>>(), ["c22001", "c3f9a02b1"]);
+        assert_eq!(cells.get("c22001").unwrap().config, json!({"MODEL_NAME": "m", "RUNNER": "3"}));
+        assert_eq!(cells.get("c3f9a02b1").unwrap().model_path, "");
         assert_eq!(KnownCells::clean(Some(&json!({"no": "list"}))), None);
         assert_eq!(KnownCells::clean(None), None);
+        // Negative: a list of before, by port, is no list — not a list of cells named by numbers.
+        assert_eq!(KnownCells::clean(Some(&json!([{"port": 22001, "config": {}}]))), None);
     }
 }

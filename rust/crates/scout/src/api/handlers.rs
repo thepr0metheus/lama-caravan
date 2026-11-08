@@ -1,6 +1,7 @@
 //! What each path does: tables of what answers it, one per way a path is answered. A test holds them to the rows of the route table, both ways.
 
 use crate::cells::Cells;
+use crate::cells::table::CellTable;
 use crate::engines::ForeignEngines;
 use crate::errors::AppError;
 use crate::scout::Scout;
@@ -53,7 +54,7 @@ impl Handlers {
     pub const QUERIES: [(&'static str, QueryHandler); 2] = [
         ("/api/llama-node/log", |scout, query| {
             Ok(scout.cells.log(
-                query.get("port").map(String::as_str),
+                query.get("cell").map(String::as_str),
                 query.get("lines").map(String::as_str),
                 query.get("run").map_or("", String::as_str),
             ))
@@ -147,14 +148,14 @@ impl Handlers {
         let result = Cells::start(&scout.cells, payload.clone())?;
         let ok = result.get("ok") == Some(&Value::Bool(true));
         if ok {
-            scout.autostart.refresh(result.get("port"), &Value::Object(payload));
+            scout.autostart.refresh(result.get("cellId"), &Value::Object(payload));
         }
         Ok((result, if ok { 200 } else { 400 }))
     }
 
     fn autostart(scout: &Arc<Scout>, body: BodyReader<'_>) -> Result<(Value, u16), AppError> {
         let fields = body()?;
-        Ok((scout.autostart.set(fields.get("port"), Coerce::truthy(fields.get("enabled")), fields.get("payload"))?, 200))
+        Ok((scout.autostart.set(fields.get("cellId"), Coerce::truthy(fields.get("enabled")), fields.get("payload"))?, 200))
     }
 
     fn driver_install(scout: &Arc<Scout>, body: BodyReader<'_>) -> Result<(Value, u16), AppError> {
@@ -162,15 +163,14 @@ impl Handlers {
         Ok((scout.driver_packages.install(&Coerce::text(fields.get("package")), &scout.driver_install)?, 200))
     }
 
+    /// A stop of the cell `cellId` names; a request that names none stops every cell of this scout.
     fn stop(scout: &Arc<Scout>, body: BodyReader<'_>) -> Result<(Value, u16), AppError> {
         let fields = body()?;
-        let port = match fields.get("port").filter(|port| Coerce::truthy(Some(*port))) {
-            Some(said) => Some(Coerce::int(said).ok_or_else(|| {
-                AppError::with_status(format!("invalid literal for int() with base 10: {}", Coerce::text(Some(said))), 500)
-            })?),
+        let id = match fields.get("cellId").filter(|said| !said.is_null()) {
+            Some(said) => Some(CellTable::named(Some(said))?),
             None => None,
         };
-        Ok((scout.cells.stop(port), 200))
+        Ok((scout.cells.stop(id.as_deref()), 200))
     }
 
     fn restore(scout: &Arc<Scout>, body: BodyReader<'_>) -> Result<(Value, u16), AppError> {

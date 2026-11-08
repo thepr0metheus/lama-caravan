@@ -70,9 +70,9 @@ PINS = [
     ("line_without_a_key",
      '',
      '(() => { const [d] = desk(); const h = d.lineHtml(st.topology.proxies[2]); return [h.includes(en.consumerNoKey), h.includes(\'data-t-state="none"\'),'
-     ' h.includes(\'class="cv-in-port-num">:23009<\'), h.includes("<button"), h.includes("🔑")]; })()',
-     '[true,true,true,false,false]',
-     "без ключа: «нет ключа» и номер порта; negative: ни значка ключа, ни кнопки: своего порта и выдачи ключа ему больше нет"),
+     ' h.includes("cv-in-port-num"), h.includes(":23009"), h.includes("<button"), h.includes("🔑")]; })()',
+     '[true,true,false,false,false,false]',
+     "без ключа: «нет ключа»; negative: номера нет — у клиента его нет с 2026-11-07; ни значка ключа, ни кнопки: своего порта и выдачи ключа ему больше нет"),
     ("line_entry_only",
      '',
      '(() => { const [d] = desk(); const h = d.lineHtml(st.topology.proxies[0]); return [h.includes("🔑 …a1b2"), h.includes(\'data-t-state="entry"\'), h.includes(">" + en.consumerEntryOnly + "<"),'
@@ -139,8 +139,8 @@ PINS = [
      '',
      '(() => { const [d] = desk(); const p = st.topology.proxies[2]; const states = [true, null, false].map((reach) => { st.setTopology({ ...st.topology, portsReachable: reach });'
      ' return d.lineHtml(p).includes(\'class="cv-in-key none quiet"\') ? "quiet" : "red"; }); reset(); return states; })()',
-     '["quiet","quiet","red"]',
-     "«нет ключа» красным только там, где у портов нет двери (клиенту не войти); где порт открыт — это норма, серым; дверь не известна — тоже серым"),
+     '["red","red","red"]',
+     "«нет ключа» красным всегда: вход — единственная дверь клиента (2026-11-07), без ключа ему не войти, открыт ли порт или нет; negative: серого «нормы» больше нет"),
     ("entry_setup_asks_address_then_port",
      '',
      'await (async () => { st.setTopology({ ...st.topology, entry: { url: "", port: null } });'

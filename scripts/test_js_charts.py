@@ -52,9 +52,11 @@ const tokenCanvas = () => {
   return { width: 320, height: 120, offsetWidth: 320, moves, getContext: () => ctx,
     getBoundingClientRect: () => ({ width: 320, height: 120 }), addEventListener: () => {} };
 };
+// A machine's cells by their names (cellId): a cell holds a port only while it runs — one that stands has none (null).
 const NODES = () => [
-  { id: "box-c", role: "host", controllerMachine: true, ip: "10.0.0.1", servers: [{ port: 22001 }, { port: 22002, clientIp: "10.0.0.1" }] },
-  { id: "box-a", role: "host", ip: "10.0.0.5", servers: [{ port: 22011 }] },
+  { id: "box-c", role: "host", controllerMachine: true, ip: "10.0.0.1", servers: [{ cellId: "c22001", port: 22001 }, { cellId: "c22002", port: 22002, clientIp: "10.0.0.1" },
+    { cellId: "c3f9a02b1", port: null, phase: "stopped" }] },
+  { id: "box-a", role: "host", ip: "10.0.0.5", servers: [{ cellId: "c22011", port: 22011 }, { cellId: "c4b5c6d7e", port: null, phase: "stopped" }] },
   { id: "box-b", role: "host", ip: "10.0.0.6", servers: [] },
 ];
 const PROXIES = () => [
@@ -64,7 +66,8 @@ const PROXIES = () => [
   { id: "p4", port: 23007, label: "cloudy", upstreamType: "cloud", providerId: "cb:terra", upstreamHost: "10.0.0.5", upstreamPort: 22011 },
   { id: "p5", port: 23009, label: "", upstreamHost: "10.0.0.5", upstreamPort: 22011 },
 ];
-const ROUTERS = () => [{ id: "router:a", outputs: [{ id: "srv:22011", upstreamHost: "10.0.0.5", upstreamPort: 22011 }] }];
+// A router reaches a machine through its entry's model (mm:): a cell is no output of its own since 2026-11-07.
+const ROUTERS = () => [{ id: "router:a", outputs: [{ id: "mm:a", upstreamType: "machine", hostId: "box-a", upstreamHost: "10.0.0.5", upstreamPort: 8092, upstreamModel: "gemma" }] }];
 const TOPO = (extra = {}) => ({ proxies: PROXIES(), clients: [], routers: ROUTERS(), assignments: {}, nodes: NODES(), ...extra });
 const S = (time, corr) => ({ time, correlatedActivity: corr });
 const CV = () => { const texts = [], fills = [];
@@ -103,7 +106,7 @@ PINS = [
     ("mini_sparkline", '', '[m.miniSparklineSvg([0, 5, 10], "red", 10).includes(\'points="0.0,14.0 36.0,7.0 72.0,0.0"\'), m.miniSparklineSvg([5], "red"), m.miniSparklineSvg(["x", "y"], "red")]', '[true,"",""]',
      "спарклайн: точки по ширине 72 и высоте 14; меньше двух чисел — пусто"),
     # ── nodes ──
-    ("endpoint_set_controller_adds_loopback", '', '[[...m.nodeEndpointSet(NODES()[0])].sort(), [...m.nodeEndpointSet({ id: "controller", role: "controller", ip: "10.0.0.1", servers: [{ port: 22001 }] })]]', '[["10.0.0.1:22001","10.0.0.1:22002","127.0.0.1:22001","127.0.0.1:22002"],["10.0.0.1:22001"]]',
+    ("endpoint_set_controller_adds_loopback", '', '[[...m.nodeEndpointSet(NODES()[0])].sort(), [...m.nodeEndpointSet({ id: "controller", role: "controller", ip: "10.0.0.1", servers: [{ cellId: "c22001", port: 22001 }] })]]', '[["10.0.0.1:22001","10.0.0.1:22002","127.0.0.1:22001","127.0.0.1:22002"],["10.0.0.1:22001"]]',
      "машина контроллера (controllerMachine узла): каждый порт и по IP, и по 127.0.0.1 — прокси на ней ходит к её ячейкам по loopback; negative: узел с ролью «controller» (такого нет с шага 6.9) loopback больше не получает"),
     ("endpoint_set_machine_models",
      'st.setTopology({ ...TOPO(), routers: [{ id: "router:default", outputs: ['
@@ -113,11 +116,18 @@ PINS = [
      '["10.0.0.5:22011","10.0.0.5:8092/gemma"]',
      "машина со входом (1.3.506): её модели — свои очереди «адрес:порт/модель», запрос к модели — её; negative: модель другой "
      "машины — не её"),
-    ("endpoint_set_client_and_empty", '', '[[...m.nodeEndpointSet(NODES()[1])], [...m.nodeEndpointSet(NODES()[2])], [...m.nodeEndpointSet(null)]]', '[["10.0.0.5:22011"],[],[]]', "клиент: только свой IP; без серверов — пусто; null — пусто"),
+    ("endpoint_set_client_and_empty", '', '[[...m.nodeEndpointSet(NODES()[1])], [...m.nodeEndpointSet(NODES()[2])], [...m.nodeEndpointSet(null)]]', '[["10.0.0.5:22011","10.0.0.5:8092/gemma"],[],[]]',
+     "клиент: только свой IP — его работающая ячейка и очередь модели его входа, к которой ведёт роутер; без серверов — пусто; null — пусто"),
+    ("endpoint_set_a_standing_cell_has_none", '',
+     '[...m.nodeEndpointSet({ id: "x", ip: "10.0.0.9", controllerMachine: true, servers: [{ cellId: "c1", port: null }, { cellId: "c2" }, { cellId: "c3", port: 0 },'
+     ' { cellId: "c4", port: "22004" }, { cellId: "c5", port: 22005 }] })]',
+     '["10.0.0.9:22005","127.0.0.1:22005"]',
+     "конец машины — только ячейка, что работает: порт она держит, только пока работает (2026-11-07); negative: стоящая (port null), "
+     "без порта, с нулём или строкой вместо числа — конца не даёт: ни «:null», ни «:0», и loopback машины контроллера — тоже"),
     ("activity_filter", '', '[Object.keys(m.nodeActivityFilter("box-a")), [...m.nodeActivityFilter("box-a").endpoints], [...m.nodeActivityFilter("box-c").endpoints].length, m.nodeActivityFilter("ghost")]',
-     '[["endpoints"],["10.0.0.5:22011"],4,null]', "фильтр узла — только концы его ячеек (у машины контроллера и loopback); неизвестный узел — null"),
+     '[["endpoints"],["10.0.0.5:22011","10.0.0.5:8092/gemma"],4,null]', "фильтр узла — только концы его работающих ячеек (у машины контроллера и loopback) и очереди его моделей; стоящая ячейка — ни при чём; неизвестный узел — null"),
     ("node_route_labels_direct_and_via_graph", '', '[m.nodeRouteLabels("box-a"), m.nodeRouteLabels("box-c"), m.nodeRouteLabels("box-b"), m.nodeRouteLabels("ghost")]',
-     '[["graphy","scout"],["hotel"],[],[]]', "подписи: прямой upstream и через выход роутера; облако и пустая подпись не считаются; узел без ячеек — пусто; без трафика все тихие — по имени (порядок лейна), а не по порядку конфига"),
+     '[["graphy","scout"],["hotel"],[],[]]', "подписи: прямой upstream и через выход роутера — модель входа этой машины (mm:); облако и пустая подпись не считаются; узел без ячеек — пусто; без трафика все тихие — по имени (порядок лейна), а не по порядку конфига"),
     ("ordered_route_labels_live_first_then_name", 'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:1", port: 1, label: "zeta", lastRequestAt: Date.now() / 1000 - 60 }, { id: "skynet:proxy:2", port: 2, label: "alpha", lastRequestAt: Date.now() / 1000 - 3600 * 13 }, { id: "skynet:proxy:3", port: 3, label: "Mid", lastRequestAt: Date.now() / 1000 - 3600 }, { id: "skynet:proxy:4", port: 4, label: "" }, { id: "skynet:proxy:5", port: 5, label: "alpha" }, { id: "skynet:proxy:6", port: 6, label: "beta" }] });',
      'm.orderedRouteLabels(st.topology.proxies)', '["Mid","zeta","alpha","beta"]',
      "строки трафика — как карточки клиентов: живые (запрос за 12 ч: Mid, zeta) первыми по имени без учёта регистра, тихие (alpha 13 ч, beta никогда) после; пустая подпись без строки, одноимённые — одна строка"),
@@ -246,19 +256,19 @@ PINS = [
      '(() => { const bad = { id: "x1", label: "hotel", status: "502", finishedAt: 50 }; const it = m.topologyIncidentItems([S(1, { activeRequests: [bad], recentRequests: [bad, { id: "x2", label: "scout", error: "timed out", finishedAt: 70 }, { id: "ok", label: "fine", status: "200", finishedAt: 80 }] })]); return [it.map((x) => x.id), it[0].incident.kind, it[1].incident.kind]; })()',
      '[["x2","x1"],"upstream_timeout","failed"]', "из сэмплов: дедуп одного запроса, успешный не инцидент, порядок — свежие первыми, вид по тексту ошибки"),
     ("incidents_render_rows", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "status 502", client: "10.0.0.7", status: 502, port: 23001 }] };',
-     '(() => { m.renderTopologyIncidents([]); const f = globalThis.__fields; return [f.topologyIncidentsMeta.textContent, f.topologyIncidents.innerHTML.includes("topology-incident-row failed"), f.topologyIncidents.innerHTML.includes("10.0.0.7 · status 502 · :23001"), f.topologyIncidents.innerHTML.includes("likely: proxy/upstream error")]; })()',
-     '["1 recent",true,true,true]', "панель: счётчик в мете, класс failed, детали через «·», причина по виду в строке likely"),
+     '(() => { m.renderTopologyIncidents([]); const f = globalThis.__fields; return [f.topologyIncidentsMeta.textContent, f.topologyIncidents.innerHTML.includes("topology-incident-row failed"), f.topologyIncidents.innerHTML.includes("10.0.0.7 · status 502"), f.topologyIncidents.innerHTML.includes("likely: proxy/upstream error"), f.topologyIncidents.innerHTML.includes(":23001")]; })()',
+     '["1 recent",true,true,true,false]', "панель: счётчик в мете, класс failed, детали через «·», причина по виду в строке likely; negative: номер клиента (старой записи) не показан — у клиента его нет"),
     # 2026-09-28: the row named only the way IN (:23001); the cell that
     # refused (:22011) and what was asked (/props) stayed out of sight.
     ("incidents_render_exit_and_question", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "[Errno 111] Connection refused", client: "10.0.0.7", method: "GET", path: "/props?key=s3cret", status: 502, port: 23001, exit: "10.0.0.5:22011", correlation: "proxy-only" }] };',
-     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("10.0.0.7 · GET /props · status 502 · :23001 → 10.0.0.5:22011 · proxy-only"), h.includes("s3cret")]; })()',
-     '[true,false]', "positive: строка называет вопрос и выход, куда он ушёл; negative: строка запроса клиента (может нести ключ) не показывается"),
+     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("10.0.0.7 · GET /props · status 502 · → 10.0.0.5:22011 · proxy-only"), h.includes("s3cret"), h.includes(":23001")]; })()',
+     '[true,false,false]', "positive: строка называет вопрос и выход, куда он ушёл; negative: строка запроса клиента (может нести ключ) не показывается, номер клиента — тоже"),
     ("incidents_render_cloud_exit_without_port", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "status 429", status: 429, method: "POST", path: "/v1/chat/completions", exit: "☁ gpt-6-sol" }] };',
      '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("POST /v1/chat/completions · status 429 · → ☁ gpt-6-sol"), h.includes(" :")]; })()',
      '[true,false]', "облачный выход называется блоком модели; без порта входа — только стрелка к выходу"),
     ("incidents_render_old_record_no_exit", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "status 502", client: "10.0.0.7", status: 502, port: 23001, method: "GET" }] };',
-     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("10.0.0.7 · status 502 · :23001"), h.includes("→"), h.includes("GET")]; })()',
-     '[true,false,false]', "negative: запись без выхода и без пути (старая) — ни стрелки, ни «GET» без пути: не знаем — не пишем"),
+     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("10.0.0.7 · status 502"), h.includes("→"), h.includes("GET"), h.includes(":23001")]; })()',
+     '[true,false,false,false]', "negative: запись без выхода и без пути (старая) — ни стрелки, ни «GET» без пути: не знаем — не пишем; её старый номер клиента — тоже"),
     ("incidents_count_on_the_board_button",
      'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed" }, { kind: "slow", time: 1700000080, title: "slow" }] };',
      '(() => { const keep = document.querySelectorAll; const cnt = { textContent: "" }; const btn = { on: null, classList: { toggle(c, v) { btn.on = [c, v]; } } }; const old = { textContent: "" }; document.querySelectorAll = (sel) => ({ "[data-board-incidents-count]": [cnt], "[data-board-incidents]": [btn], "[data-ctrl-incidents-count]": [old] })[sel] || []; try { m.renderTopologyIncidents([]); } finally { document.querySelectorAll = keep; } return [cnt.textContent, btn.on, old.textContent]; })()',
@@ -269,19 +279,34 @@ PINS = [
     ("incidents_render_no_panel", 'delete globalThis.__fields.topologyIncidents;', '(() => { m.renderTopologyIncidents([]); return globalThis.__fields.topologyIncidentsMeta.textContent; })()', '""', "negative: панели нет — ничего не трогается, без исключения"),
     # ── node telemetry ──
     ("node_telemetry_nothing", '', 'm.nodeTelemetryRowsHtml({ id: "box-b" })', '""', "negative: ни GPU, ни сервера, ни маршрутов — пусто"),
-    ("node_telemetry_blocks", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes(\'data-open-chart="node:box-a:tokens"\'), h.includes(\'data-node-route-canvas="box-a"\'), h.includes("GPU history")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ port: 22011 }] }))',
+    ("node_telemetry_blocks", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes(\'data-open-chart="node:box-a:tokens"\'), h.includes(\'data-node-route-canvas="box-a"\'), h.includes("GPU history")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ cellId: "c22011", port: 22011 }] }))',
      '[4,true,true,true]', "GPU + сервер + маршруты: четыре метрики и блок активности маршрутов"),
     ("node_telemetry_row_says_its_descriptor_on_hover", '',
-     '(h => [...h.matchAll(/<div class="gpu-metric" title="([^"]*)">/g)].map((x) => x[1]))(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ port: 22011 }] }))',
+     '(h => [...h.matchAll(/<div class="gpu-metric" title="([^"]*)">/g)].map((x) => x[1]))(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ cellId: "c22011", port: 22011 }] }))',
      '["GPU history · Util","Token speed · prompt / gen","VRAM · used / total","Power · GPU power draw"]',
      "каждая строка графика говорит при наведении, что она меряет: на главной доске строка — имя, значение и мини-график, "
      "а подпись («Util», «used / total») ушла в подсказку (владелец, 2026-10-12: компактно и красиво, всё на месте)"),
+    ("node_telemetry_tokens_for_standing_cells", '',
+     '[m.nodeTelemetryRowsHtml({ id: "box-z", servers: [{ cellId: "c1", port: null, phase: "stopped", tpsHistory: [[1, 30, 70]] }] }).includes(\'data-open-chart="node:box-z:tokens"\'),'
+     ' m.nodeTelemetryRowsHtml({ id: "box-z", servers: [] }), m.NodeTokenTelemetry.drawn({ servers: [{ cellId: "c1", port: null }] }),'
+     ' m.NodeTokenTelemetry.drawn({ servers: [] }), m.NodeTokenTelemetry.drawn(null)]',
+     '[true,"",true,false,false]',
+     "график скорости — у машины с ячейками, даже когда все они стоят: история стоящей ячейки переживает её запуск, а порт ячейка держит, "
+     "только пока работает (2026-11-07), — спрошенная по порту, такая машина теряла бы график; negative: машина без ячеек — блока нет"),
+    ("node_token_panel_draws_standing_cells", '',
+     '(() => { const old = document.querySelector; const label = el(); const canvas = tokenCanvas(); globalThis.__stubReturns["polling.formatTps"] = (v) => String(v);'
+     ' st.setTopology({ nodes: [{ id: "box-z", servers: [{ cellId: "c1", port: null, phase: "stopped", promptTps: 30, genTps: 70, tpsHistory: [[1, 30, 70], [2, 30, 70]] }] }] });'
+     ' document.querySelector = (s) => (s.includes("data-node-metric-val") ? label : s.includes("data-node-canvas") ? canvas : null);'
+     ' try { m.drawNodeTelemetry(); return [label.textContent, (canvas._tokenSamples || []).map((s) => s.tokens.predictedTokensPerSecond)]; } finally { document.querySelector = old; } })()',
+     '["prompt — / gen — t/s",[70,70]]',
+     "рисунок говорит то же, что строка: у машины, чьи ячейки все стоят, график скорости рисуется — из истории стоящей ячейки; negative: её "
+     "последняя скорость не выдаётся за нынешнюю — подпись в прочерках (стоящая ячейка ничего не делает сейчас)"),
     ("node_telemetry_routes_only", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes("data-open-route-activity")])(m.nodeTelemetryRowsHtml({ id: "box-a" }))', '[0,true]', "узел без GPU, но с маршрутами через граф — только блок маршрутов"),
     ("node_pseudo_samples", '', '[m._nodeGpuSamples({ gpus: [{ memoryTotalMiB: 1000, history: [[0, 250, 50, 120]] }] }), m._nodeTokenSamples({ servers: [{ tpsHistory: [] }, { tpsHistory: [[0, 30, 70]] }] }), m._nodeGpuSamples({})]',
      '[[{"gpu":{"utilPct":50,"memoryUsedMiB":250,"memoryTotalMiB":1000,"memoryPct":25,"powerW":120}}],[{"time":0,"tokens":{"promptTokensPerSecond":30,"predictedTokensPerSecond":70}}],[]]',
      "псевдосэмплы узла в форме сэмплов монитора; токены сохраняют время измерения"),
     ("node_tokens_cpu_first_bonsai_later", '',
-     '(() => { const servers = [{port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{port:22013,phase:"running",promptTps:467.95,genTps:137.75,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]; return [new m.NodeTokenTelemetry({servers}).current(),m._nodeTokenSamples({servers}),new m.NodeTokenTelemetry({servers:[...servers].reverse()}).current()]; })()',
+     '(() => { const servers = [{cellId:"c22001",port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{cellId:"c22013",port:22013,phase:"running",promptTps:467.95,genTps:137.75,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]; return [new m.NodeTokenTelemetry({servers}).current(),m._nodeTokenSamples({servers}),new m.NodeTokenTelemetry({servers:[...servers].reverse()}).current()]; })()',
      '[{"promptTps":467.95,"genTps":137.75},[{"time":1,"tokens":{"promptTokensPerSecond":467.95,"predictedTokensPerSecond":137.75}},{"time":2,"tokens":{"promptTokensPerSecond":467.95,"predictedTokensPerSecond":137.75}}],{"promptTps":467.95,"genTps":137.75}]',
      "регрессия машины контроллера: первая ячейка CPU-эмбеддингов с нулями не заслоняет Bonsai :22013; подпись и история считают весь узел, независимо от порядка портов"),
     ("node_tokens_running_measured_sum", '',
@@ -296,7 +321,7 @@ PINS = [
      '[{"time":1,"tokens":{"promptTokensPerSecond":10,"predictedTokensPerSecond":1}},{"time":2,"tokens":{"promptTokensPerSecond":50,"predictedTokensPerSecond":5}},{"time":3,"tokens":{"promptTokensPerSecond":null,"predictedTokensPerSecond":null}},{"time":4,"tokens":{"promptTokensPerSecond":50,"predictedTokensPerSecond":5}}]',
      "истории объединены по времени: старые ответы остановленных сохраняются, дубль одной ячейки заменяет себя, пропуск не заполняется чужой старой скоростью"),
     ("node_token_panel_renders_bonsai", '',
-     '(() => { const old=document.querySelector; const label=el(); const canvas=tokenCanvas(); globalThis.__stubReturns["polling.formatTps"]=(v)=>String(v); st.setTopology({nodes:[{id:"sierra-pc",servers:[{port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{port:22013,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:1,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]}]}); document.querySelector=(s)=>s.includes("data-node-metric-val")?label:s.includes("data-node-canvas")?canvas:null; try {m.drawNodeTelemetry();return [label.textContent,canvas._tokenSamples.map((s)=>s.tokens.predictedTokensPerSecond),canvas.moves.some(([color,x,y])=>color==="rgba(105, 208, 144, 0.95)"&&y<80)];}finally{document.querySelector=old;} })()',
+     '(() => { const old=document.querySelector; const label=el(); const canvas=tokenCanvas(); globalThis.__stubReturns["polling.formatTps"]=(v)=>String(v); st.setTopology({nodes:[{id:"sierra-pc",servers:[{cellId:"c22001",port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{cellId:"c22013",port:22013,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:1,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]}]}); document.querySelector=(s)=>s.includes("data-node-metric-val")?label:s.includes("data-node-canvas")?canvas:null; try {m.drawNodeTelemetry();return [label.textContent,canvas._tokenSamples.map((s)=>s.tokens.predictedTokensPerSecond),canvas.moves.some(([color,x,y])=>color==="rgba(105, 208, 144, 0.95)"&&y<80)];}finally{document.querySelector=old;} })()',
      '["prompt 467.95 / gen 137.75 t/s",[137.75,137.75],true]',
      "настоящий рендер панели: CPU первым, Bonsai позже — подпись ненулевая, график получает Bonsai, зелёная линия выше нуля"),
     ("token_chart_preserves_gap", '',
@@ -359,7 +384,7 @@ PINS = [
      "у карты без замеров — «—», а не «0%», «0.0 / 8.0 GB» и «0.0 W»"),
     # 2026-11-02, the owner's choice Ш1: a machine's page says each card's figures on its row, and the column keeps only the machine's.
     ("node_telemetry_without_the_cards", '',
-     '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes("node:box-a:tokens"), h.includes("node:box-a:gpu"), h.includes("gpu-metric-card"), h.includes("data-node-canvas=\\"box-a:vram\\"")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 0 }, { index: 1 }], servers: [{ port: 22011 }] }, { cards: false }))',
+     '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes("node:box-a:tokens"), h.includes("node:box-a:gpu"), h.includes("gpu-metric-card"), h.includes("data-node-canvas=\\"box-a:vram\\"")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 0 }, { index: 1 }], servers: [{ cellId: "c22011", port: 22011 }] }, { cards: false }))',
      '[1,true,false,false,false]', "на странице машины в колонке только скорость токенов; negative: строк и холстов карт там нет"),
     ("node_telemetry_without_the_cards_nothing", '', 'm.nodeTelemetryRowsHtml({ id: "box-z", gpus: [{ index: 0 }] }, { cards: false })', '""', "negative: только карты и ни ячейки — колонке показать нечего, блок молчит"),
     ("rack_row_figures_from_the_tick", '',
@@ -371,12 +396,12 @@ PINS = [
      "строка карты на стойке: тик монитора пишет её загрузку, память и мощность и у машины с одной картой; строка RAM: процессор и занятая память; negative: чего не сказали, то прочерк, график не рисуется"),
     # 2026-10-17, the owner: "the combined chart (like you did now) and a chart for each of the cards".
     ("node_telemetry_a_line_per_card", '',
-     '(() => { const two = { id: "box-a", gpus: [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], servers: [{ port: 22011 }] };'
+     '(() => { const two = { id: "box-a", gpus: [{ index: 0, name: "NVIDIA GeForce RTX 3090" }, { index: 1, name: "NVIDIA GeForce RTX 5090" }], servers: [{ cellId: "c22011", port: 22011 }] };'
      ' const rows = (h) => (h.match(/class="gpu-metric-card"/g) || []).length; const two_ = m.nodeTelemetryRowsHtml(two);'
      ' const block = (key) => (two_.match(new RegExp(`data-open-chart="node:box-a:${key}"[\\\\s\\\\S]*?(?=<div class="gpu-metric"|$)`)) || [""])[0];'
      ' return [rows(two_), [...two_.matchAll(/data-t="node-gpu-card" data-t-id="([^"]*)" title="([^"]*)"/g)].map((x) => [x[1], x[2]]),'
      ' [...two_.matchAll(/data-t="node-gpu-cards" data-t-id="([^"]*)"/g)].map((x) => x[1]), rows(block("tokens")), rows(block("gpu")),'
-     ' rows(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 0 }], servers: [{ port: 22011 }] })), rows(m.nodeTelemetryRowsHtml({ id: "box-a", servers: [{ port: 22011 }] })),'
+     ' rows(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 0 }], servers: [{ cellId: "c22011", port: 22011 }] })), rows(m.nodeTelemetryRowsHtml({ id: "box-a", servers: [{ cellId: "c22011", port: 22011 }] })),'
      ' [...m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{ index: 2 }, { index: 0 }] }).matchAll(/data-t="node-gpu-card" data-t-id="box-a:gpu:(\\d+)" title="([^"]*)"/g)].map((x) => [x[1], x[2]]),'
      ' two_.includes(\'data-node-metric-val="box-a:power:1"\') && two_.includes(\'data-node-metric-spark="box-a:power:1"\')]; })()',
      '[6,[["box-a:gpu:0","GPU 0 · NVIDIA GeForce RTX 3090"],["box-a:gpu:1","GPU 1 · NVIDIA GeForce RTX 5090"],["box-a:vram:0","GPU 0 · NVIDIA GeForce RTX 3090"],'
@@ -452,9 +477,9 @@ PINS += [
      'const old = document.querySelector; const label = { textContent: "", title: "" }; const canvas = tokenCanvas(); globalThis.__stubReturns["polling.formatTps"] = (v) => String(v);'
      ' const draw = (servers) => { st.setTopology({ nodes: [{ id: "sierra-pc", servers }] }); document.querySelector = (s) => (s.includes("data-node-metric-val") ? label : s.includes("data-node-canvas") ? canvas : null);'
      ' try { m.drawNodeTelemetry(); return [label.textContent, label.title]; } finally { document.querySelector = old; } };',
-     '[draw([{port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:0,tpsHistory:[[1,467.95,137.75]]}]),'
-     ' draw([{port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:1,tpsHistory:[[1,467.95,137.75]]}]),'
-     ' draw([{port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:0,tpsHistory:[[1,467.95,137.75]]}])]',
+     '[draw([{cellId:"c22001",port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:0,tpsHistory:[[1,467.95,137.75]]}]),'
+     ' draw([{cellId:"c22001",port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:1,tpsHistory:[[1,467.95,137.75]]}]),'
+     ' draw([{cellId:"c22001",port:22001,phase:"running",promptTps:467.95,genTps:137.75,requestsProcessing:0,tpsHistory:[[1,467.95,137.75]]}])]',
      json.dumps([[f"{LAST} prompt 467.95 / gen 137.75 t/s", HELP], ["prompt 467.95 / gen 137.75 t/s", ""], [f"{LAST} prompt 467.95 / gen 137.75 t/s", HELP]]),
      "the real panel draw, one label over three ticks: idle holds (`last`, with the hint on hover), a request runs (plain, the hint gone), idle again — "
      "a hint left behind would explain live figures as held ones"),

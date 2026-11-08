@@ -1070,6 +1070,30 @@
     "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":4,\"total_tokens\":4}}\n\n",
     "data: [DONE]\n\n"
    ]
+  },
+  {
+   "why": "a tool call the final event does not list: the same word the tally gives it",
+   "lines": [
+    "data: {\"type\": \"response.output_item.added\", \"output_index\": 1, \"item\": {\"type\": \"function_call\", \"call_id\": \"k1\", \"name\": \"f\"}}\n",
+    "data: {\"type\": \"response.completed\"}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"k1\",\"type\":\"function\",\"function\":{\"name\":\"f\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+    "data: [DONE]\n\n"
+   ]
+  },
+  {
+   "why": "an answer the provider left unfinished: how far it got",
+   "lines": [
+    "data: {\"type\": \"response.incomplete\", \"response\": {\"usage\": {\"output_tokens\": 4}}}\n"
+   ],
+   "frames": [
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n",
+    "data: {\"id\":\"cc\",\"object\":\"chat.completion.chunk\",\"created\":1000,\"model\":\"the-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"}],\"usage\":{\"prompt_tokens\":0,\"completion_tokens\":4,\"total_tokens\":4}}\n\n",
+    "data: [DONE]\n\n"
+   ]
   }
  ],
  "responses_tally": [
@@ -1157,6 +1181,53 @@
   {
    "lines": [],
    "summary": {}
+  },
+  {
+   "why": "a tool call the final event does not list",
+   "lines": [
+    "data: {\"type\": \"response.output_item.done\", \"item\": {\"type\": \"function_call\", \"name\": \"f\"}}\n",
+    "data: {\"type\": \"response.completed\"}\n"
+   ],
+   "summary": {
+    "events": 2,
+    "finishReasons": [
+     "tool_calls"
+    ],
+    "done": true,
+    "response": {
+     "output": [
+      {
+       "type": "function_call",
+       "name": "f"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "why": "an answer the provider left unfinished: not complete, and named by how far it got",
+   "lines": [
+    "data: {\"type\": \"response.output_text.delta\", \"delta\": \"cut at the cap\"}\n",
+    "data: {\"type\": \"response.incomplete\", \"response\": {\"usage\": {\"input_tokens\": 2, \"output_tokens\": 3}}}\n"
+   ],
+   "summary": {
+    "events": 2,
+    "deltaTextChars": 14,
+    "usage": {
+     "prompt_tokens": 2,
+     "completion_tokens": 3,
+     "total_tokens": 5
+    },
+    "finishReasons": [
+     "length"
+    ],
+    "response": {
+     "usage": {
+      "input_tokens": 2,
+      "output_tokens": 3
+     }
+    }
+   }
   }
  ],
  "chat_to_anthropic": [

@@ -104,8 +104,10 @@ history filters in history, the account window's busy flag in cloud.
      interaction ends;
   2. `topologyStructureFingerprint(topology)` differs from the last render → full `renderTopology()`;
   3. otherwise → `syncTopologyLive()` patches only the volatile numbers in place (a silent
-     scout's report age on its node, CPU/RAM, t/s, ctx, download %, GPU util/VRAM bars,
-     sparklines) and redraws cables — DOM, animations and drags survive.
+     scout's report age on its node, CPU/RAM, t/s, download % and a load's progress, what each
+     cell's processes hold — its RAM and GPU badges on the line and the card, the window's two
+     tiles and its cards' figures, `CellMemory.patch` — GPU util/VRAM bars, sparklines) and
+     redraws cables — DOM, animations and drags survive.
 
 The fingerprint covers graph identity only: which cards/handles/cables exist and how they connect
 (clients and their agents, hosts and whether their scouts answer, servers with their **phase**,
@@ -113,6 +115,11 @@ GPUs, proxies, the pools with their steps and ports, the stamp of the models lis
 view mode, open modals).
 It deliberately **excludes** fast-moving numbers. Any phase transition (`downloading` → `loading`
 → `running`) is structural and forces a full rebuild; the numbers inside a phase are live-patched.
+A number in neither is drawn once and then shown frozen as if it were live: until 2026-11-07 a
+cell's memory badges were, and a voice cell's badge said "GPU 0.3G" — what its process held in the
+first seconds of its start — for minutes while it held 2.4. The patch's old writes of a card's
+`[data-live-tps]` and `[data-live-ctx]` went at the same time: no card had drawn those hooks
+since the card's redesign (June 2026), so the context used was never patched.
 Around rebuilds, `parkLaneStats()` / `mountNodeTelemetry()` (topology-nodes) move the live chart
 elements out of and back into the board so their canvases are never destroyed by `innerHTML`.
 
@@ -299,8 +306,10 @@ The head of a machine's page — variant В «Карта памяти» of the s
 1.3.630 drew variant А «Пульт» with the memory map of В). It replaces the machine card's header and its compute column on that page
 — the main board's glance keeps its own (`nodeComputeHtml`). Its parts:
 
-- `MachineHead` — the passport (`Frame({kind: "page"})`): the name as the page's heading, what it is (role, platform, address,
-  the scout's version), the old-scout chip and, in the same line (`.machine-tools`), what the machine does now (`MachineBand`),
+- `MachineHead` — the passport (`Frame({kind: "page"})`), one row (the owner's choice Б of 2026-11-08): the name as the page's heading, what it is
+  (role, platform, address, the scout's version), the old-scout chip, then how to read the map with all the cards' totals (`MachineMap.keyHtml`:
+  the dashes of the weights, the dots of the cache and buffers — a row too short loses their words first, then puts the facts under the name;
+  under 1100 px the legend has a line of its own) and, at the right (`.machine-tools`), what the machine does now (`MachineBand`),
   the "⋯" `Menu` of what is rare and what cannot be undone — reboot, the power-off schedule, power off, letting the scout go (a
   host only) — and Add model. The items carry the attributes the board's listeners already bind by (`data-reboot-host`,
   `data-power-schedule-host`, `data-poweroff-host`, `data-scout-disconnect`) and the hooks they had (`node-reboot`, …), so they do
@@ -310,31 +319,39 @@ The head of a machine's page — variant В «Карта памяти» of the s
   long, in `data-live-hostage`), busy ("Starting n · running m of k": a cell copies its model, starts or loads its weights),
   good (cells running: n of m, a port with no model not counted), idle (none runs, or no cells yet). The use of the cards and
   the RAM is the lanes' to say.
-- `MachineMap` — «What lies where»: a lane per card and one for the RAM (the `Lane` part), each the cells that hold it by their
-  measured share, named inside while the block is wide enough (":22001 Qwen3-Embedding-0.6B", 3.0 GB) — one colour per cell on
-  every lane, by port, six colours in turn —; what else holds it hatched: a card's outside owners by name (`gpuOutsideOwners`,
+- `MachineMap` — «What lies where» (its name for a screen reader: it has no title row since 2026-11-08): a lane per card and one for the RAM (the `Lane` part), each the cells that hold it by their
+  measured share, named inside while the block is wide enough ("Qwen3-Embedding-0.6B", 3.0 GB; a cell nothing names by its id) —
+  one colour per cell on every lane, in the order the cells were made, six colours in turn —; what else holds it hatched: a card's outside owners by name (`gpuOutsideOwners`,
   passed in by topology-nodes.js — the head importing it back would be a cycle) and the rest of its use as "other processes";
   beside the label the card's name, size and temperature, at the right how much is free. The cells that hold memory are the
   ones whose phase holds it (`CellMemory.holds`: running, warming, broken — one list with the card's badges). The RAM's lane
   draws only the cells that hold no card: a cell on a card maps its model file, the scout's RSS counts those pages and the
   machine's "used" (MemTotal − MemAvailable) does not — drawn, they would fill the free RAM; a runner that keeps its weights in RAM
   (`keepsRam`: Strata) is the exception, its RSS is its own piece. A cell is never drawn past what the
-  machine uses. A cell that holds memory and is on no lane — nobody measured it — is named under the lanes
-  (`machine-map-unplaced`), so none that runs is missing from the map. A lane whose size the scout does not report draws no bar
+  machine uses. A cell that holds memory and has no piece on any lane — nobody measured it — is still a row of the list beside the
+  lanes: its figure is not said, and the words say that nothing was measured and that there is no place yet, so none that runs is
+  missing from the map. A lane whose size the scout does not report draws no bar
   and says why.
 - The lanes stand as a rack (`MachineRack`, the owner's choice К1 of 2026-10-31: "which part of the cards is taken by which model, and by which
   part of it"; thin rows Д1 and the list П3 of 2026-11-02: 429 px of lanes for two cards, and the names beside them read as a heap). A lane is one row of
   26 px: its name, how much is free, its bar, on one scale for every device (`RackScale`; a RAM that would not fit the row on that scale takes the row on its
-  own). Beside the lanes `RackLegend` says what lies on them, each holder once: the name, how much in all, where (`GPU 1–4 + RAM`), what is to come first,
-  then the cells the largest first (`machine-map-legend`, which chooses and can be dragged like a block). A piece's own words — which part of the cell it is,
+  own). Beside the lanes `RackLegend` is one list, each holder once: the name, how much in all, where (`GPU 1–4 + RAM`), and what it is
+  doing — the speed when the cell answers a request, the words its line says for a cell on its way, and for a cell that holds memory while
+  nothing answers the absence named out loud. The cells on their way stand first, then the cells the largest first
+  (`machine-map-legend`, which chooses and can be dragged like a block): the row is the only place a cell is picked on the page, and the block of
+  the model that pick names stands inside «What lies where», under the legend, on the map's whole width (the owner's variant А of the mockups,
+  2026-11-06). So the map keeps its block and does not scroll: the pane that scrolls is the list of models, and a block inside it would have moved
+  away from under the lanes with every drawing of the board. A row that is not picked says nothing but its parts — what its makers keep is read on
+  the picked row, so the page never names one model twice. A piece's own words — which part of the cell it is,
   which layers, the price of RAM — are in the hovers of its block and its row. A line sews one cell's pieces together, passing a lane it has nothing on; only
   the lines of what is to come, of the chosen cell and of the holder under the pointer are drawn (`MachinePick.light`, in the page, no drawing of the board).
   Before a lane's name stands the picture of its device (`LanePicture`, the owner's choice «заливка» of 2026-11-02: a graphics card, a memory stick, filled, in the page's colours,
   `aria-hidden`, one box lower than the lane, so a rack of six cards is as thin as it was; where the row is short the words after it are cut, and whole in their hover).
   At the end of a lane's row are the device's own figures (the owner's choice Ш1 of 2026-11-02): load, memory and power, each a value and a little chart, written by the
-  monitor's tick (`drawNodeTelemetry`, keys `gpu:<index>`, `mem:<index>`, `power:<index>`, `cpu`, `ram`) through one rule of words (`CardFigures`); all the cards together in the map's
-  head; a press opens the machine's chart. The list says how fast a model generates while it answers. The rack stands across the whole page above the list of models and the
-  column, which scroll by themselves; on a window too low for that, the page scrolls as one. Narrower than 1180 px the little charts go, under 860 px the list goes under the lanes, under 620 px a lane's bar goes under its name.
+  monitor's tick (`drawNodeTelemetry`, keys `gpu:<index>`, `mem:<index>`, `power:<index>`, `cpu`, `ram`) through one rule of words (`CardFigures`); all the cards together in the
+  page's head; a press opens the machine's chart. The list says how fast a model generates while it answers. The rack, with the block of the picked model
+  under its legend, stands across the whole page above the list of models and the column, which scroll by themselves; on a window too low for that,
+  the page scrolls as one. Narrower than 1180 px the little charts go, under 860 px the list goes under the lanes, under 620 px a lane's bar goes under its name.
 - A plan on the rack (`machine-plan.js`, 1.3.695). A cell's row in the list of models, a block or a row of the list beside the lanes dragged onto a lane lays a plan: the fields of
   its config that would change. `CellMove` knows them per family of runners: llama.cpp by `DEVICE` and `--fit-target` (`ComputeFields`,
   the form's own rule, and `PlacementPlan.fields`), a one-card server by its ENV's pin (`CardPin`), vLLM by its pin and what it then
@@ -349,17 +366,53 @@ The head of a machine's page — variant В «Карта памяти» of the s
   gone (`act` answers whether the cell was asked: `cellServiceAction` says its own reason and returns false, 1.3.696). While a start
   carries a plan out, the plan is drawn on the machine the operator was shown (`MachinePlan.begin`): a stop reaches the topology before
   the cards' next reading does. It goes when the topology shows the start, at most after `SEEN_MS`. The right column of the page is as
-  it was. All of this is checked end to end on the stand (`docs/stand.md`).
+  it was. All of this is checked end to end on the stand (`docs/stand.md`). While a cell is carried, every lane says whether it may lie
+  there (`MachineDrag.targetsOf`, lit or dim from the moment it is taken), by the rule the ring of the lane under the pointer says
+  (`MachineDrag.lies`); the ring itself is drawn with a plan laid or not.
+- The launch builder (`machine-build.js`, the owner, 2026-11-06; its look since 2026-11-07, variant А «Ступени и рельс» of the shelf's
+  mockups, in two rows since the owner's variant Б of 2026-11-08), under the map: one rail of three places, which are the steps — the engine,
+  the carrier · quant, the setting (first what the model's maker stated once, `makers` of
+  `GET /api/runner-presets`: the preset a model's default cell became on 2026-11-07, its numbers named per field and offered only for an
+  engine that writes sampling flags of its own, the registry's `llamaConfig` — on another one they would sit in the config and change
+  nothing; then a saved set of the engine, kept per runner on the controller and shared by every machine; or the settings of a cell of the
+  model on that engine, less its name, files, engine and place; the quants are the model's files of kind `model`, a projector or a draft
+  is never one) — over one shelf that shows the cards of the step chosen and is swiped sideways; a place pressed shows its step, in the
+  strip too. While the launch is not whole the rail's end names the builder and holds the new-cell wizard of the model (`MachineModels.newHtml`,
+  the button the block of the model picked had). A card is pressed or carried up onto the rail, and the shelf goes on to the next step not done
+  (`nextStep`); a move up or down takes the card,
+  sideways a mouse drags the shelf and a finger is the browser's scroll (`MachineBuild.gesture`, the shelf's `touch-action: pan-x`). Where
+  the shelf was swiped to survives a drawing of the board (`mounted`), and a card in hand holds the drawing off (`busy`). A card that does not
+  go with what is picked is dim and says why, the owner's mark that an engine is not for the model only warns; ✕ empties a place. The engines offered are the wizard's (`RunnerOffer`, runner-offer.js) that take a file of the
+  model by `runnerAvailability`, told by the board's builder with the registry (`machineHeadOf`, `runners`): the machine page's modules read
+  no cell editor, and with nothing told no builder is drawn. An engine and a quant make the launch whole: a cell not made yet, with no
+  name and no port (it stands on the map and in the plan under `MachineBuild.KEY`, "new"), the rail made the strip carried as a cell is — by its handle and its gaps with a mouse (its places stay the steps, buttons of their own), by its handle with a finger; while it is carried the
+  page leans at the window's edge as the list's pane does (`MachineDrag.pageOf`), so a rack out of sight above comes to it. The board's builder tells its facts as a stopped cell's (`LaunchFacts`, the way
+  `CellWay` lays a cell of the list too), so the map's ghost, places, drag, plan and Start lay it as any cell; no list counts it. Start
+  fills the cell form for a new cell as the wizard does (`AddModel.formConfig`, under `CellForm.newKey(host)`), checks it as the form's
+  Apply does (`cellConfigChecked`), saves it with no cell's id — the controller makes the cell and answers its name — moves the plan to
+  that cell (`plan.becomes`) and starts it by its name; its scout leases the port at the start (2026-11-08). A start refused leaves the
+  plan on the cell made, so a second Start makes no second cell. The builder's places are empty as soon as the cell is made. Pinned by `scripts/test_js_machine_build.py`.
 - vLLM's weights in RAM (`CPU_OFFLOAD_GB`, 1.3.697). `VllmPlacement` counts them: what a card holds (`weightsOnCardGb`), what stays in RAM
   (`ridesGb`), what must stay for the rest to fit (`offloadNeededGb`). `CellMove`'s vLLM move lays that much on a drop, never less than
   the operator left, and its one handle, on the RAM, sets it (`canSet`): a card's share is its `GPU_MEMORY_UTILIZATION`. `AsksFit` answers
   the verdict `rides`, a fit whose price the panel names; the hover of the piece says it comes to the card (`machineNoteRides`), the
   opposite of llama.cpp's "the processor computes it". The KV cache is not in this count, as it is not in `weightsOver`.
-- Under the lanes, the cells on their way (`machine-map-coming`, 1.3.634): a chip per cell that copies its model, starts, loads
-  or stops, saying so — a copy with its file and its figures (`ModelCopy`, the card's own line); a line for the ones starting
-  ("Starting:") and one for the ones stopping ("Stopping:"), 1.3.657 — the one line said "On their way:", and the band "Starting
-  1" named no cell; one cell on its way is named in the band now (`MachineBand.nameOf`, the head's own name of a cell). `MachineMap.groupOf(phase)` is
-  the one rule of where a cell stands on the page — on the lanes while it holds memory, under them on its way, else only in the list (`bench`) —
+  What the trips cost (2026-11-03, the owner: «a rough counter when we lay the weights out»): `VllmPlacement.speed` asks `DecodeSpeed`
+  (decode-speed.js) and the line under the bar (`vllmRidesSpeed`) and the rack's words (`machineFitRidesSpeed`, carried by `CellFit.facts`,
+  `asksFor`, `VllmMove.laid` and `MachinePlan`) say "≈ 4.8 tokens/s, 40× slower". The rule: a token reads a card's share once from its
+  memory (a table of the makers' figures by the card's model) and what stays in RAM once over its bus (scout 2.45.0's `pcieGen` ×
+  `pcieWidth`), the slowest card setting the pace. Checked on the 3090 at PCIe 4.0 x8 against the owner's two measurements of
+  Cosmos-Reason2-2B: 192 by the rule and 182–184 measured, 4.8 and 5.2–5.3 with 3 GiB in RAM. It says nothing — the old words stand —
+  for a card the table does not know, a bus a scout before 2.45.0 does not say, and a model of experts or one whose `expertCount`
+  (its config.json, read by the controller) is not known: such a model reads part of its weights for a token, and which part the
+  rule does not know. llama.cpp's layers on the processor and Strata's experts from the disk wait for a measurement of their own.
+- The cells on their way (1.3.634) are rows of that one list, the owner's choice of 2026-11-05: the cells that work and the cells on
+  their way stand in one list, and the two pill lines under the lanes (`machine-map-coming` and `machine-map-unplaced`) are gone with
+  their names — a cell is named once. What each row says is what the cell's own line says: a copy with its file and its figures
+  (`ModelCopy`, the card's own line), a cell that starts, loads or stops says what it does. 1.3.657 — the one line said "On their way:",
+  and the band "Starting 1" named no cell; one cell on its way is named in the band now (`MachineBand.nameOf`, the head's own name of a cell). `MachineMap.groupOf(phase)` is
+  the one rule of where a cell stands on the page — on the lanes while it holds memory, in the list beside them when it is on its way,
+  else only in the list of models (`bench`) —
   and the board's builder hands each cell's group to the head with the rest.
 - `CellFit` — where a cell that stands would go if it started now (part 2 of В, 1.3.634, by size; the exact plan, 1.3.635). A
   llama.cpp cell whose model the library knows (its header gives its layers) is weighed whole — its files, its KV cache and its
@@ -377,12 +430,13 @@ The head of a machine's page — variant В «Карта памяти» of the s
   else card 0 — `CardPin`, the server's rule — whole or not at all, to RAM when it picks its device itself, the registry's
   `autoDevice`; a size nobody said is "unsized" for a server that runs on one card, the registry's `oneCard`, not "unknown": its
   card is known before its size — "goes to GPU 0" —, the lane says the cell starts on it in words and draws no block, 1.3.668;
-  any other runner's card would be a guess until it has a size); "free" (Strata: its card's free room less its reserve, while it has its floor — `FreeVramStart`); "asks" (vLLM:
+  any other runner's card would be a guess until it has a size); "free" (Strata: its card's free room less its reserve, while it has its floor — `FreeVramStart`; Strata · DeepSeek, whose registry plan says `everyCard`: the free room of every card, whatever a pin says — `FreeVramEvery`, "fits on the cards", since 2026-11-03; before, it read "fits on GPU 0" for a cell that filled both); "asks" (vLLM:
   the share of each card it takes, worked out by the builder with the form's `VllmPlacement.from`). A size, a card or a RAM
   nobody said is "unknown", never a guess that it fits; a machine that cannot hold the cell now says "none".
   `CellFit.facts` is what the builder reads off a cell's stored config (through `CellFields.ofConfig`, with the controller's
   config behind an empty field), its runner's registry row and the library's rows by path (form.js `modelsByPath`) for it.
-- The list of models (`MachineModels`, machine-models.js, under the map; the owner's choices М1 and Н1 of 2026-11-02: "we still have that block
+- The list of models (`MachineModels`, machine-models.js, the pane under the map; the other part it draws — the block of the picked model — stands
+  inside the map, under its legend, the owner's variant А of the mockups of 2026-11-06; the owner's choices М1 and Н1 of 2026-11-02: "we still have that block
   of cells for some reason. Move all that is useful into Models, and the cell rows there, and take nothing from them"; the bench of cards that stood
   there, 1.3.634, is gone, and "bench" is left only as the code's word for the cells of the machine and those that stand): a row per model's folder,
   those with a cell here first, then by name. Neither a mark nor being open sorts: a row never moves under a press. A row says the model's name;
@@ -397,23 +451,29 @@ The head of a machine's page — variant В «Карта памяти» of the s
   said. A file with no folder has none. The mark also stands in the model picker and the new-cell wizard's rows, on the model's row at /models, and
   on a repository's row at /hf, by the folder its files land in (`HfDownloads.modelOf`).
 
+  The block the map holds is drawn for one model, so a pick that moves it draws the page again (`show` says when); the list is shown in place. It holds
+  the picked model's parts, a row per its cell with its Window and Start or Stop, the cells whose model has no row to pick, and the button that makes a
+  new cell from it. With nothing picked it is still drawn, and the words say that nothing is: a row of the list is a press, not a way to have nothing
+  picked.
+
   What is shown is one rule, `MachineModelsChoice.keeps`: the filters (all, with a cell here, 👍), the work and the words typed, all at once, in place,
   with no drawing; the word says when none is left. The work (`job`, `narrowJob`) is the second row under the head: the pills of the works the
-  machine's cells do (`benchJobs`), with their counts; a row stays when its model does the work, and inside an open row a cell that does not do it is
-  hidden. A work none of the cells does (chosen on another machine) narrows nothing — no pill would be left to let it go (`jobShown` at a drawing,
-  `jobOn` in place). Which rows stand open is `opens`: what the owner pressed (`pressed`, per model), and with no press a row with a cell working or
-  on its way (`MachineMap.works`) or with the chosen cell, so a click on a block in the rack shows its row, brought into sight in its pane
-  (`MachinePick.bringRow`; a press in the list moves nothing). Several stand open at once, and a press closes one even then.
+  machine's cells do (`benchJobs`), with their counts; a row stays when its model does the work, and a cell of another work is not said. A work none
+  of the cells does (chosen on another machine) narrows nothing — no pill would be left to let it go (`jobShown` at a drawing, `jobOn` in place). The
+  row that is picked stays whatever the list is narrowed to (`keeps`, `keepsCell`, `keepsRest`): it is the row the block under the legend is drawn for,
+  and pressing it off would leave the block showing a model the list says is not picked. A click on a block in the rack or on a row of the list beside
+  the lanes chooses a cell, and its model's row is brought into sight in its pane (`MachinePick.bringRow`; a press in the list moves nothing). The rows
+  that used to stand open are gone with `opens` and `pressed`: one model is shown, so one row answers for it.
 
-  A cell's row (`launchHtml`) stands on two lines between its port and its buttons: its runner, its build, the window it is set to and the most its
+  A cell's row (`launchHtml`) stands on two lines between its name chip and its buttons: its runner, its build, the window it is set to and the most its
   model was trained for (the line's own chip, `CellContext`, 1.3.648), what else it sets (`moreOf`); then (`benchSize`, `benchVerdict`, kept current by the
   live patch, `data-machine-bench-size` and `-fit`) what a working cell holds and that it runs, loads its weights or is broken; what one on its way does, the
-  copy's figures included; what one that stands weighs and by what, and where it would go; a failed one says so with its reason in the hover, a port with no
+  copy's figures included; what one that stands weighs and by what, and where it would go; a failed one says so with its reason in the hover, a cell with no
   model says it has none; a working cell says its trouble too, that the controller does not reach it or that it crashed, in red or amber. The whole row says it too (1.3.671; the owner: "let the running cells be pleasantly greenish, or clear not only by the label"), and
-  so does the dot at its port: a running cell's row is tinted green, one loading or on its way has an amber edge, a broken or failed one a red edge — machine.css
+  so does the dot at its name: a running cell's row is tinted green, one loading or on its way has an amber edge, a broken or failed one a red edge — machine.css
   reads the verdict's `data-t-state` with `:has()`, so the live patch, which keeps that state, keeps the row's look too, with no second copy of it. The dot is green,
   amber or grey for running, on its way or standing, and red for a broken or failed cell, which is none of them. A click anywhere on the row chooses its cell
-  (`data-machine-pick`; the port is the same as a button, for a keyboard), and the chosen stopped cell is drawn dashed on the lanes where it would go
+  (`data-machine-pick`, the cell's id; the name chip is the same as a button, for a keyboard), and the chosen stopped cell is drawn dashed on the lanes where it would go
   (`ui-lane-blk--estimate`); Window, Start and Stop only do that (`data-machine-own`, `MachineDrag.taken`, one rule for the click and the drag). The row can be
   dragged up onto a lane, and a working cell dropped on the section stops.
 
@@ -429,13 +489,20 @@ The head of a machine's page — variant В «Карта памяти» of the s
   under the 🎓 of its cells: a range when its builds differ, what a cell's own model says when the library lists none, "not known" for a model that takes a window nobody
   stated, a dash for work with no window in tokens.
 
+  The cells of one model stand in the order this machine gave them: nothing sorts by port or by phase, and the repository under the model's name
+  reads the same list — `repo` names the first cell the page shows. Until 2026-11-07 a model's default cell stood first, marked by a background of
+  its own; it is the launch builder's maker's set now and no cell (`fleet/default_cells_retired.rs`), so no row names an origin.
+
   The cells with no row of their own (`restHtml`) stand among the rows with a cell, before the models with none: a model named by its runner's own word or on
   a disk of the machine, an engine's, said by their ports, and a port with no model yet. Each is a row like the others, with its name and work said as well,
   since no model's row is over it: while it stands, there is nowhere else to choose it, start it or open its window. The work narrows them; words typed and 👍
   take them away (`keepsRest`), as they have no model to find or mark.
 
-  Under a row's cells: what its makers recommend, as the owner keeps it on /models (read once and again as a row opens; nothing when it says nothing, a word when
-  it could not be read), and a new cell from the model.
+  What its makers said is read on the row that is picked (the owner, 2026-11-06, variant А of the mockups): what the maker stated once (`statedHtml`)
+  — the numbers the launch builder offers as the model's own set, each naming the field it belongs to — then what its makers recommend, as the owner keeps it on /models
+  (read once, and again when the row is picked; nothing when it says nothing, a word when it could not be read). A row that is not picked has nothing to
+  say but its parts, so the page never names one model twice, and the block under the legend has no prose in it. The button that makes a new cell stands
+  in the block, by its rows.
 - The panel of the chosen cell, under the lanes: a click on a block, a chip or a cell's row in the list chooses the cell, and its panel
   (`Band`) says what it does and holds — in the lanes' own figures: on the cards, else its RSS, else "memory not measured" — or,
   standing, what it weighs and where it would go, or what it is doing on its way. "Cell window" (`data-cell-window-open`, opened by
@@ -446,11 +513,12 @@ The head of a machine's page — variant В «Карта памяти» of the s
   the list act with comes from the board's builder: `nodeServerCardHtml(…, {picks})` hands each cell's window key, name, group,
   start and stop, work, runner, repository, model and its mark, and `CellFit.facts`. The machine's page shows every cell on its map and in its list of models, so the board's list of cells
   hides none (no eye, no launcher chips) and draws no line (machine.css): the lines stay in the page, hidden, and the windows open
-  from there. Every cell folds there whatever the board's density — a cell in trouble (unreachable, crashed, being deleted) too,
+  from there. Every cell folds there whatever the board's density — a cell in trouble (crashed, being deleted) too,
   since 1.3.653: as a full card it had no window, and a Strata cell the scout's watchdog brought back after a crash ran with no
   way to its Talk tab (2026-10-26). Its window says the trouble (its band, its log, its overview's alerts), and so does its panel
-  on the page, so that trouble does not read as calm: a cell the controller does not reach is red and says so, one that crashed
-  since it was last started by hand is amber and says how many times ("💥 crashed 2× since it was last started by hand").
+  on the page, so that trouble does not read as calm: a cell that crashed since it was last started by hand is amber and says how
+  many times ("💥 crashed 2× since it was last started by hand"). (A cell the controller did not reach on its port was red until
+  2026-11-08: the controller reaches every cell through its machine's scout now.)
 - `MachineSide` — the column at the right of the list of models, under the map (part 4 of В, 1.3.636; the owner chose "Б" for the charts: in
   the column, always in sight, a line per chart). Four parts with their titles: the engines — the caravan's strip with llama.cpp's
   build and its update (`nodeCaravanStripHtml`) and each engine's group with the models it holds that no cell serves, as on the
@@ -472,17 +540,19 @@ The head of a machine's page — variant В «Карта памяти» of the s
 alike. Between two drawings of the board `MACHINE_HEAD_LIVE.patch` (syncTopologyLive, topology-render.js) keeps the head current.
 The lanes' blocks are buttons, and the RAM's use moves with every reading: lanes written whole with every tick took the focus and
 the hover off the block under the pointer (1.3.633). So while the lanes hold the same blocks — `shapeOf` the page against `shape`
-of the figures: a cell by its port, another holder by its kind, the chips under them by their hook and port — their widths, words,
+of the figures: a cell by its id, another holder by its kind, the chips under them by their hook and id — their widths, words,
 hovers, the chosen one and the chips' words move in place (`fill`, by the part's own `Meter.cut` and `Lane.inner`); they are
 written whole only when the blocks change. The panels' words and the rows' sizes and verdicts change in place too (a failed cell's and a
 port's with no model left as drawn), the band drawn whole only when its tone changes. The layout is machine.css (on the tokens, in check_ui_tokens.py's `UI_CSS`). Pinned by
 `scripts/test_js_machine_head.py`, `scripts/test_js_machine_models.py` and, as drawn on the page, by `test_js_topology_nodes.py` (`machinepage_*`).
 
-- Owns: `MACHINE_HEAD_LIVE` (the lanes it last wrote, by element), `MACHINE_PICK` (the chosen port, the builder's
+- Owns: `MACHINE_HEAD_LIVE` (the lanes it last wrote, by element), `MACHINE_PICK` (the chosen cell, by its id, the builder's
   word on the cells), `SIDE_INCIDENTS` (whether its listener is bound); machine-models.js `MACHINE_MODELS` (the filters, the work, the words typed, the
-  rows pressed, the makers' texts).
+  rows pressed, the makers' texts); machine-build.js `MACHINE_BUILD` (what is picked and held for the launch, the saved sets as read,
+  what the last drawing showed).
 - Key exports: `MachineHead`, `MachineBand`, `MachineMap`, `LanePicture`, `CellFit`, `MachineSide`, `SideIncidents`, `SIDE_INCIDENTS`, `MachinePick`,
-  `MACHINE_PICK`, `MachineHeadLive`, `MACHINE_HEAD_LIVE`; machine-models.js `MachineModels`, `MachineModelsChoice`, `MACHINE_MODELS`.
+  `MACHINE_PICK`, `MachineHeadLive`, `MACHINE_HEAD_LIVE`; machine-models.js `MachineModels`, `MachineModelsChoice`, `MACHINE_MODELS`;
+  machine-build.js `MachineBuild`, `MACHINE_BUILD`; runner-offer.js `RunnerOffer`.
 
 ## dialogs.js
 
@@ -811,7 +881,10 @@ weights were trained with; the picker draws it ("up to N") and the new-cell wiza
   The pickers offer a model's companions as the SERVER lists them (`ModelCompanions`: `compatibleMmprojs`,
   `compatibleDrafts` — its own quant folder, `default/`, the repository's other quant folders, then the drafts made
   for its architecture wherever the library keeps them); a model the
-  server does not list keeps the one rule left, its own folder. The values are written only after the pickers'
+  server does not list keeps the one rule left, its own folder. A runner that names companions itself (its registry
+  row's `ownCompanions`, filled by `Runner::complete` at a save: Strata's DeepSeek sets) keeps the files the cell names
+  in those fields — of another repository, paired by no list — offered by their names, and no suggestion of the list is
+  written over them (2026-11-03: the DSpark drafter of a DeepSeek cell was drawn as none). The values are written only after the pickers'
   options are drawn for THIS model (`drawModelPickers`), and the speculative type follows what the draft field
   HOLDS: a `<select>` drops a value it has no option for, and a type set from the wish alone left a cell asking
   llama.cpp for MTP layers its model does not have (gemma-4-12B Q5_K_M, 2026-10-17). The empty draft option says
@@ -848,13 +921,28 @@ neither gives nothing here), not total. Also resolves the compute target
 
 The rules the machine page reads too live in placement.js since 1.3.634, and stay importable from
 here: `CardPin` (the card a one-card start lands on), `CardRoom` (what a card has free) and `FreeVramStart`
-(what a Strata start takes), and the DEVICE reading (`PlacementPlan.devices`, which
+(what a Strata start takes; `FreeVramStart.of` gives a `FreeVramEvery` for a plan of `everyCard`, Strata's DeepSeek engine on
+every card), and the DEVICE reading (`PlacementPlan.devices`, which
 `computeSelectedGpuIdx` calls). Since 1.3.635 the KV cache, the compute buffers and the reading of a cell's
 fields are cell-plan.js's (`KvCache`, `BatchBuffers`, `CellFields`): `estimateKvCacheGb`,
 `estimateBatchBuffersGb`, `kvLayout`, `kvCells`, `cacheBytesPerElement` and the rest keep their names here and
 read the form through `formFields(pfx)`, and the placement map's plan is `PlacementPlan.from` over that reading.
 The machine page weighs a stopped cell by the same rules as the form, from its stored config, and a copy that drifted
 would say "fits" on one page and "does not" in the cell's own window.
+
+**One figure of what the cell takes** (2026-11-07). `cellModelOf(pfx)` is the form's cell as cell-plan.js `CellModel` weighs it —
+the model and its projector, the speculative draft the start loads (`CellDraft`), the KV cache and the buffers under the form's
+fields — and the estimate (`estimateRuntimeMemoryGb`), the placement map (`placementFacts`) and the line above the tabs
+(`offloadSplit`) all read it, as the machine page reads `CellModel` of a stored config. The draft was in none of them: a 27B with
+its 1.28 GB MTP head on a 31.8 GB card read "Model 16.4 GB + MMProj 0.87 GB = Files 17.2 GB | KV≈8.50 GB Batch≈1.63 GB |
+Runtime ≈ 27.3 GB" (2026-10-27), and every "fits" built on that figure was short by the draft. Now the line says
+"+ Draft 1.28 GB" between the projector and the files (`cell-remote-draft`, its `data-t-state` where its weights live), and a line
+under it says what is not counted — its own KV cache, whose size llama.cpp's server decides (a context per slot or not,
+`--ctx-size-draft`) and nothing here reads — and where its weights go when that is not the cards: in RAM for
+`SPEC_DRAFT_N_GPU_LAYERS` 0, its experts in RAM for `CPU_MOE_DRAFT`, not known (and counted on the cards) for a number of layers
+between or an MoE draft whose experts nobody weighed. A draft file the library has not is "Draft —" and in no sum: its size is said
+not known, not drawn as 0. The draft file is the form's word on what is chosen (`modelChoiceOf`); a draft that is off — `SPEC_TYPE`
+none, ngram-*, an embeddings cell, `draft-mtp` with no file (the model's own MTP head) — adds nothing.
 
 The KV cache of a layer is `key_length × head_count_kv` per token (and the same for the value):
 `attention.key_length` is the width of ONE head, and the estimate once used it alone — 0.08 GB
@@ -916,6 +1004,11 @@ what is not set: `FIT` off, `N_GPU_LAYERS` a number or "all", a `TENSOR_SPLIT` i
 then says which one holds it, draws the load as written (every layer for -ngl auto), and offers "Fit
 by the handles"; a hand-set expert override it cannot count, and says so. A tensor split has no fitting
 and nothing in RAM. RAM the machine has not reported is not known, and no shortage is claimed of it.
+A speculative draft (cell-plan.js `CellDraft`, 2026-11-07) is no part of the fitting: llama-server loads the model first, fitted,
+and the draft after it with its own `--gpu-layers-draft`. So its part on the cards comes on top of what the model takes, dealt by
+the room each card has left then (`PlacementPlan.draftDealt`), and a card it overfills is over; its part in RAM is in RAM, and the
+lanes name it ("draft 1.3 GB"). A model fitted up to its handles leaves the draft llama.cpp's margin, 1 GiB by default — short of a
+1.28 GB MTP head, so the map says it does not fit until a handle leaves room, which the `--fit-target` it writes then keeps.
 `offloadSplit` reads the panel's own plan: the map and the line above the tabs are one estimate. No map
 for a CPU cell, another runner, or the row split. `mountPlacementMap(pfx, box)` draws it in any box —
 the dialog's (`refreshPlacementMap`) or the cell window's Memory tab (cell-settings.js) — by that one
@@ -965,7 +1058,7 @@ then measures the model against THAT card's memory, as the scout will when it ch
 names the machine's cards for the form's title ("RTX 3090 + RTX 5090", "2 × RTX 3090").
 
 - Owns: `_computeGpuDdOpen` (the multi-GPU dropdown's open state across re-renders).
-- Key exports: `estimateKvCacheGb`, `estimateRuntimeMemoryGb`, `gpuFreeMiB`, `cellHolds`, `cellFreeMiB`, `computeSelectedGpus`, `VllmPlacement`, `vramFit`, `ramFit`, `applyComputeTarget`, `refreshComputeTarget`, `refreshPlacementMap`, `mountPlacementMap`, `CardPin`, `machineGpuLabel`.
+- Key exports: `cellModelOf`, `estimateKvCacheGb`, `estimateRuntimeMemoryGb`, `gpuFreeMiB`, `cellHolds`, `cellFreeMiB`, `computeSelectedGpus`, `VllmPlacement`, `vramFit`, `ramFit`, `applyComputeTarget`, `refreshComputeTarget`, `refreshPlacementMap`, `mountPlacementMap`, `CardPin`, `machineGpuLabel`.
 
 ## cell-plan.js
 
@@ -981,8 +1074,30 @@ exact size, and in colour where the model is and where the cache", and the cell 
 would drift as the form's and the server's once did. Pinned by `scripts/test_js_cell_plan.py`, and the agreement of the two
 readers on one cell by `scripts/test_js_memory.py`.
 
+The speculative draft (`CellDraft`, 2026-11-07): whether a start loads a draft file is the builder's rule
+(`rust/crates/admin/src/config/args/switches.rs`), and `CellDraft.start` is its copy, held to one table with it
+(`contract/draft_load.json`, run through the builder by `rust/crates/admin/tests/contract.rs`): a file is loaded when the cell
+computes no embeddings, its `SPEC_TYPE` is no ngram-*, it names a file, and the type — `SPEC_TYPE`, or the file's own when it says
+none (`DraftFile.launchType`) — is not "none". The cell's own fields, with no controller default behind them. Where its weights
+live (`place`) is `--gpu-layers-draft` and `--spec-draft-cpu-moe`; what cannot be said is said (`state` `unknown`, `why` the field)
+and counted on the cards; a file the library has not weighs null, not 0 (`unsized`). Its own KV cache is not counted, and `said` is
+the estimate's sentence that says so. `CellModel.of` takes the draft beside the model: `draftCardsGb` and `draftRamGb` for the
+placement plan, `filesGb` and `totalGb` — the one whole the form's estimate and the machine page's verdicts read.
+
+`CellDraft.start` says the rest of the builder's speculation on the same table (2026-11-07): its `--spec-type` (`spec`: a draft file
+loaded, the model's own MTP head — `draft-mtp` with no file — or ngram-*; null with none), the depth of its draft (`nMax`, `nMin`;
+the head's default depth `HEAD_MAX`, 2). Every place that tells speculation reads it: the switch of the cell form and of the
+new-cell wizard is on while the start speculates (llama-edit.js, filling the form) and writes `OFF`, "none", when it is turned off —
+the draft file stays in its field, so turned on again the cell drafts with the same file by its own type (remote-cells.js; the
+wizard's switch writes the form through `CellForm.set`, which fires the same handler); the board's ⚡ mtp chip lights while the
+start drafts (`CellDraft.drafts`, over the type and the file the cell started with); the board's command preview says the
+builder's flags (topology-nodes.js). The switch wrote an empty type for off until then, and a file named with no type is launched
+by the file's own type: "off" still loaded the draft. The preview drew `--model-draft` for "none", and the chip lit for any draft
+file named and for a model whose name says -mtp that runs no head. A switched-off draft is still the file the scout brings to the
+machine with the cell's other files: llama-server does not load it.
+
 - Owns: nothing mutable.
-- Key exports: `CellFields`, `KvCache`, `BatchBuffers`, `CellModel`.
+- Key exports: `CellFields`, `KvCache`, `BatchBuffers`, `CellDraft`, `CellModel`.
 
 ## card-fold.js
 
@@ -1027,8 +1142,8 @@ wholesale.
 The machine's eye over its list of cells lives here too: `hidesIdle(hostId)` is a choice
 per machine, and `cellIdle` the one rule for what it may hide — quiet and not running (parked,
 or reserved with no model). What moves or is in trouble never hides — a failed cell's red line included —
-for the reason it never folds quietly. `nodeServerCardHtml` leaves a hidden mark in place of a hidden cell (`data-cell-hidden`,
-`data-cell-hidden-port`, and `data-cell-hidden-by` — which rule hid it), and `drawTopologyCables`
+for the reason it never folds quietly. `nodeServerCardHtml` leaves a hidden mark in place of a hidden cell (`data-cell-hidden`, the
+cell's id, and `data-cell-hidden-by` — which rule hid it), and `drawTopologyCables`
 puts that cell's cable away without reporting it lost; the eye (`CellEye`) says how many it hid.
 A machine's chips (`CellFilter`, 2026-09-25) narrow its cells to one launcher — the caravan or an
 engine — and `launcherOf(hostId)` / `setLauncher(hostId, launcher)` keep that choice per machine;
@@ -1066,10 +1181,29 @@ cell "GPU —", not 0. A parked cell shows the estimate where the card knows one
 CPU cell's file is RAM, and its GPU is 0), else a dash. A runner that takes its card's free memory (Strata: `vramPlan.takesFree`) is expected to
 hold what the machine page lays it at — its card's free room less its reserve (`CellFit` "free", machine-head.js) — and a dash where its
 card or the card's room is not known; its files are no measure of it (it keeps its weights in RAM: an 87 GB pack read "GPU ≈87.2G" on a 32 GB
-card, 2026-10-26). The cell window's Video memory tile reads the same part. An engine cell (Ollama, LM Studio) says what its engine reports: the card's share, and
+card, 2026-10-26). Which card the tip names is one rule, `CellMemory.freeWords`: its own card, or every card of the
+machine for a runner the registry marks `everyCard` (Strata's DeepSeek engine) — the same rule the row's size line reads, so the
+two cannot name the same fact differently (the owner, 2026-11-04: the row said «every card» while the tip still said «its card»).
+The cell window's Video memory tile reads the same part. An engine cell (Ollama, LM Studio) says what its engine reports: the card's share, and
 the rest of the total in RAM; parked, both are dashes. A port with no model yet has no badges. Hooks `cell-ram` and `cell-gpu`
 (`data-t-state`: held, expected, none, unknown, idle); styles `.mbadge-ram`, `.mbadge-ram-est`, `.mbadge-mem-zero`, `.mbadge-mem-unknown` in
 modals.css, and fold.css greys a parked line's estimates. Pinned by `test_js_cell_memory.py`.
+
+What a cell holds moves while it runs — a model can load after its server answers — and the board draws a card again only when its
+structure changes, so the figures are written again on every tick (2026-11-07: a voice cell's badge said "GPU 0.3G", what its process
+held in the first seconds of its start, for minutes while it held 2.4; only a tab opened later said so). The builder and the live patch
+read the report through one door, `CellMemory.measured(server, node)` — the RSS, the cards the processes are on and what each holds
+(`CellMemory.cards`: `gpuIndexes`, `gpuMem`), their sum and split, whether the machine's cards were read — and `syncTopologyLive`
+(topology-render.js) makes `CellMemory.of({ live: CellMemory.holds(phase), ...measured })` and calls `patch` on the line and on the card or
+the window. `patch` writes the two badges (class, state, tip, words), the window's two Overview tiles (`tile`, marked `data-live-cwgpu`,
+`data-live-cwram` and their `…sub`) and the figure of each card in its Memory tab (`cardFigure`, marked `data-live-cwcard` with the card's
+index; a card it holds nothing on any more says the dash), each only where it says otherwise: a tick that moves nothing writes nothing. Only
+a process that holds memory now is written (running, warming, broken): a parked, failed or copying cell keeps the estimate it was drawn
+with, which its phase redraws. A cell in an engine keeps its engine's figures — told when the engine loads the model (Ollama's `size` and
+`size_vram`), and a load is in the fingerprint. Which cards a cell is on is drawn with the card: the device chip, and the list of cards in
+its window, change at the next drawing, while the badge's sum and tip follow every report. `check_board_live_patch.py` keeps the reading of
+`gpuMem` in cell-memory.js alone among the board's files; the patch over the real board is pinned by `test_js_cell_memory_live.py`
+(drawn by the builder, ticked, compared with the builder's drawing of the next report).
 
 - Owns: nothing mutable.
 - Key exports: `CellMemory`.
@@ -1165,7 +1299,7 @@ Styles: `static/css/modals.css`.
 
 The live window (1.3.612): talk with a running cell both ways at once over the cell's own WebSocket, from its card's 📞
 (`LiveCell.buttonHtml`, `cell-live`: open on a running cell whose runner says `live`, shut with its reason on a stopped
-one, none otherwise). The page opens `wss://<board>/api/cell-live?hostId=…&port=…` and the controller passes the
+one, none otherwise). The page opens `wss://<board>/api/cell-live?cell=<the cell's id>` and the controller passes the
 WebSocket on (`rust/crates/admin/src/fleet/cell_live.rs`): a secure page may not open a plain cell's `ws://`, and a microphone needs a
 secure page. Before dialling, the window asks the same path as a plain GET whether the cell answers its health; a cell
 that does not is said, and a talk that then fails to open is said as a door that drops WebSocket (the reverse proxy in
@@ -1272,16 +1406,18 @@ the window, the line and the full card cannot disagree.
 - **The tabs**: Overview — the figures (speed — only for a cell that generates tokens, not an
   embedding server or a transcriber, or once a speed came; context or a speech model's audio
   window; video memory and RAM: the same figures as
-  the badges, `CellMemory.figure`), the error or broken-engine notice, the chips worth knowing, the
+  the badges, `CellMemory.tile`, written again on every tick as the badges are), the error or
+  broken-engine notice, the chips worth knowing, the
   model's notes, the slots — and for a port with no model, words that there are no figures yet,
-  not a row of dashes; Memory — what it holds, per card,
+  not a row of dashes; Memory — what it holds, per card (`CellMemory.cardFigure`, written again on
+  every tick),
   and the placement the settings name; Settings — the main fields of a llama.cpp cell, the full
-  form, the port, the launch command; Log — what the cell reported went wrong (a failed start with
+  form, the launch command; Log — what the cell reported went wrong (a failed start with
   its reason and, on a line of its own, the advice; a broken engine, the previous attempt, crashes),
   and an empty log says so in words; Talk — only for
   a cell that talks: voice, live, its own page.
-- **The ⋯ menu**: autostart (a switch), copy the address, change the port (a parked cell only),
-  the launch command, delete. An item that cannot act now is disabled, with the reason as its tip.
+- **The ⋯ menu**: autostart (a switch), copy the address, the launch command, delete. A cell holds a port only while it runs
+  (2026-11-08): there is no port to change. An item that cannot act now is disabled, with the reason as its tip.
 
 Phase 2 (1.3.623 on): the Log tab shows the server's own log (cell-log.js, below), the Talk tab
 of a chat cell a text chat (cell-chat.js, 1.3.624), and a llama.cpp cell with a model that may be
@@ -1290,8 +1426,9 @@ model picks one in the dialog first): the Settings tab's `editor`
 stands where the summary of the main fields stood, the Memory tab's `place` where the summary of the
 saved placement stood — beside the map it would tell another story while edits are not applied —
 and the window's `foot`, after the panels where no scrolling hides it, says what is not applied.
-`CellWindow.place(key)` reads a cell's machine and port out of its key, for the log, the chat and
-the settings to ask by.
+A window's key is its cell's id (2026-11-08): the log, the chat and the settings ask by it, and the live patch finds the
+window by `data-cell-id`; `title` names the cell (its name, else its id) and `CellWindow.titleIn(doc, key)` reads it from a
+window that is drawn. No port is said in the window: a cell holds one only while it runs, and the ⋯ menu has no port item.
 
 - Owns: nothing mutable. The chosen tab lives in `CardFold.windowTabs` (card-fold.js): the board
   repaints the lane wholesale, and a choice kept only in the DOM would be gone on the next report.
@@ -1328,8 +1465,8 @@ offered to a chat cell: its runner answers `text-chat` (llama.cpp, PrismML, vLLM
 runner is not (`CellChat.offered`). A cell in an engine says its job itself (the engine's type of
 the model, learned at load): a stopped one, or one that has not said, has no Talk tab. The page asks
 the controller (`POST /api/cell-talk`, mode `text-chat`) and the controller the cell's one chat path
-(`TextChat`, `rust/crates/admin/src/fleet/cell_talk/mode.rs`): the board is https and the cell plain http. An engine
-cell's port names the cell's model in the request, so the engine's answer is the cell's model's;
+(`TextChat`, `rust/crates/admin/src/fleet/cell_talk/mode.rs`), by the cell's id (`{cellId}`): the board is https and the cell
+plain http. An engine cell's request names the cell's model, so the engine's answer is the cell's model's;
 the engines count tokens (`usage`) and say no speeds, so none are drawn.
 
 `CellChat` keeps the talk by cell, outside the window — the board repaints the lane wholesale, and
@@ -1338,18 +1475,16 @@ last question-and-answer pairs that fit in the runner's `turns - 1` messages: wh
 answer without its question reads as the model's words out of nowhere), and a question whose
 answer failed goes with its failure. Enter sends, Shift+Enter is a new line, and a word an input
 method is still composing is not sent. While an answer is awaited nothing else is sent and the
-talk is not cleared. The talk is held with the cell's model (`heldWith`): a cell made anew on a
-deleted cell's port starts a talk of its own. The model is the cell's path or name, and for a cell
+talk is not cleared. The talk is held with the cell's model (`heldWith`): a new cell, a name of its own, starts a talk of its
+own. The model is the cell's path or name, and for a cell
 in an engine — whose record names neither — its `ENGINE_MODEL` (1.3.646). A stopped cell shows
-its talk and says how to start it. llama.cpp's own page
-(`http://<machine>:<port>/`) stands beside a running llama.cpp cell unless its config turned it off
-(`ENABLE_WEBUI` 0) — a link followed in this tab, as the cell's 🌐 page is — and only where the machine's
-firewall lets everyone reach the port, or nobody read it (`CellReach.everyone`, 1.3.656): under the owner's
-variant B the cells' ports answer the controller alone, and from this browser the page leads nowhere. The
-cell's address in its details is then plain text, its hover saying why; and the line under a cell the
-controller cannot reach names the controller's own rule for the cells' range (`CellReach.controllerRule`:
-from `topology.server.ip` to `topology.cellPortRange`), not `sudo ufw allow <port>`, which opened the port
-to everyone.
+its talk and says how to start it. Since step 7 of the owner's plan (Papyrus `caravan-scout-port-lease`,
+2026-11-08) a cell listens on its machine's loopback alone, and the controller reaches it through the scout's
+door (`rules::CellDoor`, the scout's `cells/door.rs`): no card links llama.cpp's own page, which no browser
+reaches; no card or detail says who the machine's firewall lets reach the cell's port (the 🔒/⛔ badge stays an
+engine's, whose port is on the network); and no line under a cell names a ufw rule for the controller. Until then
+the page stood beside a running llama.cpp cell where the firewall let everyone in (`CellReach.everyone`), and a
+cell the controller could not reach on its port said so with the rule to run (`CellReach.controllerRule`).
 
 - Owns: `CELL_CHAT` — the talk by cell (`cells`: messages, draft, whether an answer is awaited),
   and whether it is bound.
@@ -1384,9 +1519,9 @@ made the map open the third step on its "set by hand" warning (2026-10-26). A ca
 
 `WindowPick` lists the usual windows a model is offered, up to the one it was trained with; none is written by itself — an
 empty field starts the cell at the trained window (AskedWindow, 1.3.651), and a smaller one is a tip with a button. The wizard
-does not say the port it takes (1.3.655): a model is called by its name, and its cell's port stands in the cell's window; a
-model already run here says how many cells run it, not their ports (`amRowCell`). The wizard is no second
-form: it drives `CELL_FORM` filled for the next free port without its dialog — `pickModel` is the picker's own pick, a runner
+says no port (1.3.655; since 2026-11-08 a cell has none until its scout leases one at the start): a model is called by its name; a
+model already run here says how many cells run it (`amRowCell`). The wizard is no second
+form: it drives `CELL_FORM` filled for a new cell (`CellForm.newKey`) without its dialog — `pickModel` is the picker's own pick, a runner
 is `chooseRunner` (the tabs' own), every field `CELL_FORM.set` — so the checks, the companions, the command and the Apply stay
 the dialog's. Create is the dialog's Apply without its question (`save({confirmed: true})`), Create and start then the cell's
 own start (`cellServiceAction`); «Full form…» shows the dialog itself with everything set. Its parts come in through `deps`
@@ -1405,8 +1540,8 @@ field's name or its help and "only those set" (on by default); the Memory tab dr
 map of the cards and RAM. Both edit the cell editor's form itself — `CellForm` (remote-cells.js),
 filled for the cell without its dialog — so the checks, the map's arithmetic and the command the
 cell will run stay the dialog's, in one place. A field is drawn as the form draws it: an optional
-toggle the config does not state shows the server's default and says "default", a cell's port is
-not typed in (it is moved on the board), the closed choices are offered beside free text. A write
+toggle the config does not state shows the server's default and says "default", a cell has no port field
+(its scout leases one at each start), the closed choices are offered beside free text. A write
 is the form's own (`CellForm.set`: the value, then `input` and `change`), so the form's listeners
 redraw what reads it; a field they wrote as well is drawn again, the focus and caret kept. Leaving
 EXTRA_ARGS hands its flags with fields of their own to those fields, as leaving it in the dialog does.
@@ -1542,8 +1677,9 @@ said rather than guessed; `launchType` adds the `draft-simple` a plain second mo
 `DraftFile.cellType(draft, familyType)` is what the cell editor writes into `SPEC_TYPE`: the draft's
 own type, or with no draft the family's type for a model with an MTP head inside (else `draft-mtp`).
 Picking a model (form.js) and switching speculation on (remote-cells.js) both write it — the switch
-wrote the family's type over a DFlash sidecar until 2026-10-11 — and the cell window's command
-(topology-nodes.js) names a cell's empty type by `launchType`, as the server's builder launches it.
+wrote the family's type over a DFlash sidecar until 2026-10-11; switched off it writes "none" (cell-plan.js
+`CellDraft.OFF`) — and the cell window's command (topology-nodes.js) names a cell's empty type by `launchType`
+through `CellDraft.start`, as the server's builder launches it.
 
 - Key exports: `DraftFile` (`sidecarType`, `launchType`, `cellType`).
 
@@ -1589,8 +1725,11 @@ it scrolls with its section. The layer of cables is `overflow: hidden` and cut a
 under the titles, not across them; an element's scroll does not bubble, so `main.js` hears the bodies' scrolling on the way
 down (a capture listener on the document, only for `board-scroll`) and draws the cables again once a frame. A machine's own
 window (`data-board-view="machine"`) keeps scrolling as a page, its title and the providers hidden: every rule of this is
-for `html:not([data-board-view="machine"])`. Pinned by
-`test_columns_scroll_css.py` (the rules and the markup) and `test_js_main.py` (the listener).
+for `html:not([data-board-view="machine"])`. A phone is the other exception (2026-11-07): at 720 px and down the board keeps no
+width (`--board-min: 0px`), its columns stand one under another — the clients, Routing's card, the machines with the providers —
+and the page scrolls as one, no column by itself; the monitor's drawer goes there. A desktop window narrower than the board
+still scrolls the whole board sideways, and its bar keeps the board's width and one line. Pinned by
+`test_columns_scroll_css.py` (the rules and the markup), `test_pages_fit_phone_css.py` (the phone) and `test_js_main.py` (the listener).
 
 - Owns: `activeView`, `_topologyRenderPending` (setter `markTopologyRenderPending`), `_lastStructureFingerprint`, `_lastRuntimePanelHtml`.
 - Key exports: `renderAll`, `renderTopology`, `refreshTopology`, `applyTopologyUpdate`, `syncTopologyLive`, `topologyStructureFingerprint`, `topologyInteractionActive`, `flushPendingTopologyRender`.
@@ -1728,7 +1867,7 @@ reader, one reading for both cards.
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
 - Key exports: `nodesLaneHtml`, `machineHeadOf`, `machineSideHtml`, `nodeCaravanStripHtml`, `machinesLaneHtml`, `nodeComputeHtml`, `machineMissingHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `llamaBuildChipHtml`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanModelsWithoutCell`, `nodeDriverWarningsHtml`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
 - The words on a cell's card are two, each in its own line under the body (`topology.cellNotes` and `topology.cellModelNotes`, both by
-  the cell's key `host:port`). 💬 is the cell's own note, written in its window (up to 280 characters). 📖 is the comment on the cell's MODEL
+  the cell's id). 💬 is the cell's own note, written in its window (up to 280 characters). 📖 is the comment on the cell's MODEL
   (the owner, 2026-10-19): one for every quant of it, written at `/models` (`rust/crates/admin/src/models/notes.rs`) and read here by the folder the cell's
   model file lies in, so every cell that runs the model has it. The cell's own note comes first. The same words on both are said once, as the
   cell's own. A cell whose model path names no model (a file in the root of the models folder, a path elsewhere) has none. The card clamps
@@ -1822,9 +1961,8 @@ reader, one reading for both cards.
   measure draws no sign. The sign coming or going redraws the head (the fingerprint); the percent is
   patched in place (`[data-live-diskpct]`); the tip says the rule, not the moving figures.
   Under it, not the list of the caravan's models
-  but one line, «＋ Add model» (`node-caravan-add`). It opens the new-cell wizard on the next free port
-  (add-model.js `ADD_MODEL`), shut while a reserve on the machine
-  is taking the port the editor would offer, and counts the models the cell editor offers
+  but one line, «＋ Add model» (`node-caravan-add`). It opens the new-cell wizard for a new cell, which gets its name when it is
+  saved (add-model.js `ADD_MODEL`), shut while a reserve on the machine is under way, and counts the models the cell editor offers
   (`state.models`: this controller's and its libraries' — any machine runs any of them, its scout
   fetches the file) less the ones a cell of this machine names (`caravanModelsWithoutCell`). An empty
   list, or one whose every model has a cell here, is said under it; a list that has not come says
@@ -1872,7 +2010,7 @@ reader, one reading for both cards.
   the name verbatim, ☁ for an Ollama cloud model, a job chip only when it is not chat (embeddings),
   the parameters, what it holds while loaded (its window and when keep_alive lets it go in the
   chip's hint — a clock time; LM Studio's «stays loaded» from the scout, Ollama's from an expiry
-  centuries away) or ≈ the file's size. «+» reserves a cell with the model on the next free port,
+  centuries away) or ≈ the file's size. «+» reserves a new cell with the model,
   no dialog (`reserveEngineCell` in remote-cells.js); it waits while a cell is being reserved on the
   machine or an act runs on the model. A model held outside any cell can be unloaded (⏏, confirmed
   like stopping a cell); an Ollama model that is not loaded deleted (🗑, under the pointer, through a
@@ -2005,7 +2143,10 @@ serve it, a cell's too, or a model called straight.
 From Routing's card a cable goes on to each machine and provider the pools reach (`PoolReach`); a machine's lights while a
 request runs on it — any leg but a cloud one whose output is the machine's: a cell, a model of its entry, an engine's model
 (1.3.665; before, only a cell's leg lit it, and since 1.3.655 the pools' rows lead to the machine's models: the owner,
-2026-10-26, "I don't see the right part of the active lane").
+2026-10-26, "I don't see the right part of the active lane"). Since 2026-11-03 a leg lights the machine its output stands on
+whether that output is a pool's row or a model called straight (Routing's direct column, a pool `live:<output>`), and a machine
+reached only straight has its cable while a request runs there or has just ended (the owner: "on the right cables the flow into
+it is not seen").
 
 One look with Routing's (1.3.549; the owner, 2026-10-14: "make the main board's connections like Routing's, and keep
 how an active one is shown"): a cable ends in a 12 px dot on the card's edge (`.topology-handle`; on a machine's head and a
@@ -2025,9 +2166,10 @@ From Routing's card (its output, `data-topology-router-output`) cables go to the
 cloud providers its pools lead to (the owner, 2026-10-12): to a machine one of whose cells is a pool's
 row, to an account a pool's row calls (`PoolReach`, provider-glances.js) — a row switched off leads
 nowhere. The rows themselves stay in Routing; here a cable says only that requests can go there. It
-ends at the card's head and lights while a request runs there: a cell's leg names its output
-(`routedOutputId`), a provider's its account (`cloudAccountId`, `rust/crates/proxy/src/record.rs`). No pool, no
-such cable; one whose card is missing is named in `cableDrops`.
+ends at the card's head and lights while a request runs there: a leg names its output (`routedOutputId`, in the running
+record and, since 2026-11-03, in the finished one too), and the output's machine is `PoolReach.machines`; a provider's leg
+names its account (`cloudAccountId`, `rust/crates/proxy/src/record.rs`). A machine no pool leads to gets its cable only while
+a request of a direct route runs there or has just ended; one whose card is missing is named in `cableDrops`.
 
 - Owns: `_cableHighlightClearTimer`, `CableEnds.marked` (the heads that have the dot).
 - Key exports: `drawTopologyCables`, `drawLiveTopologyCable`, `topologyCablePath`, `topologyAccentStyle`, `highlightTopologyCable`, `CableEnds`.
@@ -2296,22 +2438,22 @@ record number, which it never called.
 
 `OutputCells` answers, for Routing's SERVERS panel and its cables, what stands behind a local
 output (2026-10-04, after a look at the live Routing: 24 of 30 rows were stopped and drew the same
-grey "idle" dot as the six that ran; a moonshine cell read "en"; two cells of one model read the same).
-- `cellOf(out)` — the cell record: the machine at the output's address (`machineAt`, the same rule that
-  names the panel's groups), then the port. An engine's model is found by its machine and its engine.
-- `state(out)` — `running | stopped | starting | stopping | failed | unknown` from the record's phase
-  (an engine's model from its engine's state); a record the board does not have, or a phase this table
-  does not know, is `unknown` — never stopped, never idle. A cloud output has none (`""`).
-- `name(out)` — the server's own phrase for what the cell runs (`cellLabel` = `cell_artifact_label`),
-  else the model's short name as the cell card says it, else the output's label without its port.
-  `topologyRouterOutputLabel` (routers.js) adds the port, so every caption of an output reads the same.
-- `marks(out)` — the cell's jobs as marks, the list the cell card's chips draw (`cellJobs`).
+grey "idle" dot as the six that ran). A local output is a machine's model (`mm:<hash>`, reached through the machine's entry)
+or an engine's model (`eng:<id>`): a cell is no output of its own since 2026-11-08 (Papyrus `caravan-scout-port-lease`), and
+nothing here finds a cell by a port.
+- `upstream(out)` — the proxy's queue group of an output, as it stamps its requests: `host:port/model` for a machine's model,
+  `host:port` for an engine — the one rule the Routing canvas counts a queue by.
+- `nodeAt(out)` — the machine the output names (`hostId`); null when the board has none of that id.
+- `modelOf(out)` / `copies(out)` — the machine's model as its scout last said it (`entryModels`), and its cells.
+- `state(out)` — `running | stopped | starting | failed | unknown` from the scout's word on the model (an engine's model from
+  its engine's state); a model the board does not have, or an output of any other kind, is `unknown` — never stopped, never
+  idle. A cloud output has none (`""`).
+- `name(out)` — the model's name, an engine's label (else "model · engine"), else the output's label; never a port, and ""
+  when nothing names it. `topologyRouterOutputLabel` (routers.js) reads it, so every caption of an output reads the same.
+- `marks(out)` / `jobs(out)` — what the model does, as the cell card's chips draw it.
 - `reached()` / `split(outs)` — what something of Routing leads to (a cable, the default, the audio
   and embeddings outputs, the older rule lists), and a machine's rows split into the shown ones and the
-  stopped cells nothing leads to, folded while there are two or more of them.
-- `twins(outs)` — rows of one machine with one name: each says the values of the settings that differ
-  (`SEAMLESS_TGT_LANG=eng` beside `=rus`), a setting that may hold a secret by its name alone, and twins
-  that differ only in the port say whose copy they are (`= :22004`). No settings known — no note.
+  stopped models nothing leads to, folded while there are two or more of them.
 
 ## queue-settings.js
 
@@ -2346,6 +2488,11 @@ the button is pressed by `GET /api/machines`, so a page nobody opens the list on
 no list each say what they are. On /hf the words come from its own table, the same keys with the same words (held by the same test). The row
 holds the words from 1430 px (measured on the six views of the pages in 20 languages; the owner's window is 1440 px); under that only the icons
 stay, each with its hover. The acronym under the brand wraps: as one line of 81 letters it pushed the language picker out of the window on the board.
+Where the bar's three groups do not fit on one line it folds (2026-11-07; the widest bar under 1430 px needs 1107 px): from 1180 px down the
+brand and the page's name stand on one line and the actions at the end of it or of the next; on a phone (720 px and down) the actions wrap among
+themselves, the acronym goes and the bar does not stick. Until then a phone drew every page 880–1200 px wide and cut the bar's end off. The main
+board's bar has the board's width and keeps its grid until the board folds. The bar's menus hang from logical sides, so a page written right to left
+folds and opens them the same way (`scripts/test_pages_fit_phone_css.py`).
 The heads of Clients and Machines start on one line, and a title is as far from its first row of buttons in one column as in the
 other (1.3.540: the Machines head had a margin over it, from the days it stood under the pools in one column);
 `scripts/test_board_heads.py` reads the stylesheets and names a margin over one of them. The router detail popover and the router's
@@ -2374,7 +2521,7 @@ and the Servers block each held a copy) — and each group is named by
 old display name and every other machine by its bare address.
 A local row says its cell (output-cells.js): a serving cell's dot is its traffic; a cell that is not
 serving has a ring instead and its state in words at the row's end (`routing-out-state`); the name is the
-cell's own, led by its job marks; twins say what sets them apart. A machine's stopped cells that nothing
+model's own, led by its job marks, and no row says a port. A machine's stopped models that nothing
 leads to stand under one row, "N stopped, no cables" (`routing-quiet-cells`, folded until opened —
 `topologyQuietShown`), which names their outputs (`data-cv-group-outs`) so a cable that comes to one
 before the next render still has an end. The head's "N unassigned" badge counts only ports that can feed a router
@@ -2469,7 +2616,7 @@ its language, and the content of a script its command
 names; any other machine keeps them held back.
 
 `reserveEngineCell(hostId, kind, model)` is the «+» on a model's line under an engine's cells:
-nothing is asked — the line names the engine and the model — and the port is the next free one;
+nothing is asked — the line names the engine and the model — and the new cell's name is the controller's answer;
 one reserve at a time on a machine. It sends through `postReserve` (the machine's spinner until the
 new cell is on the board, its flash, the controller's refusal as the toast —
 `rust/crates/admin/src/fleet/engine_cells.rs` holds the words). The Reserve-cell stub under a machine's cells,
@@ -2481,11 +2628,13 @@ no other act — no model is loaded from the board. `cellServiceAction` asks whe
 ("≥" when the need is the model's file alone), and on "start anyway" the same start with `force`.
 
 «＋ Add model» on a machine's card and page opens the new-cell wizard since 1.3.638 (add-model.js, below): it fills the `tr-` form
-for the next free port without its dialog and drives it. The form's own pick still awaits a model the way the dialog opened
+for a new cell (`CellForm.newKey(host)`, "new:<machine>") without its dialog and drives it. The form's own pick still awaits a model the way the dialog opened
 for it did (`mcAwaitPick`): the field is empty, and `modelChoiceOf` — the form's one word on what is chosen, which the selects'
 redraw and memory.js's `selectedModelRows` both ask — answers "no model" for the model, projector and draft while the mark
 stands; the first model picked lifts it, and Apply without one says so before any confirm. Its Apply makes the cell —
-`save-config` creates a cell that does not exist yet, checking its port as a reserve does. A saved cell reveals the caravan's
+`save-config` with no cell's id makes the cell and answers its name, and a second Apply saves that same cell. No form has a
+PORT field since 2026-11-08: a cell's port is leased by its scout at each start, and a command's preview says `{{PORT}}`
+(`LEASED_PORT`, the twin of `LlamaArgs::LEASED_PORT`). A saved cell reveals the caravan's
 cells on its machine's chips (`CARD_FOLD.reveal`), so the new cell is not saved out of sight.
 
 `CellForm` (`CELL_FORM`, 1.3.625) is the `tr-` form for the cell window's Settings and Memory tabs
@@ -2494,12 +2643,18 @@ cells on its machine's chips (`CARD_FOLD.reveal`), so the new cell is not saved 
 dialog's Apply, true when saved — `submitRemoteLlamaStart` answers it; `{confirmed: true}` skips its question when the
 button that called it asked it already — the wizard's Create), `show` (the dialog with the
 form as it stands), `placeMap`, and the events `filled`, `saved` (with the config sent) and `hidden`
-(the dialog closed by any hand, heard by its `hidden` attribute). `openRemoteFormForHost` asks its
+(the dialog closed by any hand, heard by its `hidden` attribute). Every method takes a cell's key — its id, or `new:<machine>`
+for a cell not made yet. `openCellForm(key)` asks its
 keeper first: the dialog of the cell whose edits the window keeps comes up as it stands, another
 cell's form is filled only when the operator lets those edits go.
 
-- Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state, and `CELL_FORM` (its hearers and keeper).
-- Key exports: `reserveEngineCell`, `reserveEngineButton`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `openRemoteFormForHost`, `bindServerSlotControls`, `formOnControllerMachine`, `CellForm`, `CELL_FORM`.
+A cell is keyed by its id across the module (2026-11-08): `cellServiceAction(cellId, action)`, `deleteServerSlot(cellId)`,
+`renderSchedulePanel(pfx, cellId, schedule)`; a cell's buttons carry `data-cell-id` and are read by `CellButton`. The port
+picker, its swap, the exclusions and the scan went with the port a cell held whether it ran or not, and so did the board's own
+"starting" record of a machine and its stop of every cell (`submitLlamaStop`).
+
+- Owns: the pending-op collections — `_stoppingHosts`, `_deletingSlots`, `_reservingCells` (by machine: a reserve has no cell yet), `_newReservedCells`, `_stoppingCells`, `_pendingCellActions` (by cell id) — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state (`_trHostId`, `_trCellId`), and `CELL_FORM` (its hearers and keeper).
+- Key exports: `reserveEngineCell`, `reserveEngineButton`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `submitRemoteLlamaStart`, `cellServiceAction`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `openCellForm`, `boardCell`, `formCell`, `bindServerSlotControls`, `formOnControllerMachine`, `CellForm`, `CELL_FORM`.
 
 ## cloud.js
 
@@ -2631,7 +2786,9 @@ since a reading from before it counts nothing from it. A subscription has limits
 `PoolReach.of(topology)` is where Routing's pools lead — the accounts their rows call and the
 machines whose cells they call (a row's output → the router's output → `machineAt` its address, the
 rule Routing's machine rows go by). A row switched off and an output gone lead nowhere: no cable
-says a request can go there. cables.js draws Routing's card's cables by it.
+says a request can go there. cables.js draws Routing's card's cables by it. `PoolReach.machines(topology)` is that rule
+alone, output id → machine: a pool's row and a request's leg are told their machine by it; a cloud's output and one whose
+machine the board does not know stand on none.
 
 - Owns: the column it draws into (`container`), the topology it drew (`top`) and the subscriptions'
   saved resets (`resets`, read at most once a minute each).
@@ -2693,8 +2850,9 @@ reading and works out nothing of its own; `POOL_BOARD` is the page's one board, 
   the board no longer has stands apart, to be taken off. Each tick is saved at once (`toggleDeny`,
   `POST /api/consumers/deny`, the whole list), the board drawn with the answer and the box keeping the keyboard's focus;
   not read — the window says so, not an empty list.
-- **«Напрямую»** (`directHtml`, `data-pb-direct-block`; option В2) — on the top of the pools' column, sticky while the
-  pools scroll: a row for each model a client calls by its own name, without a pool, while such a request runs or ran
+- **«Напрямую»** (`directHtml`, `data-pb-direct-block`; option В2) — the first block of the pools' column, and not pinned
+  there (the owner, 2026-11-06: it is always the top block, and the reader block stands directly below it): a row for each
+  model a client calls by its own name, without a pool, while such a request runs or ran
   a moment ago (`PoolFlow` `direct`) — one row a model, whatever number of clients, with its lamp, where it stands and
   who calls it — and, while a client, a model or one of its rows is pinned, the models called straight over three days
   (`calls`, `rust/crates/admin/src/cloud/misses.rs` `ClientTallies`): "12 in 3 days". Named by `topology.liveCatalog` (every model the
@@ -2724,8 +2882,8 @@ reading and works out nothing of its own; `POOL_BOARD` is the page's one board, 
 - **Pools** — each pool a card: its name in place (saved on change, the pool cards' `save`), ✕ for its
   deletion (the pool cards' `remove`: what holds it, where it goes); its last switches (🕘 until 1.3.532),
   its settings and its "＋ row" are in its strip (1.3.533, `poolDetailsHtml`). Its rows in order (`pool-ladder`, carried by ⠿ — StepCarry, the order saved by the
-  pool cards' `sort`), each of three kinds: a subscription's model with its account, a machine's cell
-  with its machine and port (`srv:<port>`, `eng:<id>`), or a row with no cable. Each says the proxy's
+  pool cards' `sort`), each of three kinds: a subscription's model with its account, a machine's model or an engine's
+  (`mm:<hash>`, `eng:<id>`; only an engine's row says a port, `PoolBoard.enginePort`), or a row with no cable. Each says the proxy's
   word on it (`status`, `PoolCards.REASONS`: serving, the levels reached, a cell off or busy, a
   sign-in missing…), the serving one lit; a target that is gone is said in red, with no cable. A row
   whose cell does not run now says so first, in the controller's word of the moment (`cellWord`,
@@ -2780,12 +2938,12 @@ reading and works out nothing of its own; `POOL_BOARD` is the page's one board, 
   and in its head how many cells are in which state ("3 running · 5 stopped", `cellsSummary`: a failed cell is not a
   stopped one, a state nobody expected is "unknown", so the numbers add up to the cells there are); each cell and
   engine model (`localOutputGroups` of the router's outputs) a line — the mark of its first job (every job in the hover),
-  its name, its port, and at the right "in no pool", a word when its state is news (starting, stopping, failed, unknown) and
+  its name (an engine's model its port too, `PoolBoard.enginePort`), and at the right "in no pool", a word when its state is news (starting, stopping, failed, unknown) and
   its lamp: lit while it serves, a ring while it does not run, amber on the way up or down, red when it failed; the
   stopped cells no row names fold under one button (`PoolBoard.foldCells`). A machine whose entry lists its models (scout
   2.28+) stands by them, by name, with no port (1.3.655, step 3 of the owner's plan: the pools' rows name the machines'
-  models): its cells are their copies, and a cell stands on the card only while a row still names it by its port
-  (`PoolBoard.machines`, `byModels`); its head counts the models, and the fold says "+ 2 stopped models" (`pbMoreModels`).
+  models): its cells are their copies, and no cell stands on the card by itself since 2026-11-08
+  (`PoolBoard.machines`, `localOutputGroups`); its head counts the models, and the fold says "+ 2 stopped models" (`pbMoreModels`).
   A machine with no entry stands by its cells, as before. A row, the strip and the history find a cell off the card all the
   same (`allMachines`). Subscriptions are added on the main board
   (provider-glances.js), so the column's head has no ＋: an account's own "＋ model" adds its models; it stands in the
@@ -3223,10 +3381,16 @@ Every client's cable goes on to Routing since 1.3.675: each sees every pool and 
 
 `ScoutRelease` is the machine's ⋯ menu item **Update the scout** (`node-scout-update`): one press. It reads
 `GET /api/fleet/scout-release?hostId=`, and `offer` decides from that value alone: no release on this
-controller, a scout that says no release and cannot replace itself, the same release already, or a new
-one. Only the last asks the operator; yes goes to `POST /api/fleet/scout-update`. "It took the release" and
+controller, a scout that says no release and cannot replace itself, the same release already, the same
+program under another commit (`sameScout`, the rule the controller follows by itself after a delivery), or a new
+one. Only the last asks the operator; yes goes to `POST /api/fleet/scout-update`. A scout busy for now is taken over by the
+controller's own cycle (the owner, 2026-11-08: the menu, with the cycle): the answer says `waiting`, and the words say how often and
+how long it is asked again — figures the answer does not give are dashes — and nothing is watched for. A scout that took the
+release while requests pass through it restarts once they are done: its answer says `waitsFor` (what it waits for, and `mostSec`,
+the most it waits for the requests), the words say so (`scoutUpdateTakenWaits`), and the watch for its report lasts that much
+longer; a wait the answer puts no figure on adds nothing to it. "It took the release" and
 "it runs the release" are different words: the second comes only when the machine's next report says it,
-and a machine that does not report within a minute is named as such, not shown as done.
+and a machine that does not report within a minute (and the wait it said) is named as such, not shown as done.
 
 ## scout-add.js
 
@@ -3313,6 +3477,11 @@ error, and "—" for a duration it never had, not "0ms".
 
 - A row's client cell is the address the proxy recorded. (The monitor's client labels are gone
   since step 6.9 — both arms of the old "labelled?" choice drew the address anyway.)
+- The detail card's Stream section is what the fold read: events, letters, the finish reason, tokens,
+  and the lines it counted and did not read (`linesPastCap`, 2026-11-04). A stream read only in pieces
+  has no events, so the section used to vanish together with the one number that says it was read in
+  pieces; now the number is shown, and the row is drawn only when there is something to name —
+  a stream read whole says nothing about the cap.
 - Owns: `historyRows`, `historyEventRows`, `historyTab`, `historyCurrentDate`, the filter values.
 - Key exports: `openRequestHistory`, `closeRequestHistory`, `loadRequestHistory`, `renderHistoryTable`, `openHistoryDetailPopup`.
 
@@ -3633,7 +3802,9 @@ repository; along the bottom the selection plan and the downloads. The header is
   file lands as `<model>/<author>/<quant>/`, whether it fits with room to assemble a split file,
   what it would write over); one job per repository; jobs polled while they run or retry, Cancel
   on the server, interrupted partials with Resume and Delete (1.3.686: after a window that says how much goes, the partial, its manifest and
-  the folders left empty; a partial with no manifest has Delete alone). A running row ends with the time left
+  the folders left empty; a partial with no manifest has Delete alone). An interrupted row is a job (2026-11-03): with more than one file
+  still to fetch it says how many ("· 2 files left"), Resume follows them all (`totalFiles` from the row), and the Delete window says the
+  rest of the job will not be downloaded. A running row ends with the time left
   ("~12 min left"): the bytes still to come over the job's `pace`, a speed that moves 0.05 a poll toward the
   last step (the speed on the row moves 0.3, and an estimate that follows every wobble of the line is none).
   The row says nothing — not "0 s", not "∞" — while the job does not run (a dropped connection), has no pace

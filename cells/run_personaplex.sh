@@ -108,8 +108,9 @@ say "serving on port $PORT: weights from $MODEL_DIR"
 cd "$SRC"
 # NO_TORCH_COMPILE: any value turns the compile off, which needs no Python headers and no ptxas.
 # LD_LIBRARY_PATH out: the machine's older CUDA libraries must not shadow the ones torch carries.
+# On the machine's loopback, as every cell listens: the scout reaches it there (rules::CellDoor::LISTEN).
 exec env -u LD_LIBRARY_PATH PYTHONUNBUFFERED=1 HF_HUB_OFFLINE=1 NO_TORCH_COMPILE=1 \
-    "$VENV/bin/python" -m moshi.server --host 0.0.0.0 --port "$PORT" \
+    "$VENV/bin/python" -m moshi.server --host 127.0.0.1 --port "$PORT" \
     --static "$ASSETS/dist" --voice-prompt-dir "$ASSETS/voices" \
     --moshi-weight "$MODEL_DIR/model.safetensors" \
     --mimi-weight "$MODEL_DIR/tokenizer-e351c8d8-checkpoint125.safetensors" \

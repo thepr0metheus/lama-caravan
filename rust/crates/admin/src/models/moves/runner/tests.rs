@@ -284,8 +284,9 @@ fn after_promise(rig: &Rig, status: &str, items: &[&str], then: Value) -> String
 #[test]
 fn a_cell_is_started_only_when_every_item_came_home() {
     let rig = Rig::new("runner-promise");
-    let then = json!({"start": {"hostId": "box", "port": 22001}});
-    let tried = "the cell did not start: cell has no saved model — configure it first";
+    let then = json!({"start": {"cellId": "c22001"}});
+    // A promise of a cell this controller does not keep is refused by name: the start was asked, and said why it could not.
+    let tried = "the cell did not start: no cell c22001";
     assert_eq!(after_promise(&rig, "done", &["done", "done"], then.clone()), tried, "it was asked to start");
     for (status, items) in
         [("done", &["done", "skipped"][..]), ("done", &["skipped"][..]), ("failed", &["done"][..]), ("cancelled", &["done"][..])]
@@ -315,14 +316,14 @@ fn a_promise_survives_on_the_disk_and_starts_the_cell_when_the_model_is_home() {
         doc.insert(
             "topology".to_string(),
             json!({
-                "serverSlots": {"box:22001": {"hostId": "box", "port": 22001, "model": "other/o.gguf", "config": {"MODEL_FILE": "other/o.gguf"}}},
+                "serverSlots": {"c22001": {"id": "c22001", "hostId": "box", "model": "other/o.gguf", "config": {"MODEL_FILE": "other/o.gguf"}}},
                 "hosts": {"box": {"id": "box", "lastSeen": now, "agentUrl": address, "llamaNodes": []}},
             }),
         );
     });
     rig.put_library("K/k.gguf", &blob(10, 1));
     let runner = MoveRunner::of(&rig.app);
-    let then = json!({"start": {"hostId": "box", "port": 22001}});
+    let then = json!({"start": {"cellId": "c22001"}});
     let started =
         runner.start(&[json!("K/k.gguf")], "local", Some(LIBRARY), Some(&then)).map_err(|refused| refused.code).unwrap();
     let id = Coerce::text(started.get("id"));

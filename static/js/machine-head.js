@@ -13,6 +13,10 @@
 // What the head needs from the board's own module — a card's outside owners, how long a silent machine has been silent, what the
 // board's builder said of each cell (its name, its window, its start and stop, its work, its size) — comes in as a parameter:
 // topology-nodes.js draws the head, and the head importing it back would be a cycle.
+//
+// A cell is known here by its own name, `cellId`, and by nothing else: the page's choice, its blocks and rows, its plan are keyed by it.
+// A cell holds a port only while it runs, so the page shows no port: a cell is named as the board's builder names it — its model, its
+// label — and by its cellId where nothing names it (MachineMap.nameOf). The machine's cells stand in the order they were made.
 import { t } from "./i18n.js";
 import { CellMemory } from "./cell-memory.js";
 import { CellSpeed } from "./cell-speed.js";
@@ -22,8 +26,10 @@ import { ModelCopy, ModelLoad } from "./model-copy.js";
 import { ModelRating } from "./model-rating.js";
 import { CellMove, MACHINE_PLAN, MachineDrag, MachineRoom } from "./machine-plan.js";
 import { CardFigures } from "./card-figures.js";
+import { DecodeSpeed } from "./decode-speed.js";
 import { CardPin, CardRoom, FreeVramStart, PlacementPlan } from "./placement.js";
-import { MachineModels } from "./machine-models.js";
+import { MachineModels, MACHINE_MODELS } from "./machine-models.js";
+import { MACHINE_BUILD } from "./machine-build.js";
 import { Band, Button, Frame, Lane, Menu, Meter, Pill, RackLegend } from "./ui-parts.js";
 import { escapeHtml } from "./utils.js";
 
@@ -32,8 +38,9 @@ const GIB = 2 ** 30;
 /**
  * Where a stopped cell would go if it started now — parts 2 and 3 of variant В (the owner, 2026-10-25: "by size first, then the
  * exact one: the true size, and in colour where the model is and where the cache"). A llama.cpp cell whose model the library
- * knows is weighed whole — its files, its KV cache and its buffers under its fields (cell-plan.js CellModel) — and laid by the
- * cell window's own plan (placement.js PlacementPlan.from), which tells its weights from its cache on every card and in RAM.
+ * knows is weighed whole — its files and its speculative draft's, its KV cache and its buffers under its fields (cell-plan.js
+ * CellModel) — and laid by the cell window's own plan (placement.js PlacementPlan.from), which tells its weights from its cache on
+ * every card and in RAM.
  * Any other cell is weighed by what its runner takes — the figure measured for it, vLLM's share of its cards — or, failing
  * that, by its files, and the page says which wherever the figure shows. Where it lays it is its runner's, by the rules the
  * cell form follows — a way per kind, each a class of its own:
@@ -79,21 +86,25 @@ export class CellFit {
     const plan = row?.vramPlan || {};
     const fields = CellFields.ofConfig(config, defaults);
     const rowOf = (key) => models?.get?.(fields.value(key)) || null;
+    // The draft is the cell's own field, as the start sends it: no controller default stands behind it (cell-plan.js CellDraft).
     const model = models && ["spread", "ram"].includes(how)
-      ? CellModel.of({ row: rowOf("MODEL_FILE"), mmprojRow: rowOf("MMPROJ_FILE"), fields }) : null;
+      ? CellModel.of({ row: rowOf("MODEL_FILE"), mmprojRow: rowOf("MMPROJ_FILE"), draftRow: models.get?.(fields.text("SPEC_DRAFT_MODEL_FILE")) || null,
+                       fields }) : null;
     // Known is a model whose header gave its layers: one without them has no cache anyone counted, and is weighed by its files.
     const known = !!model && model.weightsGb > 0 && model.layers > 0;
     return {
       how: how === "spread" && known ? "plan" : how,
-      bytes: vllm ? vllm.totalGb * GIB : known ? (model.weightsGb + model.kvGb + model.batchGb) * GIB : bytes,
+      bytes: vllm ? vllm.totalGb * GIB : known ? model.totalGb * GIB : bytes,
       // vLLM says it keeps weights in RAM (the registry's keepsRam) only for the cell that leaves them there.
       source: vllm || planned ? "runner" : known ? "plan" : measured ? "runner" : "files", keepsRam: !!row?.keepsRam && (!vllm || vllm.ridesGb > 0),
       fields: Object.fromEntries(CellFit.FIELDS.map((key) => [key, fields.text(key)])), mode,
       model: known ? model : null,
-      split: known ? { weightsGb: model.weightsGb, cacheGb: model.kvGb + model.batchGb } : null,
-      floorMiB: Number(plan.floorMiB || 0), reserve: plan.reserveField ? fields.text(plan.reserveField) : "",
+      split: known ? { weightsGb: model.filesGb, cacheGb: model.kvGb + model.batchGb } : null,
+      floorMiB: Number(plan.floorMiB || 0), reserve: plan.reserveField ? fields.text(plan.reserveField) : "", everyCard: !!plan.everyCard,
       asks: vllm ? CellFit.asksOf(vllm) : [],
       over: !!vllm?.weightsOver || !!vllm?.kvOver, ridesGb: vllm?.ridesGb || 0, orRam: !!row?.autoDevice, oneCard: !!row?.oneCard,
+      // How fast a vLLM start can answer as laid out (DecodeSpeed): the words of weights left in RAM say what the trips cost.
+      speed: vllm?.speed ?? null,
       // Where the rack may lay it (machine-plan.js CellMove): its family of runners, what it can compute on, how it lies on a card.
       family, cpuOk: !!caps?.cpu, gpuOk: caps ? !!caps.gpu : true, onCard, parallel: Number(vllm?.tp) > 1, asksFor,
     };
@@ -214,8 +225,9 @@ class PlanFit extends SpreadFit {
       get: (key) => this.field(key),
     }).placed();
     if (!(placed.verdict in PlanFit.VERDICTS)) return this.nowhere("unknown");
+    // A speculative draft is weights too: with the model's, so that weights and cache make up what a card holds.
     const parts = placed.cards.filter((c) => c.totalGb > 0)
-      .map((c) => ({ index: String(c.index), gb: c.totalGb, weightsGb: c.weightsGb, cacheGb: c.kvGb + c.buffersGb }));
+      .map((c) => ({ index: String(c.index), gb: c.totalGb, weightsGb: c.weightsGb + c.draftGb, cacheGb: c.kvGb + c.buffersGb }));
     const ram = placed.ram;
     const needGb = parts.reduce((sum, c) => sum + c.gb, 0) + ram.totalGb;
     const verdict = PlanFit.VERDICTS[placed.verdict] ?? (parts.length > 1 ? "cards" : "card");
@@ -224,7 +236,8 @@ class PlanFit extends SpreadFit {
     // Whole layers dealt out can be named; experts in RAM, or a tensor split where every card holds a part of every layer, cannot.
     const dealt = this.facts.mode === "tensor" || ram.expertLayers > 0 ? null
       : Object.fromEntries([["ram", ram.layers], ...placed.cards.map((c) => [String(c.index), c.layers])]);
-    return { verdict, cards: parts, ramGb: ram.totalGb, ramWeightsGb: ram.weightsGb, ramCacheGb: ram.kvGb, needGb, ...(dealt ? { layers: dealt } : {}) };
+    return { verdict, cards: parts, ramGb: ram.totalGb, ramWeightsGb: ram.weightsGb + ram.draftGb, ramCacheGb: ram.kvGb, needGb,
+             ...(dealt ? { layers: dealt } : {}) };
   }
 }
 
@@ -252,10 +265,10 @@ class CardFit extends CellFit {
 class FreeFit extends CellFit {
   place(node) {
     const f = this.facts;
-    const start = FreeVramStart.of({ floorMiB: f.floorMiB }, { env: this.field("ENV"), reserve: f.reserve, gpus: node?.gpus || [] });
-    if (!start || CardRoom.freeMiB(start.card) === null) return this.nowhere("unknown", null);
+    const start = FreeVramStart.of({ floorMiB: f.floorMiB, everyCard: f.everyCard }, { env: this.field("ENV"), reserve: f.reserve, gpus: node?.gpus || [] });
+    if (!start || !start.known) return this.nowhere("unknown", null);
     if (!start.fits) return this.nowhere("none", start.needMiB / 1024);
-    return { verdict: "free", cards: [{ index: String(start.card.index), gb: start.addGb }], ramGb: 0, needGb: start.addGb };
+    return { verdict: "free", cards: start.places, ramGb: 0, needGb: start.addGb };
   }
 }
 
@@ -275,7 +288,8 @@ class AsksFit extends CellFit {
     const cards = asks.map((a) => ({ index: String(a.index), gb: a.mib / 1024,
                                       ...(a.weightsMib === null || a.weightsMib === undefined ? {}
                                         : { weightsGb: a.weightsMib / 1024, cacheGb: (a.mib - a.weightsMib) / 1024 }) }));
-    return { verdict: rides > 0 ? "rides" : cards.length > 1 ? "cards" : "card", cards, ramGb: rides, needGb: this.needGb };
+    const speed = rides > 0 && this.facts.speed ? { speed: this.facts.speed } : {};
+    return { verdict: rides > 0 ? "rides" : cards.length > 1 ? "cards" : "card", cards, ramGb: rides, needGb: this.needGb, ...speed };
   }
 }
 
@@ -357,18 +371,18 @@ export class MachineRack {
     this.map = map;
   }
 
-  /** The owner of a block: the cell it belongs to, measured or to come, or "" for other processes. */
+  /** The owner of a block: the cellId of the cell it belongs to, measured or to come, or "" for other processes. */
   static ownerOf(block) {
-    return String(block.port || block.ghostOf || "");
+    return String(block.cellId || block.ghostOf || "");
   }
 
-  /** The lanes each cell has a piece on: port → [lane's position], in the lanes' order. */
+  /** The lanes each cell has a piece on: cellId → [lane's position], in the lanes' order. */
   static spread(lanes) {
     const spread = new Map();
     lanes.forEach((lane, i) => {
       if (!lane.total) return;
-      for (const port of new Set(lane.blocks.map(MachineRack.ownerOf).filter(Boolean))) {
-        spread.set(port, [...(spread.get(port) || []), i]);
+      for (const cellId of new Set(lane.blocks.map(MachineRack.ownerOf).filter(Boolean))) {
+        spread.set(cellId, [...(spread.get(cellId) || []), i]);
       }
     });
     return spread;
@@ -399,12 +413,12 @@ export class MachineRack {
   }
 
   /** The note of a cell's piece on the lane at `i`. */
-  note(i, port, where, ghost) {
+  note(i, cellId, where, ghost) {
     const lane = this.lanes[i];
-    const blocks = lane.blocks.filter((b) => MachineRack.ownerOf(b) === port);
-    const server = (this.map.node.servers || []).find((s) => String(s.port) === port);
-    const facts = this.map.cells.get(port) || {};
-    const coming = !!ghost && ghost.port === port;
+    const blocks = lane.blocks.filter((b) => MachineRack.ownerOf(b) === cellId);
+    const server = this.map.serverOf(cellId);
+    const facts = this.map.cells.get(cellId) || {};
+    const coming = !!ghost && ghost.cellId === cellId;
     const value = blocks.reduce((sum, b) => sum + Number(b.value || 0), 0);
     const gb = lane.ram ? value : value / 1024;
     const figure = `${coming ? "≈" : ""}${MachineMap.gb(gb)} GB`;
@@ -418,9 +432,9 @@ export class MachineRack {
     // vLLM's in RAM is computed on the card: it comes there for every pass. The opposite price, and the rack says it as plainly.
     const rides = lane.ram && facts.fit?.family === "vllm" ? t("machineNoteRides") : "";
     const words = [figure, ...own, layers, cpu, rides].filter(Boolean).join(" · ");
-    const name = server ? this.map.cellName(server) : `:${port}`;
-    return { port, name, shown: String(facts.name || "").trim() || `:${port}`, gb, coming, words, title: `${name} · ${words}`, on: this.map.chosen === port,
-             speed: server ? MachineRack.speedOf(server) : "",
+    const name = this.map.named(cellId);
+    return { cellId, name, gb, coming, words, title: `${name} · ${words}`, on: this.map.chosen === cellId,
+             doing: server ? this.doingOf(server) : "",
              ...(coming ? { kind: "estimate" } : { series: blocks[0].series }) };
   }
 
@@ -450,15 +464,15 @@ export class MachineRack {
     const seen = new Set();
     const notes = [];
     for (const block of lane.blocks) {
-      const port = MachineRack.ownerOf(block);
-      if (!port) {
+      const cellId = MachineRack.ownerOf(block);
+      if (!cellId) {
         const gb = lane.ram ? Number(block.value) : Number(block.value) / 1024;
-        if (!lane.ram && gb >= MachineRack.NOTE_OTHER_GB) notes.push({ port: "", name: block.name, shown: block.name, gb, words: block.figure, title: block.title, kind: "other" });
+        if (!lane.ram && gb >= MachineRack.NOTE_OTHER_GB) notes.push({ cellId: "", name: block.name, gb, words: block.figure, title: block.title, kind: "other" });
         continue;
       }
-      if (seen.has(port)) continue;
-      seen.add(port);
-      notes.push(this.note(i, port, spread.get(port) || [i], ghost));
+      if (seen.has(cellId)) continue;
+      seen.add(cellId);
+      notes.push(this.note(i, cellId, spread.get(cellId) || [i], ghost));
     }
     return notes;
   }
@@ -466,15 +480,15 @@ export class MachineRack {
   /** The lines of the lane at `i`: one per cell with pieces on several lanes, in its own slot, from its first lane to its last. */
   links(i, spread, ghost) {
     const lines = [...spread.entries()].filter(([, where]) => where.length > 1)
-      .sort(([a], [b]) => Number(!!ghost && ghost.port === b) - Number(!!ghost && ghost.port === a));
-    return lines.flatMap(([port, where], slot) => {
+      .sort(([a], [b]) => Number(!!ghost && ghost.cellId === b) - Number(!!ghost && ghost.cellId === a));
+    return lines.flatMap(([cellId, where], slot) => {
       const first = where[0];
       const last = where[where.length - 1];
       if (i < first || i > last) return [];
       const here = where.includes(i);
-      const coming = !!ghost && ghost.port === port;
-      const block = this.lanes[where[0]].blocks.find((b) => MachineRack.ownerOf(b) === port);
-      return [{ slot, up: i > first, down: i < last, here, from: here ? MachineRack.freeFrom(this.lanes[i]) : 0, owner: port, shown: this.map.chosen === port,
+      const coming = !!ghost && ghost.cellId === cellId;
+      const block = this.lanes[where[0]].blocks.find((b) => MachineRack.ownerOf(b) === cellId);
+      return [{ slot, up: i > first, down: i < last, here, from: here ? MachineRack.freeFrom(this.lanes[i]) : 0, owner: cellId, shown: this.map.chosen === cellId,
                 ...(coming ? { kind: "estimate" } : { series: block.series }) }];
     });
   }
@@ -487,18 +501,22 @@ export class MachineRack {
     const scale = new RackScale(cards.map((l) => (l.total || 0) / 1024), this.lanes[this.lanes.length - 1].total);
     const spread = MachineRack.spread(this.lanes);
     const slots = [...spread.values()].filter((where) => where.length > 1).length;
-    const plan = this.map.plan;
+    // The drag in hand, whether it has laid a plan yet or not: the lane under the pointer says whether the cell would lie there, and every lane
+    // says whether it may (MachineDrag.targetsOf) — lit or dim, from the moment the cell is taken.
+    const drag = this.map.drag;
     return this.lanes.map((lane, i) => {
       const id = lane.ram ? "ram" : lane.cardIndex;
-      const drop = plan && plan.dragging && plan.drop === id ? ` data-machine-drop="${plan.dropOk ? "ok" : "no"}"` : "";
+      const drop = drag && drag.drop === id ? ` data-machine-drop="${drag.dropOk ? "ok" : "no"}"` : "";
+      const may = drag?.targets?.[String(id)];
+      const target = may === undefined ? "" : ` data-machine-target="${may ? "ok" : "no"}"`;
       const notes = this.notes(i, spread, ghost);
       const told = (block) => {
-        const note = block.ghostOf ? notes.find((n) => n.port === block.ghostOf) : null;
+        const note = block.ghostOf ? notes.find((n) => n.cellId === block.ghostOf) : null;
         return { ...block, owner: MachineRack.ownerOf(block), title: note ? `${note.title} · ${block.here}` : block.title };
       };
       return {
         ...lane,
-        attrs: `${lane.attrs}${drop}`,
+        attrs: `${lane.attrs}${drop}${target}`,
         rack: { bar: lane.ram ? scale.ramBar : scale.cardBar((lane.total || 0) / 1024), slots },
         blocks: lane.blocks.map(told),
         notes,
@@ -521,27 +539,66 @@ export class MachineRack {
     return [said ? `GPU ${said}` : "", lanes.some((lane) => lane.ram) ? "RAM" : ""].filter(Boolean).join(" + ");
   }
 
-  /** The rows of the list beside the lanes, from what the laid lanes say: each holder once — what is to come on top, then the cells
-   *  the largest first, then the other processes large enough to name. */
-  static legend(lanes) {
+  /** What the list says a cell is doing, in the column that is not its figure: the speed when it has one; for a cell on its way, the words its
+   *  line says; for a cell that holds memory and answers nothing right now, the absence named — that nobody measured what it holds, or its own
+   *  state. An empty column would read as nothing to say, and there is something to say. */
+  doingOf(server) {
+    const said = MachineRack.speedOf(server);
+    if (said) return said;
+    const group = MachineMap.groupOf(MachineMap.phase(server));
+    if (group === "coming") return this.map.comingWords(server);
+    return group === "holds" && !MachineMap.measured(server) ? this.map.memoryWords(server) : this.map.benchVerdict(server).words;
+  }
+
+  /**
+   * The rows of the list beside the lanes: every cell that works or is on its way, once, then the other processes large enough to name —
+   * what is to come on top, then the cells the largest first, because a row that is only an estimate cannot be ranked with a measured one.
+   *
+   * This list is the only place a cell is picked, so a cell it does not name could never be picked, and the block under its legend shows the
+   * model of the row picked (the owner, 2026-11-05: "the list on the right becomes one list — the working cells plus the loading ones; whatever is
+   *  picked there is what the block shows"). So a cell is a row whether or not it has a piece on a lane: what it holds is what its fit says,
+   *  its `places` are those cards and not the lanes it lies on, and a cell the fit cannot lay is said to have no place yet, in words — an
+   *  empty column is not the same as no place. Rows of one rank and one figure stand in the order the machine made their cells.
+   * @param lanes the lanes as they stand on the rack
+   */
+  legend(lanes) {
     const holders = new Map();
     for (const lane of lanes) {
       for (const note of lane.notes || []) {
-        const key = note.port || `other:${note.name}`;
-        const holder = holders.get(key) || { note, gb: 0, pieces: [] };
+        const key = note.cellId || `other:${note.name}`;
+        const holder = holders.get(key) || { note, gb: 0, pieces: [], places: [] };
         holder.gb += note.gb;
         holder.pieces.push({ lane, note });
+        holder.places.push(lane);
         holders.set(key, holder);
       }
     }
-    const rank = ({ note }) => (note.coming ? 0 : note.port ? 1 : 2);
-    return [...holders.values()].sort((a, b) => rank(a) - rank(b) || b.gb - a.gb || Number(a.note.port) - Number(b.note.port)).map(({ note, gb, pieces }) => {
-      const figure = `${note.coming ? "≈" : ""}${MachineMap.gb(gb)}`;
-      const title = [`${note.port ? note.name : note.shown} · ${figure} GB`, ...pieces.map(({ lane, note: piece }) => `${lane.label}: ${piece.words}`)].join("\n");
-      const id = escapeHtml(note.port);
-      return { name: note.shown, figure, where: MachineRack.whereWords(pieces.map(({ lane }) => lane)), speed: note.speed || "", owner: note.port, title, on: !!note.on,
-               ...(note.coming ? { kind: "estimate" } : note.port ? { series: note.series } : { kind: "other" }),
-               ...(note.port ? { pick: `data-machine-pick="${id}" data-t="machine-map-legend" data-t-id="${id}"` } : { attrs: 'data-t="machine-map-legend-other"' }) };
+    for (const { server, series } of [...this.map.holders(), ...this.map.coming().map((s) => ({ server: s }))]) {
+      const cellId = MachineMap.idOf(server);
+      if (holders.has(cellId)) continue;
+      const place = this.map.fit(server);
+      const coming = MachineMap.groupOf(MachineMap.phase(server)) === "coming";
+      holders.set(cellId, {
+        note: { cellId, name: this.map.cellName(server), doing: this.doingOf(server), on: this.map.chosen === cellId, coming, fitSaid: this.map.fitSaid(server, place),
+                ...(coming ? { kind: "estimate" } : { series: series || 1 }) },
+        gb: Number(place?.needGb) || 0, pieces: [],
+        places: [...(place?.cards || []).map((card) => ({ cardIndex: String(card.index), ram: false })), ...(Number(place?.ramGb) > 0 ? [{ ram: true }] : [])],
+      });
+    }
+    const rank = ({ note }) => (note.coming ? 0 : note.cellId ? 1 : 2);
+    const made = ({ note }) => this.map.madeAt(note.cellId);
+    return [...holders.values()].sort((a, b) => rank(a) - rank(b) || b.gb - a.gb || made(a) - made(b)).map(({ note, gb, pieces, places }) => {
+      const figure = gb ? `${note.coming ? "≈" : ""}${MachineMap.gb(gb)}` : "";
+      const first = [note.name, ...(figure ? [`${figure} GB`] : [])].join(" · ");
+      const title = [first, ...(pieces.length ? pieces.map(({ lane, note: piece }) => `${lane.label}: ${piece.words}`)
+                       : [note.fitSaid, note.doing])].filter(Boolean).join("\n");
+      const tId = note.cellId || note.name;
+      const where = MachineRack.whereWords(places) || (note.cellId ? t("machineLegendNoPlace") : "");
+      return { name: note.name, figure, where, doing: note.doing || "", owner: note.cellId, title, on: !!note.on, t: note.cellId ? "machine-map-legend" : "machine-map-legend-other", tId,
+               ...(note.coming ? { kind: "estimate" } : note.cellId ? { series: note.series } : { kind: "other" }),
+               ...(note.cellId
+                 ? { pick: `data-machine-pick="${escapeHtml(note.cellId)}" data-t="machine-map-legend" data-t-id="${escapeHtml(tId)}"` }
+                 : { attrs: `data-t="machine-map-legend-other" data-t-id="${escapeHtml(tId)}"` }) };
     });
   }
 
@@ -549,12 +606,12 @@ export class MachineRack {
    *  piece, hollow where the device has room for one. Not while a drag is in hand: the plan under it is not settled. */
   grips(i, ghost) {
     const lane = this.lanes[i];
-    const move = ghost && CellMove.of(this.map.factsOf(ghost.port));
+    const move = ghost && CellMove.of(this.map.factsOf(ghost.cellId));
     if (!ghost || !lane.total || this.map.plan?.dragging || !move.sizable || !move.canSet(lane.ram ? "ram" : lane.cardIndex)) return [];
     const unit = lane.ram ? 1 : 1024;
-    const mine = lane.blocks.filter((b) => b.ghostOf === ghost.port);
+    const mine = lane.blocks.filter((b) => b.ghostOf === ghost.cellId);
     const holds = mine.reduce((sum, b) => sum + Number(b.value || 0), 0) / unit;
-    const from = lane.blocks.filter((b) => b.ghostOf !== ghost.port).reduce((sum, b) => sum + Number(b.value || 0), 0) / unit;
+    const from = lane.blocks.filter((b) => b.ghostOf !== ghost.cellId).reduce((sum, b) => sum + Number(b.value || 0), 0) / unit;
     const whole = Number(lane.total) / unit;
     if (!(holds > 0) && whole - from < RackScale.ROOM_GB) return [];
     const id = lane.ram ? "ram" : lane.cardIndex;
@@ -593,6 +650,19 @@ export class MachineMap {
     return String(server?.phase || server?.status?.phase || "stopped");
   }
 
+  /** A cell's own name, its cellId: what the page keys it by — its blocks, its row, its choice, its plan. The launch being built under the
+   *  map, no cell yet, stands under the builder's key (machine-build.js MachineBuild.server). "" for a row that names none. */
+  static idOf(server) {
+    return String(server?.cellId ?? "");
+  }
+
+  /** A cell as the page names it: what the board's builder called it — its model, its label — or, where nothing names it, its cellId.
+   *  One rule for the blocks, the rows, the band, the ghost and the questions a start asks; never a port, which a cell holds only while it
+   *  runs. */
+  static nameOf(facts, cellId) {
+    return String(facts?.name || "").trim() || String(cellId ?? "");
+  }
+
   /** Where a cell stands on the page: on the lanes while it holds memory, under them on its way, else only in the list ("bench"). One
    *  rule for the map and the board's builder (topology-nodes.js) — what it hands the head of each cell names this group. */
   static groupOf(phase) {
@@ -606,34 +676,65 @@ export class MachineMap {
   }
 
   /**
-   * @param node the machine as the topology gives it
+   * @param node the machine as the topology gives it, its cells (`servers`) in the order they were made, each by its cellId
    * @param owners (card) → [{name, engine, mib}]: what holds the card that is no cell (topology-nodes.js, gpuOutsideOwners)
-   * @param cells port → {key, name, stop, stopTitle, launch, playTitle, window, group, failed, reason, crashed, unreachable, reserved, jobs,
+   * @param cells cellId → {key, name, stop, stopTitle, launch, playTitle, window, group, failed, reason, crashed, reserved, jobs,
    *   runner, fit, ctx, repo, model, rating}: what the board's builder said of each cell (MachinePick.know)
-   * @param chosen the port chosen on the map, or ""
+   * @param chosen the cellId chosen on the map, or ""
+   * @param launch the launch being built under the map (machine-build.js, MachineBuild.server): no cell yet, standing under the builder's
+   *   key, or null. The map lays it as it lays a cell that stands — its ghost, its places, its plan — and no list counts it: it is in no
+   *   row, in no total, in nothing the machine runs.
    */
-  constructor(node, { owners = () => [], cells = new Map(), chosen = "", plan = null } = {}) {
+  constructor(node, { owners = () => [], cells = new Map(), chosen = "", plan = null, launch = null } = {}) {
     this.owners = owners;
     this.cells = cells instanceof Map ? cells : new Map();
+    this.launch = MachineMap.idOf(launch) ? { ...launch, cellId: MachineMap.idOf(launch) } : null;
+    // A drag in hand (machine-plan.js MachineDrag), whether it has laid a plan yet or not: the lanes say where the cell may go.
+    this.drag = plan?.dragging ? plan : null;
     // A plan in hand (machine-plan.js): the map draws the machine as the plan would leave it, with its cell chosen.
     this.plan = plan?.on ? plan : null;
     this.node = this.plan
-      ? MachineRoom.without(node || {}, this.plan.leaving(), (server) => !!this.cells.get(String(server.port))?.fit?.keepsRam)
+      ? MachineRoom.without(node || {}, this.plan.leaving(), (server) => !!this.cells.get(MachineMap.idOf(server))?.fit?.keepsRam)
       : node || {};
-    this.chosen = this.plan ? this.plan.port : String(chosen ?? "");
+    this.chosen = this.plan ? this.plan.cellId : String(chosen ?? "");
+    // The rack is the same map seen as lanes: one object for the two rules that read it (the laid lanes, and the list beside them).
+    this.rack = new MachineRack(this);
   }
 
   /** What the builder said of how a cell starts, as the plan would have it. */
-  factsOf(port) {
-    const facts = this.cells.get(String(port))?.fit;
-    return this.plan?.port === String(port) ? this.plan.facts(facts) : facts;
+  factsOf(cellId) {
+    const facts = this.cells.get(String(cellId))?.fit;
+    return this.plan?.cellId === String(cellId) ? this.plan.facts(facts) : facts;
   }
 
-  /** Every cell whose processes hold memory now, by port, each with its colour: the same cell, the same colour on every lane. */
+  /** The machine's cell named `cellId`, or null. */
+  serverOf(cellId) {
+    const id = String(cellId ?? "");
+    return (id && (this.node.servers || []).find((s) => MachineMap.idOf(s) === id)) || null;
+  }
+
+  /** The cell `cellId` as the page names it (`nameOf`). */
+  named(cellId) {
+    return MachineMap.nameOf(this.cells.get(String(cellId ?? "")), cellId);
+  }
+
+  /** Where a cell stands in the order its machine made its cells: what keeps rows of one rank and one figure in one order. The launch being
+   *  built, and a row of no cell, after them all. */
+  madeAt(cellId) {
+    const servers = this.node.servers || [];
+    const at = cellId ? servers.findIndex((s) => MachineMap.idOf(s) === String(cellId)) : -1;
+    return at < 0 ? servers.length : at;
+  }
+
+  /** The machine's cells, in the order they were made: rows that name no cell are none of them. */
+  cellsMade() {
+    return (this.node.servers || []).filter((s) => s && MachineMap.idOf(s));
+  }
+
+  /** Every cell whose processes hold memory now, in the order they were made, each with its colour: the same cell, the same colour on every
+   *  lane. */
   held() {
-    return (this.node.servers || [])
-      .filter((s) => s && s.port && CellMemory.holds(MachineMap.phase(s)))
-      .sort((a, b) => Number(a.port) - Number(b.port))
+    return this.cellsMade().filter((s) => CellMemory.holds(MachineMap.phase(s)))
       .map((server, i) => ({ server, series: (i % MachineMap.SERIES) + 1 }));
   }
 
@@ -642,19 +743,18 @@ export class MachineMap {
     return this.held().filter(({ server }) => !server.leaving);
   }
 
-  /** The cells on their way, by port. */
+  /** The cells on their way, in the order they were made. */
   coming() {
-    return (this.node.servers || []).filter((s) => s && s.port && MachineMap.groupOf(MachineMap.phase(s)) === "coming")
-      .sort((a, b) => Number(a.port) - Number(b.port));
+    return this.cellsMade().filter((s) => MachineMap.groupOf(MachineMap.phase(s)) === "coming");
   }
 
-  /** The cells that stand — stopped, failed, a port with no model — the largest first by what each would take now, the ones
-   *  nobody weighed last. */
+  /** The cells that stand — stopped, failed, a cell with no model — the largest first by what each would take now, the ones nobody weighed
+   *  last; of one size, in the order they were made. */
   standing() {
     const size = new Map();
-    const cells = (this.node.servers || []).filter((s) => s && s.port && MachineMap.groupOf(MachineMap.phase(s)) === "bench");
+    const cells = this.cellsMade().filter((s) => MachineMap.groupOf(MachineMap.phase(s)) === "bench");
     for (const server of cells) size.set(server, this.fit(server).needGb);
-    return cells.sort((a, b) => (size.get(b) ?? -1) - (size.get(a) ?? -1) || Number(a.port) - Number(b.port));
+    return cells.sort((a, b) => (size.get(b) ?? -1) - (size.get(a) ?? -1));
   }
 
   /** The cells the list under the map says a word on: every cell of the machine — the ones that work, then the ones on their way, then
@@ -673,34 +773,39 @@ export class MachineMap {
     return Object.values(server?.gpuMem || {}).some((mib) => CardRoom.said(mib) > 0);
   }
 
-  /** A cell as its block and its panel name it: the port and the name the board shows ("" while the builder said none). */
+  /** A cell as its block and its row name it (`nameOf`). */
   cellName(server) {
-    const name = String(this.cells.get(String(server.port))?.name || "").trim();
-    return `:${server.port}${name ? ` ${name}` : ""}`;
+    return this.named(MachineMap.idOf(server));
   }
 
-  /** Where the chosen cell would go, while it is one that stands: {port, place, words}; else null. */
+  /** The launch being built, when it stands under `cellId`. */
+  launchAt(cellId) {
+    return this.launch && this.launch.cellId === String(cellId ?? "") ? this.launch : null;
+  }
+
+  /** Where the chosen cell would go, while it is one that stands: {cellId, place, words}; else null. */
   ghost() {
-    const server = this.plan ? (this.node.servers || []).find((s) => String(s.port) === this.plan.port)
-      : this.standing().find((s) => String(s.port) === this.chosen);
-    return server ? { port: String(server.port), place: this.fit(server), words: this.sizeWords(server) } : null;
+    const server = this.plan ? this.serverOf(this.plan.cellId) || this.launchAt(this.plan.cellId)
+      : this.standing().find((s) => MachineMap.idOf(s) === this.chosen) || this.launchAt(this.chosen);
+    return server ? { cellId: MachineMap.idOf(server), place: this.fit(server), words: this.sizeWords(server) } : null;
   }
 
   /** Where a cell would go now, by its runner's way (CellFit) and the plan laid for it. */
   fit(server) {
-    const room = this.plan?.port === String(server.port) && this.plan.room ? this.plan.room : this.node;
-    return CellFit.of(this.factsOf(server.port)).place(room);
+    const cellId = MachineMap.idOf(server);
+    const room = this.plan?.cellId === cellId && this.plan.room ? this.plan.room : this.node;
+    return CellFit.of(this.factsOf(cellId)).place(room);
   }
 
   /** The dashed blocks of the chosen cell on one lane: its weights and, paler, its cache and buffers where its way tells them
    *  apart, else one block of its part there; what it weighs and by what in their hover. `scale` turns GB into the lane's own
    *  unit (MiB on a card, GB in RAM). */
   ghostBlocks(ghost, part, scale) {
-    return this.ghostParts(ghost, part, scale).map((b) => ({ ...b, ghostOf: ghost.port }));
+    return this.ghostParts(ghost, part, scale).map((b) => ({ ...b, ghostOf: ghost.cellId }));
   }
 
   ghostParts(ghost, part, scale) {
-    const cell = `:${ghost.port}`;
+    const cell = this.named(ghost.cellId);
     const name = t("machineGhost", { cell });
     const gb = (v) => `≈${MachineMap.gb(v)} GB`;
     const split = Number.isFinite(part?.weightsGb) && Number.isFinite(part?.cacheGb);
@@ -731,11 +836,12 @@ export class MachineMap {
 
   /** A cell's block: its share, its colour, its words, and the button that chooses it. */
   block(server, series, value, gb, title) {
-    const port = escapeHtml(String(server.port));
+    const cellId = MachineMap.idOf(server);
+    const id = escapeHtml(cellId);
     const name = this.cellName(server);
-    return { value, series, name, figure: `${MachineMap.gb(gb)} GB`, short: MachineMap.gb(gb), on: this.chosen === String(server.port), port: String(server.port),
+    return { value, series, name, figure: `${MachineMap.gb(gb)} GB`, short: MachineMap.gb(gb), on: this.chosen === cellId, cellId,
              title: t("machineBlockChoose", { cell: `${name} · ${MachineMap.gb(gb)} GB${title ? ` · ${title}` : ""}` }),
-             pick: `data-machine-pick="${port}" data-t="machine-map-block" data-t-id="${port}"` };
+             pick: `data-machine-pick="${id}" data-t="machine-map-block" data-t-id="${id}"` };
   }
 
   card(g, holders, ghost) {
@@ -765,7 +871,7 @@ export class MachineMap {
     const here = ghost?.place.cards.find((c) => c.index === index);
     const dashed = here ? this.ghostBlocks(ghost, here, 1024) : [];
     // The chosen cell starts on this card, and how much it takes is not known: no block is drawn, the lane says it in words.
-    const unsized = here && ghost.place.verdict === "unsized" ? t("machineGhostUnsized", { cell: `:${ghost.port}` }) : "";
+    const unsized = here && ghost.place.verdict === "unsized" ? t("machineGhostUnsized", { cell: this.named(ghost.cellId) }) : "";
     const temp = CardRoom.said(g?.temperatureC);
     const name = MachineMap.cardName(g?.name);
     return {
@@ -794,7 +900,7 @@ export class MachineMap {
     let drawn = 0;
     for (const { server, series } of holders) {
       // A runner that keeps its weights in RAM (the registry's keepsRam: Strata) means its RSS: that is its own piece, card or no card.
-      if (MachineMap.onCards(server) && !this.cells.get(String(server.port))?.fit?.keepsRam) continue;
+      if (MachineMap.onCards(server) && !this.cells.get(MachineMap.idOf(server))?.fit?.keepsRam) continue;
       const bytes = CardRoom.said(server.ramBytes);
       if (!(bytes > 0)) continue;
       // A cell is never drawn past what the machine says it uses: the RSS of a model file mapped twice is in both cells.
@@ -829,26 +935,7 @@ export class MachineMap {
   lanes() {
     const holders = this.holders();
     const ghost = this.ghost();
-    return new MachineRack(this).laid([...(this.node.gpus || []).map((g) => this.card(g, holders, ghost)), this.ram(holders, ghost)], ghost);
-  }
-
-  /** The cells that hold memory and are on no lane: nobody measured what they hold — the scout said no RSS, no card was read. */
-  unplaced(lanes = this.lanes()) {
-    const placed = new Set(lanes.flatMap((lane) => (lane.total ? lane.blocks : []).filter((b) => b.port).map((b) => b.port)));
-    return this.holders().filter(({ server }) => !placed.has(String(server.port)));
-  }
-
-  chip(server, hook, words = "") {
-    const port = escapeHtml(String(server.port));
-    return new Pill({ text: `${this.cellName(server)}${words ? ` · ${words}` : ""}`, on: this.chosen === String(server.port),
-                      attrs: `data-machine-pick="${port}" data-t="${hook}" data-t-id="${port}"` }).html();
-  }
-
-  unplacedHtml(lanes) {
-    const cells = this.unplaced(lanes);
-    if (!cells.length) return "";
-    return `<div class="machine-map-unplaced" data-t="machine-map-unplaced"><span>${escapeHtml(t("machineMapUnplaced"))}</span>`
-      + `${cells.map(({ server }) => this.chip(server, "machine-map-unplaced-cell")).join("")}</div>`;
+    return this.rack.laid([...(this.node.gpus || []).map((g) => this.card(g, holders, ghost)), this.ram(holders, ghost)], ghost);
   }
 
   /** What a cell on its way is doing, in the words its line and card say it. */
@@ -862,31 +949,26 @@ export class MachineMap {
     return load ? ModelCopy.line(load, words) : words;
   }
 
-  /** The cells on their way under the lanes, a line each way: the ones starting, then the ones stopping, each line said what it
-   *  is (1.3.657; the owner, 2026-10-26: "and where does one see which cell is starting?" — the line said "On their way:", and
-   *  the band "Starting 1" named no cell). */
-  comingHtml() {
-    const cells = this.coming();
-    const line = (list, words) => (list.length
-      ? `<div class="machine-map-coming" data-t="machine-map-coming"><span>${escapeHtml(t(words))}</span>`
-        + `${list.map((server) => this.chip(server, "machine-map-coming-cell", this.comingWords(server))).join("")}</div>` : "");
-    const stopping = (server) => MachineMap.phase(server) === "stopping";
-    return line(cells.filter((server) => !stopping(server)), "machineMapStarting") + line(cells.filter(stopping), "machineMapStopping");
-  }
-
   lanesHtml(lanes = this.lanes()) {
     const heads = Lane.heads([t("machineColLoad"), t("machineColMemory"), t("machineColPower")], lanes[0]?.rack?.slots);
     return `<div class="machine-rack"><div class="machine-rack-lanes">${heads}${lanes.map((lane) => new Lane(lane).html()).join("")}</div>`
-      + `${new RackLegend({ rows: MachineRack.legend(lanes), empty: t("machineLegendEmpty"), heads: [t("machineColGb"), t("machineColSpeed")] }).html()}</div>${this.unplacedHtml(lanes)}${this.comingHtml()}`;
+      + `${new RackLegend({ rows: this.rack.legend(lanes), empty: t("machineLegendEmpty"), heads: [t("machineColGb"), t("machineColDoing")] }).html()}</div>`;
   }
 
   /** What a cell holds, as its panel says it: the cards' share, else its RSS, else that nobody measured it — the lanes' own figures. */
+  /** Whether anyone said what this cell holds: a card's reading or the scout's RSS. Nothing said is not a zero. */
+  static measured(server) {
+    const cards = Object.values(server?.gpuMem || {}).map((mib) => CardRoom.said(mib)).some((mib) => mib > 0);
+    return cards || CardRoom.said(server?.ramBytes) > 0;
+  }
+
   memoryWords(server) {
+    if (!MachineMap.measured(server)) return t("machineMemUnmeasured");
     const cards = Object.values(server?.gpuMem || {}).map((mib) => CardRoom.said(mib)).filter((mib) => mib > 0)
       .reduce((sum, mib) => sum + mib, 0);
     if (cards > 0) return t("machineMemCards", { gb: MachineMap.gb(cards / 1024) });
     const bytes = CardRoom.said(server?.ramBytes);
-    return bytes > 0 ? t("machineMemRam", { gb: MachineMap.gb(bytes / GIB) }) : t("machineMemUnmeasured");
+    return t("machineMemRam", { gb: MachineMap.gb(bytes / GIB) });
   }
 
   /** What a stopped cell weighs, and by what: its files, its cache and its buffers (the plan), what its runner takes, or its
@@ -894,7 +976,7 @@ export class MachineMap {
    *  says so instead of a figure, and one that keeps a share of RAM too (the registry's keepsRam) says that share is not on the
    *  lanes. */
   sizeWords(server) {
-    return MachineMap.sizeOf(this.cells.get(String(server.port))?.fit || {});
+    return MachineMap.sizeOf(this.cells.get(MachineMap.idOf(server))?.fit || {});
   }
 
   /** What a start weighs, in words, from what CellFit.facts says of it — a cell's row in the list and the new-cell wizard's rows
@@ -902,18 +984,24 @@ export class MachineMap {
   static sizeOf(fit = {}) {
     const bytes = CardRoom.said(fit.bytes);
     const words = { plan: "machineSizeExact", runner: "machineSizePlanned", files: "machineSizeFiles" };
-    const size = fit.how === "free" ? t("machineSizeFree") : !(bytes > 0) ? t("machineSizeUnknown")
+    const size = fit.how === "free" ? CellMemory.freeWords(fit.everyCard) : !(bytes > 0) ? t("machineSizeUnknown")
       : t(words[fit.source] || words.files, { gb: MachineMap.gb(bytes / GIB) });
+    // A speculative draft's own cache is in no figure here, nor a draft the library has not (cell-plan.js CellDraft): said beside the
+    // size, not left out of it in silence.
+    const draft = fit.model?.draft;
+    const sized = draft ? `${size} · ${t(draft.gb === null ? "machineSizeDraftUnknown" : "machineSizeDraftKv")}` : size;
     // vLLM's share of RAM is counted, and the plan and the panel say it: only what nobody weighed is "not counted".
-    return fit.keepsRam && !(Number(fit.ridesGb) > 0) ? `${size} · ${t("machineSizeRam")}` : size;
+    return fit.keepsRam && !(Number(fit.ridesGb) > 0) ? `${sized} · ${t("machineSizeRam")}` : sized;
   }
 
   /** Where it would go, in a word, and the tone of that word. */
   static fitWords(place) {
     const card = t("machineFitCard", { index: place.cards[0]?.index ?? "" });
     const words = {
-      cards: t("machineFitCards"), card, free: card, spill: t("machineFitSpill", { gb: MachineMap.gb(place.ramGb || 0) }),
-      rides: t("machineFitRides", { gb: MachineMap.gb(place.ramGb || 0) }),
+      cards: t("machineFitCards"), card, free: (place.cards || []).length > 1 ? t("machineFitCards") : card, spill: t("machineFitSpill", { gb: MachineMap.gb(place.ramGb || 0) }),
+      rides: place.speed
+        ? t("machineFitRidesSpeed", { gb: MachineMap.gb(place.ramGb || 0), now: DecodeSpeed.said(place.speed.now), slower: String(Math.round(place.speed.slower)) })
+        : t("machineFitRides", { gb: MachineMap.gb(place.ramGb || 0) }),
       kvRam: t("machineFitKvRam"), ram: t("machineFitRam"), none: t("machineFitNone"), unknown: t("machineFitUnknown"),
       unsized: t("machineFitUnsized", { index: place.cards[0]?.index ?? "" }),
     };
@@ -924,21 +1012,20 @@ export class MachineMap {
     return ["cards", "card", "free"].includes(verdict) ? "good" : verdict === "none" ? "busy" : "idle";
   }
 
-  /** What is wrong with a cell that holds its memory, in words, for its row: the controller does not reach its port, it crashed
-   *  since it was last started by hand (the scout's watchdog brought it back). The board shows such a cell as a full card; the
-   *  machine's page has only its window, so its row says it — gone from view, trouble would read as calm. */
+  /** What is wrong with a cell that holds its memory, in words, for its row: it crashed since it was last started by hand (the
+   *  scout's watchdog brought it back). The board shows such a cell as a full card; the machine's page has only its window, so its
+   *  row says it — gone from view, trouble would read as calm. (Until 2026-11-08 a cell the controller could not reach on its port
+   *  said so too: a cell listens on its machine's loopback now, and the controller reaches it through the scout.) */
   trouble(server) {
-    const facts = this.cells.get(String(server.port)) || {};
+    const facts = this.cells.get(MachineMap.idOf(server)) || {};
     const crashed = Number(facts.crashed) || 0;
-    return [facts.unreachable ? t("topologyRemoteUnreachable") : "", crashed > 0 ? t("machinePickCrashed", { count: String(crashed) }) : ""]
-      .filter(Boolean);
+    return crashed > 0 ? [t("machinePickCrashed", { count: String(crashed) })] : [];
   }
 
   /** A cell's own Window and its Start or Stop, as the board's builder gave them, on its row in the list of models. */
   actionsHtml(server) {
-    const port = String(server.port);
-    const facts = this.cells.get(port) || {};
-    const id = escapeHtml(port);
+    const facts = this.cells.get(MachineMap.idOf(server)) || {};
+    const id = escapeHtml(MachineMap.idOf(server));
     const windowBtn = facts.window && facts.key
       ? new Button({ kind: "plain", text: t("machinePickWindow"), attrs: `data-cell-window-open="${escapeHtml(facts.key)}" data-t="machine-model-window" data-t-id="${id}"` }).html() : "";
     const act = MachineMap.groupOf(MachineMap.phase(server)) === "bench"
@@ -952,20 +1039,20 @@ export class MachineMap {
   /** The places a cell can be laid on without dragging it (a keyboard, a touch screen): a button per card and for the RAM, those it
    *  cannot lie on left out. A cell that can act now, and only while it stands or runs. */
   placesHtml(server) {
-    const port = String(server.port);
-    const facts = this.cells.get(port) || {};
+    const cellId = MachineMap.idOf(server);
+    const facts = this.cells.get(cellId) || {};
     const group = MachineMap.groupOf(MachineMap.phase(server));
     if (group === "bench" ? !facts.launch : group !== "holds" || !facts.stop) return "";
-    const move = CellMove.of(this.factsOf(port));
+    const move = CellMove.of(this.factsOf(cellId));
     const room = MachineRoom.of(this.node);
     const places = [...room.cards.map((c) => [String(c.index), `GPU ${c.index}`]), ["ram", "RAM"]].filter(([target]) => !move.to(target, room).refused);
     return places.map(([target, label]) => new Pill({ text: label, attrs: `title="${escapeHtml(t("machinePlaceOn", { device: label }))}" data-machine-place="${escapeHtml(target)}"`
-      + ` data-machine-place-for="${escapeHtml(port)}" data-t="machine-place" data-t-id="${escapeHtml(target)}"` }).html()).join("");
+      + ` data-machine-place-for="${escapeHtml(cellId)}" data-t="machine-place" data-t-id="${escapeHtml(target)}"` }).html()).join("");
   }
 
   /** The price when llama.cpp's part of a cell lies in RAM: the processor computes it. "" when there is none. */
   cpuNote(server, place = this.fit(server)) {
-    const cpu = (place.cards || []).length > 0 && Number(place.ramGb) > 0 && this.factsOf(server.port)?.family === "llama";
+    const cpu = (place.cards || []).length > 0 && Number(place.ramGb) > 0 && this.factsOf(MachineMap.idOf(server))?.family === "llama";
     return cpu ? t("machineNoteCpu") : "";
   }
 
@@ -986,7 +1073,7 @@ export class MachineMap {
     const plan = this.plan;
     const changes = plan.changes(server.slotConfig || {});
     const standing = MachineMap.groupOf(MachineMap.phase(server)) === "bench";
-    return [standing ? this.cpuNote(server) : this.fitSaid(server), plan.evict.length ? t("machinePlanEvict", { cells: plan.evict.map((p) => `:${p}`).join(", ") }) : "",
+    return [standing ? this.cpuNote(server) : this.fitSaid(server), plan.evict.length ? t("machinePlanEvict", { cells: plan.evict.map((id) => this.named(id)).join(", ") }) : "",
             changes.length ? t("machinePlanChanges", { fields: changes.join(" · ") }) : t("machinePlanSame")].filter(Boolean).join(" · ");
   }
 
@@ -995,13 +1082,13 @@ export class MachineMap {
    *  plan's Start and Cancel; a failed cell's whole reason, which is too long for its row's second line. Every cell has one, written anew by the live
    *  patch when a plan changes: nothing here is bound at a drawing, and the plan's Start stands in for the row's own by machine.css. */
   choiceHtml(server) {
-    const port = String(server.port);
-    const id = escapeHtml(port);
+    const cellId = MachineMap.idOf(server);
+    const id = escapeHtml(cellId);
     const hook = `data-machine-panel="${id}" data-machine-own data-t="machine-pick" data-t-id="${id}"`;
-    const shown = this.chosen === port ? "" : " hidden";
+    const shown = this.chosen === cellId ? "" : " hidden";
     const places = this.placesHtml(server);
-    if (this.plan?.port !== port) {
-      const facts = this.cells.get(port) || {};
+    if (this.plan?.cellId !== cellId) {
+      const facts = this.cells.get(cellId) || {};
       const reason = MachineMap.phase(server) === "error" ? String(facts.reason || "").trim() : "";
       const inner = `${reason ? `<span class="machine-pick-words">${escapeHtml(reason)}</span>` : ""}${places ? `<span class="machine-pick-acts">${places}</span>` : ""}`;
       return `<div class="machine-pick" ${hook}${shown}>${inner}</div>`;
@@ -1025,16 +1112,29 @@ export class MachineMap {
     return [...this.held().map(({ server }) => server), ...this.coming(), ...this.standing()];
   }
 
-  html() {
+  /** The map: the lanes with the legend beside them, and what the page puts below them. It has no title row: how to read it and all the cards'
+   *  totals stand in the page's head (`keyHtml`, the owner's choice Б of 2026-11-08: the head is one row, and the list of models starts higher),
+   *  and its name is said to a screen reader. The map is the place; the block of the model picked is not the map's own — `block` is what
+   *  MachineModels draws for it (the owner, 2026-11-06, variant А of the mockups), and it stands here because the map does not scroll: the pane
+   *  that scrolls is the list of models, and a block inside it moved with the rows. */
+  html(block = "") {
     return `<section class="machine-map" aria-label="${escapeHtml(t("machineMapTitle"))}" data-t="machine-map">`
-      + `<div class="machine-map-head"><strong class="machine-map-title">${escapeHtml(t("machineMapTitle"))}</strong>`
-      + `<span class="machine-map-hint">${escapeHtml(t("machineMapHint"))}</span>`
-      + `<span class="machine-map-key"><i class="is-weights" aria-hidden="true"></i>${escapeHtml(t("machineLegendWeights"))}`
-      + `<i class="is-cache" aria-hidden="true"></i>${escapeHtml(t("machineLegendCache"))}</span>${this.totalsHtml()}</div>`
-      + `<div class="machine-map-lanes" data-machine-map>${this.lanesHtml()}</div></section>`;
+      + `<div class="machine-map-lanes" data-machine-map>${this.lanesHtml()}</div>${block}</section>`;
   }
 
-  /** All the cards together, at the end of the map's head: what the board's Activity block says of them, as the monitor's tick fills it. */
+  /** How to read the map — the dashes of a model's weights, the dots of its cache and buffers — and all the cards together: the middle of the
+   *  page's head (MachineHead). Each word of the legend is an element of its own, so a head too short for them keeps only their marks
+   *  (machine.css), and the marks then say the words in their hover. */
+  keyHtml() {
+    const weights = t("machineLegendWeights");
+    const cache = t("machineLegendCache");
+    return `<div class="machine-head-key"><span class="machine-map-key" title="${escapeHtml(`${weights} · ${cache}`)}"><i class="is-weights" aria-hidden="true"></i>`
+      + `<span class="machine-map-word">${escapeHtml(weights)}</span><i class="is-cache" aria-hidden="true"></i><span class="machine-map-word">${escapeHtml(cache)}</span>`
+      + `</span>${this.totalsHtml()}</div>`;
+  }
+
+  /** All the cards together, at the end of the legend in the page's head: what the board's Activity block says of them, as the monitor's tick
+   *  fills it. */
   totalsHtml() {
     if (!(this.node.gpus || []).length) return "";
     const id = escapeHtml(String(this.node.id ?? ""));
@@ -1046,7 +1146,7 @@ export class MachineMap {
   benchJobs(cells = this.bench()) {
     const count = new Map();
     for (const server of cells) {
-      for (const job of this.cells.get(String(server.port))?.jobs || []) count.set(job, (count.get(job) || 0) + 1);
+      for (const job of this.cells.get(MachineMap.idOf(server))?.jobs || []) count.set(job, (count.get(job) || 0) + 1);
     }
     return JOBS.filter((job) => count.has(job)).map((job) => ({ job, count: count.get(job) }));
   }
@@ -1064,7 +1164,7 @@ export class MachineMap {
     const phase = MachineMap.phase(server);
     const group = MachineMap.groupOf(phase);
     if (group === "holds") {
-      const facts = this.cells.get(String(server.port)) || {};
+      const facts = this.cells.get(MachineMap.idOf(server)) || {};
       const trouble = this.trouble(server);
       if (phase === "warming") {
         // Loading its weights: how far, how fast and how long, while its scout measures the reading (2.43, ModelLoad).
@@ -1073,7 +1173,6 @@ export class MachineMap {
       }
       if (phase === "broken") return { tone: "bad", words: [t("machinePickBroken"), ...trouble].join(" · "), state: "broken" };
       const words = [t("machinePickRunning"), ...trouble].join(" · ");
-      if (facts.unreachable) return { tone: "bad", words, state: "unreachable" };
       return Number(facts.crashed) > 0 ? { tone: "busy", words, state: "crashed" } : { tone: "good", words, state: "running" };
     }
     if (group === "coming") return { tone: "busy", words: this.comingWords(server), state: phase };
@@ -1084,7 +1183,7 @@ export class MachineMap {
   }
 
   /** What a cell's row in the list says on its second line, before that: what a working cell holds now, what another weighs; nothing for
-   *  a port with no model. The live patch asks the same. */
+   *  a cell with no model. The live patch asks the same. */
   benchSize(server) {
     const phase = MachineMap.phase(server);
     if (phase === "reserved") return "";
@@ -1100,14 +1199,15 @@ export class MachineBand {
   /** The phases of a cell on its way: copying its model, starting, loading its weights. */
   static ON_ITS_WAY = ["downloading", "starting", "warming", "loading", "resolving"];
 
-  constructor(node, { age = () => "", nameOf = (server) => `:${server.port}` } = {}) {
+  /** `nameOf` (server) → the cell as the page names it (MachineMap.cellName); with none told, its cellId. */
+  constructor(node, { age = () => "", nameOf = (server) => MachineMap.idOf(server) } = {}) {
     this.node = node || {};
     this.age = age;
     this.nameOf = nameOf;
   }
 
   counts() {
-    const cells = (this.node.servers || []).filter((s) => s && s.port && MachineMap.phase(s) !== "reserved");
+    const cells = (this.node.servers || []).filter((s) => s && MachineMap.idOf(s) && MachineMap.phase(s) !== "reserved");
     const running = cells.filter((s) => MachineMap.phase(s) === "running").length;
     const starting = cells.filter((s) => MachineBand.ON_ITS_WAY.includes(MachineMap.phase(s)));
     return { cells: cells.length, running, coming: starting.length, starting };
@@ -1229,18 +1329,24 @@ export class SideIncidents {
 export const SIDE_INCIDENTS = new SideIncidents();
 
 /**
- * The head of a machine's page: the passport — its name, what it is, its address, its scout — and, in the same line, what it does
- * now, the "⋯" of what is rare and what cannot be undone (reboot, the power schedule, power off, letting the scout go) and Add model;
- * under them the map of its memory and the list of its models with their cells, and at their right the column of what the machine runs
- * them with (MachineSide, drawn by the board's builder: `side`).
+ * The head of a machine's page, one row (the owner's choice Б, 2026-11-08): the passport — its name, what it is, its address, its scout —
+ * then how to read the map with all the cards' totals (MachineMap.keyHtml), then what it does now, the "⋯" of what is rare and what cannot be
+ * undone (reboot, the power schedule, power off, letting the scout go) and Add model; under them the map of its memory and the list of its
+ * models with their cells, and at their right the column of what the machine runs them with (MachineSide, drawn by the board's builder: `side`).
  */
 export class MachineHead {
+  /** `choice` is the pick the block is drawn for. On the page it is MACHINE_MODELS, which holds the pick past every drawing; it is taken as a
+   *  param for the same reason MachineModels takes it: a snapshot shows a pick without writing to the one the page holds. */
   constructor(node, { owners = () => [], age = () => "", reserving = false, addTitle = "", oldScout = "", cells = new Map(), chosen = "",
-                      side = "", plan = null, library = {} } = {}) {
+                      side = "", plan = null, library = {}, choice = MACHINE_MODELS, build = MACHINE_BUILD, launch = null, runners = null } = {}) {
     this.node = node || {};
     this.side = String(side || "");
     this.library = library;
-    this.map = new MachineMap(this.node, { owners, cells, chosen, plan });
+    this.choice = choice;
+    this.build = build;
+    // The engines the launch builder may offer, as the board's builder told them (topology-nodes.js machineHeadOf); none, no builder.
+    this.runners = runners;
+    this.map = new MachineMap(this.node, { owners, cells, chosen, plan, launch });
     this.band = new MachineBand(this.node, { age, nameOf: (server) => this.map.cellName(server) });
     this.reserving = !!reserving;
     this.addTitle = String(addTitle || "");
@@ -1286,18 +1392,23 @@ export class MachineHead {
   }
 
   html() {
-    const tools = `<div class="machine-tools">${this.band.html()}${this.menu()}${this.addButton()}</div>`;
-    const models = new MachineModels({ map: this.map, reserving: this.reserving, ...this.library }).html();
-    // The rack across the whole page (the owner's choice Ш1, 2026-11-02), and under it the list and the column, each scrolling by itself.
-    const main = `<div class="machine-main">${models}</div>`;
+    // The legend of the map and the cards' totals stand in the head's row, between the passport and the tools (`.machine-tools`, which a tour
+    // step stands on): the map under it has no title row.
+    const tools = `${this.map.keyHtml()}<div class="machine-tools">${this.band.html()}${this.menu()}${this.addButton()}</div>`;
+    const models = new MachineModels({ map: this.map, reserving: this.reserving, ...this.library, choice: this.choice, build: this.build, runners: this.runners });
+    // The rack across the whole page (the owner's choice Ш1, 2026-11-02), the block of the model picked under its legend (variant А of the
+    // mockups, the owner's choice of 2026-11-06), the launch builder under the map (the same day), and under them the list that picks and the
+    // column, each scrolling by itself. The block and the builder are not inside a pane that scrolls, so a drawing of the board does not move
+    // them away from under the lanes the builder's strip is carried to.
+    const main = `<div class="machine-main">${models.listHtml()}</div>`;
     return new Frame({ kind: "page", tag: "div", title: String(this.node.name || this.node.id || ""), facts: this.facts(),
-                       addr: this.oldScout, tools, body: `${this.map.html()}${this.side ? `<div class="machine-grid">${main}${this.side}</div>` : main}`,
+                       addr: this.oldScout, tools, body: `${this.map.html(models.blockHtml())}${models.buildHtml()}${this.side ? `<div class="machine-grid">${main}${this.side}</div>` : main}`,
                        attrs: `data-machine-head data-t="machine-head" data-t-id="${escapeHtml(String(this.node.id || ""))}"` }).html();
   }
 }
 
 /**
- * A cell chosen on the map of the machine's page: its row in the list of models says all of it, its blocks, chip or row are ringed.
+ * A cell chosen on the map of the machine's page: its row in the block of the model picked says all of it, its blocks, chip or row are ringed.
  * Held here and not on the page, as the open cell's window is (card-fold.js): the board draws the page anew with every change, and a
  * choice that vanished with each drawing would be no choice. What the board's builder said of the cells — their names, windows, starts
  * and stops — is held with it (`know`), for the head drawn between two drawings of the board (MachineHeadLive). Choosing the chosen cell
@@ -1305,39 +1416,48 @@ export class MachineHead {
  */
 export class MachinePick {
   constructor() {
-    this.port = "";
+    // The cell chosen, by its cellId (the launch being built, by the builder's key); "" is none.
+    this.cellId = "";
     this.cells = new Map();
     this.bound = false;
     this.listed = () => {};
   }
 
-  /** What the board's builder said of the cells of the machine shown (topology-nodes.js, nodeServerCardHtml). */
+  /** What the board's builder said of the cells of the machine shown (topology-nodes.js, nodeServerCardHtml), by cellId. */
   know(cells) {
     this.cells = cells instanceof Map ? cells : new Map();
   }
 
-  chosen(port) {
-    return this.port !== "" && String(port ?? "") === this.port;
+  /** The cell `cellId` as the page names it, by what the builder said of it (MachineMap.nameOf): for what the plan, its start and a drag
+   *  say of a cell. */
+  nameOf(cellId) {
+    return MachineMap.nameOf(this.cells.get(String(cellId ?? "")), cellId);
   }
 
-  choose(port) {
-    const p = String(port ?? "");
-    this.port = p === this.port ? "" : p;
-    return this.port;
+  chosen(cellId) {
+    return this.cellId !== "" && String(cellId ?? "") === this.cellId;
   }
 
-  /** The choice shown without a drawing of the board: the blocks, chips and rows say which one is chosen, its row shows its last line, and the
-   *  list of models hears: the chosen cell's model opens and stands whatever the list is narrowed to (`listed`, MachineModelsChoice.show). */
+  choose(cellId) {
+    const id = String(cellId ?? "");
+    this.cellId = id === this.cellId ? "" : id;
+    return this.cellId;
+  }
+
+  /** The choice shown without a drawing of the board: the blocks, chips and rows say which one is chosen, its row shows its last line, and
+   *  the block of models hears which model this cell belongs to — the model the block shows is the chosen cell's, so that a choice that moves
+   *  it to another model draws the page (`listed` says when). A cell whose model has no row there does not move the block: its row stands
+   *  among the cells with no model, in the same block. */
   show(root) {
     for (const el of root?.querySelectorAll?.("[data-machine-pick]") || []) {
       const on = this.chosen(el.dataset.machinePick);
       el.classList?.toggle?.("is-on", on);
-      // A cell's row is no button, and has no pressed to say: its port is one, and says it.
+      // A cell's row is no button, and has no pressed to say: the chip of its name is one, and says it.
       if (el.hasAttribute?.("aria-pressed") !== false) el.setAttribute?.("aria-pressed", String(on));
     }
     for (const p of root?.querySelectorAll?.("[data-machine-panel]") || []) p.hidden = !this.chosen(p.dataset.machinePanel);
     for (const line of root?.querySelectorAll?.("i[data-lane-owner]") || []) line.classList?.toggle?.("is-shown", this.chosen(line.dataset.laneOwner));
-    this.listed(root);
+    this.listed(root, this.cells.get(this.cellId)?.listed);
   }
 
   /** One holder lit on every lane and in the list, its line drawn, the rest stepped back; "" lets go. It lives on the page and goes
@@ -1379,13 +1499,13 @@ export class MachinePick {
 
   /** Whether a choice moves what the lanes draw: a cell that stands is drawn dashed where it would go, and only a drawing of the
    *  board puts that on the lanes or takes it off. */
-  standing(port) {
-    return this.cells.get(String(port ?? ""))?.group === "bench";
+  standing(cellId) {
+    return this.cells.get(String(cellId ?? ""))?.group === "bench";
   }
 
   /** One listener on the document, bound once. `redraw` draws the board again: when the choice puts a stopped cell's dashes on the
    *  lanes or takes them off, and when the chosen cell's window is not in the page yet; the keyboard is given back to its block,
-   *  chip or port. Any other choice is shown in place. A like or a dislike (`save` keeps it, `notify` says a refusal) chooses nothing,
+   *  chip or row. Any other choice is shown in place. A like or a dislike (`save` keeps it, `notify` says a refusal) chooses nothing,
    *  and neither does a cell's Window, Start or Stop (MachineDrag.taken): each only does what it does. */
   bind(doc, { redraw = () => {}, save = async () => {}, notify = () => {}, marked = () => {}, listed = () => {}, openChart = () => {} } = {}) {
     if (this.bound || !doc?.addEventListener) return;
@@ -1408,21 +1528,21 @@ export class MachinePick {
       const el = MachineDrag.taken(e.target);
       if (!el) return;
       e.preventDefault?.();
-      const was = this.port;
-      const port = this.choose(el.dataset.machinePick);
+      const was = this.cellId;
+      const cellId = this.choose(el.dataset.machinePick);
       // A plan belongs to its cell: another choice, or letting this one go, drops it.
-      if (MACHINE_PLAN.on && MACHINE_PLAN.port !== port) MACHINE_PLAN.clear();
-      const facts = this.cells.get(port);
+      if (MACHINE_PLAN.on && MACHINE_PLAN.cellId !== cellId) MACHINE_PLAN.clear();
+      const facts = this.cells.get(cellId);
       const key = String(facts?.key || "").replace(/["\\]/g, "\\$&");
       const missing = facts?.window && key && !doc.querySelector?.(`.fold-slot[data-fold-key="${key}"]`);
-      if (this.standing(was) || this.standing(port) || missing) {
+      if (this.standing(was) || this.standing(cellId) || missing) {
         redraw();
         const back = String(el.dataset.machinePick || "").replace(/["\\]/g, "\\$&");
         doc.querySelector?.(`[data-t="${String(el.dataset.t || "").replace(/["\\]/g, "\\$&")}"][data-machine-pick="${back}"]`)?.focus?.();
       } else {
         this.show(doc);
       }
-      this.bringRow(doc, port);
+      this.bringRow(doc, cellId);
     });
     this.bindLight(doc);
   }
@@ -1436,8 +1556,8 @@ export class MachinePick {
 
   /** The chosen cell's row whole in sight, with its buttons: chosen on the rack, it may be anywhere on a long list; chosen in the list, its new line
    *  may fall under the pane's edge, and the list moves by that much and no more. Letting a cell go brings nothing. */
-  bringRow(doc, port) {
-    if (port) doc.querySelector?.(`.machine-model-launch[data-machine-pick="${String(port).replace(/["\\]/g, "\\$&")}"]`)?.scrollIntoView?.({ block: "nearest" });
+  bringRow(doc, cellId) {
+    if (cellId) doc.querySelector?.(`.machine-model-launch[data-machine-pick="${String(cellId).replace(/["\\]/g, "\\$&")}"]`)?.scrollIntoView?.({ block: "nearest" });
   }
 }
 
@@ -1456,10 +1576,9 @@ export class MachineHeadLive {
     this.lanes = new WeakMap();
   }
 
-  static CHIPS = '[data-t="machine-map-unplaced-cell"], [data-t="machine-map-coming-cell"]';
-
-  /** What blocks the lanes are drawn with, in order — a cell by its port, another holder by its kind — and the cells named under
-   *  them: read off the page, and worked out of the figures, by one rule each, so the two compare. */
+  /** What blocks the lanes are drawn with, in order — a cell by its cellId, another holder by its kind — and the rows of the list beside them,
+   *  by the name the page shows and the cell it belongs to: read off the page, and worked out of the figures, by one rule each, so the two
+   *  compare. */
   static shapeOf(map) {
     const lanes = [...(map?.querySelectorAll?.(".ui-lane") || [])].map((el) => {
       const bar = el.querySelector?.(".ui-lane-bar");
@@ -1467,18 +1586,15 @@ export class MachineHeadLive {
         .map((b) => b.dataset?.machinePick || (b.classList?.contains?.("ui-lane-blk--estimate") ? "estimate" : "other")),
                     (el.querySelectorAll?.(".ui-lane-grip") || []).length] : null;
     });
-    const named = [...(map?.querySelectorAll?.(MachineHeadLive.CHIPS) || [])].map((b) => `${b.dataset?.t || ""}:${b.dataset?.machinePick || ""}`);
-    const rows = [...(map?.querySelectorAll?.(".ui-legend-row") || [])].map((row) => row.dataset?.laneOwner || "other");
-    return JSON.stringify([lanes, named, rows]);
+    const rows = [...(map?.querySelectorAll?.(".ui-legend-row") || [])].filter((row) => row.dataset?.t).map((row) => [row.dataset.t, row.dataset.tId]);
+    return JSON.stringify([lanes, rows]);
   }
 
   static shape(lanes, map) {
-    const named = [...map.unplaced(lanes).map(({ server }) => `machine-map-unplaced-cell:${server.port}`),
-                   ...map.coming().map((server) => `machine-map-coming-cell:${server.port}`)];
     return JSON.stringify([lanes.map((lane) => {
-      const blocks = Meter.cut(lane.total, lane.blocks)?.map(({ part }) => (part.port || String(part.kind || "").replace("-cache", "") || "")) ?? null;
+      const blocks = Meter.cut(lane.total, lane.blocks)?.map(({ part }) => (part.cellId || String(part.kind || "").replace("-cache", "") || "")) ?? null;
       return blocks && [blocks, (lane.grips || []).length];
-    }), named, MachineRack.legend(lanes).map((row) => row.owner || "other")]);
+    }), map.rack.legend(lanes).map((row) => [row.t, row.tId])]);
   }
 
   static text(el, words) {
@@ -1522,38 +1638,36 @@ export class MachineHeadLive {
         g.classList?.toggle?.("is-on", !!grip.on);
       });
     });
-    // The list says the same figures: its words and hovers, the chosen one.
-    const rows = [...(root?.querySelectorAll?.(".ui-legend-row") || [])];
-    MachineRack.legend(lanes).forEach((row, j) => {
+    // The list says the same figures: its words and hovers, the chosen one. Its head row is words over the columns, not a row of data,
+    // so it is not one of the rows this writes — and the two must read the same rows, or the first row's figure lands in the head.
+    const rows = [...(root?.querySelectorAll?.(".ui-legend-row") || [])].filter((row) => row.dataset?.t);
+    map.rack.legend(lanes).forEach((row, j) => {
       const el = rows[j];
       if (!el) return;
       MachineHeadLive.text(el.querySelector?.(".ui-legend-figure"), row.figure);
       MachineHeadLive.text(el.querySelector?.(".ui-legend-where"), row.where);
-      MachineHeadLive.text(el.querySelector?.(".ui-legend-speed"), row.speed);
+      MachineHeadLive.text(el.querySelector?.(".ui-legend-doing"), row.doing);
       if (el.title !== row.title) el.title = row.title;
       if (row.pick) {
         el.setAttribute?.("aria-pressed", String(!!row.on));
         el.classList?.toggle?.("is-on", !!row.on);
       }
     });
-    const coming = new Map(map.coming().map((server) => [String(server.port), `${map.cellName(server)} · ${map.comingWords(server)}`]));
-    for (const chip of root?.querySelectorAll?.('[data-t="machine-map-coming-cell"]') || []) {
-      const words = coming.get(String(chip.dataset?.machinePick || ""));
-      if (words !== undefined) MachineHeadLive.text(chip, words);
-    }
   }
 
   patch(root, head) {
     // The scout's release changes under an open page: Update the scout.
     MachineHeadLive.text(root?.querySelector?.(".ui-win-facts"), head.facts());
-    // A plan laid, moved or let go changes a row's last line whole: its words and its buttons are the plan's.
-    const models = root?.querySelector?.('[data-t="machine-models"]');
-    if (models?.dataset) {
+    // A plan laid, moved or let go changes a row's last line whole: its words and its buttons are the plan's. The rows are in the block of
+    // the model picked, so the key of the plan is kept there.
+    const block = root?.querySelector?.('[data-t="machine-chosen"]');
+    if (block?.dataset) {
       const key = head.map.plan?.key() || "";
-      if ((models.dataset.machinePlanKey || "") !== key) {
-        models.dataset.machinePlanKey = key;
-        for (const server of head.map.bench()) {
-          const line = root.querySelector?.(`[data-machine-panel="${String(server.port).replace(/["\\]/g, "\\$&")}"]`);
+      if ((block.dataset.machinePlanKey || "") !== key) {
+        block.dataset.machinePlanKey = key;
+        // The launch being built has its last line under its strip (machine-build.js), and a plan laid for it changes that line the same way.
+        for (const server of [...head.map.bench(), ...(head.map.launch ? [head.map.launch] : [])]) {
+          const line = root.querySelector?.(`[data-machine-panel="${MachineMap.idOf(server).replace(/["\\]/g, "\\$&")}"]`);
           if (line) line.outerHTML = head.map.choiceHtml(server);
         }
       }
@@ -1569,9 +1683,9 @@ export class MachineHeadLive {
       }
     }
     for (const server of head.map.bench()) {
-      const port = String(server.port).replace(/["\\]/g, "\\$&");
-      MachineHeadLive.text(root?.querySelector?.(`[data-machine-bench-size="${port}"]`), head.map.benchSize(server));
-      const el = root?.querySelector?.(`[data-machine-bench-fit="${port}"]`);
+      const id = MachineMap.idOf(server).replace(/["\\]/g, "\\$&");
+      MachineHeadLive.text(root?.querySelector?.(`[data-machine-bench-size="${id}"]`), head.map.benchSize(server));
+      const el = root?.querySelector?.(`[data-machine-bench-fit="${id}"]`);
       if (!el || ["failed", "reserved"].includes(el.dataset?.tState)) continue;
       const verdict = head.map.benchVerdict(server);
       MachineHeadLive.text(el, verdict.words);
@@ -1600,10 +1714,13 @@ export const MACHINE_HEAD_LIVE = new MachineHeadLive();
 /**
  * Where the panes of a machine's page stand when the board draws it anew. The page scrolled as one before (the owner, 2026-11-01,
  * variant Р2): the window kept its place by itself. A pane is inside what is drawn, so every drawing would throw it back to the top
- * while the operator reads the rows at the bottom. `replace` is the drawing, with the panes where they were.
+ * while the operator reads the rows at the bottom. So is the page's own body, which scrolls on a wide screen too low for the rack, the
+ * launch builder and the panes (machine.css, MachineDrag.PAGE): every card put in the launch builder draws the page, and threw it back
+ * to the top, away from the shelf the next card is taken from (seen live, 2026-11-07). `replace` is the drawing, with the
+ * panes and the body where they were.
  */
 export class MachinePanes {
-  static PANES = [".machine-main", ".machine-side"];
+  static PANES = [".machine-main", ".machine-side", MachineDrag.PAGE];
 
   static read(root) {
     return MachinePanes.PANES.map((pane) => Number(root?.querySelector?.(pane)?.scrollTop) || 0);

@@ -1,6 +1,7 @@
 //! The start script of a cell, and the same cell as one line a scout runs.
 
 use crate::app::App;
+use crate::config::args::LlamaArgs;
 use crate::config::builder::{CellCommand, FoundFiles};
 use crate::config::text::ConfigText;
 use crate::domain::runner::{Config, RunnerDefaults};
@@ -176,19 +177,16 @@ impl<'app> LaunchScript<'app> {
         Ok(lines.join("\n"))
     }
 
-    /// The same command cell as one `bash -lc` line: how a scout runs it, as a child process.
-    pub fn command_cell_shell_line(&self, config: &Config, port: Option<i64>) -> Result<String, AppError> {
-        let mut merged = ConfigText::merged(config);
-        if let Some(port) = port {
-            merged.insert("PORT".to_string(), json!(port.to_string()));
-        }
-        let resolved = Self::port_word(&merged)?;
+    /// The same command cell as one `bash -lc` line: how a scout runs it, as a child process. Its port is the one the scout leases at
+    /// the start: the line exports the placeholder, and the scout fills it (`LlamaArgs::LEASED_PORT`).
+    pub fn command_cell_shell_line(&self, config: &Config) -> Result<String, AppError> {
+        let merged = ConfigText::merged(config);
         let runner = self.app.runners.for_config(&merged);
         let command = runner.command(&merged)?;
         if command.is_empty() {
             return Err(AppError::new("command is required for a command cell"));
         }
-        let mut parts = vec!["set -euo pipefail".to_string(), format!("export PORT={}", ShellWord::quote(&resolved))];
+        let mut parts = vec!["set -euo pipefail".to_string(), format!("export PORT={}", LlamaArgs::LEASED_PORT)];
         let models_dir = Self::shell_path_value(&Self::word(&merged, "LLAMA_MODELS_DIR"));
         if !models_dir.is_empty() {
             parts.push(format!("export LLAMA_MODELS_DIR=\"{models_dir}\""));

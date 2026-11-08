@@ -2166,7 +2166,6 @@ body.step-carrying, body.step-carrying * { cursor: grabbing !important; -webkit-
 }
 .talk-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .talk-name { min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.talk-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
 /* Sized here in full: the board's buttons carry a 34px minimum height (cards.css). */
 .talk-close {
   margin-left: auto; flex-shrink: 0; align-self: center; box-sizing: border-box; width: 28px; height: 28px; min-height: 0;

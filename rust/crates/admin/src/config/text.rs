@@ -41,7 +41,7 @@ impl ConfigText {
 
     /// The groups a block is written in, a blank line between them.
     const GROUPS: [&'static [&'static str]; 11] = [
-        &["HOST", "PORT"],
+        &["PORT"],
         &["LLAMA_MODELS_DIR", "MODEL_FILE", "MMPROJ_FILE"],
         &[
             "SPEC_TYPE",

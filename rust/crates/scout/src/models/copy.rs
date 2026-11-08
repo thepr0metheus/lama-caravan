@@ -5,7 +5,6 @@ use crate::http_client::{HttpAnswer, HttpError};
 use crate::log::Log;
 use crate::models::fetcher::{Fetch, ModelFetcher, RoomMaker};
 use crate::models::pace::{CopyPace, RetryDelays, WrittenPages};
-use os::Disk;
 use serde_json::{Map, Value, json};
 use std::fs;
 use std::io::{Read, Write};
@@ -48,11 +47,9 @@ impl ModelFetcher {
         (here != there).then_some((here, there))
     }
 
-    /// What the cache's disk has free, for a folder that may not be made yet; `None` when the system does not say.
+    /// What this shelf's disk has free, as the shelf's disks say it (`ShelfParts::disks`); `None` when it does not say.
     pub(super) fn disk_free(&self) -> Option<u64> {
-        let cache = self.cache_dir();
-        let probe = cache.ancestors().find(|folder| folder.exists()).unwrap_or(&cache);
-        Disk::usage(probe).map(|(_, free)| free)
+        self.disks.free_under(&self.cache_dir())
     }
 
     /// Whether a copy of `total` bytes fits, and why not. The keeper makes room when it is short — on the disk, and on a shelf of a size within its budget: a disk that fills up mid-copy kills the start
@@ -61,11 +58,13 @@ impl ModelFetcher {
         if total == 0 {
             return Ok(());
         }
+        // The keeper is handed this shelf's reading of its disk, so that the keeper's own test hands it a figure instead.
+        let free = || self.disk_free();
         if let Some(make) = self.room_maker.get() {
-            return make(total, label);
+            return make(total, label, &free);
         }
         // No keeper stands yet: the disk alone answers.
-        match self.disk_free().filter(|free| *free < total.saturating_add(Self::LEFT_FREE)) {
+        match free().filter(|free| *free < total.saturating_add(Self::LEFT_FREE)) {
             Some(free) => Err(self.no_room_words(label, total, free)),
             None => Ok(()),
         }
@@ -89,7 +88,7 @@ impl ModelFetcher {
         projector: &str,
         draft: &str,
         use_cache: bool,
-        port: i64,
+        cell: &str,
         hints: Option<&Value>,
     ) -> Result<(String, String, String), AppError> {
         let files: Vec<&str> = [model, projector, draft].into_iter().filter(|raw| !raw.is_empty()).collect();
@@ -99,7 +98,8 @@ impl ModelFetcher {
             let short = Path::new(raw).file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
             let label = if count > 1 { format!("{short} ({}/{count})", at + 1) } else { short };
             let hint = hints.filter(|hints| hints.is_object()).and_then(|hints| hints.get(*raw)).cloned();
-            results.push(self.ensure(raw, &Fetch { report: true, label, use_cache, port, hint })?.display().to_string());
+            let fetch = Fetch { report: true, label, use_cache, cell: cell.to_string(), hint };
+            results.push(self.ensure(raw, &fetch)?.display().to_string());
         }
         let mut rest = results.into_iter();
         let first = rest.next().ok_or_else(|| AppError::new("no model to fetch"))?;
@@ -185,13 +185,13 @@ impl ModelFetcher {
         if fetch.report {
             let mut said = Map::new();
             said.insert("downloadingFile".to_string(), json!(format!("{label} (retry {} in {rest}s…)", attempt + 1)));
-            (self.report)(fetch.port, said);
+            (self.report)(&fetch.cell, said);
         }
     }
 
     fn progress(&self, fetch: &Fetch, fields: Value) {
         if let (true, Value::Object(said)) = (fetch.report, fields) {
-            (self.report)(fetch.port, said);
+            (self.report)(&fetch.cell, said);
         }
     }
 

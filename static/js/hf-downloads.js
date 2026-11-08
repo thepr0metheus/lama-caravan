@@ -391,7 +391,10 @@ export class HfDownloads {
   async discard(destDir, name) {
     const row = this.interrupted.find((r) => r.destDir === destDir && r.current_file === name);
     if (!row) return;
-    const body = hfT("dlDiscardBody", { name, size: HfFormat.bytes(row.total_bytes_done || 0) });
+    // The row is a job: the files after the partial are not on the disk, and with the partial goes the only record of them.
+    const more = (row.total_files || 1) - 1;
+    const size = HfFormat.bytes(row.total_bytes_done || 0);
+    const body = more > 0 ? hfT("dlDiscardBodyMore", { name, size, n: more }) : hfT("dlDiscardBody", { name, size });
     if (!(await this.confirm(hfT("dlDiscardTitle"), body, hfT("deleteWord"), true))) return;
     let answer;
     try {
@@ -421,7 +424,8 @@ export class HfDownloads {
     }
     // The partial is a live job now: not listed twice while it reports.
     this.interrupted = this.interrupted.filter((r) => r !== row);
-    const job = this.addJob({ jobId: answer.jobId, repoId: (row && row.repo) || "", title: (row && (row.repo || row.title)) || name, totalFiles: 1, state: "resuming" });
+    // The resume is the row's whole job: the partial's file and the files after it still to fetch.
+    const job = this.addJob({ jobId: answer.jobId, repoId: (row && row.repo) || "", title: (row && (row.repo || row.title)) || name, totalFiles: (row && row.total_files) || 1, state: "resuming" });
     this.jobsOpen = true;
     this.persist();
     this.changed();
@@ -634,6 +638,9 @@ export class HfDownloads {
       const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
       const size = total > 0 ? `${HfFormat.bytes(done)} / ${HfFormat.bytes(total)}` : HfFormat.bytes(done);
       const name = row.current_file || "";
+      const files = row.total_files || 1;
+      const said = !row.resumable ? hfT("dlInterruptedNoManifest", { size })
+        : (files > 1 ? hfT("dlInterruptedFiles", { size, n: files }) : hfT("dlInterrupted", { size }));
       const resume = row.resumable
         ? `<button type="button" class="hfp-btn" data-act="resume" data-dest="${escapeHtml(row.destDir || "")}" data-name="${escapeHtml(name)}" data-t="hf-download-resume" data-t-id="${escapeHtml(name)}">${escapeHtml(hfT("dlResume"))}</button>`
         : "";
@@ -641,7 +648,7 @@ export class HfDownloads {
       rows.push(`<div class="hfp-job is-interrupted" data-t="hf-download-interrupted" data-t-id="${escapeHtml(name)}">`
         + `<div class="hfp-job-main"><div class="hfp-job-title">${escapeHtml(row.title || "")} · ${escapeHtml(name)}</div>`
         + `<span class="hfp-bar is-stalled"><i style="width:${pct}%"></i></span>`
-        + `<div class="hfp-job-label hfp-warn">${escapeHtml(hfT(row.resumable ? "dlInterrupted" : "dlInterruptedNoManifest", { size }))}</div></div>${resume}${discard}</div>`);
+        + `<div class="hfp-job-label hfp-warn">${escapeHtml(said)}</div></div>${resume}${discard}</div>`);
     }
     return `<div class="hfp-jobs" data-t="hf-downloads">${rows.join("")}</div>`;
   }

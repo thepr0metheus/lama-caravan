@@ -58,6 +58,404 @@ def _missing_tool(output):
 # The breakage is chosen to be the failure the guard is FOR, not any old syntax
 # error: anything can be broken by deleting a brace.
 BREAKAGES = {
+    # What a request carries, named in one place (docs/vision-describe.md). Each breakage is the defect the guard is for.
+    "check_media_parts": [
+        # The vocabulary written a second time with no reason: a word added here and not to `MediaParts::WORDS` is the defect back.
+        ([], "rust/crates/admin/src/common/model_kinds.rs",
+         "const INPUTS: [&'static str; 3] = MediaParts::WORDS;",
+         "const INPUTS: [&'static str; 3] = [\"text\", \"image\", \"audio\"];"),
+        # The journal counting parts on its own, in the file that was supposed to read the fact.
+        ([], "rust/crates/rules/src/summaries.rs",
+         'summary.insert("imageParts".into(), json!(carried.count("image")));',
+         'summary.insert("imageParts".into(), json!(fold.image_parts));'),
+        # The classifier matching a name loosely instead of the exact name first: `image_text` stops being a picture.
+        ([], "rust/crates/rules/src/media_parts.rs",
+         "if Self::TEXT.contains(&said.as_str()) {",
+         'if said.contains("text") {'),
+        # The entry refusing nothing: a picture no row can take would go to the provider unanswered.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "EntryRefusal::media(&pool.name, &carried.verdict(serving, &wired)).map_or(MediaAnswer::Goes, MediaAnswer::Refused)",
+         "MediaAnswer::Goes"),
+        # The entry reading the part by its word instead of asking the classifier: `image_text` stops being a picture.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "EntryRefusal::media(&pool.name, &carried.verdict(serving, &wired)).map_or(MediaAnswer::Goes, MediaAnswer::Refused)",
+         'EntryRefusal::media(&pool.name, &carried.parts.iter().find(|part| part.word == Some("image"))?).map_or(MediaAnswer::Goes, MediaAnswer::Refused)'),
+        # One kind of row asking the media rule while the other passes it over: the defect the pool fix is for.
+        ([], "rust/crates/proxy/src/pool_steps/rows.rs",
+         "        }\n        let row = match self.sight(ask, step, asked.carried) {\n            Sight::Blind(reason) => return row.unfit(reason),\n            Sight::ReadFirst => row.read_for(),\n            Sight::Sees => row,\n        };\n        self.by_account(",
+         "        }\n        let row = row;\n        self.by_account("),
+        # Every row said it cannot read the word, and the pool answers "takes": an absence drawn as a promise.
+        ([], "rust/crates/rules/src/model_kind.rs",
+         "        } else {\n            MayRead::Cannot\n        }",
+         "        } else {\n            MayRead::Takes\n        }"),
+        # The pool's cases not run: the guard would then be reading its own copy of the rule.
+        ([], "rust/crates/rules/tests/contract.rs",
+         'rows(&table("model_kind"), "pool")',
+         'rows(&table("model_kind"), "serves")'),
+        # A pool case with no `why`: the table would hold the rule and not the reason.
+        ([], "contract/model_kind.json",
+         '"why": "the negative case: a text row takes text, and the rule must not refuse the work the row exists for"',
+         '"rule": "the negative case"'),
+        # A state missing from the pool's table: no row may serve, drawn as "unsaid".
+        ([], "contract/model_kind.json",
+         '"answer": "no row"',
+         '"answer": "unsaid"'),
+        # A table the program is not held to: the guard would then be reading its own copy of the rule.
+        ([], "rust/crates/rules/tests/contract.rs",
+         'let data = table("media_parts");',
+         'let data = table("summaries");'),
+        # A case with no `why`: the table would hold the rule and not the reason, and the negative case would be unreadable.
+        ([], "contract/media_parts.json",
+         '"word": "text", "why": "the name that means text, read as itself"',
+         '"word": "text"'),
+    ],
+    # What a wired reader is, said in one place (docs/vision-describe.md). A reader guessed from a name is the defect.
+    "check_media_reader": [
+        # A capability read out of a name: `qwen3-vl-8b-instruct` whose facts say `text` becomes a reader.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "        if !known {\n            return Self::Unknown(name.to_string());\n        }",
+         '        if name.contains("vl") {\n            return Self::Named(MediaReader::new(name, Self::PROMPT_VERSION), None);\n        }\n'
+         "        if !known {\n            return Self::Unknown(name.to_string());\n        }"),
+        # An absence of a promise drawn as a promise that the model cannot read: the two answers become one.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "                None => Reader::NotSaid(reader.model().to_string()),",
+         '                None => Reader::CannotTake(reader.model().to_string(), word.to_string()),'),
+        # A caption whose text can end the envelope early: the escape for `"` goes, and a reader's words become an instruction.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         '                \'\\\'\' => out.push_str("&apos;"),',
+         '                \'\\\'\' => out.push(\'\\\'\'),'),
+        # The wiring built somewhere else: the promise filled by hand instead of from `ModelKind`.
+        ([], "rust/crates/proxy/src/pool_steps/rows.rs",
+         "carried.verdict(kind.takes(), &Wired::Nothing)",
+         'carried.verdict(kind.takes(), &Wired::Named(MediaReader::new("qwen-vl", "v1"), Some(vec!["image".to_string()])))'),
+        # The words built by asking the wiring a second time, instead of reading the answer the rule gave.
+        ([], "rust/crates/rules/src/entry_refusal.rs",
+         "        let word = part.says();",
+         '        let word = Wired::Nothing.promise("image").word();'),
+        # The answer that reads is refused as if it were an absence.
+        ([], "rust/crates/rules/src/entry_refusal.rs",
+         "            Reader::Reads => return None,",
+         "            Reader::Reads => (\"media_reader_cannot\", \"entry:media-reader-cannot\", String::new()),"),
+        # A caption shape said a second time, outside the file that holds it.
+        ([], "rust/crates/rules/src/summaries.rs",
+         'summary.insert("imageParts".into(), json!(carried.count("image")));',
+         'summary.insert("imageParts".into(), json!(carried.count("image")));\n        summary.insert("caption".into(), json!("<caravan-caption prompt_version=\\"v1\\">"));'),
+        # The table not run by the program: the guard would be reading its own copy of the rule.
+        ([], "rust/crates/rules/tests/contract.rs",
+         'let data = table("media_reader");',
+         'let data = table("summaries");'),
+        # A case with no `why`: the table holds the rule, not the reason.
+        ([], "contract/media_reader.json",
+         '"answer": "nothing", "why": "the absence of the operator\'s decision, said as an absence: a wiring that names nothing is not a reader that reads nothing"',
+         '"answer": "nothing"'),
+        # The case the guard exists for goes: no row where the name says vision and the promise says otherwise.
+        ([], "contract/media_reader.json",
+         '"takes": ["text"]}, "word": "image", "answer": {"cannot take": "qwen3-vl-8b-instruct", "word": "image"}',
+         '"takes": ["image"]}, "word": "image", "answer": "reads"'),
+        # Two answers share one code: the table stops telling which absence the refusal was.
+        ([], "contract/media_reader.json",
+         '"code": "media_reader_unverified"',
+         '"code": "media_reader_cannot"'),
+        # The wiring that reads is put in the refused column: a table of only refusals cannot tell a rule from a guess.
+        ([], "contract/media_reader.json",
+         '"refused": false, "why": "the negative case: a wiring that reads the word is not refused, and the refusal function answers `None` for it. A table of only refusals cannot tell a rule from a guess"',
+         '"refused": true, "why": "the negative case: a wiring that reads the word is not refused, and the refusal function answers `None` for it. A table of only refusals cannot tell a rule from a guess"'),
+        # The row that reads the picture itself is refused as if it needed a caption.
+        ([], "contract/media_reader.json",
+         '"refused": false, "why": "the negative case for the row: a row that reads the picture is never given a caption, and the part goes to it as it came"',
+         '"refused": true, "why": "the negative case for the row: a row that reads the picture is never given a caption, and the part goes to it as it came"'),
+        # What the board may write as a reader is said by the answer, not by the page: `Reads` writes and `Nothing` writes,
+        # because writing nothing is clearing a wiring. Take `Nothing` away and the click that removes a reader is refused by
+        # the rule written to let it through.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "        matches!(self, Self::Reads | Self::Nothing)",
+         "        matches!(self, Self::Reads)"),
+        # The word of an answer, said once, is what the block draws. A function that returns an optional word is the same word
+        # in two shapes, and the page has to decide which shape it was.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "    pub fn word(&self) -> String {",
+         "    pub fn word(&self) -> Option<String> {"),
+        # A wiring that names the pool it is wired for answers as itself, before its promise is read. Without that arm the
+        # self-naming row answers as a reader that reads, and a caption is written for the row that cannot read the part.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "            Self::Named(reader, _) if reader.is_itself() => Reader::Itself(reader.model().to_string()),",
+         ""),
+        # The save asks the rule before it writes. A save that decides for itself — a name is a name, whatever the answer says
+        # — writes what the same rule refuses to a request, in different words.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "        if answer.writes() {\n            return None;\n        }",
+         "        if !reader.is_empty() {\n            return None;\n        }"),
+        ([], "rust/crates/admin/src/cloud/pool_edits.rs",
+         "        if let Some(refusal) = self.cloud().board_names(&data).can_write(&named) {\n"
+         "            return Err(AppError::with_status(refusal.error.message, refusal.error.status));\n        }",
+         "        if named.is_empty() {\n            return Err(AppError::new(\"the reader is not named\"));\n        }"),
+        # The word a reader is wired for is named once: `audio` is not this rule's, and `text` needs no reader.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "    pub const READER_WORD: &'static str = \"image\";",
+         "    pub const READER_WORD: &'static str = \"audio\";"),
+        # The promise is what a model's facts name. A promise filled from what a name looks like is the defect back, at the
+        # one place the promise is filled.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "        Wired::of(name, found.is_some(), promise, for_pool)",
+         "        Wired::of(name, found.is_some(), name.contains(\"vl\").then(|| vec![\"image\".to_string()]), for_pool)"),
+        # The board draws the word the rule answered. A word written by hand here is the fact read a second way: the board
+        # says "reads" while the entry refuses the same pool with `media_reader_cannot`.
+        ([], "rust/crates/admin/src/cloud/pool_state.rs",
+         '        json!({"name": named.reader(), "answer": answer.word()})',
+         '        json!({"name": named.reader(), "answer": "reads"})'),
+        # Rule 7: the reading the rule is asked from. A reading built from the pools alone, with no routers and no keys,
+        # answered `media_reader_unknown` for every model name on the live board on 2026-11-06 — a fact about the reading.
+        ([], "rust/crates/admin/src/cloud/data/reading.rs",
+         "        EntryModels::read(routers, Some(data), &Credentials::read(Some(&self.secrets())), ModelCatalogue::default())",
+         "        EntryModels::read(None, Some(data), &Credentials::default(), ModelCatalogue::default())"),
+        # Rule 7: what the board knows and what a key can call this second are two questions, so the set is held open to the
+        # flag. A model the board knows and cannot call still has facts to read against; answering `pick` makes it `unknown`.
+        ([], "rust/crates/rules/src/media_reader.rs",
+         "        let found = self.known_name(deny, name);",
+         "        let found = self.pick(deny, name);"),
+        ([], "rust/crates/rules/src/entry_models.rs",
+         "        self.open_to(deny, false).into_iter().find(|pool| pool.name == wanted)",
+         "        self.open_to(deny, true).into_iter().find(|pool| pool.name == wanted)"),
+        # The `names` group not run by the program: the guard would then be reading its own copy of the reading.
+        ([], "rust/crates/rules/tests/contract.rs",
+         'rows(&data, "names")',
+         'rows(&data, "caption")'),
+        # A `names` case that says `unknown` for a name its reading holds: the table would then hold the defect and could not
+        # tell a name the caravan does not know from a reading that looks at the pools alone.
+        ([], "contract/media_reader.json",
+         '"wanted": "gpt-9-mira", "board": {"outputs": [],',
+         '"wanted": "gpt-9-mira", "board": {"outputs": [{"id": "mm:1", "upstreamModel": "gpt-9-mira"}],'),
+        # A `names` group with nothing where a name writes: `Reader::writes` has an arm for the name that reads, and a group of
+        # only refusals cannot say which name the reading reads.
+        ([], "contract/media_reader.json",
+         '"refused": false, "why": "the door checks a name against the facts',
+         '"refused": true, "why": "the door checks a name against the facts'),
+        # The other arm: the absence writes, because writing nothing is clearing a wiring. Without its own case the group says
+        # one fact of `Reader::writes` and not the other.
+        ([], "contract/media_reader.json",
+         '"refused": false, "why": "the absence named at the door',
+         '"refused": true, "why": "the absence named at the door'),
+    ],
+    # Routing's reader block: it says the answer the rule gave and never names a state of its own (docs/vision-describe.md).
+    "check_media_reading": [
+        # A link read as a picture inside the request: the caravan would hand the reader an address to fetch on a client's word.
+        ([], "rust/crates/rules/src/media_reading.rs",
+         'url.get(..5).is_some_and(|scheme| scheme.eq_ignore_ascii_case("data:"))',
+         '!url.is_empty()'),
+        # A reading that failed turned into words: the row would be sent a caption of nothing as if the picture were read.
+        ([], "rust/crates/proxy/src/exchange/reading.rs",
+         "let words = self.ask_reader(&reading, picture)?;",
+         "let words = self.ask_reader(&reading, picture).unwrap_or_default();"),
+        # Every row that cannot read a picture read for, with no reader named: a picture no row can take would be sent on.
+        ([], "rust/crates/proxy/src/pool_steps/rows.rs",
+         'if ask.reads { Sight::ReadFirst } else { Sight::Blind("media_unsupported") }',
+         "Sight::ReadFirst"),
+        # The table's negative case for the rewrite gone: it could not say what a picture left without words comes to.
+        ([], "contract/media_reading.json",
+         '"captions": [],\n   "rewritten": null,',
+         '"captions": [],\n   "rewritten": {},'),
+    ],
+    "check_media_reader_board": [
+        # A state the rule does not answer, named on the page: the block's table and the rule's arms stop being one fact.
+        ([], "static/js/reader-block.js",
+          '    "reads": "pbReaderReads",',
+          '    "vision": "pbReaderReads",'),
+        # A state worked out of a name — `qwen3-vl-8b-instruct` says vision in its name and `text` in its facts. This is the
+        # defect the guard was written for: the board draws "reads" on a pool whose reader cannot take the picture.
+        ([], "static/js/reader-block.js",
+          '      state: word == null ? "" : String(word),',
+          '      state: word == null ? (String(pool?.reader || "").includes("vl") ? "reads" : "") : String(word),'),
+        # The same, by a word the page chose for an answer: a row that says a state the rule does not have.
+        ([], "static/js/reader-block.js",
+          '      state: word == null ? "" : String(word),',
+          '      state: word == null ? "" : "reads",'),
+        # A word missing in one language: the block falls back for one operator and not for another.
+        ([], "static/js/i18n/ru.js",
+          '  pbReaderReads: "читает картинку",',
+          '  pbReaderReadsOld: "читает картинку",'),
+        # A colour for a state the rule does not have, and none for one it does: the operator reads an answer as an ordinary
+        # row.
+        ([], "static/css/pool-board.css",
+          '.pb .pb-reader-row[data-t-state="reads"] .pb-reader-answer { color: var(--good); }',
+          '.pb .pb-reader-row[data-t-state="vision"] .pb-reader-answer { color: var(--good); }'),
+        # A row read twice: the facts worked out again in the markup instead of read once in `rowFacts`, so the drawing and
+        # the test that reads it can disagree about what a row says.
+        ([], "static/js/reader-block.js",
+          "    const facts = ReaderBlock.rowFacts(reader);",
+          '    const facts = { named: reader?.name || "", shown: reader?.name || "", '
+          'state: String(reader?.answer ?? ""), answer: String(reader?.answer ?? "") };'),
+        # An input dot drawn on a reader row — the absence named in the module, in the table and in the pin. A reader is the
+        # wiring the operator named, not a path a request runs through, so a cable pulled INTO the block goes the wrong way.
+        ([], "static/js/reader-block.js",
+          "      + `${ReaderBlock.dotHtml()}</li>`;",
+          "      + `${ReaderBlock.dotHtml()}<span class=\"pb-dot in\" data-pb-in=\"${ReaderBlock.PREFIX}\"></span></li>`;"),
+        # A reader row lit because its cable is drawn — a blink the board invented. Only what the request names lights it.
+        ([], "static/js/pool-flow.js",
+          "    const read = item?.readerName ? [ReaderBlock.key()] : [];",
+          "    const read = pools.has(pool) ? [ReaderBlock.key()] : [];"),
+        # The key said in two places: the prefix lives once in `ReaderBlock.PREFIX`.
+        ([], "static/js/pool-flow.js",
+          "    const read = item?.readerName ? [ReaderBlock.key()] : [];",
+          "    const read = item?.readerName ? [`reader:${pool}`] : [];"),
+        # The reader's own request lighting its client's cable: a request the client never sent, drawn on the board.
+        ([], "static/js/pool-flow.js",
+          "    if (item?.readerFor) return [ReaderBlock.key()];",
+          "    if (item?.readerFor) return [`client:${id}/${pool}`, ReaderBlock.key()];"),
+        # A key with a pool after it, held by the test: one board has one reader, so a key per pool names one cable per pool
+        # for one fact — and the pin goes green while the module answers a different key.
+        ([], "scripts/test_js_cable_flow.py",
+          '"client:c23001/P", "reader", "row:P/sub-1"',
+          '"client:c23001/P", "reader:P", "row:P/sub-1"'),
+        # A name the page can emit that the doc no longer publishes: a suite looks for the hook and reads an empty result as
+        # a broken application.
+        ([], "scripts/testability_names.py",
+          '    "pb-reader-block": "reader-block.js: ReaderBlock.HOOKS.block",\n',
+          ""),
+        # A snapshot that no longer reads the table it was written to run: the guard would be holding its own copy of the rule.
+        ([], "scripts/test_js_reader_block.py",
+          'TABLE = Contract.table("media_reader_board")',
+          'TABLE = Contract.table("media_parts")'),
+        # The negative case goes: a table with a key for every word it names cannot say what it does when the rule answers a
+        # word it was not built for.
+        ([], "contract/media_reader_board.json",
+          '"answer": "banana", "key": null',
+          '"answer": "banana", "key": "pbReaderBanana"'),
+        # A negative case that names facts is no longer a negative case: the program can answer it, so the word is not the
+        # word the table cannot say.
+        ([], "contract/media_reader_board.json",
+          '{"asked": "image", "answer": "banana", "key": null',
+          '{"reader": {"name": "banana", "known": true, "takes": null}, "for_pool": null, "asked": "image", "answer": "banana", "key": null'),
+        # The program stops being held to the table: the guard would be reading its own copy of the rule.
+        ([], "rust/crates/rules/tests/contract.rs",
+          'let data = table("media_reader_board");\n    for row in rows(&data, "answers") {',
+          'let data = table("media_reader_board");\n    for row in rows(&data, "caption") {'),
+        # An answer the program decides is not said to be writable or not: the save has nothing to ask.
+        ([], "contract/media_reader_board.json",
+          '"answer": "cannot take", "writes": false',
+          '"answer": "cannot take"'),
+        # A snapshot that reads a copy of the page instead of running the module: the guard would be holding the page's own
+        # idea of the rule.
+        ([], "scripts/test_js_reader_block.py",
+          'pathToFileURL(process.env.JS_ROOT + "/reader-block.js")',
+          'pathToFileURL(process.env.JS_ROOT + "/utils.js")'),
+        # A row that says a word the table does not hold for its answer: the same answer read two ways, in the row and in the
+        # module, which is how the board and the journal start disagreeing.
+        ([], "contract/media_reader_board.json",
+          '"answer": "reads", "says": {"named": "qwen-vl", "shown": "qwen-vl", "answer": "pbReaderReads", "state": "reads"}',
+          '"answer": "reads", "says": {"named": "qwen-vl", "shown": "qwen-vl", "answer": "pbReaderNothing", "state": "reads"}'),
+        # The order of the column, put in the CSS instead of being said once in `poolsHtml`: Direct pins itself, and the table
+        # cannot see a part that holds itself in view. This is what the owner stopped on 2026-11-06.
+        ([], "static/css/pool-board.css",
+          '.pb-direct {\n  margin: 0 0 12px;',
+          '.pb-direct {\n  position: sticky; top: 0; margin: 0 0 12px;'),
+        # The same order said a second way, in the drawing: the reader block put before Direct.
+        ([], "static/js/pool-board.js",
+          'return PoolBoard.column("pools", head, [direct, block, empty, cards].join(""));',
+          'return PoolBoard.column("pools", head, [block, direct, empty, cards].join(""));'),
+        # The pin that runs the table's `column` goes: the order becomes a habit of the drawing, with nothing to hold it.
+        ([], "scripts/test_js_pool_board.py",
+          '("the_reader_block_sits_below_direct",',
+          '("the_reading_order_of_the_column",'),
+        # The pin reads a group of its own instead of the table's `save`: the guard would be holding the code to a shape no test runs.
+        ([], "scripts/test_js_pool_board.py",
+          'SAVE = Contract.table("media_reader_board")["save"]',
+          'SAVE = Contract.table("media_reader_board")["shapes"]'),
+        # The save body built by hand, and not through `PoolCards.body`: the shape of what the door takes is then said twice,
+        # and the board sends a field without the pool around it — `unknown pool: None` on the live board, 2026-11-06.
+        ([], "static/js/pool-board.js",
+          'ReaderBlock.body(to.entry || PoolBoard.key(to.target))',
+          '{ reader: to.entry || PoolBoard.key(to.target) }'),
+        # The shape said in the page that calls the door, instead of in the place the page names it.
+        ([], "static/js/pools.js",
+          'JSON.stringify(PoolCards.body(PoolCards.payload(pool)))',
+          'JSON.stringify({ pool: PoolCards.payload(pool) })'),
+        # The board's answer stops carrying the reader: the block draws "not named" whatever the operator saved, and the
+        # page's pins, fed `top.reader` by hand, stay green — what shipped on 2026-11-06.
+        ([], "rust/crates/admin/src/topology/mod.rs",
+          '"reader": PoolDesk::reader(live),',
+          '"readerUnused": json!(null),'),
+        # The door reads the body somewhere else: the page and the door part, and neither can be held to the other.
+        ([], "rust/crates/admin/src/routes/pools.rs",
+          'body.get("pool")',
+          'body.get("id")'),
+        # A body that names no pool stops saying so: the operator gets an answer that is not the answer the door gave.
+        ([], "rust/crates/admin/src/cloud/pool_edits.rs",
+          'supplied.get(EntryModels::READER_FIELD)',
+          'supplied.get("name")'),
+        # The negative case names a door that reads the body anyway: a table that can answer every case it names cannot say
+        # what it does when the body is not a pool.
+        ([], "contract/media_reader_board.json",
+          '"through": false, "body": {}, "read": null',
+          '"through": false, "body": {}, "read": "qwen-vl"'),
+    ],
+    # What a diagram in diagrams/ says about a rule, and the guard it still points at. A diagram the README does not
+    # name is a diagram nobody reads; a number that is not the number the guard checks the rule at is the defect the
+    # guard's own numbering is for; and a diagram pointing at a list the guard no longer has points at nothing while
+    # looking like a rule. Each case below is the only place its check can go red — except rule 2, where one number is
+    # said in three places (file, title, README), so a disagreeing number is also a rule left without its diagram.
+    "check_diagrams": [
+        # Rule 1: the folder has a diagram the README does not name.
+        ([], "diagrams/README.md",
+         "| `media-reader-02-may-not.md` | правило 2: что файл не может сказать | список MAY_NOT |\n",
+         ""),
+        # Rule 1, the other way: a row promises a diagram the folder does not have.
+        ([], "diagrams/README.md",
+         "один раз, и что нельзя сказать второй раз.",
+         "один раз, и что нельзя сказать второй раз.\n| `media-reader-08-no-such.md` | правило 8 | проверка READING |"),
+        # Rule 1: the number a row names is not the number of the diagram it lists.
+        ([], "diagrams/README.md",
+         "| `media-reader-05-one-answer-one-code.md` | правило 5:",
+         "| `media-reader-05-one-answer-one-code.md` | правило 3:"),
+        # Rule 1: a row that names a diagram and says no fact about it.
+        ([], "diagrams/README.md",
+         "| правило 1: словарь и те, кто его читает | список READERS |",
+         "| правило 1: словарь и те, кто его читает | |"),
+        # Rule 2: a number the guard does not check the rule at — it checks seven, not eight.
+        ([], "diagrams/media-reader-07-the-reading.md",
+         "# Правило 7: чтение, из которого спрашивается правило",
+         "# Правило 8: чтение, из которого спрашивается правило"),
+        # Rule 2: the same number said twice, in the file name and in the title, and twice differently.
+        ([], "diagrams/media-reader-04-where-a-wiring-is-built.md",
+         "# Правило 4: где строится проводка",
+         "# Правило 5: где строится проводка"),
+        # Rule 3: the diagram points at a guard that is not there.
+        ([], "diagrams/media-reader-05-one-answer-one-code.md",
+         "Проверяет: `scripts/check_media_reader.py`, список CODES",
+         "Проверяет: `scripts/check_no_such_guard.py`, список CODES"),
+        # Rule 3: the line is there and names no guard — it checks nothing.
+        ([], "diagrams/media-reader-01-vocabulary.md",
+         "Проверяет: `scripts/check_media_reader.py`, список READERS.",
+         "Проверяет: список READERS."),
+        # Rule 3: the line itself is gone.
+        ([], "diagrams/media-reader-01-vocabulary.md",
+         "Проверяет: `scripts/check_media_reader.py`, список READERS. Отрицательный тест —\n"
+         "`scripts/test_guards_fail.py`.\n",
+         ""),
+        # Rule 3: the guard has stopped holding the list the diagram points at.
+        ([], "diagrams/media-reader-02-may-not.md",
+         "Проверяет: `scripts/check_media_reader.py`, список MAY_NOT.",
+         "Проверяет: `scripts/check_media_reader.py`, список MAY_NOT_OLD."),
+        # Rule 4: the general view drops one of the rules it says it holds.
+        ([], "diagrams/media-reader.md",
+         'READ["Чтение борда — правило 7: CloudData::board_names, роутеры и ключи"]',
+         'READ["Чтение борда: CloudData::board_names, роутеры и ключи"]'),
+        # Rule 5: prose with no block is not a diagram, and the README cannot promise one.
+        ([], "diagrams/media-reader-03-caption-and-key.md",
+         "```mermaid",
+         "```text"),
+        # Rule 6: the legend describes a shape no diagram draws.
+        ([], "diagrams/media-reader-02-may-not.md",
+         "    classDef absence stroke-dasharray: 4 4;\n    class B,C,E absence;\n",
+         ""),
+        # Rule 6: a shape the diagrams draw is not in the legend.
+        ([], "diagrams/README.md",
+         " Штриховая рамка — отсутствие, названное как отсутствие.",
+         ""),
+        # Rule 6: the dashed frame says an absence, and the diagram that draws it stops naming that absence.
+        ([], "diagrams/media-reader-02-may-not.md",
+         "Отсутствие, превращённое в значение",
+         "Нечто, превращённое в значение"),
+    ],
     # The rules of the caravan's Rust: each breakage is a defect it exists to catch, in code that looks ordinary (docs/rust-code.md).
     "check_rust_contract": [
         # A comment pointing at the tree that left: a reader takes it for a place to look.
@@ -126,8 +524,8 @@ BREAKAGES = {
     # The firewall is the operator's (one rule for the proxy range): a ufw call
     # in either shape — an argv list, a command string — must turn this red.
     "check_firewall_untouched": [
-        ([], "rust/crates/admin/src/proxies/config.rs", "    /// The phases of a cell that stands", '    const DOOR: [&str; 2] = ["sudo", "ufw"];\n\n    /// The phases of a cell that stands'),
-        ([], "rust/crates/admin/src/proxies/config.rs", "    /// The phases of a cell that stands", '    const DOOR: &str = "sudo -n ufw allow 23001";\n\n    /// The phases of a cell that stands'),
+        ([], "rust/crates/admin/src/proxies/config.rs", "    const OWNED_FIELDS", '    const DOOR: [&str; 2] = ["sudo", "ufw"];\n\n    const OWNED_FIELDS'),
+        ([], "rust/crates/admin/src/proxies/config.rs", "    const OWNED_FIELDS", '    const DOOR: &str = "sudo -n ufw allow 23001";\n\n    const OWNED_FIELDS'),
     ],
     "check_subscription_resets": [
         ([], "rust/crates/admin/src/routes/system.rs", "    const OPENAPI:", '    fn spend(app: &App) { drop(SubscriptionResetDesk::of(app).consume("a", "credit", "key", true)); }\n\n    const OPENAPI:'),
@@ -253,6 +651,9 @@ BREAKAGES = {
         # The sign-in page's own list drifting from the app's: a label, and a language left in its table.
         ([], "rust/crates/admin/src/web/page_shell.html", '["de","\U0001F968 Deutsch"]', '["de","\U0001F37A Deutsch"]'),
         ([], "rust/crates/admin/src/web/page_shell.html", '    de:{langLabel:', '    nl:{langLabel:'),
+        # A page drawn right to left again: the direction written by the board's language switch, a rule for it in a stylesheet.
+        ([], "static/js/i18n.js", "  document.documentElement.lang = lang;\n", '  document.documentElement.lang = lang;\n  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";\n'),
+        ([], "static/css/base.css", ".sys-back:hover { border-color: var(--accent); }", '.sys-back:hover { border-color: var(--accent); }\n:root[dir="rtl"] .sys-back { left: 0; }'),
     ],
     "testability_names": (
         ["--check"], "static/index.html",
@@ -317,7 +718,7 @@ BREAKAGES = {
         # The exact defect that shipped: an import list with a doubled comma.
         # `node --check` passes this file; the board dies at parse.
         ([], "static/js/topology-render.js",
-         "  submitLlamaStop,\n", "  submitLlamaStop,,\n"),
+         "  startRemoteStartWatch,\n", "  startRemoteStartWatch,,\n"),
         # Nothing left to parse — a check that checks nothing must say so.
         ([], "scripts/check_static_modules.py",
          'JS_DIRS = ("static/js", "static/js/i18n")', 'JS_DIRS = ("static/nowhere",)'),
@@ -342,8 +743,15 @@ BREAKAGES = {
         # 1.3.589: the machine's token speed panel reads the count itself — a second place that says who works.
         ([], "static/js/charts.js",
          "this.running().filter((s) => new CellSpeed(s, true).working)", "this.running().filter((s) => s.requestsProcessing > 0)"),
+        # 2026-11-07: the patch sums a cell's cards itself — the badge the builder drew and the one the tick writes read the report two ways.
+        ([], "static/js/topology-render.js",
+         "...CellMemory.measured(s, n) });",
+         "...CellMemory.measured(s, n), vramBytes: Object.values(s.gpuMem || {}).reduce((a, b) => a + b, 0) * 2 ** 20 });"),
+        # The class stops reading the cards' figures — nothing left to protect.
+        ([], "static/js/cell-memory.js", "const mem = s.gpuMem || {};", "const mem = s.gpuMemory || {};"),
     ],
-    "check_proxy_id_namespace": ([], "static/js/topology-dnd.js", "skynet:proxy:", "controller:proxy:"),
+    "check_proxy_id_namespace": ([], "rust/crates/admin/src/domain/client_proxy.rs",
+                                 'pub const PROXY_ID_PREFIX: &str = "skynet:proxy:";', 'pub const PROXY_ID_PREFIX: &str = "controller:proxy:";'),
     # `grep -q` on a pipe under pipefail: a machine with two cards read "no NVIDIA GPU" (2026-11-02).
     "check_shell_pipes": (
         [], "rust/crates/scout/scripts/install-llama.sh",
@@ -352,6 +760,33 @@ BREAKAGES = {
     "check_llama_flags": (
         [], "rust/crates/admin/src/config/args/switches.rs",
         'self.push(&["--load-mode", &load_mode]);', 'self.push(&["--no-mmap", &load_mode]);'),
+    # A default cell's number must be the sentence's own. Cards that name a value twice are not here; a row that
+    # copies one number from another card, or names a mode, is a choice, not a fact.
+    "check_model_defaults": [
+        # The table says 1.2 while its sentence still says 1.0: the number is no longer read out of the sentence.
+        ([], "contract/model_defaults.json",
+         '"TEMPERATURE": "1.0", "TOP_P": "1.0"', '"TEMPERATURE": "1.2", "TOP_P": "1.0"'),
+        # A number written into a sentence that never said it.
+        ([], "contract/model_defaults.json",
+         '"Сэмплинг: temperature=1.0, top_p=0.95, top_k=64 — для всех задач."',
+         '"Сэмплинг: temperature=1.0, top_p=0.90, top_k=64 — для всех задач."'),
+        # The same numbers, now named for one mode: which of the two to run depends on the mode, so it is a choice.
+        ([], "contract/model_defaults.json",
+         '"Сэмплинг: temperature 1.0, top_p 0.95, top_k 64 — для любых задач."',
+         '"Сэмплинг с рассуждениями: temperature 1.0, top_p 0.95, top_k 64."'),
+        # A use word is a mode word: "для текста" says the values for text, not for the model. It is read at the start
+        # of a word, which is why an intact tree with "Контекст 1M токенов" is green — there "текст" is inside a word.
+        ([], "contract/model_defaults.json",
+         '"Сэмплинг: temperature 1.0, top_p 1.0. Контекст 1M токенов, max_tokens ≥ 256K."',
+         '"Сэмплинг для текста: temperature 1.0, top_p 1.0. Контекст 1M токенов, max_tokens ≥ 256K."'),
+        # A field the caravan cannot say: the cards name a penalty, the program writes no flag for one.
+        ([], "contract/model_defaults.json",
+         '"fields": ["TEMPERATURE", "TOP_P", "TOP_K", "MIN_P", "CTX_SIZE", "N_PREDICT"]',
+         '"fields": ["TEMPERATURE", "TOP_P", "TOP_K", "MIN_P", "CTX_SIZE", "N_PREDICT", "PRESENCE_PENALTY"]'),
+        # A row the program no longer states: the guard would be holding a copy, not the table.
+        ([], "rust/crates/admin/src/models/defaults.rs",
+         '("gemma-4-31B-it-GGUF", &[("TEMPERATURE", "1.0"), ("TOP_P", "0.95"), ("TOP_K", "64")]),', ''),
+    ],
     "check_cell_self_capture": (
         [], "cells/whisper_server.py",
         '                    state["downloaded"]', '                    self.state["downloaded"]'),
@@ -396,6 +831,10 @@ BREAKAGES = {
         ([], "scripts/test_gr00t_server.py", "from _ports import free_port  # noqa: E402\n", "def free_port():\n    return 5000\n"),
     ],
     "check_context_window": ([], "rust/crates/admin/src/fleet/launch.rs", "    /// A complete, self-contained start script.", '    const TRAINED: &str = "n_ctx_train";\n\n    /// A complete, self-contained start script.'),
+    # The old habit back: an entry written at the top of `## Unreleased` instead of a file in changelog.d/ (scripts/changelog.py).
+    # The rules on single files have their cases in scripts/test_changelog.py: a file here would be gone with the next release.
+    "check_changelog_fragments": ([], "CHANGELOG.md", "Записи до выпуска — файлами в `changelog.d/`",
+                                  "- Новая запись, как раньше.\n\nЗаписи до выпуска — файлами в `changelog.d/`"),
     "check_why_refs": (
         [], "docs/why.md",
         "`rust/crates/admin/src/fleet/cell_ops.rs` (`client_server_slot_delete`)", "`rust/crates/admin/src/fleet/gone.rs` (`client_server_slot_delete`)"),
@@ -444,6 +883,32 @@ BREAKAGES = {
         ([], "rust/crates/admin/src/routes/openapi.json", '"summary": "This API as OpenAPI 3.1: every route', '"summary": "UNSURE: This API as OpenAPI 3.1: every route'),
         ([], "docs/http-api.md", '| `GET /openapi.json` | open |', '| `GET /openapi.json` | admin |'),
     ],
+    # A promise file keeps a day the program quoted as it was written (scripts/check_frozen_day_words.py). The intact tree is
+    # green here, and that is the other half of the rule: a word of the run is right where the program computed the day
+    # (`"date": "<today>"` in the journal rows). The first breakage is the defect that happened; the second shows the guard
+    # reads every promise file, not only the one where the defect was found.
+    "check_frozen_day_words": [
+        ([], "tests/frozen/scout.jsonl", '"description": "(2026-11-03) `{path, how}`', '"description": "(<today>) `{path, how}`'),
+        ([], "tests/frozen/admin.jsonl", '"date": "<today>"', '"description": "<today>"'),
+        # The other half of the same rule: a promise holds `lastFired`, and the program writes that day only for a
+        # schedule time the clock has already passed. A scenario time that can still be ahead of the run makes the
+        # promise green only on the hours after it — pipelines #596, #603, #604, all before 03:30.
+        ([], "scripts/test_rust_admin_conformance.py",
+         '{"schedule": {"enabled": True, "at": "00:00", "daily": False}}',
+         '{"schedule": {"enabled": True, "at": "23:59", "daily": False}}'),
+    ],
+    # A pin may not hold a value the controller reads from the internet (scripts/check_conformance_offline.py): the test writes its own copy, fresh for
+    # its day, and the pins still answer that copy. The three ways this guard exists for: a copy taken away, a copy written with the fixture's date
+    # (which the program never reads), and a copy the pins no longer answer.
+    "check_conformance_offline": [
+        ([], "scripts/test_rust_admin_conformance.py", "        self.codex()\n", ""),
+        ([], "scripts/test_rust_admin_conformance.py", '"checkedAt": int(time.time())', '"checkedAt": self.WHEN'),
+        ([], "scripts/test_rust_admin_conformance.py", '"codexNpm": {"version": "0.166.0"', '"codexNpm": {"version": "0.168.0"'),
+        # The half that was already fixed before this guard existed: the copy of LiteLLM's table. Taken away, the pins hold whatever GitHub says today.
+        ([], "scripts/test_rust_admin_conformance.py", "        self.pricing()\n", ""),
+        # A copy with no date: nothing says when it was written, so the program goes to the internet.
+        ([], "scripts/test_rust_admin_conformance.py", '"codexNpm": {"version": "0.166.0", "checkedAt": int(time.time())}', '"codexNpm": {"version": "0.166.0"}'),
+    ],
     # Everything of the caravan opens in the tab the operator is in (the owner, 2026-10-17): a link of the board that asks
     # for a window of its own, a script that opens a new tab, and a page that leaves its tab through window.open in a
     # place that used to be an exception must each turn this red.
@@ -468,10 +933,38 @@ BREAKAGES = {
         ([], "scripts/_node.py", 'NODE_FLAGS = ("--single-threaded",)', "NODE_FLAGS = ()"),
         ([], "scripts/check_static_modules.py", "    node = find_node()\n", '    node = shutil.which("node")\n'),
     ],
+    # Every Rust test binary cargo starts goes through scripts/rust_test_runner.py (2026-11-04: an abandoned `cargo test` spun two
+    # hung tests on a Mac for three days). The root config that stops naming the runner, a CI job that names its own, and a limit
+    # the CI job's timeout would beat must each turn this red.
+    "check_rust_test_start": [
+        ([], ".cargo/config.toml", 'runner = "scripts/rust_test_runner.py"', ""),
+        ([], ".gitlab-ci.yml", "    CARGO_TERM_COLOR: never\n",
+         "    CARGO_TERM_COLOR: never\n    CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: \"\"\n"),
+        ([], "scripts/rust_test_runner.py", "    LIMIT = 300.0\n", "    LIMIT = 3600.0\n"),
+    ],
     "check_same_tab_links": [
         ([], "static/index.html", 'href="/models" data-t="header-models"', 'href="/models" target="caravan-models" data-t="header-models"'),
         ([], "static/js/topology-dnd.js", 'window.location.assign("/routing");', 'window.open("/routing", "_blank");'),
         ([], "static/js/hf-downloads.js", "this.go = go || ((url) => globalThis.location.assign(url));", 'this.go = go || ((url) => globalThis.open(url, "_blank"));'),
+    ],
+    # Every cell listens on its machine's loopback (step 7 of the owner's plan, 2026-11-08). Each breakage is a cell open to the whole
+    # network again the day the owner's ufw rule is gone: a script's own address, a Python server's, a variable the environment may
+    # say otherwise, a builder's word, and the two copies of the address parting.
+    "check_cell_listen": [
+        ([], "cells/run_vllm_omni.sh", '--host 127.0.0.1 --port "$PORT"', '--host 0.0.0.0 --port "$PORT"'),
+        ([], "cells/cell_base.py", "_Server((LISTEN, self.port)", '_Server(("", self.port)'),
+        ([], "cells/run_inferssd.sh", "export LLAMA_SERVER_HOST=127.0.0.1", 'export LLAMA_SERVER_HOST="${LLAMA_SERVER_HOST:-127.0.0.1}"'),
+        ([], "rust/crates/admin/src/domain/runner/vllm.rs", "CellDoor::LISTEN.to_string(),", '"0.0.0.0".to_string(),'),
+        ([], "cells/cell_base.py", 'LISTEN = "127.0.0.1"', 'LISTEN = "127.0.0.2"'),
+    ],
+    # One delivery at a time (deploy/nas/release_ship.py, DeliveryLock). Each breakage is a way two deliveries could run at once again.
+    "check_delivery_lock": [
+        # The delivery no longer takes the lock.
+        ([], "deploy/nas/release_ship.py", '        with self.locked("ship"):\n            self.deliver()', "        self.deliver()"),
+        # A subclass with an entry of its own that skips the lock: ScoutShip.ship runs its body bare.
+        ([], "deploy/nas/scout_ship.py", '    def deliver(self):\n        """The scout of origin/main', '    def ship(self):\n        """The scout of origin/main'),
+        # A taken lock lets the run go on.
+        ([], "deploy/nas/release_ship.py", '            raise SystemExit(f"another delivery holds the lock', '            return self or SystemExit(f"another delivery holds the lock'),
     ],
 }
 

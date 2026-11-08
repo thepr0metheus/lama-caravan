@@ -1,11 +1,12 @@
-//! What was started on this machine, kept in `state.json` under "cells" so the next scout start can find it again: one record per port.
+//! What was started on this machine, kept in `state.json` under "cells" so the next scout start can find it again: one record per cell, by its name, with the port its run holds.
 
+use crate::cells::logs::CellLogs;
 use crate::process::HostProcesses;
 use crate::state::ScoutState;
 use os::clock::Clock;
 use rules::Coerce;
 use serde_json::{Map, Value, json};
-use std::path::Path;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 /// What a start writes down.
@@ -13,6 +14,8 @@ use std::sync::Arc;
 pub struct NewRecord {
     /// "llama" or "command".
     pub kind: &'static str,
+    /// The port its run holds: what a scout started after this one dials it at. `None` when nobody can say it.
+    pub port: Option<i64>,
     /// The process.
     pub pid: i64,
     /// What its command line carries.
@@ -49,9 +52,10 @@ impl CellRecords {
     }
 
     /// Writes one down.
-    pub fn add(&self, port: i64, new: NewRecord) {
+    pub fn add(&self, id: &str, new: NewRecord) {
         let mut record = Map::new();
-        record.insert("port".to_string(), json!(port));
+        record.insert("id".to_string(), json!(id));
+        record.insert("port".to_string(), json!(new.port));
         record.insert("kind".to_string(), json!(new.kind));
         record.insert("pid".to_string(), json!(new.pid));
         record.insert("marker".to_string(), json!(Coerce::first_letters(&new.marker, Self::MARKER_LETTERS)));
@@ -76,17 +80,15 @@ impl CellRecords {
         self.state.change(|doc| {
             let cells = doc.entry(Self::KEY.to_string()).or_insert_with(|| json!({}));
             if let Value::Object(cells) = cells {
-                cells.insert(port.to_string(), Value::Object(record));
+                cells.insert(id.to_string(), Value::Object(record));
             }
         });
     }
 
     /// Lets one go.
-    pub fn forget(&self, port: i64) {
-        if !self.get(port).is_empty() {
-            self.state.change(|doc| {
-                doc.get_mut(Self::KEY).and_then(Value::as_object_mut).and_then(|cells| cells.remove(&port.to_string()))
-            });
+    pub fn forget(&self, id: &str) {
+        if !self.get(id).is_empty() {
+            self.state.change(|doc| doc.get_mut(Self::KEY).and_then(Value::as_object_mut).and_then(|cells| cells.remove(id)));
         }
     }
 
@@ -99,11 +101,23 @@ impl CellRecords {
         })
     }
 
-    /// The record of `port`; empty when there is none.
-    pub fn get(&self, port: i64) -> Map<String, Value> {
+    /// The port a record says its run holds; `None` for a record that says none.
+    pub fn port_of(record: &Map<String, Value>) -> Option<i64> {
+        record.get("port").and_then(Value::as_i64).filter(|port| *port > 0)
+    }
+
+    /// The ports the records of every other cell than `id` say their runs hold: what a lease leaves alone, a cell that may still run.
+    pub fn ports_besides(&self, id: &str) -> BTreeSet<i64> {
+        let records = self.items();
+        let others = records.iter().filter(|(key, _)| key != id);
+        others.filter_map(|(_, record)| record.as_object().and_then(Self::port_of)).collect()
+    }
+
+    /// The record of the cell `id`; empty when there is none.
+    pub fn get(&self, id: &str) -> Map<String, Value> {
         self.state.read(|doc| {
             doc.get(Self::KEY)
-                .and_then(|cells| cells.get(port.to_string()))
+                .and_then(|cells| cells.get(id))
                 .and_then(Value::as_object)
                 .cloned()
                 // absent-ok: the empty record is how the callers read "none".
@@ -112,27 +126,29 @@ impl CellRecords {
     }
 
     /// The record's process was found again under another pid.
-    pub fn repoint(&self, port: i64, pid: i64) {
+    pub fn repoint(&self, id: &str, pid: i64) {
         self.state.change(|doc| {
-            let record = doc.get_mut(Self::KEY).and_then(|cells| cells.get_mut(port.to_string())).and_then(Value::as_object_mut);
+            let record = doc.get_mut(Self::KEY).and_then(|cells| cells.get_mut(id)).and_then(Value::as_object_mut);
             if let Some(record) = record {
                 record.insert("pid".to_string(), json!(pid));
             }
         });
     }
 
-    /// The record of a cell this scout started and has none of: what the machine says of its process, its command line, when it started, the log it was given by name, and nothing more: the controller
-    /// sends the rest with the next start.
-    pub fn found(&self, port: i64, pid: i64, llama_bin: &str, log_dir: &Path, processes: &HostProcesses) -> Map<String, Value> {
+    /// The record of a cell this scout started and has none of: what the machine says of its process, its command line, the port its mark says, when it started, the log it was given by name, and
+    /// nothing more: the controller sends the rest with the next start.
+    pub fn found(&self, id: &str, pid: i64, llama_bin: &str, logs: &CellLogs, processes: &HostProcesses) -> Map<String, Value> {
         let line = processes.command_line(pid);
         let llama = !llama_bin.is_empty() && line.contains(llama_bin);
-        let log = log_dir.join(if llama { format!("llama-server.{port}.log") } else { format!("command-cell.{port}.log") });
+        let log = logs.named(if llama { "llama-server" } else { "command-cell" }, id);
+        let port = processes.port_said(pid);
         let mut config = Map::new();
         config.insert("port".to_string(), json!(port));
         self.add(
-            port,
+            id,
             NewRecord {
                 kind: if llama { "llama" } else { "command" },
+                port,
                 pid,
                 marker: line,
                 config,
@@ -143,13 +159,12 @@ impl CellRecords {
         let started = processes.started_at(pid);
         if started != 0 {
             self.state.change(|doc| {
-                let record =
-                    doc.get_mut(Self::KEY).and_then(|cells| cells.get_mut(port.to_string())).and_then(Value::as_object_mut);
+                let record = doc.get_mut(Self::KEY).and_then(|cells| cells.get_mut(id)).and_then(Value::as_object_mut);
                 if let Some(record) = record {
                     record.insert("startedAt".to_string(), json!(started));
                 }
             });
         }
-        self.get(port)
+        self.get(id)
     }
 }

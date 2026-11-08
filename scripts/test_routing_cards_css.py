@@ -24,7 +24,6 @@ names a stylesheet in which
 
 Run: python3 scripts/test_routing_cards_css.py
 """
-import re
 import sys
 from pathlib import Path
 
@@ -46,7 +45,6 @@ def check(cond, msg):
 class ModelsCss:
     """What a stylesheet says of the Models column's cards and lines."""
 
-    MEDIA = re.compile(r"@media\s*([^{]*)\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}")
     #: The tools that are quiet at rest: (what it is, its selectors at rest, the selectors that show it, the one that shows it where
     #: there is no pointer, whether it takes room only when it is shown).
     TOOLS = (
@@ -62,9 +60,8 @@ class ModelsCss:
     @classmethod
     def split(cls, css):
         """(the stylesheet without its @media blocks, the blocks as [(query, css)]): a rule read from a block must not
-        pass for the rule at rest."""
-        blocks = [(m.group(1).strip(), m.group(2)) for m in cls.MEDIA.finditer(css)]
-        return cls.MEDIA.sub("", css), blocks
+        pass for the rule at rest. The reading is the shared one (scripts/_css_rules.py)."""
+        return CssRules.split(css)
 
     @classmethod
     def declared(cls, rules, selector):

@@ -7,8 +7,8 @@ then "А2 with the stars of А3". The wizard drives the cell editor's own form; 
 the settings and a machine, and pins by value, each claim with its negative:
   * the windows: the usual ones up to the trained one, and it; none is written by itself — an empty field asks for the window
     the model was trained for (the owner, 2026-10-26), and a smaller one the cards hold whole is only offered, as a button;
-  * the opening: the form filled for the next free port without its dialog, adopted by the settings' editor — and not filled when
-    the cell window keeps edits the operator does not let go;
+  * the opening: the form filled for a new cell of the machine — the form's key of a cell not made yet; no cellId, no port — without its
+    dialog, adopted by the settings' editor — and not filled when the cell window keeps edits the operator does not let go;
   * the first step: a tile a job in the vocabulary's order with its count; what a chat model must be able to do narrows the list;
     a row says the trained window ("not known" for a model that takes one and states none, a dash for a job that takes none),
     what it weighs at the window its start asks for and where it would go — the bench's plan, with the machine's real cards;
@@ -16,13 +16,15 @@ the settings and a machine, and pins by value, each claim with its negative:
   * the runner: the one made for the model, the others that can run it, a choice writes it; the projector and the draft;
   * the third step: the eight main fields of a llama.cpp cell and the starred ones, each writing the form; where it computes by
     the compute target's rule; a smaller window offered when the one set does not fit; the full list folded, then the editor's;
-  * Create and Create and start: the form's Apply without its question, then the cell's start; a refused save keeps it open;
-    the full form and closing let the form go.
+  * Create and Create and start: the form's Apply without its question — the save makes the cell — then the cell's start by the name
+    the save gave it; a save that names none is said and nothing is started; a refused save keeps it open; the full form and closing let
+    the form go; the launch builder's form filling carries no port, even one handed to it.
 
 Run: python3 scripts/test_js_add_model.py
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -109,22 +111,27 @@ const NAMED = { [GIGA]: "transcribe", [WHISPER]: "whisper", [TTS]: "qwen3-tts" }
 const NODE = { id: "hotel", name: "hotel", gpus: [
   { index: 0, name: "NVIDIA GeForce RTX 3090", memoryTotalMiB: "24576", memoryUsedMiB: "0" },
   { index: 1, name: "NVIDIA GeForce RTX 5090", memoryTotalMiB: "32607", memoryUsedMiB: "0" }],
-  cpu: { ram: { totalGb: 60.5, usedGb: 9.2 } }, servers: [{ port: 22020, slotConfig: { MODEL_FILE: HERMES } }] };
+  cpu: { ram: { totalGb: 60.5, usedGb: 9.2 } }, servers: [{ cellId: "c22020", port: null, slotConfig: { MODEL_FILE: HERMES } }] };
 const BOXES = ["ENABLE_FLASH_ATTN", "ENABLE_THINKING", "KV_UNIFIED", "SPEC_ENABLED", "cacheModels", "MMAP"];
+// The cell form as CellForm answers (remote-cells.js): a cell is held by its key — "new:<machine>" for one not made yet — and once a save
+// made it, the form holds it by the name the controller gave it (`cellId`). Its config carries no port.
 class Form {
-  constructor() { this.fields = {}; this.boxes = {}; this.calls = []; this.mayFillAnswer = true; this.saveAnswer = true; }
-  async mayFill(h, p) { this.calls.push(["mayFill", h, p]); return this.mayFillAnswer; }
-  fill(h, p, opts) {
-    this.calls.push(["fill", h, p, opts]);
-    this.fields = { PORT: p, CTX_SIZE: "", PARALLEL: "1", CACHE_TYPE_K: "q8_0", CACHE_TYPE_V: "q8_0", N_GPU_LAYERS: "999", BATCH_SIZE: "1024",
+  constructor() { this.fields = {}; this.boxes = {}; this.calls = []; this.mayFillAnswer = true; this.saveAnswer = true; this.madeAs = "c3f9a02b1"; this.held = ""; }
+  async mayFill(key) { this.calls.push(["mayFill", key]); return this.mayFillAnswer; }
+  fill(key, opts) {
+    this.calls.push(["fill", key, opts]);
+    this.held = "";
+    this.fields = { CTX_SIZE: "", PARALLEL: "1", CACHE_TYPE_K: "q8_0", CACHE_TYPE_V: "q8_0", N_GPU_LAYERS: "999", BATCH_SIZE: "1024",
                     UBATCH_SIZE: "1024", MODEL_FILE: "", ALIAS: "", RUNNER: "" };
     this.boxes = { ENABLE_FLASH_ATTN: true, ENABLE_THINKING: true, KV_UNIFIED: false, SPEC_ENABLED: false, cacheModels: true };
+    return true;
   }
+  cellId() { return this.held; }
   // As the real form reads: a runner that names its model in a field of its own carries no MODEL_FILE.
   read() { return { ...this.fields, ...(["vllm", "whisper", "moonshine"].includes(this.fields.RUNNER) ? { MODEL_FILE: "" } : {}) }; }
   set(f, v) { this.calls.push(["set", f, String(v)]); if (BOXES.includes(f)) this.boxes[f] = String(v) === "1"; else this.fields[f] = String(v); return true; }
   checked(f) { return !!this.boxes[f]; }
-  async save(opts) { this.calls.push(["save", opts]); return this.saveAnswer; }
+  async save(opts) { this.calls.push(["save", opts]); if (this.saveAnswer) this.held = this.madeAs; return this.saveAnswer; }
   show() { this.calls.push(["show"]); }
 }
 class Settings {
@@ -142,11 +149,11 @@ const make = (over = {}) => {
   const settings = new Settings();
   const root = el();
   let runner = "llama-server";
-  const log = { picks: [], runners: [], compute: [], starts: [], later: [] };
+  const log = { picks: [], runners: [], compute: [], starts: [], later: [], notes: [] };
   const doc = { body: { appendChild: (x) => { doc.made = x; } }, getElementById: (id) => (id === "addModelOverlay" && doc.made ? doc.made : null),
                 createElement: () => root, activeElement: null };
   const wiz = new AddModel({
-    form, settings, doc: () => doc, nextPort: () => "22029", node: (h) => (h === "hotel" ? NODE : null), choices: () => CHOICES, rows: () => ROWS,
+    form, settings, doc: () => doc, newKey: (h) => `new:${h}`, node: (h) => (h === "hotel" ? NODE : null), choices: () => CHOICES, rows: () => ROWS,
     picked: () => form.fields.MODEL_FILE,
     pickModel: (v) => { log.picks.push(v); form.fields.MODEL_FILE = v; runner = NAMED[v] || (v === COSMOS ? "vllm" : "llama-server"); form.fields.RUNNER = runner; form.fields.ALIAS = v.split("/").pop().replace(".gguf", "").toLowerCase(); },
     runner: () => runner, chooseRunner: (id) => { log.runners.push(id); runner = id; }, runners: () => RUNNERS,
@@ -155,8 +162,8 @@ const make = (over = {}) => {
     available: (r) => { const kind = KIND[form.fields.MODEL_FILE] || "llm-gguf"; return (r.artifacts || []).some((a) => a === "*" || a === kind); },
     naming: (v) => RUNNERS.find((r) => r.id === (NAMED[v] || "")) || null,
     compute: (sel) => log.compute.push(sel), kvGb: (row) => (row === ROWS.get(HERMES) ? 5.31 : 1.0),
-    favorites: () => ["CTX_SIZE", "SPEC_TYPE", "MMAP", "CACHE_TYPE_V", "EXTRA_ARGS"], start: async (h, p) => log.starts.push([h, p]),
-    defaults: () => ({}), later: (fn) => log.later.push(fn), ...over,
+    favorites: () => ["CTX_SIZE", "SPEC_TYPE", "MMAP", "CACHE_TYPE_V", "EXTRA_ARGS"], start: async (cellId) => log.starts.push(cellId),
+    notify: (words) => log.notes.push(words), defaults: () => ({}), later: (fn) => log.later.push(fn), ...over,
   });
   return { wiz, form, settings, root, log, doc };
 };
@@ -190,7 +197,7 @@ const text = (html) => String(html).replace(/<[^>]*>/g, " ").replace(/\s+/g, " "
 }
 const A = make();
 out.opened = [await A.wiz.open("hotel"), A.form.calls.filter((c) => c[0] === "fill"), [...A.settings.calls], A.root.hidden, A.wiz.key, A.wiz.step];
-out.dialog = /data-t="add-model" data-t-id="hotel:22029" data-t-state="pick"/.test(A.root.innerHTML) && /role="dialog"/.test(A.root.innerHTML);
+out.dialog = /data-t="add-model" data-t-id="new:hotel" data-t-state="pick"/.test(A.root.innerHTML) && /role="dialog"/.test(A.root.innerHTML);
 out.sub = text(A.wiz.headHtml());
 out.band = text(A.wiz.bandHtml());
 out.rail = [...A.root.innerHTML.matchAll(/data-am-step="(\d)"[^>]*?( disabled)?>/g)].map((m) => [m[1], !!m[2]]);
@@ -217,6 +224,21 @@ const rowOf = (value) => { const h = A.wiz.rowHtml(CHOICES.find((c) => c.value =
 out.rows = { hermes: rowOf(HERMES), coder: rowOf(CODER), giga: rowOf(GIGA), whisper: rowOf(WHISPER), tts: rowOf(TTS) };
 out.figures = { hermes: A.wiz.figures(CHOICES[0]).window, coder: A.wiz.figures(CHOICES[1]).window, emb: A.wiz.figures(CHOICES[3]).window,
                 tts: [A.wiz.figures(CHOICES[6]).window, A.wiz.figures(CHOICES[6]).runner] };
+// A speculative draft the form holds (2026-11-07): the list weighs each model alone — the form's draft is another model's, as its
+// projector is — and the model picked is weighed with the draft the form holds, its own cache said not counted.
+{
+  const DRAFT = "Hermes-4-70B-GGUF/lmstudio-community/Q4_K_M/mtp-Hermes-4-70B.gguf";
+  const withDraft = new Map([...ROWS, [DRAFT, { path: DRAFT, kind: "draft", sizeGb: 1.28, ggufMeta: { blockCount: 80 } }]]);
+  const D = make({ rows: () => withDraft });
+  await D.wiz.open("hotel");
+  const alone = D.wiz.figures(CHOICES[0]).size;
+  Object.assign(D.form.fields, { SPEC_TYPE: "draft-mtp", SPEC_DRAFT_MODEL_FILE: DRAFT });
+  D.wiz.base = { ...D.form.read() };
+  D.wiz.figured.clear();
+  const listed = D.wiz.figures(CHOICES[0]).size;
+  D.wiz.pick(HERMES);
+  out.draftList = { alone, listed, picked: D.wiz.now().size };
+}
 out.empty = (A.wiz.query = "zzz", A.wiz.listHtml().includes('data-t="add-model-empty"'));
 A.wiz.query = "";
 out.noNext = [A.wiz.go(1), A.wiz.step, A.wiz.footHtml().includes('data-am-next data-t="add-model-next" disabled')];
@@ -246,7 +268,8 @@ out.pickCompute = A.log.compute.splice(0);
   out.pickComputeNot = [pinned, cpu, other];
 }
 out.pickBand = text(A.wiz.bandHtml());
-out.portless = [text(A.wiz.footHtml()), text(A.wiz.cellHtml()), [A.wiz.headHtml(), A.wiz.footHtml(), A.wiz.cellHtml()].some((h) => h.includes("22029"))];
+// No port anywhere in the wizard: a new cell has none, and its scout leases one at each start.
+out.portless = [text(A.wiz.footHtml()), text(A.wiz.cellHtml()), [A.wiz.headHtml(), A.wiz.footHtml(), A.wiz.cellHtml(), A.root.innerHTML].some((h) => /:\d{4,5}\b|\b22\d{3}\b/.test(h))];
 out.unknownPick = A.wiz.pick("nowhere.gguf");
 
 // ── the runner ──
@@ -301,7 +324,7 @@ const place = A.wiz.placeHtml();
 out.tip = [A.wiz.tip(), (place.match(/data-am-value="(\d+)" data-t="add-model-tip"/) || [])[1] || null, place.includes("the map")];
 A.form.fields.CTX_SIZE = "8192";
 out.noTip = [A.wiz.tip(), A.wiz.placeHtml().includes("add-model-tip")];
-out.all = [text(A.wiz.allHtml()).includes(en.amAllTitle.replace("{n}", "110")), A.wiz.allHtml().includes("all fields"), A.wiz.toggleAll(), A.wiz.allHtml().includes("all fields")];
+out.all = [text(A.wiz.allHtml()).includes(en.amAllTitle.replace("{n}", "108")), A.wiz.allHtml().includes("all fields"), A.wiz.toggleAll(), A.wiz.allHtml().includes("all fields")];
 // A star in the full list: drawn again once the editor wrote it.
 A.log.later.length = 0;
 out.star = [A.wiz.onClick({ target: { closest: (s) => (s === "[data-cell-settings-star]" ? {} : null) } }), A.log.later.length];
@@ -319,7 +342,18 @@ out.tts = { eight: tm.includes('data-t="add-model-ctx"'), full: tm.includes('dat
 
 // ── Create, Create and start, the full form, closing ──
 A.form.calls.length = 0; A.settings.calls.length = 0;
-out.create = [await A.wiz.create(true), A.form.calls.filter((c) => c[0] === "save"), A.settings.calls, A.log.starts, A.root.hidden, A.wiz.opened];
+out.create = [await A.wiz.create(true), A.form.calls.filter((c) => c[0] === "save"), A.settings.calls, A.log.starts, A.root.hidden, A.wiz.opened, A.log.notes];
+{
+  // A save that answered no name: the cell may not be one, and nothing is started by a guess — it is said.
+  const U = make();
+  await U.wiz.open("hotel"); U.wiz.pick(HERMES);
+  U.form.madeAs = "";
+  out.createUnnamed = [await U.wiz.create(true), U.log.starts, U.log.notes, U.wiz.opened];
+  // Create alone starts nothing, named or not.
+  const O = make();
+  await O.wiz.open("hotel"); O.wiz.pick(HERMES);
+  out.createOnly = [await O.wiz.create(false), O.log.starts, O.log.notes];
+}
 const R = make();
 await R.wiz.open("hotel"); R.wiz.pick(HERMES);
 R.form.saveAnswer = false;
@@ -338,6 +372,21 @@ out.close = [C.wiz.close(), C.wiz.close(), C.settings.calls.filter((c) => c[0] =
   const L = make();
   out.keepByFolder = [K.wiz.cellHtml().includes('data-t="add-model-keep-folder"'), K.wiz.cellHtml().includes("add-model-keep\""), text(K.wiz.cellHtml()),
                       L.wiz.cellHtml().includes('data-t="add-model-keep"'), L.wiz.cellHtml().includes("add-model-keep-folder")];
+}
+{
+  // The launch builder's Start (machine-build.js): the form filled for the new port as the wizard fills it, the model, the engine and the
+  // set written, read back with its keep switch — no window opened, nothing saved here.
+  const F = make();
+  // A port given along is no part of a new cell: the form is filled under the machine's key, and nothing carries the number.
+  out.formConfig = await F.wiz.formConfig({ hostId: "hotel", port: "22077", file: HERMES, runner: "llama-server", fields: { CTX_SIZE: "65536", TEMPERATURE: "0.6" } });
+  out.formConfigCalls = F.form.calls.filter((c) => c[0] !== "set").map((c) => c.slice(0, 3)).concat([F.log.picks, F.log.runners, F.root.hidden, F.wiz.opened]);
+  out.formConfigWrites = F.form.calls.filter((c) => c[0] === "set").map((c) => c.slice(1));
+  const H = make();
+  H.form.mayFillAnswer = false;
+  out.formConfigHeld = [await H.wiz.formConfig({ hostId: "hotel", file: HERMES, runner: "llama-server" }), H.form.calls.map((c) => c[0])];
+  const E = make();
+  out.formConfigMissing = [await E.wiz.formConfig({ hostId: "hotel", file: "", runner: "llama-server" }),
+                           await E.wiz.formConfig({ hostId: "", file: HERMES, runner: "llama-server" }), E.form.calls.length];
 }
 console.log(JSON.stringify(out));
 '''
@@ -382,11 +431,12 @@ def main():
     check(got["refused"] == [False, ["mayFill"], 0, False],
           "negative: окно ячейки держит правки, оператор не отпустил — форму не заполняют, мастер не открывается")
     op = got["opened"]
-    check(op[0] is True and op[1] == [["fill", "hotel", "22029", {"pickModel": True, "hidden": True}]]
-          and op[2] == [["adopt", "hotel:22029", {"onlySet": False}]] and op[3] is False and op[4] == "hotel:22029" and op[5] == 0,
-          "форма заполнена для следующего свободного порта без своего диалога, её берёт редактор настроек; мастер — на первом шаге")
+    check(op[0] is True and op[1] == [["fill", "new:hotel", {"pickModel": True, "hidden": True}]]
+          and op[2] == [["adopt", "new:hotel", {"onlySet": False}]] and op[3] is False and op[4] == "new:hotel" and op[5] == 0,
+          "форма заполнена для новой ячейки машины (её ключ — ключ формы для ещё не созданной) без своего диалога, её берёт редактор настроек; "
+          "мастер — на первом шаге; negative: ни имени ячейки, ни порта — их нет, пока «Создать» её не сохранит")
     check(got["dialog"], "мастер — диалог с хуком add-model, data-t-id — ключ будущей ячейки, data-t-state — шаг")
-    check(got["sub"].startswith("New cell") and "on hotel" in got["sub"] and "22029" not in got["sub"],
+    check(got["sub"].startswith("New cell") and "on hotel" in got["sub"] and not re.search(r"\b22\d{3}\b", got["sub"]),
           "в шапке — машина; negative (1.3.655): порта нет — его берёт караван, модель зовут по имени (шаг 3 плана)")
     check(got["band"].startswith("Choose what the model is for"), "модели ещё нет — полоса так и говорит")
     pl = got["portless"]
@@ -431,6 +481,12 @@ def main():
           "пустое поле — окно, на котором модель обучена: 131 072, 1 048 576, 32 768; меньшее, что влезает целиком, больше не "
           "подставляется (владелец, 2026-10-26)")
     check(fg["tts"] == [None, "qwen3-tts"], "negative: не llama.cpp — окна не предлагается, раннер тот, что назван для модели")
+    dl = got["draftList"]
+    check(dl["alone"] == "≈64.0 GB with the cache" and dl["listed"] == dl["alone"],
+          f"черновик, что держит форма, — чужой модели списка: список весит модель одну, как и без проектора; "
+          f"negative: черновик формы не прибавлен к Hermes (got {dl})")
+    check(dl["picked"] == "≈65.3 GB with the cache · the draft's own cache is not counted",
+          f"выбранная модель — с черновиком, что держит форма: +1.28 ГБ, и сказано, что его собственный кэш не посчитан (got {dl['picked']!r})")
     check(got["empty"] is True, "ничего не нашлось — так и сказано, со ссылкой на Hugging Face")
     check(got["noNext"] == [False, 0, True], "negative: без модели «Дальше» закрыто и на шаг вперёд не пускает")
     on = got["openOn"]
@@ -489,7 +545,7 @@ def main():
           "пустое поле — то же окно обучения, и тот же совет: «65 536 вместо 131 072», кнопкой; само поле мастер не трогает")
     check(got["noTip"] == [None, False], "negative: влезает — совета нет")
     al = got["all"]
-    check(al == [True, False, True, True], "все 110 настроек свёрнуты; «Открыть все» вставляет редактор окна ячейки")
+    check(al == [True, False, True, True], "все 108 настроек свёрнуты (ни порта, ни адреса: порт даёт скаут при старте, слушает ячейка петлю своей машины — 2026-11-08); «Открыть все» вставляет редактор окна ячейки")
     check(got["star"] == ["star", 1], "звёздочка в полном списке — мастер перерисуется, когда редактор её запишет")
     check(got["mapClick"] == ["map", 1, None, 1],
           "defect-history (2026-10-26): кнопка карты («по ручкам», потоки для RAM) пишет форму сама — мастер перерисует полосу, "
@@ -501,13 +557,29 @@ def main():
 
     print("создать, полная форма, закрыть:")
     cr = got["create"]
-    check(cr[0] is True and cr[1] == [["save", {"confirmed": True}]] and ["release", "hotel:22029"] in cr[2] and cr[3] == [["hotel", "22029"]]
-          and cr[4] is True and cr[5] is False,
-          "«Создать и запустить» — «Применить» формы без её вопроса, мастер закрыт и форма отпущена, потом запуск ячейки")
+    check(cr[0] is True and cr[1] == [["save", {"confirmed": True}]] and ["release", "new:hotel"] in cr[2] and cr[3] == ["c3f9a02b1"]
+          and cr[4] is True and cr[5] is False and cr[6] == [],
+          "«Создать и запустить» — «Применить» формы без её вопроса (сохранение создаёт ячейку), мастер закрыт и форма отпущена, потом запуск ячейки "
+          "по имени, которое ей дал контроллер")
+    check(got["createUnnamed"] == [True, [], ["The controller named no new cell: nothing was started"], False],
+          "negative: сохранение не назвало ячейку — запускать по догадке нечего: сказано словами, ничего не запущено")
+    check(got["createOnly"] == [True, [], []], "negative: «Создать» без запуска ничего не запускает и ничего не говорит")
     check(got["refusedSave"] == [False, True, [], 0], "negative: форма не сохранила — мастер открыт, ничего не запущено")
     check(got["createNothing"] == [False, 0], "negative: без модели «Создать» ничего не шлёт")
-    check(got["full"] == [True, 1, ["hotel:22029"], True], "«Полная форма» — сам диалог со всем заданным; мастер уступает и отпускает форму")
+    check(got["full"] == [True, 1, ["new:hotel"], True], "«Полная форма» — сам диалог со всем заданным; мастер уступает и отпускает форму")
     check(got["close"] == [True, False, 1, True], "закрыть — форма отпущена; второй раз закрывать нечего")
+    fc = got["formConfig"]
+    check("PORT" not in fc["config"] and "22077" not in json.dumps(fc) and fc["config"]["MODEL_FILE"].endswith("Hermes-4-70B-Q4_K_M.gguf") and fc["config"]["CTX_SIZE"] == "65536"
+          and fc["config"]["TEMPERATURE"] == "0.6" and fc["config"]["CACHE_TYPE_K"] == "q8_0" and fc["cacheModels"] is True,
+          f"сборка запуска: форма заполнена для новой ячейки машины, как мастер её заполняет, — модель, движок, набор поверх её значений по умолчанию; "
+          f"переключатель «держать» прочитан; negative: порта нет, даже когда его передали (получено {fc})")
+    calls = got["formConfigCalls"]
+    check(calls[:2] == [["mayFill", "new:hotel"], ["fill", "new:hotel", {"pickModel": True, "hidden": True}]] and calls[2][0].endswith("Hermes-4-70B-Q4_K_M.gguf") and calls[3] == ["llama-server"],
+          "сначала спрошено, можно ли занять форму, потом заполнена под ключом новой ячейки машины, выбраны модель и движок")
+    check(calls[4] is True and calls[5] is False and "save" not in [c[0] for c in calls[:2]], "negative: окно мастера не открыто и ничего не сохранено — сохраняет старт")
+    check(got["formConfigWrites"] == [["CTX_SIZE", "65536"], ["TEMPERATURE", "0.6"]], "записаны только поля набора")
+    check(got["formConfigHeld"] == [None, ["mayFill"]], "negative: форму держат правки другой ячейки — ничего не тронуто")
+    check(got["formConfigMissing"] == [None, None, 0], "negative: без файла или без машины — ничего")
 
     print()
     if _fail:

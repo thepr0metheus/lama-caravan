@@ -1,17 +1,15 @@
 // Per-card activity/health classes and live runtime panels.
-import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { drawTopologyCables, topologyProxyClass } from "./cables.js";
-import { appConfirm } from "./dialogs.js";
 import { drawCanvasConnectors, syncQueueNodesLive } from "./canvas.js";
 import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "./charts.js";
 import { t } from "./i18n.js";
 import { topologyCrownSvg } from "./model-meta.js";
 import { formatTps } from "./polling.js";
-import { setTopology, state, topology, ui } from "./state.js";
+import { state, topology, ui } from "./state.js";
 import { topologyRouteDetail } from "./topology-dnd.js";
 import { queueThresholds } from "./topology-modals.js";
 import { topologyProxyOwner } from "./topology-proxies.js";
-import { _lastRuntimePanelHtml, refreshTopology, renderTopology } from "./topology-render.js";
+import { _lastRuntimePanelHtml, renderTopology } from "./topology-render.js";
 import { $, api, copyText, escapeHtml, formatMemoryMiB, pill, toast } from "./utils.js";
 
 export let stickySlotAnims = {};             // group -> absolute-time anchor for that server's sticky-slot bar { port, startMs, durationMs }
@@ -46,7 +44,6 @@ export function topologyAssignmentsByAgent(assignments = []) {
 }
 
 //: Roles the server accepts. Everything else is a label, not a button.
-const BINDABLE_ROLES = new Set(["primary", "fallback"]);
 
 export function topologyAgentGroup(agent) {
   const runtime = String(agent.runtime || "").toLowerCase();
@@ -298,13 +295,14 @@ export function refreshTopologyActivityState() {
       const router = (topology.routers || []).find((r) => String(r.id) === card.dataset.topologyRouter);
       if (router) setTopologyActivityClass(card, topologyRouterActivity(router));
     });
+    // A cell's card and its handle, by the cell's id (data-cell-id): a cell holds a port only while it runs.
     document.querySelectorAll("[data-topology-llama]").forEach((card) => {
-      const activity = topologyLlamaActivity(card.dataset.llamaPort);
+      const activity = topologyLlamaActivity(card.dataset.cellId);
       setTopologyActivityClass(card, activity);
       updateTopologyActivityChip(card.querySelector(".topology-meta"), activity);
     });
     document.querySelectorAll("[data-topology-llama-input]").forEach((handle) => {
-      setTopologyActivityClass(handle, topologyLlamaActivity(handle.dataset.llamaPort));
+      setTopologyActivityClass(handle, topologyLlamaActivity(handle.dataset.cellId));
     });
     const gpuActivity = topologyGpuActivity();
     document.querySelectorAll(".gpu-card").forEach((card) => {
@@ -360,30 +358,30 @@ export function topologyAgentProxyRows() {
   const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
   return Object.entries(agents).flatMap(([key, row]) => {
     const active = Array.isArray(row.active) ? row.active : [];
-    // agents dict is now keyed by port string; row.label holds the route label name
+    // agents dict is keyed by the client's id (2026-11-07); row.label holds the client's name
     const rowLabel = row.label || key;
     return active.map((item) => ({
       ...item,
       label: item.label || item.route || rowLabel,
       route: item.route || item.label || rowLabel,
-      port: item.port ?? row.port,
+      routeId: item.routeId ?? row.routeId,
     }));
   });
 }
 
-// How lively the monitor's requests that `matches(item, port)` are: "active" while one is served
-// (a queued one is not served yet), "recent" for 8 s after one finished, else "idle". `port` is
-// the port the request came in by — the item's own, else its row's (the rows are keyed by port).
+// How lively the monitor's requests that `matches(item, routeId)` are: "active" while one is served
+// (a queued one is not served yet), "recent" for 8 s after one finished, else "idle". `routeId` is
+// the id of the client the request came from — the item's own, else its row's (the rows are keyed by it).
 // One reading for a router's output (routers.js) and for a client's cable to a pool (cables.js).
 export function topologyItemsActivity(matches) {
   const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
   let active = false, recent = false;
   for (const row of Object.values(agents)) {
     for (const it of (row.active || [])) {
-      if (it.phase !== "queued" && matches(it, Number(it.port ?? row.port))) active = true;
+      if (it.phase !== "queued" && matches(it, String(it.routeId ?? row.routeId ?? ""))) active = true;
     }
     for (const it of (row.recent || [])) {
-      if (Number(it.finishedAt || 0) * 1000 > Date.now() - 8000 && matches(it, Number(it.port ?? row.port))) recent = true;
+      if (Number(it.finishedAt || 0) * 1000 > Date.now() - 8000 && matches(it, String(it.routeId ?? row.routeId ?? ""))) recent = true;
     }
   }
   if (active) return { state: "active", title: "" };
@@ -394,9 +392,9 @@ export function topologyItemsActivity(matches) {
 export function topologyRowsForProxy(proxy) {
   if (!proxy) return [];
   return topologyAgentProxyRows().filter((item) => {
-    const itemPort = Number(item.port || 0);
-    const proxyPort = Number(proxy.port || 0);
-    if (itemPort && proxyPort) return itemPort === proxyPort;
+    const itemId = String(item.routeId || "");
+    const proxyId = String(proxy.id || "");
+    if (itemId && proxyId) return itemId === proxyId;
     return String(item.label || item.route || "") === String(proxy.label || "");
   });
 }
@@ -420,10 +418,10 @@ export function topologyFormatDuration(ms) {
 export function topologyQueueRuntime(item) {
   const queue = item?.queue || {};
   const queuedMs = Number(queue.queuedMs || topologyDurationMs(item?.startedAt));
-  // Use the full clientTimeoutSeconds (from backend thresholds or the port's own number).
+  // Use the full clientTimeoutSeconds (from backend thresholds or the client's own number).
   // No more abort% — we wait until the client's own timeout runs out.
-  const proxyPort = Number(item?.port || 0);
-  const proxy = proxyPort ? (topology?.proxies || []).find((p) => Number(p.port || 0) === proxyPort) : null;
+  const routeId = String(item?.routeId || "");
+  const proxy = routeId ? (topology?.proxies || []).find((p) => String(p.id || "") === routeId) : null;
   const effWait = proxy ? proxyEffectiveWaitTimeout(proxy) : 0;
   const timeoutSec = Number(queue.thresholds?.clientTimeoutSeconds || 0) || effWait || 3600;
   const leftMs = Math.max(0, timeoutSec * 1000 - queuedMs);
@@ -509,18 +507,18 @@ export function topologyRuntimeList(items, limit = 4) {
   const rows = items.slice(0, limit).map((item) => {
     const state = topologyRuntimeClass(item);
     const proxy = proxies.find((row) =>
-      (item.port !== undefined && Number(row.port || 0) === Number(item.port || 0)) ||
+      (item.routeId !== undefined && String(row.id || "") === String(item.routeId || "")) ||
       (item.label && String(row.label || "") === String(item.label))
     );
     const priorityLevel = Math.max(0, Number(proxy?.priority || 0));
     // Display the slot's owner the same way the rest of Topology does: resolve the
-    // proxy (by listen port — the source of truth) to its assigned client/agent via
+    // proxy (by the client's id — the source of truth) to its assigned client/agent via
     // topologyProxyOwner, not the raw agent-proxies.json route label. That label is
     // cosmetic and often stale (e.g. a port still labelled by its old agent while it serves
     // a host's OpenClaw agent), which is why slots showed the wrong agent.
     const owner = proxy ? topologyProxyOwner(proxy.id) : null;
     const row = {
-      name: owner?.title || item.label || item.route || `:${item.port}`,
+      name: owner?.title || item.label || item.route || "",
       state,
       text: topologyRuntimeLabel(item, true),
       priorityLevel,
@@ -540,10 +538,10 @@ export function topologyRuntimeList(items, limit = 4) {
         clientTimeoutSeconds: queue.timeoutSec,
       };
       // Notches at their raw % of wait_timeout (same scale as the Agent timelines).
-      const proxyPort = Number(item.port || 0);
+      const routeId = String(item.routeId || "");
       const proxyLabel = String(item.label || "");
       const threshEntry = (queueThresholds?.proxies || []).find((p) =>
-        (proxyPort && Number(p.port || 0) === proxyPort) ||
+        (routeId && String(p.id || "") === routeId) ||
         (proxyLabel && String(p.label || "") === proxyLabel)
       );
       if (priorityLevel > 0 && priorityPreemptPct > 0 && priorityPreemptPct < 100) {
@@ -579,8 +577,8 @@ export function topologyAssignRunningToSlots(running, total) {
 // it competes for. Matches the backend's route_group_key ("upstreamHost:upstreamPort").
 export function topologyItemGroup(item) {
   if (item?.upstream) return String(item.upstream);
-  const port = Number(item?.port || 0);
-  const proxy = port ? (topology?.proxies || []).find((p) => Number(p.port || 0) === port) : null;
+  const routeId = String(item?.routeId || "");
+  const proxy = routeId ? (topology?.proxies || []).find((p) => String(p.id || "") === routeId) : null;
   if (!proxy) return "";
   const h = proxy.resolvedUpstreamHost || proxy.upstreamHost || "127.0.0.1";
   const pt = proxy.resolvedUpstreamPort || proxy.upstreamPort || 8080;
@@ -597,29 +595,74 @@ export function _proxyUpstreamStr(proxy) {
 
 // Display the effective upstream for a route row, using topology.proxies resolved values.
 export function _routeDisplayUpstream(route) {
-  const port = Number(route?.port || 0);
-  const proxy = port ? (topology?.proxies || []).find((p) => Number(p.port || 0) === port) : null;
+  const proxyId = String(route?.proxyId || "");
+  const proxy = proxyId ? (topology?.proxies || []).find((p) => String(p.id) === proxyId) : null;
   if (proxy) return _proxyUpstreamStr(proxy);
   return `${route.upstreamHost || "127.0.0.1"}:${route.upstreamPort || 8080}`;
 }
 
-// Queue group for a llama-server card: the upstream key of any proxy targeting it.
-// Servers with no proxy get a unique non-matching key so their panel stays empty.
-export function topologyServerGroup(llama) {
-  const port = Number(llama?.port || 0);
-  if (!port) return "__srv__:none";
-  // Check proxies first (resolvedUpstreamPort wins over the legacy placeholder upstreamPort).
-  const proxy = (topology?.proxies || []).find((p) =>
-    Number(p.resolvedUpstreamPort || p.upstreamPort || 0) === port
-  );
-  if (proxy) return _proxyUpstreamStr(proxy);
-  // No proxy targets this server — fall back to router outputs.
-  // Graph-routed items set item.upstream = "host:port" from the router output, so match that format.
-  for (const router of (topology?.routers || [])) {
-    const out = (router.outputs || []).find((o) => Number(o.upstreamPort || 0) === port);
-    if (out) return `${out.upstreamHost || "127.0.0.1"}:${out.upstreamPort}`;
+/**
+ * The way a cell's requests come to it: the router output of its machine's model, of which the cell is a copy (the model's `copies`
+ * in its machine's `entryModels`, by the cell's id). A request names the model, and the machine's entry hands it to one of the
+ * model's running copies; which one is not said. A cell was an output of its own by its port (`srv:<port>`) until 2026-11-07: it
+ * holds a port only while it runs now, and its machine's model reaches it (Papyrus caravan-scout-port-lease, step 3).
+ *
+ * Read off one topology at a time and kept with it: a reading is never changed in place (state.js setTopology puts a new one), so
+ * the index of a reading is never stale, and the board's per-second ticks ask it for every card without walking the fleet again.
+ */
+export class CellOutput {
+  static #readings = new WeakMap();
+
+  /** cellId → the output of the model that lists the cell among its copies, for the topology `top`. */
+  static index(top) {
+    if (!top || typeof top !== "object") return new Map();
+    const known = CellOutput.#readings.get(top);
+    if (known) return known;
+    const found = new Map();
+    const outs = (top.routers || []).flatMap((r) => (Array.isArray(r?.outputs) ? r.outputs : []))
+      .filter((o) => String(o?.upstreamType || "") === "machine");
+    for (const node of top.nodes || []) {
+      for (const model of Array.isArray(node?.entryModels) ? node.entryModels : []) {
+        const out = outs.find((o) => String(o.hostId || "") === String(node.id) && String(o.upstreamModel || "") === String(model?.id || ""));
+        if (!out) continue;
+        for (const copy of Array.isArray(model?.copies) ? model.copies : []) {
+          if (copy?.id) found.set(String(copy.id), out);
+        }
+      }
+    }
+    CellOutput.#readings.set(top, found);
+    return found;
   }
-  return `__srv__:${port}`;
+
+  /** The output that reaches cell `cellId`; null for a cell no model of its machine lists — its scout lists no models, or not it. */
+  static of(cellId, top = topology) {
+    return CellOutput.index(top).get(String(cellId || "")) || null;
+  }
+
+  /** The queue the cell's requests stand in: its model's, as the controller names it on the model's output (`slotGroup`, the key of
+   *  the proxy's slotTotals, which the proxy stamps on each request it sends there as `upstream`); "" when nothing names one. */
+  static group(cellId, top = topology) {
+    return String(CellOutput.of(cellId, top)?.slotGroup || "");
+  }
+
+  /** The cells whose requests stand in queue `group`, each once: the copies of one model. */
+  static cellsIn(group, top = topology) {
+    if (!group) return [];
+    const cells = new Map();
+    const rows = [...(top?.server?.llamaServers || []), ...(top?.nodes || []).flatMap((n) => n.servers || [])];
+    for (const s of rows) {
+      const id = String(s?.cellId || "");
+      if (id && !cells.has(id) && CellOutput.group(id, top) === group) cells.set(id, s);
+    }
+    return [...cells.values()];
+  }
+}
+
+// The queue group of a cell's card: its model's (CellOutput). A cell no model reaches gets a key of its own that no request carries,
+// so its panel stays empty.
+export function topologyServerGroup(llama) {
+  const id = String(llama?.cellId || "");
+  return CellOutput.group(id) || `__cell__:${id || "none"}`;
 }
 
 export function topologyRuntimePanelHtml(group = "") {
@@ -639,7 +682,7 @@ export function topologyRuntimePanelHtml(group = "") {
   const inGroup = (item) => !group || topologyItemGroup(item) === group;
   const llamaRunning = overview.running.filter((item) => {
     if (!inGroup(item)) return false;
-    const proxy = proxies.find((p) => Number(p.port || 0) === Number(item.port || 0) || String(p.label || "") === String(item.label || ""));
+    const proxy = proxies.find((p) => String(p.id || "") === String(item.routeId || "") || String(p.label || "") === String(item.label || ""));
     return !proxy || String(proxy.upstreamType || "llama") !== "cloud";
   });
   const runningRows = topologyRuntimeList(llamaRunning, totalSlots);
@@ -654,10 +697,10 @@ export function topologyRuntimePanelHtml(group = "") {
   // Drop this group's bar anchor when its reservation disappears so the next one re-anchors fresh.
   if (!stickySlotData) delete stickySlotAnims[group];
   const stickyProxy = stickySlotData
-    ? proxies.find((p) => Number(p.port) === Number(stickySlotData.port))
+    ? proxies.find((p) => String(p.id) === String(stickySlotData.routeId))
     : null;
   const stickyProxyLabel = stickyProxy
-    ? (topologyProxyOwner(stickyProxy.id)?.title || stickyProxy.label || `port ${stickySlotData.port}`)
+    ? (topologyProxyOwner(stickyProxy.id)?.title || stickyProxy.label || "")
     : "";
 
   const renderSlotRow = (row, idx) => {
@@ -693,15 +736,11 @@ export function topologyRuntimePanelHtml(group = "") {
     return `<span class="slot-chip ${escapeHtml(row.state)}" title="${escapeHtml(label)}: ${escapeHtml(row.name)}${row.text ? ` · ${row.text}` : ""}">${slotCrown}<span class="slot-chip-name">${escapeHtml(row.name)}</span>${row.text ? `<span class="slot-chip-sub">${escapeHtml(row.text)}</span>` : ""}</span>`;
   };
   const slotsHtml = slotMap.map(renderSlotRow).join("");
-  // Generation speed for the slots head — the server whose upstream matches
-  // this group. genTps rides the topology poll, so the per-second panel
-  // rebuild picks fresh numbers without extra requests.
-  const allSrv = [
-    ...(topology?.server?.llamaServers || []),
-    ...((topology?.nodes || []).flatMap((n) => n.servers || [])),
-  ];
-  const srv = group ? allSrv.find((x) => topologyServerGroup(x) === group) : null;
-  const gen = Number(srv?.genTps || 0);
+  // Generation speed for the slots head — the cell whose queue this is. genTps rides the topology poll, so the per-second panel
+  // rebuild picks fresh numbers without extra requests. A model two cells serve is one queue with no one speed: which copy took the
+  // last request is not said, so its head names none rather than one copy's figure under the other's card.
+  const copies = CellOutput.cellsIn(group);
+  const gen = copies.length === 1 ? Number(copies[0]?.genTps || 0) : 0;
   // genTps is the LAST completed request's rate — llama.cpp holds it while the
   // slot is idle, so label it "last" to not read as a live figure.
   const tpsHtml = gen > 0
@@ -792,7 +831,6 @@ export function topologyRouteDetailHtml() {
     item.bytes !== undefined ? `bytes: ${item.bytes}` : "",
     item.durationMs ? `duration: ${topologyFormatDuration(item.durationMs)}` : "",
     item.queue?.queuedMs ? `queue: ${topologyFormatDuration(item.queue.queuedMs)}${item.queue.position !== undefined && item.queue.position !== null ? `, position ${item.queue.position + 1}` : ""}` : "",
-    proxy ? `proxy: :${proxy.port} -> ${proxy.upstreamHost}:${proxy.upstreamPort}` : "",
     proxyTelemetrySummary(item),
     ...proxyTelemetryLines(item),
   ].filter(Boolean);
@@ -802,9 +840,7 @@ export function topologyRouteDetailHtml() {
         <div class="topology-card-head">
           <strong>${escapeHtml(proxy?.label || item.label || item.route || "Route details")}</strong>
           <span class="topology-policy-head-actions">
-            ${proxy ? `<button class="topology-detail-action" type="button" data-route-detail-edit="${escapeHtml(proxy.id)}" data-t="route-detail-edit"
-              title="${escapeHtml(t("cvPortEditTitle"))}">✎ ${escapeHtml(t("routeDetailEditPort"))}</button>
-            <button class="topology-detail-action danger" type="button" data-route-detail-delete="${escapeHtml(String(proxy.port))}" data-t="route-detail-delete"
+            ${proxy ? `<button class="topology-detail-action danger" type="button" data-route-detail-delete="${escapeHtml(String(proxy.id))}" data-t="route-detail-delete"
               title="${escapeHtml(t("proxyDeleteTip"))}">✕ ${escapeHtml(t("routeDetailDeletePort"))}</button>` : ""}
             <button class="icon-action compact" type="button" data-topology-route-detail-close aria-label="Close route details" title="Close">×</button>
           </span>
@@ -815,7 +851,7 @@ export function topologyRouteDetailHtml() {
           ${lines.length ? lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("") : `<div class="muted">No request details yet.</div>`}
         </div>
         ${topologyRouteTokenHistoryHtml()}
-        ${topologyRouteDetail.port ? `<div data-route-latency-host>${routeLatencyHtml(topologyRouteDetail.latency)}</div>` : ""}`}</div>
+        ${topologyRouteDetail.routeId ? `<div data-route-latency-host>${routeLatencyHtml(topologyRouteDetail.latency)}</div>` : ""}`}</div>
       </div>
     </div>
   `;
@@ -857,20 +893,17 @@ export const MODEL_CARD_LINK_TIPS = {
 
 export function routeModelCardHtml() {
   const detail = topologyRouteDetail || {};
-  const port = detail.port;
-  if (!port) return `<div class="topology-detail-lines"><div class="muted">${escapeHtml(t("routeModelCardEmpty"))}</div></div>`;
+  if (!detail.routeId) return `<div class="topology-detail-lines"><div class="muted">${escapeHtml(t("routeModelCardEmpty"))}</div></div>`;
   const card = detail.modelCard;
-  // The address names whoever actually reaches it: in the controller's own
-  // answer it's assembled from the fleet's address, not the page's. Before
-  // the first poll, the same address the browser itself sees is shown —
-  // that's exactly the address a client on the network would use.
-  const url = card?.data?.url
-    || `${globalThis.location?.protocol || "http:"}//${globalThis.location?.hostname || "127.0.0.1"}:${port}/v1/models`;
+  // The address names whoever actually reaches it: in the controller's own answer it's the entry's, as a client calls it. Before
+  // the first poll, the entry's address the board knows — a client has no port of its own (2026-11-07); with no entry, nothing.
+  const entry = String(topology?.entry?.url || "").replace(/\/+$/, "");
+  const url = card?.data?.url || (entry ? `${entry}/models` : "");
   // Links, not just labels: each address is stated so it can be visited. A
   // keyed port will give the browser a 401 — the tooltip says so, because
   // the key stays on the controller and never reaches the page. Until the
   // controller has answered, only the list is known.
-  const links = card?.data?.windowLinks?.length ? card.data.windowLinks : [{ kind: "list", url }];
+  const links = card?.data?.windowLinks?.length ? card.data.windowLinks : (url ? [{ kind: "list", url }] : []);
   const keyed = card?.data?.keyed ? ` · ${t("routeModelCardKeyed")}` : "";
   const linkHtml = (link) => {
     const tip = MODEL_CARD_LINK_TIPS[link.kind] ? t(MODEL_CARD_LINK_TIPS[link.kind]) : "";
@@ -921,18 +954,18 @@ function rawBlock(raw) {
 // that page.
 export async function loadRouteModelCard() {
   const detail = topologyRouteDetail;
-  if (!detail?.port) return;
-  const port = detail.port;
+  if (!detail?.routeId) return;
+  const routeId = detail.routeId;
   detail.modelCard = { state: "loading" };
   renderTopologyRouteDetailTab();
   try {
-    const data = await api(`/api/agent-proxy-model-card?port=${encodeURIComponent(port)}`);
-    if (topologyRouteDetail?.port === port) {
+    const data = await api(`/api/agent-proxy-model-card?routeId=${encodeURIComponent(routeId)}`);
+    if (topologyRouteDetail?.routeId === routeId) {
       topologyRouteDetail.modelCard = { state: data?.ok ? "ok" : "error", data };
       renderTopologyRouteDetailTab();
     }
   } catch (err) {
-    if (topologyRouteDetail?.port === port) {
+    if (topologyRouteDetail?.routeId === routeId) {
       topologyRouteDetail.modelCard = { state: "error", data: {}, error: String(err) };
       renderTopologyRouteDetailTab();
     }
@@ -949,9 +982,8 @@ export function renderTopologyRouteDetailTab() {
 }
 
 export function topologyRouteTokenHistoryHtml() {
-  // Per-consumer view: keyed by the proxy port (each agent has its own proxy
-  // entry port). Fall back to client IP for legacy history without a port.
-  if (!topologyRouteDetail?.port && !topologyRouteDetail?.clientIp) return "";
+  // Per-client view: keyed by the client's id. Fall back to the sender's IP for history of a route the board does not know.
+  if (!topologyRouteDetail?.routeId && !topologyRouteDetail?.clientIp) return "";
   const range = topologyRouteDetail.range || "all";
   const ranges = [["1h", "1h"], ["12h", "12h"], ["24h", "24h"], ["all", t("topologyTokenRangeAll")]];
   const buttons = ranges.map(([key, label]) =>
@@ -976,11 +1008,11 @@ export function topologyRouteTokenHistoryHtml() {
 
 export async function loadRouteTokenHistory() {
   const detail = topologyRouteDetail;
-  if (!detail?.port && !detail?.clientIp) return;
-  // Attribute by proxy port (consumer identity); fall back to client IP for
-  // legacy history recorded before per-port attribution.
-  const qs = detail.port
-    ? `port=${encodeURIComponent(detail.port)}`
+  if (!detail?.routeId && !detail?.clientIp) return;
+  // Attribute by the client's id (its identity; the controller counts its rows from before 2026-11-07 by the number it had);
+  // fall back to the sender's IP for history recorded before per-client attribution.
+  const qs = detail.routeId
+    ? `routeId=${encodeURIComponent(detail.routeId)}`
     : `client=${encodeURIComponent(detail.clientIp)}`;
   try {
     const res = await api(`/api/token-history?${qs}&range=${encodeURIComponent(detail.range || "all")}`);
@@ -1076,13 +1108,13 @@ export function drawRouteLatency() {
 
 export async function loadRouteLatency() {
   const detail = topologyRouteDetail;
-  if (!detail?.port) return;
+  if (!detail?.routeId) return;
   const range = detail.range || "all";
   detail.latency = undefined;
   drawRouteLatency();
   let latency;
   try {
-    const res = await api(`/api/agent-proxy-latency?port=${encodeURIComponent(detail.port)}&range=${encodeURIComponent(range)}`);
+    const res = await api(`/api/agent-proxy-latency?routeId=${encodeURIComponent(detail.routeId)}&range=${encodeURIComponent(range)}`);
     latency = res.latency || null;
   } catch (err) {
     latency = { error: String(err?.message || err) };
@@ -1097,7 +1129,7 @@ export async function loadRouteLatency() {
 export function correlatedProxyActivity(proxy) {
   const correlated = ui.latestSystemMonitor?.latest?.correlatedActivity;
   const byProxy = correlated?.byProxy || {};
-  return byProxy[proxy?.label || ""] || Object.values(byProxy).find((row) => Number(row?.port) === Number(proxy?.port));
+  return byProxy[proxy?.label || ""] || Object.values(byProxy).find((row) => row?.routeId && String(row.routeId) === String(proxy?.id));
 }
 
 // What the monitor matched a request to. It matched requests to the timings,
@@ -1231,12 +1263,11 @@ export function topologyProxyActivity(proxyOrId) {
       label: topologyRuntimeLabel(item, true),
       detail: runtime.detail,
       title: [
-        `${proxy.label || proxy.port} ${isQueued ? "is queued" : "is running"}`,
+        `${proxy.label || proxy.id} ${isQueued ? "is queued" : "is running"}`,
         `${item.method || "POST"} ${item.path || ""}`,
         `phase: ${item.phase || state}`,
         `client: ${item.client || "?"}`,
         isQueued ? `queue: ${topologyRuntimeLabel(item)}` : `duration: ${topologyRuntimeLabel(item)}`,
-        `proxy: :${proxy.port} -> ${_proxyUpstreamStr(proxy)}`,
       ].filter(Boolean).join("\n"),
       item,
     };
@@ -1264,14 +1295,13 @@ export function topologyProxyActivity(proxyOrId) {
       label: isQueued ? topologyRuntimeLabel(item, true) : (isActive ? `active ${duration}` : `${status} ${duration}`),
       title: [
         incident ? `Incident: ${incident.title} - ${incident.summary}` : "",
-        `${proxy.label || proxy.port} ${isActive ? "is active" : "last request"}${alarmOver ? `, ${topologyFormatDuration(topologyDurationMs(item.finishedAt))} ago` : ""}`,
+        `${proxy.label || proxy.id} ${isActive ? "is active" : "last request"}${alarmOver ? `, ${topologyFormatDuration(topologyDurationMs(item.finishedAt))} ago` : ""}`,
         `${item.method || "POST"} ${item.path || ""}`,
         isActive ? `duration: ${duration}` : `status: ${status}, duration: ${duration}`,
         `client: ${item.client || "?"}`,
         `bytes: ${item.bytes || 0}`,
         ...proxyTelemetryLines(item),
         ...correlatedTelemetryLines(item),
-        `proxy: :${proxy.port} -> ${_proxyUpstreamStr(proxy)}`,
         item.error ? `error: ${item.error}` : "",
       ].filter(Boolean).join("\n"),
       item,
@@ -1280,8 +1310,8 @@ export function topologyProxyActivity(proxyOrId) {
   }
   const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
   const byLabel = agents[proxy.label || ""];
-  const byPort = Object.values(agents).find((row) => Number(row?.port) === Number(proxy.port));
-  const row = byLabel || byPort || {};
+  const byId = agents[proxy.id || ""];
+  const row = byLabel || byId || {};
   const active = Array.isArray(row.active) ? row.active : [];
   const recent = Array.isArray(row.recent) ? row.recent : [];
   const latest = recent[recent.length - 1] || null;
@@ -1298,13 +1328,12 @@ export function topologyProxyActivity(proxyOrId) {
       label: isQueued ? topologyRuntimeLabel(item, true) : `active ${duration}`,
       title: [
         incident ? `Incident: ${incident.title} - ${incident.summary}` : "",
-        `${proxy.label || proxy.port} is active`,
+        `${proxy.label || proxy.id} is active`,
         `${item.method || "POST"} ${item.path || ""}`,
         `client: ${item.client || "?"}`,
         `duration: ${duration}`,
         `bytes: ${item.bytes || 0}`,
         ...proxyTelemetryLines(item),
-        `proxy: :${proxy.port} -> ${_proxyUpstreamStr(proxy)}`,
       ].filter(Boolean).join("\n"),
       item,
       incident,
@@ -1325,7 +1354,7 @@ export function topologyProxyActivity(proxyOrId) {
       label: `${status} ${duration}`,
       title: [
         incident ? `Incident: ${incident.title} - ${incident.summary}` : "",
-        `${proxy.label || proxy.port} last request${alarmOver ? `, ${topologyFormatDuration(topologyDurationMs(latest.finishedAt))} ago` : ""}`,
+        `${proxy.label || proxy.id} last request${alarmOver ? `, ${topologyFormatDuration(topologyDurationMs(latest.finishedAt))} ago` : ""}`,
         `${latest.method || "POST"} ${latest.path || ""}`,
         `status: ${status}`,
         `duration: ${duration}`,
@@ -1355,21 +1384,33 @@ export function topologyRouterActivity(router) {
     || acts.find((a) => a.state === "recent") || { state: "idle", title: "" };
 }
 
-// A server card's activity: what the routes pointing at its port are doing.
-// (The card of the controller's own single server took the busy slots, context
-// and prompt cache of that server first — matched by its port, or taken for
-// any card that named no port. That server went with the controller's cells in
-// step 6.9.)
-export function topologyLlamaActivity(port) {
-  const related = (topology?.proxies || []).filter((proxy) => Number(proxy.upstreamPort || 0) === Number(port || 0));
-  const entries = related.map((proxy) => ({ proxy, activity: topologyProxyActivity(proxy) }));
-  const active = entries.filter((entry) => entry.activity.state === "active");
-  const errors = entries.filter((entry) => entry.activity.state === "error");
-  const recent = entries.filter((entry) => entry.activity.state === "recent");
-  const activeOrRecent = [...active, ...errors, ...recent];
-  const items = activeOrRecent.map((entry) => entry.activity.item).filter(Boolean);
+// A cell card's activity: what the requests to its machine's model are doing (CellOutput) — every copy of the model reads its
+// model's traffic, since which copy served a request is not said. Each client that sent requests there counts by its own last word
+// on the model: running while one of them is served there, else failed or answered by the last one that ended there (a failure
+// whose alarm is over is no failure any more, topologyAlarmIsOver); one only queued is not served yet. Until 2026-11-07 it was the
+// routes pointing at the cell's port; no route points at a cell now. A cell no model reaches reads idle: no request comes to it.
+// (The card of the controller's own single server took the busy slots, context and prompt cache of that server first; that server
+// went with the controller's cells in step 6.9.)
+export function topologyLlamaActivity(cellId) {
+  const out = CellOutput.of(cellId);
+  if (!out) return { state: "idle", label: "", summary: "" };
+  const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
+  const here = (item) => String(item?.routedOutputId || "") === String(out.id || "");
+  const entries = Object.entries(agents).map(([key, row]) => {
+    const route = String(row?.label || key);
+    const running = (Array.isArray(row?.active) ? row.active : []).filter((item) => here(item) && topologyIsRunningItem(item));
+    if (running.length) return { route, state: "active", item: running[running.length - 1] };
+    const last = (Array.isArray(row?.recent) ? row.recent : []).filter(here).pop();
+    if (!last) return null;
+    const failed = (last.error || !String(last.status || "?").startsWith("2")) && !topologyAlarmIsOver(last);
+    return { route, state: failed ? "error" : "recent", item: last };
+  }).filter(Boolean);
+  const active = entries.filter((entry) => entry.state === "active");
+  const errors = entries.filter((entry) => entry.state === "error");
+  const recent = entries.filter((entry) => entry.state === "recent");
+  const items = entries.map((entry) => entry.item);
   const clients = new Set(items.map((item) => item.client).filter(Boolean));
-  const routes = new Set(activeOrRecent.map((entry) => entry.proxy.label || `:${entry.proxy.port}`));
+  const routes = new Set(entries.map((entry) => entry.route));
   const usageTotal = items.reduce((sum, item) => {
     const usage = item.response?.usage || item.stream?.usage || {};
     return sum + Number(usage.total_tokens || 0);
@@ -1473,7 +1514,7 @@ export function topologyRouteTimeoutHtml(route, activity) {
 }
 
 // ── Per-hour error badge on route rows ───────────────────────────────────────
-// ui.routeErrHour (port → {errors, byKind}) is refreshed once a minute from
+// ui.routeErrHour (client id → {errors, byKind}) is refreshed once a minute from
 // /api/agent-proxy-logs?summary=1&since=60; the badge shows from 3 failures/h.
 const ROUTE_ERR_BADGE_MIN = 3;
 
@@ -1482,21 +1523,19 @@ function routeErrTitle(st) {
   return `${st.errors} failed request${st.errors === 1 ? "" : "s"} in the last hour${kinds ? `: ${kinds}` : ""}`;
 }
 
-export function routeErrBadgeHtml(port) {
-  const st = port && ui.routeErrHour ? ui.routeErrHour[String(port)] : null;
+export function routeErrBadgeHtml(routeId) {
+  const st = routeId && ui.routeErrHour ? ui.routeErrHour[String(routeId)] : null;
   if (!st || (st.errors || 0) < ROUTE_ERR_BADGE_MIN) return "";
   return `<span class="route-err-badge" title="${escapeHtml(routeErrTitle(st))}">⚠ ${st.errors}</span>`;
 }
 
-// The port a route row is about: its proxy's, else the last part of the route's
-// proxy id. One rule for the row and for the minute's patch of its badge. The
-// patch used to look the hour summary up by the chip's text — an address like
-// http://…:23001/v1, or the entry's for a closed port — while the summary is
-// keyed by the port, so every badge vanished each minute until the next full
-// render drew it back (found 2026-10-07): a failing route looked clean.
-export function routeRowPort(route) {
+// The client a route row is about: its proxy's id, "" for a row whose proxy the board no longer has. One rule
+// for the row and for the minute's patch of its badge. The patch used to look the hour summary up by the
+// chip's text — an address — while the summary is keyed by the client, so every badge vanished each minute
+// until the next full render drew it back (found 2026-10-07): a failing route looked clean.
+export function routeRowClient(route) {
   const proxy = route ? (topology?.proxies || []).find((p) => p.id === route.proxyId) : null;
-  return proxy?.port || (route?.proxyId || "").split(":").pop() || "";
+  return proxy?.id || "";
 }
 
 export async function refreshRouteErrBadges() {
@@ -1512,7 +1551,7 @@ export async function refreshRouteErrBadges() {
     const chip = row.querySelector(".route-port-chip");
     if (!chip) return;
     row.querySelector(".route-err-badge")?.remove();
-    const badge = routeErrBadgeHtml(routeRowPort({ proxyId: row.dataset.topologyRouteDetail }));
+    const badge = routeErrBadgeHtml(routeRowClient({ proxyId: row.dataset.topologyRouteDetail }));
     if (badge) chip.insertAdjacentHTML("afterend", badge);
   });
 }
@@ -1552,32 +1591,18 @@ export function routeWaitSec(route) {
 // didn't carry its name, with no way to see it. First a live request, if
 // there is one right now, then an hour's log summary. Nobody knows — show
 // nothing: a made-up address is worse than an empty one.
-// The route's full address — it's what sits on the chip. A port number on
-// its own line, and the full address on the line below, used to be the same
-// fact written down twice: that lower line was derived from this same
-// number and cost a whole tier on every route. Now there's one place for
-// it, and it doubles as the binding button.
-export function routeAddress(route, port) {
-  const endpoint = String(route?.endpoint || "").trim();
-  return endpoint || (port ? `:${port}` : "");
-}
-
-// What a port's address says on hover: the address itself or, where the ports have no door
-// (topology.portsReachable === false, rust/crates/admin/src/proxies/entry_settings.rs), why there is none. The
-// controller then gives no address of its own, and the bare ":23001" read as a short one.
-export function routeAddressTip(route, port) {
-  const endpoint = String(route?.endpoint || "").trim();
-  if (endpoint) return endpoint;
-  if (port && topology?.portsReachable === false) return t("portNoDoorTitle");
-  return port ? `:${port}` : "";
+// What a route's address says on hover: the address it was stored with, or nothing. A client has no number of its own
+// (2026-11-07): a bare ":23001" would name a port nobody listens on.
+export function routeAddressTip(route) {
+  return String(route?.endpoint || "").trim();
 }
 
 export function routeCallers(route) {
-  const port = String(route?.proxyId || "").split(":").pop();
-  if (!/^\d+$/.test(port || "")) return { top: "", count: 0 };
-  const live = topologyRowsForProxy({ port: Number(port) })
+  const routeId = routeRowClient(route);
+  if (!routeId) return { top: "", count: 0 };
+  const live = topologyRowsForProxy({ id: routeId })
     .map((item) => String(item?.client || "").trim()).filter(Boolean);
-  const st = (ui.routeErrHour || {})[port] || {};
+  const st = (ui.routeErrHour || {})[routeId] || {};
   const top = live[live.length - 1] || String(st.topClient || "");
   const count = Math.max(Number(st.clientCount || 0), live.length ? 1 : 0);
   return { top, count };
@@ -1779,9 +1804,9 @@ export function routeIncident(route) {
 export function topologyAgentRouteRow(client, agent, role, route, usage = "confirmed", { anchor = true } = {}) {
   const activity = route ? topologyProxyActivity(route.proxyId || "") : null;
   const incident = topologyActivityIncident(activity);
-  // The proxy port is now shown ON this route row (no separate proxy column). The
-  // handle is just the cable anchor for the proxy's entry point.
-  const port = routeRowPort(route);
+  // The client the row's route reaches, for its hour's error badge. An agent is pointed at no port any more: it calls the entry
+  // with its own key (2026-11-07), and the row shows no number.
+  const routeId = routeRowClient(route);
   const unverified = !!route && usage === "unverified";
   const handle = anchor ? routeHandleHtml(client, agent, role, route, usage) : "";
   const detailAttrs = route ? ` data-topology-route-detail="${escapeHtml(route.proxyId || "")}" data-client-ip="${escapeHtml(client?.ip || "")}" data-client-name="${escapeHtml(client?.name || client?.id || "")}" tabindex="0" role="button"` : "";
@@ -1789,26 +1814,7 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   return `
     <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
-      <span class="route-role-label">${routeStateBadgeHtml(route, usage)}${escapeHtml(role)}${
-        // The chip is drawn WITHOUT a port too, and on BOTH real roles: while
-        // it existed only for bound ones, there was no way at all to assign
-        // an agent its first port from the board, and while it existed only
-        // for primary, there was no way to get a second port. Roles the
-        // server doesn't accept (legacy secondary) stay a plain label: a
-        // button that leads to a refusal is worse than no button.
-        // The picker knows the role via data-bind-role, or a new port would
-        // land on primary and overwrite the working one. An empty current
-        // port means "not chosen yet" to it, not zero.
-        BINDABLE_ROLES.has(role)
-        ? `<button type="button" class="route-port-chip bindable${port ? "" : " unbound"}"
-             data-agent-bind="1" data-bind-host="${escapeHtml(client?.id || "")}"
-             data-bind-agent="${escapeHtml(agent?.id || "")}" data-bind-port="${escapeHtml(port ? String(port) : "")}"
-             data-bind-role="${escapeHtml(role)}"
-             data-t="agent-proxy-bind"
-             title="${escapeHtml(port && !route?.endpoint && topology?.portsReachable === false
-               ? `${t("taTitleBindProxy")} · ${t("portNoDoorTitle")}` : t("taTitleBindProxy"))}">${escapeHtml(port ? routeAddress(route, port) : "＋")}</button>`
-        : (port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(routeAddress(route, port))}</span>` : "")
-      }${routeErrBadgeHtml(port)}</span>
+      <span class="route-role-label">${routeStateBadgeHtml(route, usage)}${escapeHtml(role)}${routeErrBadgeHtml(routeId)}</span>
       <div class="route-settings">${routeModelChipHtml(client, agent, role, route)}${
         routeWaitChipHtml(client, agent, role, route)}</div>
       ${routeContextLineHtml(client, agent, role, route)}
@@ -1819,139 +1825,3 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
 }
 
 
-// ── binding an agent to a proxy port by hand ────────────────────────────────
-// Everything this needs already existed on the server; what was missing was any
-// way to ask for it. Until now the only answer to "why is this agent on 23117?"
-// was "the provisioner picked it", and the only way to change it was to edit
-// JSON on the controller.
-function closeBindMenu() {
-  document.querySelector(".agent-bind-menu")?.remove();
-}
-
-// Which ports an agent may be bound to. The server refuses a port another
-// agent holds — one port, one owner (bind_agent_to_proxy) — so the picker
-// offers only what a click can get: ports nobody holds and the agent's own
-// (moving a port between its own roles is allowed). The rest are counted, not
-// listed: a menu of rows that each end in a refusal is worse than no menu —
-// on 2026-09-23 all fifteen ports were held and every row was a 409.
-// `holders` comes from the server (topology_state), read by the same function
-// the refusal is decided by; a proxy without the field — an older controller —
-// is offered as before rather than hidden on a guess.
-export function bindablePorts(proxies, hostId, agentId) {
-  const open = [];
-  const taken = [];
-  for (const p of proxies || []) {
-    if (!(Number(p.port) > 0)) continue;
-    const others = (p.holders || []).filter((h) => !(h.hostId === hostId && h.agentId === agentId));
-    (others.length ? taken : open).push(others.length ? { ...p, others } : p);
-  }
-  const byPort = (a, b) => Number(a.port) - Number(b.port);
-  return { open: open.sort(byPort), taken: taken.sort(byPort) };
-}
-
-// The picker's markup, as a value: what it offers is decided here and can be
-// read without a page.
-export function bindMenuHtml({ hostId, agentId, role, current = "", proxies }) {
-  const { open, taken } = bindablePorts(proxies, hostId, agentId);
-  const takenTip = taken.map((p) => `${p.port} — ${p.others.map((h) => `${h.agentId} · ${h.role}`).join(", ")}`).join("\n");
-  return `
-    <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b> · ${escapeHtml(role)}</div>
-    ${current ? `<button type="button" class="agent-bind-row remove" data-bind-remove="1">${escapeHtml(t("taBindRemoveRoute"))}</button>` : ""}
-    ${open.map((p) => `
-      <button type="button" class="agent-bind-row${String(p.port) === String(current) ? " current" : ""}"
-              data-bind-choice="${escapeHtml(String(p.port))}">
-        <span class="bind-port">${escapeHtml(String(p.port))}</span>
-        <span class="bind-label">${escapeHtml(p.label || "")}</span>
-      </button>`).join("")}
-    ${taken.length ? `<div class="agent-bind-taken" data-t="agent-bind-taken" title="${escapeHtml(takenTip)}">${escapeHtml(t("taBindTakenNote", { count: String(taken.length) }))}</div>` : ""}
-  `;
-}
-
-// The card of an agent given a port stays open for the rest of the visit (CardFold.hold):
-// it folded into a line the moment its first port came, and the fallback "+" went with it.
-export function keepAgentCardOpen(hostId, agentId, fold = CARD_FOLD) {
-  if (hostId && agentId) fold.hold(CardFold.agentKey(hostId, agentId));
-}
-
-function openBindMenu(chip) {
-  closeBindMenu();
-  const hostId = chip.dataset.bindHost;
-  const agentId = chip.dataset.bindAgent;
-  const current = String(chip.dataset.bindPort || "");
-  // The role must travel all the way to the server: without it, a bind would land
-  // on primary — meaning a choice of fallback would silently overwrite the working route.
-  const role = String(chip.dataset.bindRole || "primary");
-
-  const menu = document.createElement("div");
-  menu.className = "agent-bind-menu";
-  menu.setAttribute("data-t", "agent-bind-menu");
-  menu.innerHTML = bindMenuHtml({ hostId, agentId, role, current, proxies: topology?.proxies || [] });
-  document.body.appendChild(menu);
-  const box = chip.getBoundingClientRect();
-  menu.style.left = `${Math.min(box.left, window.innerWidth - menu.offsetWidth - 12)}px`;
-  menu.style.top = `${box.bottom + 4}px`;
-
-  menu.addEventListener("click", async (e) => {
-    if (e.target.closest("[data-bind-remove]")) {
-      closeBindMenu();
-      // The port keeps listening: it's a live listener an outside agent can
-      // reach independently of our records. Said plainly, not left unsaid.
-      if (!(await appConfirm(t("dlgRemoveRoute", { role, port: current })))) return;
-      try {
-        const res = await api("/api/topology/agent-route/remove", {
-          method: "POST",
-          body: JSON.stringify({ hostId, agentId, role }),
-        });
-        if (res.topology) setTopology(res.topology);
-        await refreshTopology();
-        renderTopology();
-      } catch (err) {
-        toast(`${t("taBindFailed")}: ${err.message || err}`, true);
-      }
-      return;
-    }
-    const row = e.target.closest("[data-bind-choice]");
-    if (!row) return;
-    const port = row.dataset.bindChoice;
-    closeBindMenu();
-    try {
-      const res = await api("/api/topology/agent-proxy-bind", {
-        method: "POST",
-        body: JSON.stringify({ hostId, agentId, role, port: Number(port) }),
-      });
-      // Repaint from the response rather than waiting for the next poll: the
-      // agent cards are cached between renders, so without this the new port
-      // appears no earlier than the next full page load, and the operator sees
-      // their own action do nothing.
-      if (res.topology) setTopology(res.topology);
-      keepAgentCardOpen(hostId, agentId);
-      renderTopology();
-      // Bound on the controller only: nothing reaches the agent's own settings
-      // any more (the scout's apply went with its word about agents), so the
-      // toast says where the operator points it.
-      toast(t("taBindStored", { port: String(port) }));
-    } catch (err) {
-      toast(`${t("taBindFailed")}: ${err.message || err}`, true);
-    }
-  });
-}
-
-if (!window.__agentBindBound) {
-  window.__agentBindBound = 1;
-  // Capture phase, deliberately: the route row's own click handler is ALSO on
-  // document, and stopPropagation between two listeners on the same node stops
-  // neither — clicking the chip opened the picker and the detail panel at once.
-  // Capture runs before any bubble-phase listener on document, so stopping here
-  // is the only thing that actually stops the other one.
-  document.addEventListener("click", (e) => {
-    const chip = e.target.closest("[data-agent-bind]");
-    if (chip) {
-      e.preventDefault();
-      e.stopPropagation();
-      openBindMenu(chip);
-      return;
-    }
-    if (!e.target.closest(".agent-bind-menu")) closeBindMenu();
-  }, true);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeBindMenu(); });
-}

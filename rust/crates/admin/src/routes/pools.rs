@@ -36,6 +36,7 @@ impl PoolRoutes {
             ("/api/pools/remove-model", Self::remove_model),
             ("/api/pools/remove-step", Self::remove_step),
             ("/api/pools/delete", Self::delete),
+            ("/api/board/reader", Self::board_reader),
             ("/api/board-providers/add", Self::provider_add),
             ("/api/board-providers/remove", Self::provider_remove),
             ("/api/entry-move/seen", Self::move_seen),
@@ -49,7 +50,7 @@ impl PoolRoutes {
         let mut refs = CloudModelRefs::new(&config);
         let cloud = CloudData::of(app);
         let routes: &[Value] = config.get("routes").and_then(Value::as_array).map_or(&[], Vec::as_slice);
-        let clients = cloud.pool_names(&cloud.load()).callers(routes, &pool_id);
+        let clients = cloud.board_names(&cloud.load()).callers(routes, &pool_id);
         h.ok(&json!({"ok": true, "refs": refs.of(&pool_id), "held": refs.held(&pool_id), "clients": clients}));
         Ok(())
     }
@@ -103,6 +104,13 @@ impl PoolRoutes {
         let supplied = body.get("pool").filter(|pool| Coerce::truthy(Some(*pool))).cloned().unwrap_or_else(|| json!({}));
         let pool = PoolDesk::of(app).save_pool(&supplied)?;
         Asked::send_with_board(app, h, json!({"ok": true, "pool": pool}))
+    }
+
+    /// The board's reader: the name the operator gives for a part no pool's rows can take. The body keeps it under
+    /// `EntryModels::READER_FIELD` — the same word the reading reads — so the page and the door cannot name it differently.
+    fn board_reader(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
+        let reader = PoolDesk::of(app).set_reader(&body)?;
+        Asked::send_with_board(app, h, json!({"ok": true, "reader": reader}))
     }
 
     fn add_step(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {

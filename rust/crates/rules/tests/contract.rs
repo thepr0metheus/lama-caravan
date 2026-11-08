@@ -3,11 +3,12 @@
 #![allow(clippy::unwrap_used, clippy::panic, clippy::indexing_slicing)]
 
 use rules::{
-    AnthropicToChat, AnthropicUsage, ChatLevers, ChatToAnthropic, ChatToResponses, ChunkFold, ClientAddress, ClientDeny,
-    Credentials, EffortFit, EntryModels, Keepalive, KeyEntry, KeyMiss, ModelCatalogue, ModelKind, ModelLevels, ModelSchedules,
-    OpenAiDialect, OpenAiError, Pick, Policy, QueueLeave, RequestFields, RequestJson, RequestKind, RequestSummary,
-    ResponseSummary, ResponsesPassthrough, ResponsesTally, ResponsesToChat, Route, StreamFold, StreamTranslator, Told,
-    UpstreamFailure, UpstreamType, UsageReserve, UsageWindow, UsageWords, WallClock, WeekWindows,
+    AnthropicToChat, AnthropicUsage, Carried, ChatLevers, ChatToAnthropic, ChatToResponses, ChunkFold, ClientAddress, ClientDeny,
+    Credentials, EffortFit, EntryModels, EntryRefusal, Keepalive, KeyEntry, KeyMiss, MayRead, MediaAnswer, MediaParts,
+    MediaReader, ModelCatalogue, ModelKind, ModelLevels, ModelSchedules, OpenAiDialect, OpenAiError, Part, Pick, Picture, Policy,
+    Pool, QueueLeave, Reader, Reading, RequestFields, RequestJson, RequestKind, RequestSummary, ResponseSummary,
+    ResponsesPassthrough, ResponsesTally, ResponsesToChat, Route, RowKind, Source, StreamFold, StreamTranslator, Told,
+    UpstreamFailure, UpstreamType, UsageReserve, UsageWindow, UsageWords, Verdict, WallClock, WeekWindows, Wired,
 };
 use serde_json::{Value, json};
 use std::fs;
@@ -63,6 +64,21 @@ fn model_kind() {
     for row in rows(&table("model_kind"), "serves") {
         let jobs: Vec<&str> = row["jobs"].as_array().unwrap().iter().map(|job| job.as_str().unwrap()).collect();
         assert_eq!(json!(ModelKind::of_jobs(&jobs).serves(row["path"].as_str().unwrap())), row["serves"], "{row}");
+    }
+}
+
+#[test]
+fn model_kind_pool_reads_one_row_at_a_time() {
+    for row in rows(&table("model_kind"), "pool") {
+        let kinds = row["rows"].as_array().unwrap().iter().map(|row| {
+            if row.get("serves") == Some(&Value::Bool(false)) {
+                RowKind::ServesNothing
+            } else {
+                row.get("kind").and_then(kind_from).map_or(RowKind::Silent, RowKind::Said)
+            }
+        });
+        let answer = ModelKind::may_read(kinds, row["word"].as_str().unwrap());
+        assert_eq!(may_read_json(&answer), row["answer"], "{row}");
     }
 }
 
@@ -132,9 +148,9 @@ fn client_address() {
 
 fn route_in_table_words(route: &Route) -> Value {
     json!({
-        "label": route.label, "port": route.port, "kind": route.kind, "deny": route.deny.keys().collect::<Vec<_>>(),
+        "id": route.id, "label": route.label, "kind": route.kind, "deny": route.deny.keys().collect::<Vec<_>>(),
         "upstreamHost": route.upstream_host, "upstreamPort": route.upstream_port, "enabled": route.enabled, "mode": route.mode,
-        "apiKey": route.api_key, "portClosed": route.port_closed, "priority": route.priority,
+        "apiKey": route.api_key, "priority": route.priority,
         "clientTimeoutSeconds": route.client_timeout_seconds, "contextLength": route.context_limit, "contextAuto": route.context_auto,
     })
 }
@@ -325,6 +341,9 @@ fn summaries() {
         for line in row["lines"].as_array().unwrap() {
             fold.add_line(line.as_str().unwrap().as_bytes());
         }
+        for _ in 0..row.get("past_cap").and_then(Value::as_u64).unwrap_or(0) {
+            fold.line_past_cap();
+        }
         assert_eq!(fold.live_json(), row["live"], "{row}");
         assert_eq!(fold.as_json(), row["finished"], "{row}");
     }
@@ -363,9 +382,22 @@ fn entry_models() {
         assert_eq!(json!(models.closed(&deny, wanted)), row["closed"], "{row}");
         assert_eq!(json!(models.stopped(wanted)), row["stopped"], "{row}");
     }
+    // A pool is asked row by row: the row that serves the request decides, not the pool's shared promise. A case may name the
+    // board's reader (`board_reader`): the reading is then the table's cloud with that name kept as the file keeps it.
+    for row in rows(&data, "media") {
+        let deny = ClientDeny::clean(row.get("deny"));
+        let pool = Pool::read_one(&json!({"id": "media", "name": "media", "steps": row["rows"]})).unwrap();
+        let mut cloud = data["cloud"].clone();
+        if let Some(reader) = row.get("board_reader") {
+            cloud[EntryModels::READER_FIELD] = reader.clone();
+        }
+        let answer = reading(Some(&cloud)).media(&deny, &pool, &json!({"messages": row["messages"]}));
+        assert_eq!(json!(matches!(answer, MediaAnswer::Refused(_))), row["refused"], "{row}");
+        assert_eq!(json!(matches!(answer, MediaAnswer::Readable(_))), *row.get("read").unwrap_or(&json!(false)), "{row}");
+    }
     for row in rows(&data, "lists") {
         let mut raw = row["route"].clone();
-        raw.as_object_mut().unwrap().extend([("port".to_string(), json!(23001)), ("kind".to_string(), json!("consumer"))]);
+        raw.as_object_mut().unwrap().extend([("id".to_string(), json!("client-1")), ("kind".to_string(), json!("consumer"))]);
         let route = Route::normalize(&raw).unwrap();
         let got: Vec<Value> = models.models(&route.deny).into_iter().map(|pool| models.model_object(&route, pool, 0)).collect();
         assert_eq!(got.len(), row["want"].as_array().unwrap().len(), "{}", row["route"]);
@@ -388,6 +420,251 @@ fn entry_models() {
     assert!(matches!(models.for_request(&ClientDeny::default(), "gemma", CHAT), Pick::Pool(_)));
 }
 
+fn words(items: &[Value]) -> Vec<&str> {
+    items.iter().map(|item| item.as_str().unwrap()).collect()
+}
+
+fn part_json(part: &Part) -> Value {
+    json!({"message": part.message, "index": part.index, "word": part.word})
+}
+
+/// A `Verdict` as the table writes it. The words of the states are the table's, so a state renamed here goes red there.
+fn verdict_json(answer: &Verdict) -> Value {
+    match answer {
+        Verdict::Goes => json!("goes"),
+        Verdict::NotSaid => json!("not said"),
+        Verdict::Reading(part, reader) => json!({"reading": part_json(part), "reader": reader_json(reader)}),
+        Verdict::NotDecided(part) => json!({"not decided": part_json(part)}),
+    }
+}
+
+/// A wiring's answer as the table writes it: the state named as itself, with the name it names. The state's name is the
+/// rule's own word (`Reader::word`), so the table, the guard and the board read one list of answers and not a copy of it.
+fn reader_json(reader: &Reader) -> Value {
+    let word = reader.word();
+    match reader {
+        // An answer with no name: the state is the whole answer.
+        Reader::Reads | Reader::Nothing => json!(word),
+        Reader::Unknown(name) | Reader::NotSaid(name) | Reader::Itself(name) => {
+            Value::Object(serde_json::Map::from_iter([(word, json!(name))]))
+        }
+        Reader::CannotTake(name, taken) => {
+            Value::Object(serde_json::Map::from_iter([(word, json!(name)), ("word".to_string(), json!(taken))]))
+        }
+    }
+}
+
+/// The wiring as the table writes it: `null` is nothing named; a name with `known: false` is a name the caravan does not
+/// have; a name with no `takes` is a name whose facts say nothing of their inputs; `pool` is the pool the wiring is for,
+/// which is what tells a name from a self-naming. The table writes the facts, not the answer, and the wiring is built the
+/// way the entry builds it — through `Wired::of`.
+fn wired_of(said: &Value, for_pool: Option<&str>) -> Wired {
+    match said {
+        Value::Null => Wired::Nothing,
+        Value::Object(row) => Wired::of(
+            row["name"].as_str().unwrap(),
+            row.get("known") == Some(&json!(true)),
+            row.get("takes").and_then(words_of),
+            for_pool,
+        ),
+        _ => panic!("the wiring is a name or nothing: {said}"),
+    }
+}
+
+/// What the table says a name promises; `null` is the absence of a promise, which is not a promise of nothing.
+fn words_of(list: &Value) -> Option<Vec<String>> {
+    Some(list.as_array()?.iter().map(|word| word.as_str().unwrap().to_string()).collect())
+}
+
+/// A `MayRead` as the table writes it.
+fn may_read_json(answer: &MayRead) -> Value {
+    match answer {
+        MayRead::Takes => json!("takes"),
+        MayRead::Unsaid => json!("unsaid"),
+        MayRead::Cannot => json!("cannot"),
+        MayRead::NoRow => json!("no row"),
+    }
+}
+
+/// A kind as the table writes it: its jobs and the inputs it promises; `null` is a row that says nothing.
+fn kind_from(said: &Value) -> Option<ModelKind> {
+    let said = said.as_object()?;
+    Some(ModelKind::of_words(&words(said["jobs"].as_array().unwrap()), &words(said["inputs"].as_array().unwrap())))
+}
+
+/// The promise a row names, as the table writes it: `null` is a row that says nothing of itself, and `takes()` answers `None` for it.
+fn kind_of(row: &Value) -> Option<ModelKind> {
+    kind_from(row.get("kind")?)
+}
+
+#[test]
+fn media_parts() {
+    let data = table("media_parts");
+    for row in rows(&data, "modality") {
+        assert_eq!(json!(MediaParts::modality(&row["part"])), row["word"], "{row}");
+    }
+    for row in rows(&data, "carried") {
+        let carried = Carried::of(row["messages"].as_array().unwrap());
+        assert_eq!(json!(carried.parts.iter().map(part_json).collect::<Vec<Value>>()), row["parts"], "{row}");
+    }
+    for row in rows(&data, "verdict") {
+        let carried = Carried::of(row["messages"].as_array().unwrap());
+        let kind = kind_of(row);
+        let answer =
+            carried.verdict(kind.as_ref().and_then(ModelKind::takes), &wired_of(row.get("reader").unwrap_or(&Value::Null), None));
+        assert_eq!(verdict_json(&answer), row["answer"], "{row}");
+    }
+    for row in rows(&data, "says") {
+        let carried = Carried::of(row["messages"].as_array().unwrap());
+        assert_eq!(json!(carried.parts[0].says()), row["says"], "{row}");
+    }
+}
+
+#[test]
+fn media_reader() {
+    let data = table("media_reader");
+    for row in rows(&data, "wired") {
+        let wired = wired_of(row.get("reader").unwrap_or(&Value::Null), row.get("for_pool").and_then(Value::as_str));
+        assert_eq!(reader_json(&wired.promise(row["word"].as_str().unwrap())), row["answer"], "{row}");
+    }
+    for row in rows(&data, "names") {
+        // The reading the door asks the rule from: the board's, with the routers that say which name is a machine's model
+        // and the keys that say which account is signed in. A name being known is what this reading answers; the case does
+        // not write it in.
+        let board = &row["board"];
+        let routers = routers_of(&board["outputs"]);
+        let models = EntryModels::read(
+            Some(&routers),
+            Some(&board["cloud"]),
+            &Credentials::read(Some(&board["secrets"])),
+            ModelCatalogue::default(),
+        );
+        let refusal = models.can_write(row["wanted"].as_str().unwrap());
+        assert_eq!(json!(refusal.is_some()), row["refused"], "{row}");
+        if refusal.is_none() {
+            continue;
+        }
+        let refusal = refusal.unwrap();
+        assert_eq!(json!(refusal.error.code), row["code"], "{row}");
+        assert_eq!(json!(refusal.error.message), row["answer"], "{row}");
+    }
+    for row in rows(&data, "caption") {
+        // The pool a wiring is for changes what the name answers, not what a caption looks like: the table's caption and key
+        // cases name no pool, and the key has no field for one.
+        let reader = MediaReader::new(row["reader"].as_str().unwrap(), Wired::PROMPT_VERSION, None);
+        assert_eq!(json!(reader.caption(row["text"].as_str().unwrap())), row["caption"], "{row}");
+    }
+    for row in rows(&data, "key") {
+        let reader = MediaReader::new(row["reader"].as_str().unwrap(), Wired::PROMPT_VERSION, None);
+        assert_eq!(json!(reader.key(row["part"].as_str().unwrap())), row["key"], "{row}");
+    }
+    for row in rows(&data, "words") {
+        // The words come from the answer the rule gave: the part is read through the classifier, not written here.
+        let carried = Carried::of(row["messages"].as_array().unwrap());
+        let kind = kind_of(row);
+        let answer = carried.verdict(
+            kind.as_ref().and_then(ModelKind::takes),
+            &wired_of(row.get("reader").unwrap_or(&Value::Null), row["model"].as_str()),
+        );
+        let refusal = EntryRefusal::media(row["model"].as_str().unwrap(), &answer);
+        assert_eq!(json!(refusal.is_some()), row["refused"], "{row}");
+        if refusal.is_none() {
+            continue;
+        }
+        let refusal = refusal.unwrap();
+        assert_eq!(json!(refusal.reason), row["reason"], "{row}");
+        assert_eq!(json!(refusal.error.status), row["status"], "{row}");
+        assert_eq!(json!(refusal.error.code), row["code"], "{row}");
+        assert_eq!(json!(refusal.error.param), row["param"], "{row}");
+        assert_eq!(json!(refusal.error.message), row["message"], "{row}");
+    }
+}
+
+/// A picture as the table says it: the client's numbers, where its bytes are, and the `data:` URL when they are inside.
+fn picture_json(picture: &Picture) -> Value {
+    let mut said = json!({"message": picture.part.message, "index": picture.part.index});
+    match &picture.source {
+        Source::Inside(url) => {
+            said["source"] = json!("inside");
+            said["url"] = json!(url);
+        }
+        Source::Elsewhere => said["source"] = json!("elsewhere"),
+    }
+    said
+}
+
+#[test]
+fn media_reading() {
+    let data = table("media_reading");
+    let reading_of = |payload: &Value| {
+        Reading::of(payload, MediaReader::new("gpt-sub", Wired::PROMPT_VERSION, Some("coder-auto")), "coder-auto")
+    };
+    for row in rows(&data, "pictures") {
+        let said: Vec<Value> = reading_of(&row["payload"]).pictures.iter().map(picture_json).collect();
+        assert_eq!(json!(said), row["pictures"], "{row}");
+    }
+    for row in rows(&data, "elsewhere") {
+        let refusal = reading_of(&row["payload"]).elsewhere();
+        assert_eq!(json!(refusal.is_some()), row["refused"], "{row}");
+        let Some(refusal) = refusal else {
+            continue;
+        };
+        assert_eq!(json!(refusal.error.status), row["status"], "{row}");
+        assert_eq!(json!(refusal.error.code), row["code"], "{row}");
+        assert_eq!(json!(refusal.error.param), row["param"], "{row}");
+        assert_eq!(json!(refusal.reason), row["reason"], "{row}");
+        assert_eq!(json!(refusal.error.message), row["message"], "{row}");
+    }
+    for row in rows(&data, "question") {
+        let reading = reading_of(&row["payload"]);
+        let picture = &reading.pictures[row["picture"].as_u64().unwrap() as usize];
+        let mut asked = json!(reading.question(picture));
+        // The words are said once, beside their version: the table names them, and the program's are the ones asked.
+        if let Some(words) = asked.pointer_mut("/messages/0/content/0/text") {
+            assert_eq!(*words, json!(Wired::PROMPT), "{row}");
+            *words = json!("<the words of this version>");
+        }
+        assert_eq!(asked, row["question"], "{row}");
+    }
+    for row in rows(&data, "words") {
+        let said = match Reading::words(row["status"].as_u64().unwrap() as u16, row["body"].as_str().unwrap().as_bytes()) {
+            Ok(words) => json!({"words": words}),
+            Err(why) => json!({"no": why}),
+        };
+        assert_eq!(said, row["said"], "{row}");
+    }
+    for row in rows(&data, "rewritten") {
+        let captions: Vec<String> =
+            row["captions"].as_array().unwrap().iter().map(|words| words.as_str().unwrap().to_string()).collect();
+        assert_eq!(json!(reading_of(&row["payload"]).rewritten(&row["payload"], &captions)), row["rewritten"], "{row}");
+    }
+    for row in rows(&data, "failed") {
+        let reading = reading_of(&row["payload"]);
+        let refusal =
+            reading.failed(&reading.pictures[row["picture"].as_u64().unwrap() as usize], row["because"].as_str().unwrap());
+        assert_eq!(json!(refusal.error.status), row["status"], "{row}");
+        assert_eq!(json!(refusal.error.code), row["code"], "{row}");
+        assert_eq!(json!(refusal.reason), row["reason"], "{row}");
+        assert_eq!(json!(refusal.error.message), row["message"], "{row}");
+    }
+}
+
+#[test]
+fn media_reader_board() {
+    let data = table("media_reader_board");
+    for row in rows(&data, "answers") {
+        // The negative case names no facts: there is nothing to ask the rule about, and that is what makes it the word the
+        // table cannot say. It is held by scripts/check_media_reader_board.py and pinned by scripts/test_js_reader_block.py.
+        let Some(facts) = row.get("reader") else {
+            continue;
+        };
+        let wired = wired_of(facts, row.get("for_pool").and_then(Value::as_str));
+        let answer = wired.promise(row["asked"].as_str().unwrap());
+        assert_eq!(json!(answer.word()), row["answer"], "{row}");
+        assert_eq!(json!(answer.writes()), row["writes"], "{row}");
+    }
+}
+
 #[test]
 fn request_json() {
     let data = table("request_json");
@@ -406,7 +683,7 @@ fn ollama_s_answer_says_the_window_the_list_says() {
     let routers = routers_of(&data["outputs"]);
     let catalogue = ModelCatalogue::read(Some(&data["catalogue"]));
     let models = EntryModels::read(Some(&routers), Some(&data["cloud"]), &Credentials::read(Some(&data["secrets"])), catalogue);
-    let route = Route::normalize(&json!({"port": 23001, "kind": "consumer"})).unwrap();
+    let route = Route::normalize(&json!({"id": "client-1", "kind": "consumer"})).unwrap();
     let windowed = models.pick(&route.deny, "seer").unwrap();
     let shown = models.show(&route, windowed);
     assert_eq!(shown["parameters"], json!("num_ctx 8192"));

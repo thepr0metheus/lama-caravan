@@ -60,7 +60,7 @@ impl<'a> Admission<'a> {
         json!({
             "id": self.record.id,
             "route": self.record.route.label,
-            "port": self.record.route.port,
+            "routeId": self.record.route.id,
             "group": self.output.group(),
             "priority": self.record.route.priority,
             "queuedAt": started as i64,
@@ -112,11 +112,7 @@ impl<'a> Admission<'a> {
             }
             self.tell_board(&leave, seat.position(), started, elapsed_ms);
             if let Some(slot) = seat.try_take(self.places) {
-                self.proxy.board.update_active(
-                    self.record.route.port,
-                    &self.record.id,
-                    json!({"slotAt": Self::thousandths(now)}),
-                );
+                self.proxy.board.update_active(&self.record.route.id, &self.record.id, json!({"slotAt": Self::thousandths(now)}));
                 self.note("admitted", Some(entry), json!({"queuedMs": elapsed_ms}));
                 return Ok((slot, elapsed_ms));
             }
@@ -156,7 +152,7 @@ impl<'a> Admission<'a> {
             "leaveAt": leave_at.map(Self::thousandths),
             "leaveTo": leave_to,
         });
-        self.proxy.board.update_active(self.record.route.port, &self.record.id, json!({"phase": "queued", "queue": queue}));
+        self.proxy.board.update_active(&self.record.route.id, &self.record.id, json!({"phase": "queued", "queue": queue}));
     }
 
     fn limit_reached(leave: &QueueLeave) -> Ending {

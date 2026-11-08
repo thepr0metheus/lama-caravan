@@ -26,11 +26,14 @@ impl ModelJobs {
         ("vla", "robot-policy"),
     ];
 
-    const RUNNER_JOBS: [(&'static str, &'static [&'static str]); 17] = [
+    const RUNNER_JOBS: [(&'static str, &'static [&'static str]); 19] = [
         ("llama-server", &["llm"]),
         ("prism", &["llm"]),
         ("vllm", &["llm"]),
         ("strata", &["llm"]),
+        // A DeepSeek-V4.1 cell is a chat: the table lacked Strata's DeepSeek runner, and its cells said no job (2026-11-03).
+        ("strata-ds", &["llm"]),
+        ("inferssd", &["llm"]),
         ("whisper", &["asr"]),
         ("moonshine", &["asr", "tts"]),
         ("transcribe", &["asr"]),

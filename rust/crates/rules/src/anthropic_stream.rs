@@ -56,6 +56,44 @@ impl AnthropicUsage {
     }
 }
 
+/// What one Messages event says. Read here once, because two readers need the same words: this translation turns the event into a chunk,
+/// and the journal's fold (`StreamFold`) counts what the event said without turning it into anything — a client that speaks the Messages
+/// API gets the stream as it came, so the fold reads this shape as it is, not as a chat choice.
+pub(crate) struct MessagesWords;
+
+impl MessagesWords {
+    /// The text an event says the answer grew by: a text block's delta. A tool argument being built (`input_json_delta`) is no text said,
+    /// so it adds no letters to the journal's count.
+    pub(crate) fn text_of(event: &Value) -> Option<&Value> {
+        event
+            .get("delta")
+            .filter(|delta| delta.get("type").and_then(Value::as_str) == Some("text_delta"))
+            .and_then(|delta| delta.get("text"))
+    }
+
+    /// The word an event says the answer ends with, as the provider said it. This translation's own Chat word for `tool_use` is a
+    /// different fact, and it stays in `AnthropicToChat::message_delta`.
+    pub(crate) fn stop_reason_of(event: &Value) -> Option<&Value> {
+        event.get("delta").and_then(|delta| delta.get("stop_reason"))
+    }
+
+    /// Where an event says usage: on itself, or on the message it opens with.
+    pub(crate) fn usage_of(event: &Value) -> Option<&Value> {
+        event.get("usage").or_else(|| event.get("message").and_then(|message| message.get("usage")))
+    }
+
+    /// The model an event names: on itself, or on the message it opens with.
+    pub(crate) fn model_of(event: &Value) -> Option<&Value> {
+        event.get("model").or_else(|| event.get("message").and_then(|message| message.get("model")))
+    }
+
+    /// Whether the event is the provider's own word that the stream is complete. `[DONE]` is the end the caravan writes for its own
+    /// client, never what a Messages stream says.
+    pub(crate) fn says_the_end(event: &Value) -> bool {
+        event.get("type").and_then(Value::as_str) == Some("message_stop")
+    }
+}
+
 /// An Anthropic stream as Chat Completions chunks, a line at a time.
 #[derive(Debug, Clone)]
 pub struct AnthropicToChat {
@@ -128,7 +166,7 @@ impl AnthropicToChat {
         self.pending_event = None;
         match word?.as_str() {
             "message_start" => {
-                self.used.take(event.get("message").and_then(|message| message.get("usage")));
+                self.used.take(MessagesWords::usage_of(&event));
                 None
             }
             "content_block_start" => self.block_opened(&event),
@@ -164,7 +202,8 @@ impl AnthropicToChat {
         let delta = event.get("delta")?;
         match delta.get("type").and_then(Value::as_str)? {
             "text_delta" => {
-                let text = delta.get("text").cloned().unwrap_or_else(|| json!(""));
+                // absent-ok: a text delta that names no text says an empty piece: the client is reading the block as it is told.
+                let text = MessagesWords::text_of(event).cloned().unwrap_or_else(|| json!(""));
                 Some(Self::framed(&self.chunk(&json!({"content": text}), None)))
             }
             "input_json_delta" => {
@@ -182,10 +221,10 @@ impl AnthropicToChat {
     }
 
     fn message_delta(&mut self, event: &Value) -> Vec<u8> {
-        if event.get("delta").and_then(|delta| delta.get("stop_reason")).and_then(Value::as_str) == Some("tool_use") {
+        if MessagesWords::stop_reason_of(event).and_then(Value::as_str) == Some("tool_use") {
             self.finish_reason = "tool_calls";
         }
-        self.used.take(event.get("usage"));
+        self.used.take(MessagesWords::usage_of(event));
         let mut last = self.chunk(&json!({}), Some(self.finish_reason));
         if self.used.known() {
             last.insert("usage".to_string(), self.used.openai());

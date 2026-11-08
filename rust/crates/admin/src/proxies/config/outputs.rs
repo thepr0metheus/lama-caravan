@@ -1,42 +1,10 @@
-//! The routers' outputs: rebuilt from what stands on the board, and followed when a cell moves.
+//! The routers' outputs: rebuilt from what stands on the board — the engines', the machines' models (`mm:`) and the pools'. A cell is no
+//! output of its own since 2026-11-07 (Papyrus `caravan-scout-port-lease`, step 3): it has a port only while it runs, and a request
+//! reaches it through its machine's model, whatever port it holds.
 
 use super::*;
 
 impl<'app> ProxiesConfig<'app> {
-    /// One auto-output per local server.
-    pub(super) fn local_outputs(server: &Value) -> Vec<Value> {
-        let (mut outs, mut seen) = (Vec::new(), BTreeSet::new());
-        for row in server.get("llamaServers").and_then(Value::as_array).into_iter().flatten() {
-            let port = Coerce::str_of(row.get("port"));
-            if !Coerce::truthy(row.get("port")) || !seen.insert(port.clone()) {
-                continue;
-            }
-            let (host, node) = if Coerce::truthy(row.get("isController")) {
-                ("127.0.0.1".to_string(), CONTROLLER_HOST_ID.to_string())
-            } else {
-                let address = Coerce::stripped(row.get("clientIp"));
-                if address.is_empty() {
-                    continue;
-                }
-                (address.clone(), address)
-            };
-            let model = Coerce::text(row.get("model"));
-            // absent-ok: an empty name has no last word.
-            let model = model.rsplit('/').next().unwrap_or_default();
-            let what = if model.is_empty() { Coerce::text(row.get("cellLabel")) } else { model.to_string() };
-            let label = if what.is_empty() { format!(":{port}") } else { format!("{what} :{port}") };
-            let mut out = json!({"id": format!("srv:{port}"), "label": label, "target": format!("{node}:llama-server:{port}"), "upstreamHost": host, "upstreamPort": row.get("port").and_then(Coerce::int), "upstreamType": "llama", "providerId": ""});
-            if let Value::Object(fields) = &mut out {
-                fields.extend(ModelFacts::cell_facts(row));
-                if Self::STANDING_PHASES.contains(&Coerce::text(row.get("phase")).as_str()) {
-                    fields.insert("stopped".to_string(), json!(true));
-                }
-            }
-            outs.push(out);
-        }
-        outs
-    }
-
     /// The router output of one pool.
     pub fn pool_output(pool: &Value) -> Value {
         let id = Coerce::str_of(pool.get("id"));
@@ -47,17 +15,12 @@ impl<'app> ProxiesConfig<'app> {
     /// Outputs are AUTO-derived from the available providers; whether anything changed.
     pub fn sync_router_outputs(
         routers: &mut [Value],
-        server: &Value,
         pools: &[Value],
         engine_outputs: &[Value],
         machine_outputs: &[Value],
     ) -> Result<bool, AppError> {
         let cloud: Vec<Value> = pools.iter().map(Self::pool_output).collect();
-        let raw = Self::local_outputs(server)
-            .into_iter()
-            .chain(engine_outputs.iter().cloned())
-            .chain(machine_outputs.iter().cloned())
-            .chain(cloud);
+        let raw = engine_outputs.iter().cloned().chain(machine_outputs.iter().cloned()).chain(cloud);
         let desired = raw.map(|row| RouterDsl::output(&row)).collect::<Result<Vec<_>, _>>()?;
         let ids: BTreeSet<String> = desired.iter().map(|row| Coerce::text(row.get("id"))).collect();
         let mut changed = false;
@@ -149,69 +112,5 @@ impl<'app> ProxiesConfig<'app> {
             ordered.push(router);
         }
         Ok(ordered)
-    }
-
-    /// Follows a renamed output id everywhere a router can point at it.
-    pub fn remap_output_refs(&self, old_id: &str, new_id: &str) -> Result<bool, AppError> {
-        let mut payload = self.load()?;
-        let new_port = new_id.strip_prefix("srv:").and_then(|port| port.parse::<i64>().ok());
-        let mut changed = false;
-        for router in payload.get_mut("routers").and_then(Value::as_array_mut).into_iter().flatten() {
-            for out in router.get_mut("outputs").and_then(Value::as_array_mut).into_iter().flatten() {
-                if out.get("id").and_then(Value::as_str) == Some(old_id) {
-                    out["id"] = json!(new_id);
-                    if let Some(port) = new_port {
-                        out["upstreamPort"] = json!(port);
-                    }
-                    changed = true;
-                }
-            }
-            let moved =
-                RouterOutputRefs::new(router).rewrite(&|said| if said == old_id { new_id.to_string() } else { said.to_string() });
-            changed = changed || moved != 0;
-        }
-        if changed {
-            self.save(payload.get("routes").cloned().unwrap_or_else(|| json!([])), payload.get("routers").cloned(), None)?;
-        }
-        Ok(changed)
-    }
-
-    /// Swaps two output ids everywhere a router points at either: each cable follows its own cell.
-    pub fn swap_output_refs(&self, id_a: &str, id_b: &str) -> Result<bool, AppError> {
-        let mut payload = self.load()?;
-        let port_of = |id: &str| id.strip_prefix("srv:").and_then(|port| port.parse::<i64>().ok());
-        let (port_a, port_b) = (port_of(id_a), port_of(id_b));
-        let mut changed = false;
-        for router in payload.get_mut("routers").and_then(Value::as_array_mut).into_iter().flatten() {
-            for out in router.get_mut("outputs").and_then(Value::as_array_mut).into_iter().flatten() {
-                let said = Coerce::text(out.get("id"));
-                let (new_id, port) = if said == id_a {
-                    (id_b, port_b)
-                } else if said == id_b {
-                    (id_a, port_a)
-                } else {
-                    continue;
-                };
-                out["id"] = json!(new_id);
-                if let Some(port) = port {
-                    out["upstreamPort"] = json!(port);
-                }
-                changed = true;
-            }
-            let moved = RouterOutputRefs::new(router).rewrite(&|said| {
-                if said == id_a {
-                    id_b.to_string()
-                } else if said == id_b {
-                    id_a.to_string()
-                } else {
-                    said.to_string()
-                }
-            });
-            changed = changed || moved != 0;
-        }
-        if changed {
-            self.save(payload.get("routes").cloned().unwrap_or_else(|| json!([])), payload.get("routers").cloned(), None)?;
-        }
-        Ok(changed)
     }
 }

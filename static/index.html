@@ -603,21 +603,32 @@
               <div class="field-note strata-draft" id="tr-strataDraft" data-t="cell-remote-strata-draft"></div>
               <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_CONTEXT">STRATA_CONTEXT</label></div>
               <input id="tr-STRATA_CONTEXT" name="STRATA_CONTEXT" type="number" min="1024" step="1024" style="width:100%" data-t="cell-remote-strata-context">
-              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_KV">STRATA_KV</label></div>
-              <select id="tr-STRATA_KV" name="STRATA_KV" style="width:100%" data-t="cell-remote-strata-kv">
-                <option value="int8" selected>int8</option>
-                <option value="q4_0">q4_0</option>
-                <option value="k8v4">k8v4</option>
-              </select>
-              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_DRAFT_VOCAB">STRATA_DRAFT_VOCAB</label></div>
-              <select id="tr-STRATA_DRAFT_VOCAB" name="STRATA_DRAFT_VOCAB" style="width:100%" data-t="cell-remote-strata-vocab">
-                <option value="cyrillic" selected>cyrillic</option>
-                <option value="cjk">cjk</option>
-                <option value="en">en</option>
-                <option value="fr">fr</option>
-              </select>
-              <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_VRAM_RESERVE_MIB">STRATA_VRAM_RESERVE_MIB</label></div>
-              <input id="tr-STRATA_VRAM_RESERVE_MIB" name="STRATA_VRAM_RESERVE_MIB" type="number" min="0" step="256" placeholder="0" style="width:100%" data-t="cell-remote-strata-reserve">
+              <!-- The Qwen engine's own settings; DeepSeek's engine (strata-dsv41) has none of them. -->
+              <div class="strata-qwen-only" id="tr-strataQwenOnly" data-t="cell-remote-strata-qwen-only">
+                <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_KV">STRATA_KV</label></div>
+                <select id="tr-STRATA_KV" name="STRATA_KV" style="width:100%" data-t="cell-remote-strata-kv">
+                  <option value="int8" selected>int8</option>
+                  <option value="q4_0">q4_0</option>
+                  <option value="k8v4">k8v4</option>
+                </select>
+                <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_DRAFT_VOCAB">STRATA_DRAFT_VOCAB</label></div>
+                <select id="tr-STRATA_DRAFT_VOCAB" name="STRATA_DRAFT_VOCAB" style="width:100%" data-t="cell-remote-strata-vocab">
+                  <option value="cyrillic" selected>cyrillic</option>
+                  <option value="cjk">cjk</option>
+                  <option value="en">en</option>
+                  <option value="fr">fr</option>
+                </select>
+                <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_VRAM_RESERVE_MIB">STRATA_VRAM_RESERVE_MIB</label></div>
+                <input id="tr-STRATA_VRAM_RESERVE_MIB" name="STRATA_VRAM_RESERVE_MIB" type="number" min="0" step="256" placeholder="0" style="width:100%" data-t="cell-remote-strata-reserve">
+              </div>
+              <!-- What a DeepSeek set reads beside its own parts: found in the library when the cell is saved (StrataDeepSeekRunner). -->
+              <div class="strata-ds-files" id="tr-strataDsFiles" style="display:none" data-t="cell-remote-strata-ds-files">
+                <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_ENGRAM_FILE">STRATA_ENGRAM_FILE</label></div>
+                <input id="tr-STRATA_ENGRAM_FILE" name="STRATA_ENGRAM_FILE" style="width:100%" spellcheck="false" data-t="cell-remote-strata-engram">
+                <div class="label-row" style="margin-top:8px"><label for="tr-STRATA_META_FILE">STRATA_META_FILE</label></div>
+                <input id="tr-STRATA_META_FILE" name="STRATA_META_FILE" style="width:100%" spellcheck="false" data-t="cell-remote-strata-meta">
+                <div class="field-note" data-i18n="strataDsFilesNote">Empty fields are found in the library when the cell is saved, by the names Strata gives them; the drafter and the picture reader too (SPEC_DRAFT_MODEL_FILE, MMPROJ_FILE).</div>
+              </div>
               <p class="field-note" data-i18n="strataPanelNote">The engine is installed on the machine once (~/Strata, Strata's own setup.sh). Every start brings the model's parts and its draft layer from the caravan's library; the pack is made from them in seconds.</p>
             </div>
             <div class="field gr00t-cell-fields" id="tr-gr00tFields" style="display:none" data-t="cell-remote-gr00t-fields">

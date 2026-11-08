@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn a_reading_says_what_the_file_says() {
         let proxies = json!({
-            "routes": [{"label": "a", "port": 23001, "apiKey": "k"}, {"label": "broken"}, {"port": 1, "kind": "service"}],
+            "routes": [{"label": "a", "id": "client-a", "apiKey": "k"}, {"label": "broken"}, {"id": "c1", "kind": "service"}],
             "policy": {"maxSlots": 2},
             "entry": {"port": 23999},
             "routers": [{"outputs": [{"id": "mm:a", "upstreamType": "machine", "upstreamModel": "m", "upstreamHost": "h", "upstreamPort": 1, "copyPorts": [2]}]}],
@@ -234,7 +234,7 @@ mod tests {
         let folder = std::env::temp_dir().join(format!("caravan-settings-secrets-{}", std::process::id()));
         fs::create_dir_all(&folder).unwrap();
         let paths = paths_in(&folder);
-        fs::write(&paths.proxies, r#"{"routes": [{"port": 1, "kind": "consumer"}]}"#).unwrap();
+        fs::write(&paths.proxies, r#"{"routes": [{"id": "c1", "kind": "consumer"}]}"#).unwrap();
         let cloud = r#"{"accounts": [{"id": "a"}], "addedModels": {"a": ["m"]}, "pools": [{"id": "p", "contextAuto": true, "steps": [{"id": "r", "accountId": "a", "model": "m"}]}]}"#;
         fs::write(&paths.cloud, cloud).unwrap();
         let (secrets, catalogue) = (paths.secrets.clone(), paths.catalogue.clone());
@@ -266,12 +266,12 @@ mod tests {
         fs::create_dir_all(&folder).unwrap();
         let paths = paths_in(&folder);
         let proxies = paths.proxies.clone();
-        fs::write(&proxies, r#"{"routes": [{"port": 1}]}"#).unwrap();
+        fs::write(&proxies, r#"{"routes": [{"id": "c1"}]}"#).unwrap();
         let files = SettingsFiles::new(paths);
         assert_eq!(files.current().routes.len(), 1);
         let same = files.current();
         assert!(Arc::ptr_eq(&same, &files.current()), "no change, no new reading");
-        fs::write(&proxies, r#"{"routes": [{"port": 1}, {"port": 2}]}"#).unwrap();
+        fs::write(&proxies, r#"{"routes": [{"id": "c1"}, {"id": "c2"}]}"#).unwrap();
         assert_eq!(files.current().routes.len(), 2);
         fs::write(&proxies, "not json at all").unwrap();
         assert!(files.current().routes.is_empty());

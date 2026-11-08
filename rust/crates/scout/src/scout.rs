@@ -1,6 +1,9 @@
 //! The scout of one machine, put together from its parts: who owns what, and nothing else. The scout knows its machine only: cards, cells, builds. Each part does one job and gets only the parts it needs; none of them reaches the others through the scout.
 
+use crate::api::answering::Answering;
 use crate::cells::autostart::Autostart;
+use crate::cells::logs::CellLogs;
+use crate::cells::migration::StateByCell;
 use crate::cells::reconcile::Reconcile;
 use crate::cells::suspect::CrashSuspect;
 use crate::cells::watchdog::Watchdog;
@@ -23,8 +26,9 @@ use crate::heartbeat::Heartbeat;
 use crate::http_client::HttpClient;
 use crate::identity::HostIdentity;
 use crate::machine::Machine;
+use crate::models::SystemDisks;
 use crate::models::files::SplitGguf;
-use crate::own_release::OwnUpdate;
+use crate::own_release::{OwnUpdate, Running};
 use crate::paths::ScoutPaths;
 use crate::process::LogPatterns;
 use crate::report::Report;
@@ -35,6 +39,7 @@ use crate::saved_configs::SavedConfigs;
 use crate::state::ScoutState;
 use crate::telemetry::Telemetry;
 use crate::ticking::Ticking;
+use os::LocalTime;
 use os::clock::{Clock, SystemClock};
 use std::path::Path;
 use std::sync::Arc;
@@ -74,6 +79,8 @@ pub struct Scout {
     pub entry: MachineEntry,
     /// The door a new release comes in by.
     pub own_update: OwnUpdate,
+    /// What it is answering now: what a release in place waits for.
+    pub answering: Answering,
     /// The clocks.
     pub clock: Arc<dyn Clock>,
     watchdog: Arc<Watchdog>,
@@ -100,6 +107,10 @@ impl Foundations {
         // Before anything reads `hostId`: the id that stays across renames.
         let identity = Arc::new(HostIdentity::new(Arc::clone(&config), Arc::clone(&state)));
         identity.settle();
+        // Before anything reads a cell: what a scout of before kept by a cell's port, kept by the cell's name.
+        // absent-ok: a system that cannot place the moment still names the copy by its seconds.
+        let stamp = LocalTime::of(clock.epoch() as i64).map_or_else(|| (clock.epoch() as i64).to_string(), |at| at.compact());
+        StateByCell::settle(&state, &CellLogs::of_state(&state, Arc::clone(&clock)), &stamp);
         let machine = Arc::new(Machine::new(Arc::clone(&config), Arc::clone(&commands), Arc::clone(&clock)));
         Ok(Self {
             clock,
@@ -128,6 +139,7 @@ impl Foundations {
             paths: Arc::clone(&self.paths),
             patterns: Arc::new(LogPatterns::new().map_err(Self::failed)?),
             splits: Arc::new(SplitGguf::new().map_err(Self::failed)?),
+            disks: Arc::new(SystemDisks),
         })))
     }
 
@@ -210,7 +222,13 @@ impl Scout {
                 Arc::clone(&base.clock),
             )),
             entry: MachineEntry::new(entry_models, Arc::clone(&cells), Arc::clone(&base.http)),
-            own_update: OwnUpdate::new(Arc::clone(&base.http), Arc::clone(&base.commands), Arc::clone(&base.config)),
+            own_update: OwnUpdate::new(
+                Arc::clone(&base.http),
+                Arc::clone(&base.commands),
+                Arc::clone(&base.config),
+                Arc::clone(&base.clock),
+            ),
+            answering: Answering::default(),
             config: base.config,
             machine: base.machine,
             clock: base.clock,
@@ -224,14 +242,24 @@ impl Scout {
         })
     }
 
-    /// The release `commit` from the controller, in place of this one. Refused while a restart would cut something.
+    /// The release `commit` from the controller, in place of this one. Refused while a restart would cut work of its own; the requests it answers
+    /// are waited for (own_release.rs).
     pub fn take_new_release(&self, commit: &str, sha256: &str) -> Result<serde_json::Value, AppError> {
+        self.own_update.take(commit, sha256, &self.running_now())
+    }
+
+    /// What runs in this process now that its end would cut: its own work (the two shelves share one move at a time), and what it is answering.
+    fn running_now(&self) -> Running {
         let jobs = [
             ("the llama.cpp build", self.builds.status()),
             ("the vLLM update", self.vllm.job_status()),
             ("the driver's install", self.driver_install.status()),
         ];
-        self.own_update.take(commit, sha256, &OwnUpdate::mid_work(&self.cells.views(), &jobs))
+        Running {
+            work: OwnUpdate::mid_work(&self.cells.views(), &jobs, self.cells.models.relocation.under_way()),
+            connections: self.answering.connections.now(),
+            entry: self.answering.entry.now(),
+        }
     }
 
     /// The cells that start with the machine, and then each shelf trimmed to its setting: the cells have asked for their files by then, so that a trim does not take them. Off the main thread: a slow start does not keep the port closed.
@@ -281,5 +309,16 @@ impl Scout {
         Ticking::in_background("library", Duration::from_secs(300), move || cells.keeper.find_library());
         let heartbeat = Arc::clone(&self.heartbeat);
         Ticking::in_background("heartbeat", Duration::ZERO, move || std::thread::sleep(heartbeat.turn()));
+        // A release in place ends this process once its end cuts nothing, and the service starts the new one.
+        let scout = Arc::clone(self);
+        Ticking::in_background("release-end", OwnUpdate::TURN, move || {
+            scout.own_update.look(
+                || scout.running_now(),
+                |words| {
+                    crate::log::Log::line(words);
+                    std::process::exit(0);
+                },
+            );
+        });
     }
 }

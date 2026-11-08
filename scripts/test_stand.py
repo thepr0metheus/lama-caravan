@@ -90,6 +90,9 @@ def section_smi(tmp):
     check(code == 0 and lines == [f"GPU-stand-0, {os.getpid()}, llama-server, 700"], f"кто на карте: столбцы APPS_QUERY скаута (получено {lines})")
     check(smi(cards, ["--query-gpu=memory.used"])[1] == ["700", "412"], "только спрошенное")
     check(smi(cards, ["--query-gpu=driver_version", "--format=csv,noheader"])[1] == ["stand", "stand"], "версия драйвера названа: не настоящая")
+    link = "--query-gpu=index,pcie.link.gen.max,pcie.link.width.current"
+    check(smi(cards, [link, "--format=csv,noheader,nounits"])[1] == ["0, 4, 8", "1, 5, 8"],
+          "шина карт (запрос LINK_QUERY скаута): поколение и линии как у машины дома — 3090 PCIe 4.0 x8, 5090 PCIe 5.0 x8")
     code, lines = smi(cards, ["--query-gpu=memory.reserved"])
     check(code == 2 and lines == [], "negative: поле, которому не учили: код выхода настоящего nvidia-smi, а не выдуманное значение")
     code, lines = smi(cards, [])

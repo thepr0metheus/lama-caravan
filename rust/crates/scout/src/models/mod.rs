@@ -14,6 +14,7 @@ pub mod pace;
 pub mod relocate;
 mod room;
 pub mod shelf;
+pub mod space;
 #[cfg(test)]
 mod tests;
 pub mod uses;
@@ -27,3 +28,4 @@ pub use folders::Folders;
 pub use keeper::{CacheKeeper, CellsInUse};
 pub use pace::CopyPace;
 pub use shelf::{Shelf, ShelfParts};
+pub use space::{FreeSpace, SystemDisks};

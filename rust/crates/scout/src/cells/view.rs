@@ -37,8 +37,16 @@ impl Cells {
         self.view_with(cell, &mut OneLook::default())
     }
 
+    /// What the controller reads of a cell: its own name (`id`) always, and the port its run holds while it holds one — `null`
+    /// otherwise, said as none, never as a number of a cell that does not run.
     fn view_with(&self, cell: &Cell, look: &mut OneLook) -> Map<String, Value> {
-        let port = cell.port;
+        let mut view = self.status_of(cell, look);
+        view.insert("id".to_string(), json!(cell.id));
+        view
+    }
+
+    fn status_of(&self, cell: &Cell, look: &mut OneLook) -> Map<String, Value> {
+        let port = cell.port();
         let mut status = cell.process.status();
         let (startup, crash) = {
             let facts = cell.facts();
@@ -50,7 +58,7 @@ impl Cells {
         if status.get("running") == Some(&Value::Bool(true)) {
             return self.running_view(cell, status, &startup, look);
         }
-        let said_port = || startup.get("port").filter(|said| Coerce::truthy(Some(*said))).cloned().unwrap_or_else(|| json!(port));
+        let said_port = || json!(port);
         // Crashed shortly after start (non-zero exit): an error, even if the startup worker already marked it "running".
         if Coerce::truthy(status.get("crashed")) {
             let reason = Self::crash_reason(&status, crash.as_ref());
@@ -118,7 +126,9 @@ impl Cells {
         startup: &Map<String, Value>,
         look: &mut OneLook,
     ) -> Map<String, Value> {
-        let port = status.get("port").and_then(Value::as_i64).filter(|port| *port != 0).unwrap_or(cell.port);
+        // The port the process runs on, as its own status says it; the lease's when the status names none.
+        // absent-ok: a running cell holds a port; none reads as a port of nothing, which no probe answers.
+        let port = status.get("port").and_then(Value::as_i64).filter(|port| *port != 0).or_else(|| cell.port()).unwrap_or(0);
         // absent-ok: a running process has a pid; none reads as no process under it.
         let pid = status.get("pid").and_then(Value::as_i64).unwrap_or(0);
         let started_at = status.get("startedAt").and_then(Value::as_i64);
@@ -144,7 +154,6 @@ impl Cells {
         view.insert("modelBytes".to_string(), startup.get("modelBytes").cloned().unwrap_or(Value::Null));
         // The memory its processes hold in RAM, their RSS in bytes. `null` when ps did not answer: "not told", never a zero.
         view.insert("ramBytes".to_string(), json!(HostProcesses::resident(pid, look.table(self))));
-        view.insert("firewall".to_string(), self.machine.firewall(&json!(port)));
         // Which of the files it holds changed on disk after it started: ⟳ on the card, restart to pick them up.
         // absent-ok: `changed_since(None)`: a start of no known time has changed nothing.
         view.insert("launchDiskNewer".to_string(), json!(cell.process.changed_since(started_at.unwrap_or(0))));

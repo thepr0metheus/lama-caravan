@@ -2,7 +2,7 @@
 //! `connection` acts on it. The rule: nothing is guessed. What the files do not let it say is refused in words.
 
 use files::Settings;
-use rules::{Coerce, EntryRefusal, KeyEntry, Pick, Pool, RequestFields, RequestJson, RequestKind, Route};
+use rules::{Coerce, EntryRefusal, KeyEntry, MediaAnswer, Pick, Pool, Reading, RequestFields, RequestJson, RequestKind, Route};
 use serde_json::{Map, Value};
 use wire::{Percent, RequestHead};
 
@@ -29,17 +29,25 @@ pub enum BodyFor {
 /// The decision with the body in hand.
 #[derive(Debug, PartialEq, Eq)]
 pub enum WithBody {
-    /// This process's: the model, and whether the client asked for a stream.
-    Serve {
-        /// The pool the name means.
-        pool: Box<Pool>,
-        /// Whether the client asked for a stream.
-        streaming: bool,
-    },
+    /// This process's: what it serves, as one decision.
+    Serve(Serving),
     /// This process's own answer: a question of the model list.
     Answer(Value),
     /// This process's own refusal.
     Refuse(EntryRefusal),
+}
+
+/// A request this process serves: the model, whether the client asked for a stream, and what the board's reader reads of it.
+/// One decision, kept whole from the entry to the walk that serves it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Serving {
+    /// The pool the name means.
+    pub pool: Box<Pool>,
+    /// Whether the client asked for a stream.
+    pub streaming: bool,
+    /// The pictures the board's reader reads for a row of the pool that cannot read them, when such a row serves
+    /// (`MediaAnswer::Readable`); `None` when nothing reads for any row.
+    pub reading: Option<Box<Reading>>,
 }
 
 /// The decisions.
@@ -158,20 +166,25 @@ impl Front {
     /// or not.
     fn request_model(settings: &Settings, route: &Route, head: &RequestHead, body: &[u8]) -> WithBody {
         let content_type = head.headers.text_of("Content-Type");
-        let (model, streaming) = if RequestFields::is_form(&content_type) {
+        let (model, streaming, payload) = if RequestFields::is_form(&content_type) {
             let Some(fields) = RequestFields::form(&content_type, body) else {
                 return WithBody::Refuse(EntryRefusal::unreadable());
             };
-            // absent-ok: a form with no `model` field names no model, and `native` refuses it as that.
-            (fields.get("model").cloned().unwrap_or_default(), false)
+            // A form carries a file and no message parts for this rule to read.
+            // absent-ok: a form with no `model` field names no model, and the entry refuses it as that.
+            (fields.get("model").cloned().unwrap_or_default(), false, Value::Null)
         } else {
-            let Some(Value::Object(payload)) = RequestJson::read(body) else {
+            let Some(read) = RequestJson::read(body).filter(Value::is_object) else {
                 return WithBody::Refuse(EntryRefusal::unreadable());
             };
-            (Coerce::text(payload.get("model")), Coerce::truthy(payload.get("stream")))
+            (Coerce::text(read.get("model")), Coerce::truthy(read.get("stream")), read)
         };
         match settings.models.for_request(&route.deny, &model, head.path()) {
-            Pick::Pool(pool) => WithBody::Serve { pool, streaming },
+            Pick::Pool(pool) => match settings.models.media(&route.deny, &pool, &payload) {
+                MediaAnswer::Refused(refusal) => WithBody::Refuse(refusal),
+                MediaAnswer::Goes => WithBody::Serve(Serving { pool, streaming, reading: None }),
+                MediaAnswer::Readable(reading) => WithBody::Serve(Serving { pool, streaming, reading: Some(Box::new(reading)) }),
+            },
             Pick::Refused(refusal) => WithBody::Refuse(refusal),
             Pick::Unsure => WithBody::Refuse(EntryRefusal::settings_unreadable()),
         }
@@ -188,12 +201,12 @@ mod tests {
     fn settings() -> Settings {
         let proxies = json!({
             "routes": [
-                {"label": "client", "port": 23001, "kind": "consumer", "apiKey": "client-key", "deny": ["model:mm:closed"]},
-                {"label": "held", "port": 23002, "kind": "consumer", "apiKey": "held-key", "mode": "paused"},
-                {"label": "crowned", "port": 23003, "kind": "consumer", "apiKey": "crowned-key", "priority": 1},
-                {"label": "agent", "port": 23004, "apiKey": "agent-key"},
-                {"label": "twin-1", "port": 23005, "kind": "consumer", "apiKey": "twin-key"},
-                {"label": "twin-2", "port": 23006, "kind": "consumer", "apiKey": "twin-key"},
+                {"label": "client", "id": "client-client", "kind": "consumer", "apiKey": "client-key", "deny": ["model:mm:closed"]},
+                {"label": "held", "id": "client-held", "kind": "consumer", "apiKey": "held-key", "mode": "paused"},
+                {"label": "crowned", "id": "client-crowned", "kind": "consumer", "apiKey": "crowned-key", "priority": 1},
+                {"label": "agent", "id": "client-agent", "apiKey": "agent-key"},
+                {"label": "twin-1", "id": "client-twin-1", "kind": "consumer", "apiKey": "twin-key"},
+                {"label": "twin-2", "id": "client-twin-2", "kind": "consumer", "apiKey": "twin-key"},
             ],
             "routers": [{"outputs": [
                 {"id": "mm:a", "upstreamType": "machine", "upstreamModel": "gemma", "upstreamHost": "10.0.0.1", "upstreamPort": 8092, "copyPorts": [22001]},
@@ -337,7 +350,7 @@ mod tests {
         let head = head("POST /v1/chat/completions HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=x\r\n\r\n");
         let of = |body: &[u8]| Front::with_body(&settings, &route, &head, body, BodyFor::Model);
         let named = b"--x\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngemma\r\n--x--\r\n";
-        assert!(matches!(of(named), WithBody::Serve { streaming: false, .. }));
+        assert!(matches!(of(named), WithBody::Serve(Serving { streaming: false, .. })));
         let unnamed = b"--x\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\ngemma\r\n--x--\r\n";
         assert_eq!(reason(of(unnamed)), "entry:no-model");
         assert_eq!(reason(of(b"not a form")), "entry:unreadable");
@@ -357,23 +370,58 @@ mod tests {
         let body = br#"{"model":"ear"}"#;
         let of = |path: &str| Front::with_body(&settings, &route, &asked(path), body, BodyFor::Model);
         assert_eq!(reason(of("/v1/chat/completions")), "entry:unsupported");
-        assert!(matches!(of("/v1/audio/transcriptions"), WithBody::Serve { .. }));
+        assert!(matches!(of("/v1/audio/transcriptions"), WithBody::Serve(_)));
     }
 
     #[test]
     fn the_body_names_the_model_and_says_whether_it_streams() {
         match with_body(r#"{"model":"gemma","stream":true}"#) {
-            WithBody::Serve { pool, streaming } => assert_eq!((pool.id.as_str(), streaming), ("live:mm:a", true)),
+            WithBody::Serve(Serving { pool, streaming, .. }) => assert_eq!((pool.id.as_str(), streaming), ("live:mm:a", true)),
             other => panic!("not served: {other:?}"),
         }
         for body in [r#"{"model":"gemma"}"#, r#"{"model":"gemma","stream":false}"#, r#"{"model":"gemma","stream":null}"#] {
-            assert!(matches!(with_body(body), WithBody::Serve { streaming: false, .. }), "{body}");
+            assert!(matches!(with_body(body), WithBody::Serve(Serving { streaming: false, .. })), "{body}");
         }
     }
 
     #[test]
     fn half_of_a_letter_in_a_message_is_no_reason_to_refuse_a_request() {
-        assert!(matches!(with_body(r#"{"model":"gemma","messages":[{"content":"\ud83d"}]}"#), WithBody::Serve { .. }));
+        assert!(matches!(with_body(r#"{"model":"gemma","messages":[{"content":"\ud83d"}]}"#), WithBody::Serve(_)));
+    }
+
+    #[test]
+    fn a_picture_for_a_chat_that_promised_text_is_refused_by_what_the_request_carries() {
+        let mut settings = settings();
+        let proxies = json!({"routers": [{"outputs": [
+            {"id": "mm:text", "upstreamType": "machine", "upstreamModel": "text-only", "upstreamHost": "h", "upstreamPort": 1, "copyPorts": [2], "jobs": ["llm"], "inputs": ["text"]},
+            {"id": "mm:draws", "upstreamType": "machine", "upstreamModel": "takes-pictures", "upstreamHost": "h", "upstreamPort": 1, "copyPorts": [3], "jobs": ["llm"], "inputs": ["text", "image"]},
+            {"id": "mm:unnamed", "upstreamType": "machine", "upstreamModel": "names-no-inputs", "upstreamHost": "h", "upstreamPort": 1, "copyPorts": [4], "jobs": ["llm"]},
+            {"id": "mm:silent", "upstreamType": "machine", "upstreamModel": "says-nothing", "upstreamHost": "h", "upstreamPort": 1, "copyPorts": [5]},
+        ]}]});
+        settings.models =
+            Settings::read(Documents { proxies: Some(&proxies), cloud: Some(&json!({})), ..Documents::default() }).models;
+        let route = settings.routes[0].clone();
+        let asked = |model: &str, part: &str| {
+            Front::with_body(
+                &settings,
+                &route,
+                &chat("client-key", ""),
+                &format!(r#"{{"model":"{model}","messages":[{{"content":[{{{part}}}]}}]}}"#).into_bytes(),
+                BodyFor::Model,
+            )
+        };
+        let picture = r#""type":"image_url","image_url":{"url":"x"}"#;
+        // The path rule alone would have served this: it is a chat, and a chat is a chat. What the request carries is the
+        // other half, and it is read where the fact lives.
+        assert_eq!(reason(asked("text-only", picture)), "entry:media-unsupported");
+        // The negative case, the same picture: what the model promised is not refused.
+        assert!(matches!(asked("takes-pictures", picture), WithBody::Serve(_)));
+        // What a chat takes because it is a chat is still a promise: a row that named no inputs promises text.
+        assert_eq!(reason(asked("names-no-inputs", picture)), "entry:media-unsupported");
+        // A row that says nothing of itself has no promise to refuse against; that absence is the operator's to name on the board.
+        assert!(matches!(asked("says-nothing", picture), WithBody::Serve(_)));
+        // And text is never refused by this rule.
+        assert!(matches!(asked("text-only", r#""type":"text","text":"hi""#), WithBody::Serve(_)));
     }
 
     #[test]
@@ -388,7 +436,7 @@ mod tests {
         assert_eq!(reason(with_body(r#"{"model":"shut"}"#)), "entry:model-closed");
         assert_eq!(reason(with_body(r#"{"model":"nobody"}"#)), "entry:model-unknown");
         assert!(
-            matches!(with_body(r#"{"model":"pool-one"}"#), WithBody::Serve { .. }),
+            matches!(with_body(r#"{"model":"pool-one"}"#), WithBody::Serve(_)),
             "a pool is this process's now, whatever its rows"
         );
     }

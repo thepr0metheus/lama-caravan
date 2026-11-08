@@ -1,4 +1,4 @@
-//! Queue-wait thresholds per proxy port.
+//! Queue-wait thresholds per client.
 
 use super::config::ProxiesConfig;
 use super::dsl::RouterDsl;
@@ -62,7 +62,7 @@ impl<'app> QueueThresholds<'app> {
         let share = |pct: i64| Self::rounded(wait as f64 * pct as f64 / 100.0);
         let has = |key: &str| route.get(key).is_some_and(|said| !said.is_null());
         let mut entry = json!({
-            "id": route.get("id"), "label": route.get("label"), "port": route.get("port"),
+            "id": route.get("id"), "label": route.get("label"),
             "clientTimeoutSeconds": wait,
             "queueAbortSec": share(abort), "priorityPreemptSec": share(priority),
             "effectiveCloudPct": cloud, "effectivePriorityPct": priority, "effectiveAbortPct": abort,
@@ -123,8 +123,7 @@ mod tests {
 
     #[test]
     fn a_route_with_a_wait_gets_shares_of_it() {
-        let route =
-            json!({"id": "a", "port": 1, "clientTimeoutSeconds": 100, "queueAbortPct": 90, "cloudFallbackProviderId": "p"});
+        let route = json!({"id": "a", "clientTimeoutSeconds": 100, "queueAbortPct": 90, "cloudFallbackProviderId": "p"});
         let (entry, shares) = QueueThresholds::entry_of(&route, (20, 50, 85)).unwrap();
         assert_eq!(entry["queueAbortSec"], 90);
         assert_eq!(entry["priorityPreemptSec"], 50);
@@ -137,7 +136,7 @@ mod tests {
     #[test]
     fn a_cloud_route_or_one_with_no_wait_has_none() {
         assert!(QueueThresholds::entry_of(&json!({"upstreamType": "cloud", "clientTimeoutSeconds": 5}), (1, 2, 3)).is_none());
-        assert!(QueueThresholds::entry_of(&json!({"port": 1}), (1, 2, 3)).is_none());
+        assert!(QueueThresholds::entry_of(&json!({"id": "a"}), (1, 2, 3)).is_none());
     }
 
     #[test]

@@ -51,7 +51,7 @@ pub struct Report {
 
 impl Report {
     /// The version this scout reports: the floor a controller checks what it can ask against. It stands still, a release is named by its commit.
-    pub const VERSION: &'static str = "2.43.0";
+    pub const VERSION: &'static str = "2.48.0";
     const DEFAULT_PORT: i64 = 8092;
 
     /// The words Python's `sys.platform` says.
@@ -98,7 +98,7 @@ impl Report {
         out.insert("llamaNode".to_string(), self.cells.first_view());
         out.insert("llamaNodes".to_string(), Value::Array(self.cells.views()));
         // The ports that start with the machine, stopped ones too: the board shows ↟ on a parked cell as well.
-        out.insert("autostart".to_string(), json!(self.autostart.ports()));
+        out.insert("autostart".to_string(), json!(self.autostart.cells()));
         // The start request kept for each of them: a controller that did not start a cell keeps its record from it, so that the cell stays on its board when it stops.
         out.insert("autostartRequests".to_string(), self.autostart.requests());
         // The machine's models as `GET /v1/models` lists them: a controller names a model of this machine by its name, as a client of the entry does.

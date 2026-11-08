@@ -3,10 +3,12 @@
 visible here").
 
 The note is the one the cell always had (`cellNotes` of the topology, `POST /api/topology/server-slot/note`): shown on its card and in its window, it
-was not in its row. Pinned, by value: what the page holds as a cell's note (none, spaces, words); the line of a noted cell and the ✎ of one with none,
-escaped, with the hooks the binding finds; the question — the present words in the box, the limit named — and what is sent: the trimmed words, empty to
-take the note off, nothing when nothing changed or the operator stepped back; what is said after, and a refusal in the controller's words; the binding of
-every hook under the page's root; the words in all six languages.
+was not in its row. A cell is known by its id alone (cellId: `c<port>` for one made before 2026-11-07, `c` and 8 hex digits since) — it holds a port only
+while it runs — so the notes are keyed, drawn, asked and sent by it. Pinned, by value: what the page holds as a cell's note (none, spaces, words, and
+never a note kept under the old machine-and-port key); the line of a noted cell and the ✎ of one with none, escaped, with the hooks the binding finds and
+the row's name for the cell; the question — the present words in the box, the cell named as the row names it or by its id, the limit named — and what
+is sent: the cell's id and the trimmed words (no machine, no port), empty to take the note off, nothing when nothing changed or the operator stepped
+back; what is said after, and a refusal in the controller's words; the binding of every hook under the page's root; the words in all six languages.
 
 The module is loaded FOR REAL with utils.js and state.js; i18n (English words, filled as the board fills them) and the dialogs are stand-ins; the network
 and the toast are the harness's.
@@ -49,80 +51,99 @@ const ROUTE = "/api/topology/server-slot/note";
 const reset = () => { prompted.length = 0; refreshes.length = 0; spoken.length = 0; typed = null; globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; };
 const refresh = async () => { refreshes.push(1); };
 const sent = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, body: JSON.parse(c.body) }));
-const world = (notes) => st.setTopology({ nodes: [{ id: "hotel", servers: [{ port: 22007 }, { port: 22025 }] }], cellNotes: notes });
+// A machine with an old cell (its id says the port it was made on), parked, and a new one running on a port its run leased.
+const world = (notes) => st.setTopology({ nodes: [{ id: "hotel", servers: [{ cellId: "c22007", port: null }, { cellId: "c3f9a02b1", port: 22025 }] }],
+                                          cellNotes: notes });
 
 // ── what the page holds ──
 {
-  world({ "hotel:22007": " for the coder ", "hotel:22025": "   ", "box:1": 5 });
-  eq([CellNote.of("hotel", 22007), CellNote.of("hotel", "22025"), CellNote.of("hotel", 9), CellNote.of("box", 1)], ["for the coder", "", "", ""],
-     "a note is the words the topology holds for that machine and port, trimmed; spaces, none and a number are no note");
+  world({ c22007: " for the coder ", c3f9a02b1: "   ", c5e01d7aa: 5 });
+  eq([CellNote.of("c22007"), CellNote.of("c3f9a02b1"), CellNote.of("c0d1e2f3a"), CellNote.of("c5e01d7aa")], ["for the coder", "", "", ""],
+     "a note is the words the topology holds for that cell's id, trimmed; spaces, none and a number are no note");
+  world({ "hotel:22007": "kept by the port", "hotel:22025": "kept by the port" });
+  eq([CellNote.of("c22007"), CellNote.of("c3f9a02b1"), CellNote.of("hotel:22007")], ["", "", "kept by the port"],
+     "negative: a note under the old machine-and-port key is no cell's note — a cell is asked by its id alone, and a key is taken as it is given");
   world(undefined);
-  pin(CellNote.of("hotel", 22007) === "", "negative: a topology that says no notes says none for every cell");
+  pin(CellNote.of("c22007") === "", "negative: a topology that says no notes says none for every cell");
 }
 
 // ── the row's line and its ✎ ──
 {
-  world({ "hotel:22007": "for <the> coder" });
-  eq(CellNote.lineHtml("hotel", 22007), '<button type="button" class="machine-model-note" data-cell-note="hotel:22007" data-machine-own data-t="machine-model-note" data-t-id="22007"'
-     + ' title="for &lt;the&gt; coder\n\nClick to change the note">💬 for &lt;the&gt; coder</button>', "a noted cell's line: the card's 💬 and its words, escaped, the whole of them in the tip");
-  pin(CellNote.lineHtml("hotel", 22025) === "", "negative: no note, no line");
-  const add = CellNote.addHtml("hotel", 22025);
-  pin(add.includes('data-cell-note="hotel:22025"') && add.includes('data-t="machine-model-note-add"') && add.includes('aria-label="Add a note to this cell"') && add.includes(">✎</button>"),
-      "a cell with none has the ✎, named for the screen reader");
-  pin(CellNote.addHtml("hotel", 22007) === "", "negative: a noted cell has no ✎ besides its words");
+  world({ c22007: "for <the> coder" });
+  eq(CellNote.lineHtml("c22007"), '<button type="button" class="machine-model-note" data-cell-note="c22007" data-machine-own data-t="machine-model-note" data-t-id="c22007"'
+     + ' title="for &lt;the&gt; coder\n\nClick to change the note">💬 for &lt;the&gt; coder</button>',
+     "a noted cell's line: the card's 💬 and its words, escaped, the whole of them in the tip; the cell's id is its address and its data-t-id");
+  pin(CellNote.lineHtml("c22007", ' Hermes "4" ').includes('data-cell-note="c22007" data-cell-note-name="Hermes &quot;4&quot;" data-machine-own'),
+      "the row's name for the cell rides with the line, trimmed and escaped — the question names the cell by it");
+  pin(CellNote.lineHtml("c3f9a02b1") === "", "negative: no note, no line");
+  const add = CellNote.addHtml("c3f9a02b1");
+  pin(add.includes('data-cell-note="c3f9a02b1" data-machine-own') && add.includes('data-t="machine-model-note-add" data-t-id="c3f9a02b1"')
+      && add.includes('aria-label="Add a note to this cell"') && add.includes(">✎</button>"),
+      "a cell with none has the ✎, named for the screen reader; no name given — none carried");
+  pin(CellNote.addHtml("c22007") === "", "negative: a noted cell has no ✎ besides its words");
+  pin(![CellNote.lineHtml("c22007", "x"), CellNote.addHtml("c3f9a02b1", "y")].some((h) => /22025|data-node-cell-port|data-llama-port/.test(h)),
+      "negative: neither the line nor the ✎ names a port — not the leased one of a running cell, not as an address");
 }
 
 // ── the question and what is sent ──
 {
-  world({ "hotel:22007": "for the coder" });
+  world({ c22007: "for the coder" });
   reset();
   typed = "  long context, do not stop  ";
-  globalThis.__fetchReply[ROUTE] = { key: "hotel:22007", note: "long context, do not stop" };
-  await CellNote.edit("hotel", "22007", refresh);
+  globalThis.__fetchReply[ROUTE] = { ok: true, cellId: "c22007", note: "long context, do not stop" };
+  await CellNote.edit("c22007", refresh, { name: " Hermes-4-70B " });
   eq([prompted[0].message, prompted[0].opts.value, prompted[0].opts.confirmLabel],
-     ["A note on the cell :22007 — your own words, shown in its row and on its card (at most 280 characters; empty removes it):", "for the coder", "Save note"],
-     "the question names the cell and the limit, with the present words in the box");
-  eq(sent(), [{ path: ROUTE, body: { hostId: "hotel", port: 22007, note: "long context, do not stop" } }], "the words go to the note's own route, trimmed, the port as a number");
+     ["A note on the cell Hermes-4-70B — your own words, shown in its row and on its card (at most 280 characters; empty removes it):", "for the coder", "Save note"],
+     "the question names the cell as the row names it, and the limit, with the present words in the box");
+  eq(sent(), [{ path: ROUTE, body: { cellId: "c22007", note: "long context, do not stop" } }], "the words go to the note's own route by the cell's id, trimmed");
+  pin(!("hostId" in sent()[0].body) && !("port" in sent()[0].body), "negative: no machine and no port go with the note — the controller knows the cell by its id");
   eq([spoken, refreshes.length], [["Note saved"], 1], "the operator is told, and the page drawn again");
   reset();
   typed = "   ";
-  await CellNote.edit("hotel", "22007", refresh);
+  await CellNote.edit("c22007", refresh);
   eq([sent()[0].body.note, spoken], ["", ["Note removed"]], "empty words take the note off");
+  eq(prompted[0].message.split(" — ")[0], "A note on the cell c22007",
+     "a row that gives no name: the question names the cell by its id — said, not left as a hole, never as a port");
   reset();
   typed = "for the coder";
-  await CellNote.edit("hotel", "22007", refresh);
+  await CellNote.edit("c22007", refresh);
   pin(sent().length === 0 && refreshes.length === 0, "negative: the same words send nothing");
   reset();
   typed = null;
-  await CellNote.edit("hotel", "22007", refresh);
+  await CellNote.edit("c22007", refresh);
   pin(sent().length === 0 && spoken.length === 0, "negative: stepped back, nothing is sent or said");
   world({});
   reset();
   typed = "first words";
-  await CellNote.edit("hotel", "22007", refresh);
-  eq([prompted[0].opts.value, sent()[0].body.note], ["", "first words"], "a cell with none asks with an empty box");
+  await CellNote.edit("c3f9a02b1", refresh);
+  eq([prompted[0].opts.value, sent()[0].body], ["", { cellId: "c3f9a02b1", note: "first words" }], "a cell with none asks with an empty box");
   reset();
   typed = "x";
-  globalThis.__fetchReply[ROUTE] = { __status: 404, error: "no server slot hotel:22007" };
-  await CellNote.edit("hotel", "22007", refresh);
+  globalThis.__fetchReply[ROUTE] = { __status: 404, error: "no server slot c22007" };
+  await CellNote.edit("c22007", refresh);
   pin(spoken.length === 1 && spoken[0].includes("no server slot") && refreshes.length === 1, "negative: the controller refuses — its words are said");
 }
 
 // ── the binding ──
 {
   const made = (dataset) => ({ dataset, handlers: {}, addEventListener(type, fn) { this.handlers[type] = fn; } });
-  const btns = [made({ cellNote: "hotel:22007" }), made({ cellNote: "box:with:colons:22025" })];
+  const btns = [made({ cellNote: "c22007" }), made({ cellNote: "c3f9a02b1", cellNoteName: "gemma" }), made({ cellNote: "" })];
   const asked = [];
   const root = { querySelectorAll(selector) { asked.push(selector); return selector === "[data-cell-note]" ? btns : []; } };
   CellNote.bind(root, refresh);
   pin(asked.join() === "[data-cell-note]" && btns.every((b) => typeof b.handlers.click === "function"), "every note and ✎ under the root gets its click");
-  world({ "hotel:22007": "x" });
+  world({ c22007: "x" });
   reset();
   typed = "y";
   // Waited on as the asking itself: the harness keeps timers, and a wait on one never ends under it.
   await btns[0].handlers.click({ stopPropagation() {} });
-  eq(sent()[0]?.body, { hostId: "hotel", port: 22007, note: "y" }, "a click asks for that cell's note");
-  pin(btns[1].handlers.click({ stopPropagation() {} }) instanceof Promise, "a host name with colons still splits at the port's colon");
+  eq(sent()[0]?.body, { cellId: "c22007", note: "y" }, "a click asks for that cell's note");
+  reset();
+  typed = null;
+  await btns[1].handlers.click({ stopPropagation() {} });
+  pin(prompted[0]?.message.startsWith("A note on the cell gemma — "), "a click asks with the row's name for the cell, as the button carries it");
+  reset();
+  pin(btns[2].handlers.click({ stopPropagation() {} }) === null && prompted.length === 0, "negative: a button that names no cell asks nothing");
   CellNote.bind(null, refresh);
   pass.push("negative: no root, no binding, no throw");
 }
@@ -131,7 +152,7 @@ const world = (notes) => st.setTopology({ nodes: [{ id: "hotel", servers: [{ por
 {
   const langs = JSON.parse(process.env.LANGS), keys = JSON.parse(process.env.KEYS);
   const holes = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(",");
-  const want = { cellNotePrompt: "most,port", cellNoteSaved: "", cellNoteRemoved: "" };
+  const want = { cellNotePrompt: "cell,most", cellNoteSaved: "", cellNoteRemoved: "" };
   const lacking = [], wrong = [], same = [];
   for (const lang of langs) {
     const m = (await import(`../static/js/i18n/${lang}.js`)).default;

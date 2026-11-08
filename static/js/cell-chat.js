@@ -1,16 +1,16 @@
 // A text chat with a cell from its window's Talk tab (1.3.624): a typed question, the model's words back, and what the server said
-// of them — the tokens it wrote and how fast it read and wrote. The page asks the controller (POST /api/cell-talk, mode text-chat),
-// and the controller asks the cell: the board is https and the cell plain http, and the controller asks only the mode's one path
-// (/v1/chat/completions) — the window is no door into the cell (rust/crates/admin/src/fleet/cell_talk.rs).
+// of them — the tokens it wrote and how fast it read and wrote. The page asks the controller (POST /api/cell-talk {cellId}, mode
+// text-chat), and the controller asks the cell on the port its run leased: the board is https and the cell plain http, and the
+// controller asks only the mode's one path (/v1/chat/completions) — the window is no door into the cell
+// (rust/crates/admin/src/fleet/cell_talk.rs).
 //
-// The talk is kept here, by cell, and not in the window: the board repaints the lane wholesale, and a talk drawn only into the window
-// would go with the next repaint, the typed draft with it. The window draws it from here (html).
-import { CellWindow } from "./cell-window.js";
+// The talk is kept here, by cell id, and not in the window: the board repaints the lane wholesale, and a talk drawn only into the
+// window would go with the next repaint, the typed draft with it. The window draws it from here (html).
 import { t } from "./i18n.js";
 import { api, escapeHtml } from "./utils.js";
 
 export class CellChat {
-  /** The chat's data-t names (docs/testability.md), data-t-id = the cell's key. The section's data-t-state says idle, busy (an
+  /** The chat's data-t names (docs/testability.md), data-t-id = the cell's id. The section's data-t-state says idle, busy (an
    *  answer is awaited) or off (the cell does not run); a message's says user, answer or error. */
   static HOOKS = { view: "cell-chat", draft: "cell-chat-draft", send: "cell-chat-send", clear: "cell-chat-clear", turn: "cell-chat-turn" };
   /** The controller's mode (cell_talk.TextChat). */
@@ -18,7 +18,7 @@ export class CellChat {
 
   constructor({ call = api } = {}) {
     this.call = call;
-    // key → {turns: [{role, text, error, ms, tokens, speed}], draft, busy}
+    // cellId → {turns: [{role, text, error, ms, tokens, speed}], draft, busy, model}
     this.cells = new Map();
     this.bound = false;
   }
@@ -29,15 +29,16 @@ export class CellChat {
     return !!spec && Array.isArray(spec.modes) && spec.modes.includes(CellChat.MODE) && Array.isArray(jobs) && jobs.includes("llm");
   }
 
-  of(key) {
-    return { turns: [], draft: "", busy: false, ...(this.cells.get(String(key)) || {}) };
+  of(cellId) {
+    return { turns: [], draft: "", busy: false, ...(this.cells.get(String(cellId)) || {}) };
   }
 
-  /** The talk of `key` is held with `model`: a talk is a cell's, and a cell made anew on the port of a deleted one is another cell —
-   *  its window showed the deleted cell's questions and answers, a gemma's speeds under a Hermes, as its own (2026-10-26). A model
-   *  not said keeps the talk as it is, and so does an answer still awaited. */
-  heldWith(key, model) {
-    const k = String(key);
+  /** The talk of `cellId` is held with `model`: a talk is the model's it was had with. Kept by the cell's port, a cell made anew
+   *  on the port of a deleted one showed the deleted cell's questions and answers, a gemma's speeds under a Hermes, as its own
+   *  (2026-10-26); a new cell has an id of its own now, and the model still parts the talks of one cell given another model. A
+   *  model not said keeps the talk as it is, and so does an answer still awaited. */
+  heldWith(cellId, model) {
+    const k = String(cellId);
     const m = String(model || "");
     if (!m) return;
     const s = this.of(k);
@@ -48,8 +49,8 @@ export class CellChat {
   /** What goes with a new message: as many of the last question-and-answer pairs as fit in `carried - 1` messages. Whole pairs:
    *  an answer without its question reads as the model's own words out of nowhere. A question whose answer failed was never
    *  answered, and goes with its failure (two questions in a row are a conversation some models refuse). */
-  history(key, carried) {
-    const turns = this.of(key).turns;
+  history(cellId, carried) {
+    const turns = this.of(cellId).turns;
     const said = [];
     for (let i = 0; i < turns.length; i += 1) {
       const turn = turns[i];
@@ -74,8 +75,8 @@ export class CellChat {
     return parts.join(" · ");
   }
 
-  turnHtml(key, turn, format) {
-    const k = escapeHtml(String(key));
+  turnHtml(cellId, turn, format) {
+    const k = escapeHtml(String(cellId));
     const hook = `data-t="${CellChat.HOOKS.turn}" data-t-id="${k}"`;
     if (turn.role === "user") return `<div class="cw-turn me" ${hook} data-t-state="user">${escapeHtml(turn.text)}</div>`;
     const meta = CellChat.meta(turn, format);
@@ -87,16 +88,16 @@ export class CellChat {
     return `<div class="cw-turn it" ${hook} data-t-state="answer"><div class="cw-turn-text">${words}</div>${tail}</div>`;
   }
 
-  /** The Talk tab's chat of cell `key`. `running`: it can be asked; `port` its port; `carried` how many messages one request
-   *  carries (the runner's talk.turns); `page` the address of the server's own page, "" for none; `model` the cell's model, which
-   *  the talk is held with (heldWith). */
-  html(key, { running = false, port = "", carried = 8, page = "", format, model = "" } = {}) {
-    this.heldWith(key, model);
-    const s = this.of(key);
-    const k = escapeHtml(String(key));
+  /** The Talk tab's chat of cell `cellId`. `running`: it can be asked; `carried` how many messages one request carries (the
+   *  runner's talk.turns); `model` the cell's model, which the talk is held with (heldWith). No link to the server's own page:
+   *  a cell listens on its machine's loopback since 2026-11-08, out of a browser's reach. */
+  html(cellId, { running = false, carried = 8, format, model = "" } = {}) {
+    this.heldWith(cellId, model);
+    const s = this.of(cellId);
+    const k = escapeHtml(String(cellId));
     const H = CellChat.HOOKS;
     const state = !running ? "off" : s.busy ? "busy" : "idle";
-    const turns = s.turns.map((turn) => this.turnHtml(key, turn, format)).join("");
+    const turns = s.turns.map((turn) => this.turnHtml(cellId, turn, format)).join("");
     const waiting = s.busy
       ? `<div class="cw-turn it wait"><span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(t("cwChatWaiting"))}</div>` : "";
     const log = turns || waiting ? `<div class="cw-chat-turns" aria-live="polite">${turns}${waiting}</div>` : "";
@@ -108,36 +109,34 @@ export class CellChat {
         + ` placeholder="${escapeHtml(t("cwChatPlaceholder"))}" aria-label="${escapeHtml(t("cwChatDraftLabel"))}"${s.busy ? " disabled" : ""}>`
         + `${escapeHtml(s.draft)}</textarea>`
         + `<div class="cw-chat-foot"><span class="cw-chat-memory">${escapeHtml(t("cwChatMemory", { n: String(Math.max(1, Number(carried) || 1)) }))}</span>`
-        // A link followed in this tab, as the cell's 🌐 page is (cell-page.js): the caravan opens nothing in a tab of its own.
-        + `${page ? `<a class="cw-chat-page" href="${escapeHtml(page)}">${escapeHtml(t("cwChatPage"))}</a>` : ""}`
         + `<span class="cw-chat-gap"></span>${clear}<button type="button" class="cw-btn primary" data-cell-chat-send="${k}" data-t="${H.send}"`
         + ` data-t-id="${k}"${s.busy ? " disabled" : ""}>${escapeHtml(t("cwChatSend"))}</button></div>`
       : `<p class="cw-empty">${escapeHtml(t("cwChatOff"))}</p>${clear ? `<div class="cw-buttons">${clear}</div>` : ""}`;
     return `<section class="cw-sec cw-chat" data-cell-chat-view="${k}" data-cell-chat-carried="${escapeHtml(String(carried))}"`
       + ` data-t="${H.view}" data-t-id="${k}" data-t-state="${state}" data-cell-chat-model="${escapeHtml(s.model || "")}">`
-      + `<p class="cw-lead">${escapeHtml(t("cwChatLead", { port: String(port) }))}</p>${log}${ask}</section>`;
+      + `<p class="cw-lead">${escapeHtml(t("cwChatLead"))}</p>${log}${ask}</section>`;
   }
 
   /** Keeps what is typed, so a repaint of the lane gives it back. */
-  draft(key, text) {
-    this.cells.set(String(key), { ...this.of(key), draft: String(text ?? "") });
+  draft(cellId, text) {
+    this.cells.set(String(cellId), { ...this.of(cellId), draft: String(text ?? "") });
   }
 
   /** Sends what is typed, with the talk so far, and keeps the answer — the model's words and counts, or the refusal's own words.
-   *  Nothing is sent while an answer is awaited, nor an empty message. */
-  async send(key, { carried = 8, doc = globalThis.document, format } = {}) {
-    const k = String(key);
+   *  Nothing is sent while an answer is awaited, nor an empty message. The controller is asked by the cell's id alone: it knows
+   *  the port the cell's run leased, and a cell that does not run has none. */
+  async send(cellId, { carried = 8, doc = globalThis.document, format } = {}) {
+    const k = String(cellId);
     const s = this.of(k);
     const text = s.draft.trim();
     if (!text || s.busy) return s;
     const history = this.history(k, carried);
     this.cells.set(k, { ...s, turns: [...s.turns, { role: "user", text }], draft: "", busy: true });
     this.paint(doc, k, { format });
-    const { hostId, port } = CellWindow.place(k);
     let answer;
     try {
       const got = await this.call("/api/cell-talk", {
-        method: "POST", body: JSON.stringify({ hostId, port: Number(port), mode: CellChat.MODE, text, history }) });
+        method: "POST", body: JSON.stringify({ cellId: k, mode: CellChat.MODE, text, history }) });
       answer = got?.error
         ? { role: "assistant", error: String(got.error), ms: got.ms || null }
         : { role: "assistant", text: String(got?.text || ""), ms: got?.ms || null, tokens: got?.tokens || null, speed: got?.speed || null };
@@ -150,25 +149,23 @@ export class CellChat {
     return this.of(k);
   }
 
-  /** Forgets the talk of `key` (not while an answer is awaited: it would come into an empty talk). */
-  clear(key, doc = globalThis.document) {
-    const s = this.of(key);
+  /** Forgets the talk of `cellId` (not while an answer is awaited: it would come into an empty talk). */
+  clear(cellId, doc = globalThis.document) {
+    const s = this.of(cellId);
     if (s.busy) return s;
-    this.cells.set(String(key), { ...s, turns: [] });
-    this.paint(doc, String(key));
-    return this.of(key);
+    this.cells.set(String(cellId), { ...s, turns: [] });
+    this.paint(doc, String(cellId));
+    return this.of(cellId);
   }
 
-  /** Draws the chat of `key` again where it stands in `doc`, at its newest message; `focus` gives the typing back. */
-  paint(doc, key, { format, focus = false } = {}) {
-    const esc = globalThis.CSS?.escape ? globalThis.CSS.escape(key) : String(key).replace(/["\\]/g, "\\$&");
+  /** Draws the chat of `cellId` again where it stands in `doc`, at its newest message; `focus` gives the typing back. */
+  paint(doc, cellId, { format, focus = false } = {}) {
+    const esc = globalThis.CSS?.escape ? globalThis.CSS.escape(cellId) : String(cellId).replace(/["\\]/g, "\\$&");
     const view = doc?.querySelector?.(`[data-cell-chat-view="${esc}"]`);
     if (!view) return;
     const running = view.dataset?.tState !== "off";
-    const port = CellWindow.place(key).port;
-    const page = view.querySelector?.(".cw-chat-page")?.getAttribute?.("href") || "";
-    view.outerHTML = this.html(key, { running, port, carried: view.dataset?.cellChatCarried, page, format,
-                                      model: view.dataset?.cellChatModel || "" });
+    view.outerHTML = this.html(cellId, { running, carried: view.dataset?.cellChatCarried, format,
+                                         model: view.dataset?.cellChatModel || "" });
     const turns = doc.querySelector?.(`[data-cell-chat-view="${esc}"] .cw-chat-turns`);
     if (turns) turns.scrollTop = turns.scrollHeight;
     if (focus) doc.querySelector?.(`[data-cell-chat-view="${esc}"] .cw-chat-draft`)?.focus?.();

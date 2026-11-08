@@ -5,13 +5,13 @@ Pinned by value, with the module loaded for real (scripts/_js_harness.mjs): the
 client cards — what each sees and what is closed to it, the window that closes a
 source, a model or a pool, and the window of the move — «Напрямую» and its rows; the
 cables shown only for a pinned card and while requests run; a pool's rows of three
-kinds — a subscription's model, a machine's cell, a row with no cable — with the
+kinds — a subscription's model, a machine's model, a row with no cable — with the
 proxy's word on each and the serving one lit; the models on the right with the
 pools that use them — on an account's card only the models added to it (the
 owner, 2026-10-12: "only the ones I added"), "＋ model" finding more in the
 account's list as it is typed, and ✕ taking one no row names off — a
 subscription's models with their levels (their own pair, the controller's
-default, or no handles when the controller says nothing), the stopped cells no
+default, or no handles when the controller says nothing), the stopped models no
 row names folded under one button; the cables measured from
 dot to dot, and the ones that cannot be placed named; a cable drawn by carrying
 an output's dot onto a pool or a model, and cut by a click after one question;
@@ -33,6 +33,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths, probe_args  # noqa: E402
+from _contract import Contract  # noqa: E402
+
+#: The order the Pools column is read in, from contract/media_reader_board.json (`column`) — the same table
+#: scripts/check_media_reader_board.py holds the code and the CSS to, so the pin cannot invent an order of its own.
+COLUMN = Contract.table("media_reader_board")["column"]
+
+#: The body the save door takes, from the same table (`save`): the pool under `pool`, said once in `PoolCards.body`.
+SAVE = Contract.table("media_reader_board")["save"]
 
 STUBS = ("dialogs,topology-render,consumer-access,polling,remote-cells,topology-dnd,canvas,charts,cables,history,"
          "favorites,config-locator,system-panels,onboarding,onboarding-tours,dialog-llamas,models-page,system-page,"
@@ -51,8 +59,6 @@ globalThis.__stubValues = { "usage-stats.subscriptionUsageCache": globalThis.__u
   "usage-stats.READING_LANDED": globalThis.__landed, "topology-activity.ACTIVITY_SEEN": globalThis.__seen };
 globalThis.__stubReturns = {
   "topology-nodes.machineAt": (address) => ({ key: address === "10.0.0.5" ? "box" : address, name: address === "10.0.0.5" ? "Box" : address, address }),
-  "topology-nodes.cellJobs": () => [],
-  "topology-nodes.cellRunnerId": () => "",
   "routers.localOutputGroups": (outs) => {
     const groups = new Map();
     for (const o of outs || []) {
@@ -61,7 +67,7 @@ globalThis.__stubReturns = {
       if (!groups.has(key)) groups.set(key, { key, name: key === "box" ? "Box" : key, address: o.upstreamHost, outs: [] });
       groups.get(key).outs.push(o);
     }
-    return [...groups.values()].map((g) => ({ ...g, outs: [...g.outs].sort((a, b) => a.upstreamPort - b.upstreamPort) }));
+    return [...groups.values()];
   },
   "routers.machineLabelHtml": (g) => String(g.name),
   "cloud.cloudAccountIconHtml": (a) => `<i>${a.id}</i>`,
@@ -81,6 +87,10 @@ globalThis.__stubReturns = {
 };
 const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/pool-board.js").href);
+const { PoolCards } = await import(pathToFileURL(process.env.JS_ROOT + "/pools.js").href);
+// The reader block is read as the module reads it: the key, the hooks and the body are said there and nowhere else, so a pin
+// that wrote them again would be the fact held a second time.
+const { ReaderBlock } = await import(pathToFileURL(process.env.JS_ROOT + "/reader-block.js").href);
 const { CableFlow } = await import(pathToFileURL(process.env.JS_ROOT + "/cable-flow.js").href);
 const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
 const { escapeHtml: esc } = await import(pathToFileURL(process.env.JS_ROOT + "/utils.js").href);
@@ -88,20 +98,25 @@ const { escapeHtml: esc } = await import(pathToFileURL(process.env.JS_ROOT + "/u
 const tours = await import(pathToFileURL(process.env.JS_ROOT + "/onboarding-tours.js").href);
 const { drawn } = await import("./_tour_anchors.mjs");
 const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (_, k) => v[k]);
+// A model of Box's entry as the controller makes its output (rust/crates/admin/src/fleet/machine_models.rs): on its scout's address
+// and port, named by the model, with the ports its running copies leased. A cell is no output of its own since 2026-11-07
+// (Papyrus caravan-scout-port-lease): it holds a port only while it runs, and it is a copy of its machine's model.
+const MM = (id, model, copyPorts = [], extra = {}) => ({ id, upstreamType: "machine", upstreamHost: "10.0.0.5", upstreamPort: 8092,
+  upstreamModel: model, label: model, hostId: "box", copyPorts, ...extra });
 const TOPO = () => ({
   proxies: [
     // Hermes is closed to nothing and called Standart and Coder straight over three days; Bot is closed to Econom (1.3.675: no sets).
-    { id: "ctl:proxy:23001", port: 23001, kind: "consumer", label: "Hermes", keyTail: "a1b2", deny: [], models: ["Standart", "Econom", "gpt-sol", "gpt-astra", "Coder"],
-      calls: [{ pool: "std", count: 12, last: 999 }, { pool: "live:srv:22008", count: 3, last: 990 }] },
-    { id: "ctl:proxy:23002", port: 23002, kind: "consumer", label: "Bot", keyTail: "c3d4", deny: ["pool:eco"], models: ["Standart", "gpt-sol", "gpt-astra", "Coder"], calls: [], mode: "paused" },
-    { id: "ctl:proxy:23050", port: 23050, label: "old agent" }],
+    { id: "client-hermes", kind: "consumer", label: "Hermes", keyTail: "a1b2", deny: [], models: ["Standart", "Econom", "gpt-sol", "gpt-astra", "Coder"],
+      calls: [{ pool: "std", count: 12, last: 999 }, { pool: "live:mm:coder", count: 3, last: 990 }] },
+    { id: "client-bot", kind: "consumer", label: "Bot", keyTail: "c3d4", deny: ["pool:eco"], models: ["Standart", "gpt-sol", "gpt-astra", "Coder"], calls: [], mode: "paused" },
+    { id: "old-agent", label: "old agent" }],
   // What a client closed to nothing sees, what a client can be closed to, and the models a client calls straight (topology.entry_reading).
   entryModels: ["Standart", "Econom", "gpt-sol", "gpt-astra", "Coder"],
   denyChoices: { pools: [{ key: "pool:std", name: "Standart" }, { key: "pool:eco", name: "Econom" }],
-    models: [{ key: "model:srv:22008", name: "Coder", source: "host:box", runs: true }, { key: "model:srv:22009", name: "Gemma", source: "host:box", runs: false },
+    models: [{ key: "model:mm:coder", name: "Coder", source: "host:box", runs: true }, { key: "model:mm:gemma", name: "Gemma", source: "host:box", runs: false },
       { key: "model:acc:sub/gpt-sol", name: "gpt-sol", source: "account:sub", runs: true }, { key: "model:acc:sub/gpt-astra", name: "gpt-astra", source: "account:sub", runs: true }],
     sources: ["host:box", "account:sub"] },
-  liveCatalog: [{ id: "Coder", pool: "live:srv:22008", runs: true, output: "srv:22008" }, { id: "Gemma", pool: "live:srv:22009", runs: false, output: "srv:22009" },
+  liveCatalog: [{ id: "Coder", pool: "live:mm:coder", runs: true, output: "mm:coder" }, { id: "Gemma", pool: "live:mm:gemma", runs: false, output: "mm:gemma" },
     { id: "gpt-sol", pool: "live:acc:sub/gpt-sol", runs: true, accountId: "sub", model: "gpt-sol" },
     { id: "gpt-astra", pool: "live:acc:sub/gpt-astra", runs: true, accountId: "sub", model: "gpt-astra" }],
   cloudAccounts: [
@@ -110,11 +125,11 @@ const TOPO = () => ({
   pools: [
     { id: "std", name: "Standart", steps: [
       { id: "sub", kind: "account", accountId: "sub", model: "gpt-sol", enabled: true, switchReached: { "18000": true } },
-      { id: "r1", kind: "output", output: "srv:22008", enabled: true },
+      { id: "r1", kind: "output", output: "mm:coder", enabled: true },
       { id: "r2", kind: "open", enabled: true }] },
     { id: "eco", name: "Econom", steps: [
       { id: "sub", kind: "account", accountId: "sub", model: "gpt-luna", enabled: true },
-      { id: "r1", kind: "output", output: "srv:22999", enabled: true }] }],
+      { id: "r1", kind: "output", output: "mm:lost", enabled: true }] }],
   poolsRuntime: { available: true, pools: { std: { selectedStepId: "r1", steps: [
     { stepId: "sub", reason: "reserve" }, { stepId: "r1", reason: "ready" }, { stepId: "r2", reason: "not_connected" }] } },
     events: [{ poolId: "std", at: 1700000000, from: "sub", to: "r1" }] },
@@ -123,21 +138,25 @@ const TOPO = () => ({
   // gpt-luna is named by a row of Econom and not added: it stands on the card all the same.
   addedModels: { sub: ["gpt-sol", "gpt-astra"] },
   routers: [{ id: "router:default", outputs: [
-    { id: "srv:22008", upstreamType: "llama", upstreamHost: "10.0.0.5", upstreamPort: 22008, label: "Coder :22008", hostId: "box" },
-    { id: "srv:22009", upstreamType: "llama", upstreamHost: "10.0.0.5", upstreamPort: 22009, label: "Gemma :22009", hostId: "box" },
-    { id: "srv:22010", upstreamType: "llama", upstreamHost: "10.0.0.5", upstreamPort: 22010, label: "Big :22010", hostId: "box" },
-    { id: "srv:22011", upstreamType: "llama", upstreamHost: "10.0.0.5", upstreamPort: 22011, label: "Small :22011", hostId: "box" },
+    MM("mm:coder", "Coder", [22008]), MM("mm:gemma", "Gemma"), MM("mm:big", "Big"), MM("mm:small", "Small"),
     { id: "cb:std", upstreamType: "cloud", providerId: "std" }] }],
-  nodes: [{ id: "box", servers: [
-    { port: 22008, phase: "running", cellLabel: "Coder" }, { port: 22009, phase: "stopped", cellLabel: "Gemma" },
-    { port: 22010, phase: "stopped", cellLabel: "Big" }, { port: 22011, phase: "error", cellLabel: "Small" }] }],
+  // Box's scout lists its models, each with its copies — its cells, by name; a copy holds the port it leased only while it runs.
+  nodes: [{ id: "box", entryModels: [
+    { id: "Coder", state: "running", copies: [{ id: "c22008", port: 22008, state: "running", slots: 1, busy: 0 }] },
+    { id: "Gemma", state: "stopped", copies: [{ id: "c3f9a02b1", port: null, state: "stopped", slots: null, busy: null }] },
+    { id: "Big", state: "stopped", copies: [{ id: "c22010", port: null, state: "stopped", slots: null, busy: null }] },
+    { id: "Small", state: "failed", copies: [{ id: "c22011", port: null, state: "failed", slots: null, busy: null }] }],
+    servers: [{ cellId: "c22008", id: "remote:c22008", port: 22008, phase: "running", cellLabel: "Coder" },
+      { cellId: "c3f9a02b1", id: "slot:c3f9a02b1", port: null, phase: "stopped", cellLabel: "Gemma" },
+      { cellId: "c22010", id: "slot:c22010", port: null, phase: "stopped", cellLabel: "Big" },
+      { cellId: "c22011", id: "remote:c22011", port: null, phase: "error", cellLabel: "Small" }] }],
 });
 // The built-in clients (2026-10-27) are clients as any other since 1.3.675: Open WebUI sees everything and called gpt-sol straight;
 // opencode is closed to the whole account "sub".
-const OWUI = (over = {}) => ({ id: "ctl:proxy:23009", port: 23009, kind: "consumer", builtin: "open-webui", label: "Open WebUI", keyTail: "b0b0", deny: [],
+const OWUI = (over = {}) => ({ id: "client-owui", kind: "consumer", builtin: "open-webui", label: "Open WebUI", keyTail: "b0b0", deny: [],
   models: ["Standart", "Econom", "gpt-sol", "gpt-astra", "Coder"], calls: [{ pool: "live:acc:sub/gpt-sol", count: 4, last: 995 }], ...over });
 const WITH_OWUI = (over) => st.setTopology({ ...TOPO(), proxies: [...TOPO().proxies, OWUI(over)] });
-const OCODE = (over = {}) => ({ id: "ctl:proxy:23010", port: 23010, kind: "consumer", builtin: "opencode", label: "opencode", keyTail: "c0c0", deny: ["account:sub"],
+const OCODE = (over = {}) => ({ id: "client-ocode", kind: "consumer", builtin: "opencode", label: "opencode", keyTail: "c0c0", deny: ["account:sub"],
   models: ["Standart", "Econom", "Coder"], calls: [], ...over });
 const WITH_BOTH = () => st.setTopology({ ...TOPO(), proxies: [...TOPO().proxies, OCODE(), OWUI()] });
 const CATALOGUE = { models: [{ id: "gpt-sol", chat: true }, { id: "gpt-luna", chat: true }, { id: "gpt-astra", chat: true }, { id: "embed-1", chat: false }] };
@@ -168,7 +187,7 @@ const board = (over = {}) => {
     apply: (top) => log.applied.push(top),
     win: { addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0 },
     doc: { elementFromPoint: (x, y) => (over.at ? over.at(x, y) : null) },
-    agents: over.agents || (() => undefined),   // the monitor's rows of requests, by port
+    agents: over.agents || (() => undefined),   // the monitor's rows of requests, by client id
     slots: over.slots || (() => undefined),     // the slots the proxy counted, by upstream group
     now: over.now || (() => 1000000),           // 1000 s: a request that finished at 998 finished 2 s ago
   });
@@ -181,11 +200,11 @@ const board = (over = {}) => {
   return [b, log];
 };
 // A board that can draw its cables: each dot is an element with a class list, standing where the `draw_cables` pin puts it.
-const SPOTS = { '[data-pb-node="client:23001"] [data-pb-anchor]': [100, 50], '[data-pb-pool="std"] > [data-pb-in]': [300, 20],
-  '[data-pb-direct="live:srv:22008"] [data-pb-direct-in]': [300, 5], '[data-pb-direct="live:srv:22008"] [data-pb-direct-out]': [550, 5],
+const SPOTS = { '[data-pb-node="client:client-hermes"] [data-pb-anchor]': [100, 50], '[data-pb-pool="std"] > [data-pb-in]': [300, 20],
+  '[data-pb-direct="live:mm:coder"] [data-pb-direct-in]': [300, 5], '[data-pb-direct="live:mm:coder"] [data-pb-direct-out]': [550, 5],
   '[data-pb-pool="std"] [data-pb-row="sub"] [data-pb-out]': [500, 60], '[data-pb-pool="std"] [data-pb-row="r1"] [data-pb-out]': [500, 90],
   '[data-pb-pool="eco"] [data-pb-row="sub"] [data-pb-out]': [500, 300],
-  '[data-pb-key="acc:sub/gpt-sol"] [data-pb-in]': [700, 30], '[data-pb-key="out:srv:22008"] [data-pb-in]': [700, 200] };
+  '[data-pb-key="acc:sub/gpt-sol"] [data-pb-in]': [700, 30], '[data-pb-key="out:mm:coder"] [data-pb-in]': [700, 200] };
 const rigged = (b) => {
   const svg = { innerHTML: "" }; const dots = {};
   for (const [sel, [left, top]] of Object.entries(SPOTS)) dots[sel] = node({}, null, R(left, top));
@@ -193,19 +212,19 @@ const rigged = (b) => {
   b.root = { querySelector: (s) => (s === "[data-pb-cols]" ? cols : null) };
   return { svg, dots };
 };
-// One request of the monitor, by the port it came in by (Hermes, 23001, a client of the entry).
-const RUN = (item, port = 23001) => ({ [String(port)]: { port, active: [{ phase: "running", port, ...item }], recent: [] } });
-const SAW = (item, port = 23001) => ({ [String(port)]: { port, active: [], recent: [{ port, ...item }] } });
+// One request of the monitor, by the id of the client it came from (Hermes, a client of the entry).
+const RUN = (item, id = "client-hermes") => ({ [id]: { routeId: id, active: [{ phase: "running", routeId: id, ...item }], recent: [] } });
+const SAW = (item, id = "client-hermes") => ({ [id]: { routeId: id, active: [], recent: [{ routeId: id, ...item }] } });
 // The part of the drawing between two markers: one card, one row.
 const part = (h, from, to = "</article>") => { const i = h.indexOf(from); return i < 0 ? "" : h.slice(i, h.indexOf(to, i) + to.length); };
 // One whole item of a list drawn as HTML — a pool's row, a model's row — found by what it contains.
 const item = (h, start, has) => h.split(start).slice(1).map((x) => start + x).find((x) => x.includes(has)) || "";
-// The monitor at `now` ms with a model's queue (model-queue.js): Hermes's request waits on Standart's cell row r1 (Coder :22008) for
-// 90 s, 65 s of them gone, with nowhere to go; a request that came straight to the cell holds its one slot for 2:10.
+// The monitor at `now` ms with a model's queue (model-queue.js): Hermes's request waits on Standart's row r1 (Box's model Coder) for
+// 90 s, 65 s of them gone, with nowhere to go; a request that came straight to the model holds its one slot for 2:10.
 const QA = (now = 1000000) => { const s = now / 1000; return {
-  "23001": { port: 23001, active: [{ id: "w1", route: "Hermes", phase: "queued", cloudPoolId: "std", poolStepId: "r1", routedOutputId: "srv:22008",
-    upstream: "10.0.0.5:22008", queue: { since: s - 65, leaveAt: s + 25, leaveTo: "refuse", position: 0 } }] },
-  "23005": { port: 23005, active: [{ id: "x1", route: "Bot", phase: "streaming", routedOutputId: "srv:22008", upstream: "10.0.0.5:22008", slotAt: s - 130 }] } }; };
+  "client-hermes": { routeId: "client-hermes", active: [{ id: "w1", route: "Hermes", phase: "queued", cloudPoolId: "std", poolStepId: "r1", routedOutputId: "mm:coder",
+    upstream: "10.0.0.5:8092/Coder", queue: { since: s - 65, leaveAt: s + 25, leaveTo: "refuse", position: 0 } }] },
+  "client-bot": { routeId: "client-bot", active: [{ id: "x1", route: "Bot", phase: "streaming", routedOutputId: "mm:coder", upstream: "10.0.0.5:8092/Coder", slotAt: s - 130 }] } }; };
 const keys = (h, prefix) => (h.match(new RegExp(`data-pb-key="${prefix}([^"]+)"`, "g")) || []).map((x) => x.slice(`data-pb-key="${prefix}`.length, -1));
 const reset = () => { st.setTopology(TOPO()); globalThis.__usage.clear(); globalThis.__seen.clear(); globalThis.__drag.active = false; globalThis.__drag.deferred = false; };
 reset();
@@ -214,7 +233,7 @@ reset();
 // with the place it stands in ({key: [column, left, top, width, height]}). `scrollTo` of the box and of the bodies is logged, the
 // timers of the board's window are held (an id each), and the window is a screen of 1440 x 800 whose strip begins at 604.
 const CARDS = { "row:std/sub": ["pools", 740, 300, 200, 28], "pool:std": ["pools", 730, 260, 280, 200],
-  "client:23001": ["clients", 50, 250, 280, 70], "model:acc:sub/gpt-sol": ["models", 1080, 900, 260, 90] };
+  "client:client-hermes": ["clients", 50, 250, 280, 70], "model:acc:sub/gpt-sol": ["models", 1080, 900, 260, 90] };
 const stage = (b, cards, over = {}) => {
   const calls = [], timers = [], cleared = [];
   const at = (l, t, w, h) => ({ getBoundingClientRect: () => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h }) });
@@ -247,14 +266,14 @@ PINS = [
     # ── the rules, as values ──
     ("key_and_uses",
      '',
-     '[m.PoolBoard.key({ accountId: "sub", model: "gpt-sol" }), m.PoolBoard.key({ output: "srv:1" }), m.PoolBoard.key({ id: "r2" }), m.PoolBoard.key(null),'
+     '[m.PoolBoard.key({ accountId: "sub", model: "gpt-sol" }), m.PoolBoard.key({ output: "mm:x" }), m.PoolBoard.key({ id: "r2" }), m.PoolBoard.key(null),'
      ' [...m.PoolBoard.uses(st.topology.pools).entries()]]',
-     '["acc:sub/gpt-sol","out:srv:1","","",[["acc:sub/gpt-sol",["Standart"]],["out:srv:22008",["Standart"]],["acc:sub/gpt-luna",["Econom"]],["out:srv:22999",["Econom"]]]]',
+     '["acc:sub/gpt-sol","out:mm:x","","",[["acc:sub/gpt-sol",["Standart"]],["out:mm:coder",["Standart"]],["acc:sub/gpt-luna",["Econom"]],["out:mm:lost",["Econom"]]]]',
      "цель строки — модель аккаунта или выход; строка без каната ключа не имеет; пулы, где стоит цель, — по порядку пулов"),
     ("uses_names_a_pool_once",
      '',
-     '[...m.PoolBoard.uses([{ id: "a", name: "A", steps: [{ output: "srv:1" }, { output: "srv:1" }] }, { id: "b", steps: [{ output: "srv:1" }] }]).entries()]',
-     '[["out:srv:1",["A","b"]]]',
+     '[...m.PoolBoard.uses([{ id: "a", name: "A", steps: [{ output: "mm:x" }, { output: "mm:x" }] }, { id: "b", steps: [{ output: "mm:x" }] }]).entries()]',
+     '[["out:mm:x",["A","b"]]]',
      "пул, где цель стоит дважды, назван у неё один раз; пул без имени — своим id"),
     ("shown_models",
      '',
@@ -289,6 +308,14 @@ PINS = [
      '[[["a","d"],["b","c"],true],[["a","b","c","d"],[],false],[["a","b","c","d"],[],true]]',
      "две и больше остановленных ячеек, которых не называет ни одна строка, сложены под кнопку; упавшая — на виду; "
      "negative: названная строкой — на виду, а одна оставшаяся не складывается; раскрыто — все"),
+    ("a_row_says_only_an_engines_port",
+     '',
+     '(() => { const cells = { name: (o) => String(o.label || "") }; const eng = (port) => ({ upstreamType: "engine", label: "qwen3:8b · Ollama", upstreamPort: port });'
+     ' const outs = [MM("mm:coder", "Coder", [22008]), eng(11434), eng(0), eng(null), { upstreamType: "llama", label: "x", upstreamPort: 22001 }];'
+     ' return [outs.map((o) => m.PoolBoard.enginePort(o)), outs.map((o) => m.PoolBoard.outLabel(o, cells)), outs.map((o) => m.PoolBoard.where(o, { name: "Box" }))]; })()',
+     '[[null,11434,null,null,null],["Coder","qwen3:8b · Ollama :11434","qwen3:8b · Ollama","qwen3:8b · Ollama","x"],["🖥 Box","🖥 Box :11434","🖥 Box","🖥 Box","🖥 Box"]]',
+     "порт на строке — только движка (Ollama 11434): у модели входа машины своего порта нет, а ячейка держит порт, только пока работает "
+     "(2026-11-07), — ни в имени, ни в месте; negative: движок без порта — без «:0» и «:null»; выход старого вида (ячейка по порту) — без порта"),
     ("curve",
      '',
      '[m.PoolBoard.curve({ x: 0, y: 0 }, { x: 200, y: 100 }), m.PoolBoard.curve({ x: 0, y: 0 }, { x: 20, y: 50 })]',
@@ -297,7 +324,7 @@ PINS = [
     # ── the columns ──
     ("clients_column",
      '',
-     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const her = part(h, 'data-pb-client="23001"'), bot = part(h, 'data-pb-client="23002"');
+     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const her = part(h, 'data-pb-client="client-hermes"'), bot = part(h, 'data-pb-client="client-bot"');
        const chips = (x) => [...x.matchAll(/data-t="pb-deny-chip" data-t-id="([^"]+)"/g)].map((c) => c[1]);
        return [her.includes('data-t-state="open"'), her.includes("🔑 …a1b2"), her.includes('<span class="pb-dot out anchor" data-pb-anchor aria-hidden="true"></span>'),
          her.includes("data-pb-out"), her.includes(">" + fill(en.pbClientSeesAll, { all: "5" }) + "<"), chips(her), her.includes("data-pb-deny-open"),
@@ -306,7 +333,7 @@ PINS = [
      '[true,true,true,false,true,[],true,true,true,["pool:eco"],true,true,false,true]',
      "клиент, которому ничего не запрещено (1.3.675: наборов нет), — «видит все 5», точка у края — только метка, откуда идут его канаты (тянуть из клиента нечего: "
      "он зовёт то, что называет), чипов запретов нет, «＋ Запретить» есть; клиенту запрещён пул — «видит 4 из 5» и чип «⊘ Econom»; на паузе — блеклый; по имени; "
-     "negative: порт агента старого вида — не клиент"),
+     "negative: запись старого вида (не клиент входа) — не клиент"),
     ("clients_none",
      'st.setTopology({ ...TOPO(), proxies: [] });',
      '(() => { const [b] = board(); const h = b.clientsHtml(); return [h.includes(en.pbNoClients), h.includes("data-pb-add-client"),'
@@ -319,19 +346,19 @@ PINS = [
      '(() => { const [b] = board(); const h = b.poolsHtml(); const std = part(h, \'data-pb-pool="std"\'); const row = (id) => item(std, \'<li class="pool-rung">\', `data-pb-row="${id}"`);'
      ' const [a, c, o] = ["sub", "r1", "r2"].map(row);'
      ' return [a.includes("<b>gpt-sol</b><small>☁ ChatGPT</small>"), a.includes(\'data-t-state="stop"\') && a.includes(">" + en.poolStopReached + "<"),'
-     ' c.includes("<b>Coder</b><small>🖥 Box :22008</small>"), c.includes("pool-step pb-row serving") && c.includes(">" + en.poolServing + "<"),'
+     ' c.includes("<b>Coder</b><small>🖥 Box</small>"), c.includes("pool-step pb-row serving") && c.includes(">" + en.poolServing + "<"),'
      ' o.includes(en.pbRowOpen) && o.includes("pb-row open") && o.includes(\'class="pb-dot out open"\') && !o.includes("pb-status"),'
      ' [a, c, o].map((r) => (r.match(/class="pb-rank">(\\d)</) || [])[1]),'
      ' !std.includes("pb-new-out") && !std.includes("data-pb-add-row"),'
      ' std.includes(\'class="pool-ladder pb-rows"\')]; })()',
      '[true,true,true,true,true,["1","2","3"],true,true]',
-     "три вида строк: модель подписки с аккаунтом, ячейка с машиной и портом, строка без каната; слово прокси на каждой, "
+     "три вида строк: модель подписки с аккаунтом, модель машины с машиной (без порта: ячейка держит его, только пока работает), строка без каната; слово прокси на каждой, "
      "служащая строка подсвечена; номера по порядку; «＋ строка» с пунктирной точкой стоит в полосе, а не под строками (1.3.533; "
      "её тянут к модели с 1.3.500, кнопки щелчком нет); negative: у строки без каната плашка не повторяет то, что уже сказано на месте её цели"),
     ("pool_row_gone_said_red",
      '',
      '(() => { const [b] = board(); const eco = part(b.poolsHtml(), \'data-pb-pool="eco"\'); const r = part(eco, \'data-pb-row="r1"\', "</li>");'
-     ' return [r.includes(\'class="pb-target gone"\') && r.includes("<b>srv:22999</b>") && r.includes(en.poolOutputMissing), eco.includes("data-pb-history"),'
+     ' return [r.includes(\'class="pb-target gone"\') && r.includes("<b>mm:lost</b>") && r.includes(en.poolOutputMissing), eco.includes("data-pb-history"),'
      ' r.includes(\'data-t-state="unknown"\') && r.includes(en.poolNoRequest)]; })()',
      '[true,false,true]',
      "ячейки, к которой ведёт строка, нет — сказано красным, без каната; у пула без истории нет кнопки 🕘; "
@@ -353,7 +380,7 @@ PINS = [
      'await (async () => { const [b] = board(); const pool = st.topology.pools.find((p) => p.id === "std"); const card = () => part(b.poolsHtml(), \'data-pb-pool="std"\');'
      ' const shut = b.poolDetailsHtml(pool); b.history.add("std"); const open = b.poolDetailsHtml(pool);'
      ' return [shut.includes(\'data-pb-history aria-expanded="false" data-t="pb-history-toggle">\' + esc(en.poolHistory)), shut.includes("pb-history\\""), open.includes(\'data-t="pb-history"\'),'
-     ' open.includes("gpt-sol · ChatGPT → Coder :22008"), card().includes("data-pb-history"), card().includes("pb-history"), card().includes("🕘"),'
+     ' open.includes("gpt-sol · ChatGPT → Coder"), card().includes("data-pb-history"), card().includes("pb-history"), card().includes("🕘"),'
      ' b.poolDetailsHtml(st.topology.pools.find((p) => p.id === "eco")).includes("data-pb-history")]; })()',
      '[true,false,true,true,false,false,false,false]',
      "история переключений — в полосе пула, строкой «Switch history», и называет строки их моделями; negative: на карточке пула ни кнопки, ни списка, ни 🕘 (1.3.533); "
@@ -406,7 +433,7 @@ PINS = [
        st.topology.modelLevels.set.sub["gpt-sol"] = { stopAt: { "18000": 20, "604800": 10 }, switchAt: { "18000": 30, "604800": 20 } };
        st.topology.modelLevels.set.sub["gpt-luna"] = { stopAt: { "18000": 20, "604800": 10 }, switchAt: { "18000": 30, "604800": 10 } };
        const [b1] = board(); const second = [chip(b1, "gpt-sol"), chip(b1, "gpt-luna")];
-       const cell = item(part(b1.modelsHtml(), 'data-pb-machine="box"'), '<div class="pb-model', 'data-pb-key="out:srv:22008"');
+       const cell = item(part(b1.modelsHtml(), 'data-pb-machine="box"'), '<div class="pb-model', 'data-pb-key="out:mm:coder"');
        return [first, second, cell.includes("pb-model-switch")]; })()""",
      r'''[[["next when 30% (5h) is left","switch 30% (5h)"],[],[]],[["next when 30% (5h) · 20% (7d) is left","switch 30% (5h) · 20% (7d)"],["next when 30% (5h) is left","switch 30% (5h)"]],false]''',
      "метка «switch…» на строке модели — уровень, с которого пул идёт дальше, по каждому окну (короткое первым), с подсказкой «next when … is left»; "
@@ -437,8 +464,9 @@ PINS = [
      "красные риски на шкалах — уровни остановки моделей карточки по длине окна: каждый один раз, меньший первым; negative: «0» — не уровень (остановки нет); "
      "карточка без моделей рисок не даёт; модель, которой контроллер уровней не задал, останавливается на его уровне по умолчанию, а не без остановки"),
     ("machine_card_marks_slot_and_address",
-     'const T = TOPO(); T.routers[0].outputs.unshift({ id: "mm:a1", upstreamType: "machine", upstreamHost: "10.0.0.5", upstreamPort: 8092, upstreamModel: "gemma", hostId: "box", label: "gemma", jobs: ["speech-translate"] },'
-     ' { id: "srv:30001", upstreamType: "llama", upstreamHost: "10.0.0.9", upstreamPort: 30001, label: "Lone :30001" }); T.nodes[0].entryModels = [{ id: "gemma", state: "running", copies: [{ port: 22008 }] }]; st.setTopology(T);',
+     'const T = TOPO(); T.routers[0].outputs.unshift(MM("mm:a1", "gemma", [22020], { jobs: ["speech-translate"] }),'
+     ' MM("mm:lone", "Lone", [], { upstreamHost: "10.0.0.9", hostId: "lone" })); T.nodes[0].entryModels.push({ id: "gemma", state: "running", copies: [{ id: "c22020", port: 22020, state: "running" }] });'
+     ' T.nodes.push({ id: "lone", entryModels: [{ id: "Lone", state: "stopped", copies: [] }] }); st.setTopology(T);',
      r"""(() => { const [b] = board(); const html = b.modelsHtml(); const box = part(html, 'data-pb-machine="box"'), lone = part(html, 'data-pb-machine="10.0.0.9"');
        const wide = (h) => h.includes('class="pb-card pb-src wide-marks"'); const open = () => { b.expanded.add("m:box"); return part(b.modelsHtml(), 'data-pb-machine="box"'); };
        return [html.includes('class="pb-card pb-src wide-marks" data-pb-machine="box"'), html.includes('class="pb-card pb-src" data-pb-machine="10.0.0.9"'),
@@ -450,13 +478,13 @@ PINS = [
      '',
      r"""(() => { const [b] = board(); const card = part(b.modelsHtml(), 'data-pb-machine="box"'); const head = part(card, '<div class="pb-src-head">', "</div>");
        const row = (h, id) => item(h, '<div class="pb-model', `data-pb-key="out:${id}"`);
-       b.expanded.add("m:box"); const open = part(b.modelsHtml(), 'data-pb-machine="box"'); const stopped = row(open, "srv:22009");
+       b.expanded.add("m:box"); const open = part(b.modelsHtml(), 'data-pb-machine="box"'); const stopped = row(open, "mm:gemma");
        return [head.includes('<span class="pb-src-icon" aria-hidden="true"><svg') && !head.includes("🖥"), head.includes('<b title="10.0.0.5">Box</b>'),
-         head.indexOf("<b") < head.indexOf("pb-src-note"), row(card, "srv:22008").includes('class="pb-led"') && row(card, "srv:22008").includes('title="running"'),
+         head.indexOf("<b") < head.indexOf("pb-src-note"), row(card, "mm:coder").includes('class="pb-led"') && row(card, "mm:coder").includes('title="running"'),
          stopped.includes('class="pb-led off"') && stopped.includes('title="stopped"') && !stopped.includes("pb-cell-state"),
-         row(card, "srv:22011").includes('<span class="pb-cell-state">failed</span>') && row(card, "srv:22011").includes('class="pb-led bad"')
-           && row(card, "srv:22011").indexOf("pb-cell-state") < row(card, "srv:22011").indexOf('class="pb-led bad"') && !row(card, "srv:22011").includes("pb-model-remove"),
-         ["srv:22008", "srv:22011"].map((id) => row(card, id).includes('<span class="pb-model-mark" aria-hidden="true"></span>')), /router-out-host-addr/.test(card)]; })()""",
+         row(card, "mm:small").includes('<span class="pb-cell-state">failed</span>') && row(card, "mm:small").includes('class="pb-led bad"')
+           && row(card, "mm:small").indexOf("pb-cell-state") < row(card, "mm:small").indexOf('class="pb-led bad"') && !row(card, "mm:small").includes("pb-model-remove"),
+         ["mm:coder", "mm:small"].map((id) => row(card, id).includes('<span class="pb-model-mark" aria-hidden="true"></span>')), /router-out-host-addr/.test(card)]; })()""",
      r'''[true,true,true,true,true,true,[true,true],false]''',
      "карточка машины: линия монитора, имя (адрес — в подсказке), справа сводка ячеек; в строке ячейки лампа справа — зелёная, кольцо, красная; остановленная говорит только кольцом "
      "(слово — в подсказке лампы), упавшая — ещё и словом; место перед именем занято всегда, чтобы имена стояли в одну линию; negative: смайлика 🖥 и адреса рядом с именем нет"),
@@ -712,47 +740,46 @@ PINS = [
      '',
      '(() => { const [b] = board(); const card = () => part(b.modelsHtml(), \'data-pb-machine="box"\'); const shut = card(); b.expanded.add("m:box"); const open = card();'
      ' const cell = (h, id) => item(h, \'<div class="pb-model\', `data-pb-key="out:${id}"`);'
-     ' return [keys(shut, "out:"), shut.includes(fill(en.pbMoreCells, { n: "2" })), keys(open, "out:"), cell(shut, "srv:22008").includes("pb-use none"),'
+     ' return [keys(shut, "out:"), shut.includes(fill(en.pbMoreModels, { n: "2" })), keys(open, "out:"), cell(shut, "mm:coder").includes("pb-use none"),'
      ' shut.includes(\'data-t-state="failed"\') && shut.includes(\'class="pb-led bad"\'),'
-     ' (() => { const c = cell(shut, "srv:22008"); const at = (x) => c.indexOf(x); return at(\'<span class="pb-model-name" title="Coder">Coder</span>\') > 0 && at(\'<span class="pb-cell-port">:22008</span>\') > at("Coder</span>") && at(\'<span class="pb-led" role="img"\') > at("pb-cell-port"); })(),'
-     ' cell(shut, "srv:22011").includes(en.pbInNoPool), shut.includes(\'data-t="pb-machine-cells">1 running · 2 stopped · 1 failed</span>\'), open.includes("1 running · 2 stopped · 1 failed")]; })()',
-     '[["srv:22008","srv:22011"],true,["srv:22008","srv:22009","srv:22010","srv:22011"],false,true,true,true,true,true]',
-     "машина: работающая и упавшая ячейки на виду, две остановленные без строк сложены; открыта — все; в шапке — сколько ячеек в каком состоянии, "
-     "ВСЕ четыре (в том числе сложенные); ячейка из пула про пулы молчит (1.3.534: они в полосе), а ячейка вне пулов говорит «ни в одном»"),
+     ' (() => { const c = cell(shut, "mm:coder"); const at = (x) => c.indexOf(x); return at(\'<span class="pb-model-name" title="Coder">Coder</span>\') > 0 && !c.includes("pb-cell-port") && !/22008|8092/.test(c) && at(\'<span class="pb-led" role="img"\') > at("Coder</span>"); })(),'
+     ' cell(shut, "mm:small").includes(en.pbInNoPool), shut.includes(\'data-t="pb-machine-cells">1 running · 2 stopped · 1 failed</span>\'), open.includes("1 running · 2 stopped · 1 failed")]; })()',
+     '[["mm:coder","mm:small"],true,["mm:coder","mm:gemma","mm:big","mm:small"],false,true,true,true,true,true]',
+     "машина: работающая и упавшая модели на виду, две остановленные без строк сложены под «+ 2 stopped models»; открыта — все; в шапке — сколько "
+     "моделей в каком состоянии, ВСЕ четыре (в том числе сложенные); модель из пула про пулы молчит (1.3.534: они в полосе), а модель вне пулов "
+     "говорит «ни в одном»; negative: у строки модели нет порта — ни входа машины, ни её работающей копии (2026-11-07: ячейка держит порт, только "
+     "пока работает), лампа стоит после имени"),
     # ── a model of a machine's entry (1.3.506): called by its name, no port of its own ──
     ("machine_models_on_the_card",
-     'const T = TOPO(); T.routers[0].outputs.unshift({ id: "mm:a1", upstreamType: "machine", upstreamHost: "10.0.0.5", upstreamPort: 8092,'
-     ' upstreamModel: "gemma", hostId: "box", label: "gemma", jobs: ["llm", "asr"] });'
-     ' T.nodes[0].entryModels = [{ id: "gemma", state: "starting", copies: [{ port: 22008 }, { port: 22009 }] }];'
+     'const T = TOPO(); T.routers[0].outputs.unshift(MM("mm:a1", "gemma", [22020], { jobs: ["llm", "asr"] }));'
+     ' T.nodes[0].entryModels.push({ id: "gemma", state: "starting", copies: [{ id: "c22020", port: 22020, state: "running" }, { id: "c4b5c6d7e", port: null, state: "starting" }] });'
      ' T.pools[1].steps.push({ id: "r2", kind: "output", output: "mm:a1", enabled: true }); st.setTopology(T);',
      '(() => { const [b] = board(); const card = part(b.modelsHtml(), \'data-pb-machine="box"\'); const mm = item(card, \'<div class="pb-model\', \'data-pb-key="out:mm:a1"\');'
      ' const row = st.topology.pools[1].steps[2]; const target = b.targetHtml(row);'
      ' const hint = b.targets().find((x) => x.key === "out:mm:a1");'
-     ' return [keys(card, "out:")[0], mm.includes(\'<span class="pb-model-name" title="gemma">gemma</span><span class="pb-copies"\'), mm.includes("×2"), mm.includes(":8092"),'
+     ' return [keys(card, "out:")[0], mm.includes(\'<span class="pb-model-name" title="gemma">gemma</span><span class="pb-copies"\'), mm.includes("×2"), /:(8092|22020)/.test(mm),'
      ' mm.includes(\'data-t-state="starting"\'), b.rowName(row), target.includes("<small>🖥 Box</small>"), [hint.label, hint.hint],'
      ' mm.includes(\'<span class="pb-model-mark" aria-hidden="true" title="\' + en.jobLlm + ", " + en.jobAsr + \'">💬</span>\')]; })()',
      '["mm:a1",true,true,false,true,"gemma",true,["gemma","🖥 Box"],true]',
      "модель входа машины на карточке машины — первой, по имени, без порта (порт входа у всех моделей машины один), с числом "
-     "копий, со знаком работы (из того, что она сама говорит на выходе) и словом скаута о ней; в строке пула, в её цели и в списке мест — имя модели и машина, без порта"),
-    # ── step 3 (1.3.655): a machine with an entry stands by its models; its cells by port only where a row names one ──
+     "копий — работающих и стоящих, со знаком работы (из того, что она сама говорит на выходе) и словом скаута о ней; в строке пула, в её цели и в списке "
+     "мест — имя модели и машина; negative: порта нет нигде — ни входа машины, ни работающей копии"),
+    # ── a machine stands by its models (1.3.655): since 2026-11-07 a cell is a copy of one, no output of its own ──
     ("machine_stands_by_its_models",
-     'const T = TOPO(); const mm = (id, name) => ({ id, upstreamType: "machine", upstreamHost: "10.0.0.5", upstreamPort: 8092, upstreamModel: name, hostId: "box", label: name });'
-     ' T.routers[0].outputs.unshift(mm("mm:a1", "gemma"), mm("mm:b2", "big"), mm("mm:c3", "small"));'
-     ' T.routers[0].outputs.push({ id: "srv:22030", upstreamType: "llama", upstreamHost: "10.0.0.9", upstreamPort: 22030, label: "Lone :22030" });'
-     ' T.nodes[0].entryModels = [{ id: "gemma", state: "running", copies: [{ port: 22008, state: "running" }, { port: 22009, state: "stopped" }] },'
-     ' { id: "big", state: "stopped", copies: [{ port: 22010, state: "stopped" }] }, { id: "small", state: "stopped", copies: [{ port: 22011, state: "stopped" }] }];'
-     ' st.setTopology(T);',
+     'const T = TOPO(); T.routers[0].outputs.push({ id: "eng:lone", upstreamType: "engine", upstreamHost: "10.0.0.9", upstreamPort: 11434, upstreamModel: "qwen3:8b",'
+     ' engine: "ollama", label: "qwen3:8b · Ollama", hostId: "lone" }); T.nodes.push({ id: "lone", engines: [{ kind: "ollama", state: "ok" }] }); st.setTopology(T);',
      '''(() => { const [b] = board(); const html = b.modelsHtml(); const box = part(html, 'data-pb-machine="box"'), lone = part(html, 'data-pb-machine="10.0.0.9"');
-       b.expanded.add("m:box"); const open = part(b.modelsHtml(), 'data-pb-machine="box"');
-       return [keys(box, "out:"), box.includes(fill(en.pbMoreModels, { n: "2" })), box.includes(fill(en.pbMoreCells, { n: "2" })), keys(open, "out:"),
-         keys(lone, "out:"), b.targets().filter((x) => x.key.startsWith("out:")).map((x) => x.key), b.output("srv:22010")?.out?.id || null,
-         box.includes('data-t="pb-machine-cells">2 running · 2 stopped</span>')]; })()''',
-     '[["mm:a1","srv:22008"],true,false,["mm:a1","mm:b2","mm:c3","srv:22008"],["srv:22030"],'
-     '["out:mm:a1","out:mm:b2","out:mm:c3","out:srv:22008","out:srv:22030"],"srv:22010",true]',
-     "шаг 3 (1.3.655): машина, чей вход называет модели, стоит в колонке моделями, по именам; её ячейка по порту — только та, на "
-     "которую ещё ведёт строка пула (:22008), остальные :22009–:22011 — копии моделей и в колонке не стоят; две остановленные "
-     "модели сложены под «+ 2 остановленные модели»; в выборе для строки — то же; negative: машина без входа стоит ячейками, как "
-     "раньше; ячейку, ушедшую из колонки, строка и история находят по-прежнему"),
+       b.expanded.add("m:box"); const open = part(b.modelsHtml(), 'data-pb-machine="box"'); const eng = item(lone, '<div class="pb-model', 'data-pb-key="out:eng:lone"');
+       return [keys(box, "out:"), box.includes(fill(en.pbMoreModels, { n: "2" })), box.includes("stopped cells"), keys(open, "out:"), keys(lone, "out:"),
+         eng.includes('<span class="pb-model-name" title="qwen3:8b · Ollama">qwen3:8b · Ollama</span><span class="pb-cell-port">:11434</span>'), eng.includes('data-t-state="running"'),
+         b.targets().filter((x) => x.key.startsWith("out:")).map((x) => [x.key, x.hint]), b.output("mm:big")?.out?.id || null,
+         box.includes('data-t="pb-machine-cells">1 running · 2 stopped · 1 failed</span>')]; })()''',
+     '[["mm:coder","mm:small"],true,false,["mm:coder","mm:gemma","mm:big","mm:small"],["eng:lone"],true,true,'
+     '[["out:mm:coder","🖥 Box"],["out:mm:gemma","🖥 Box"],["out:mm:big","🖥 Box"],["out:mm:small","🖥 Box"],["out:eng:lone","🖥 10.0.0.9 :11434"]],"mm:big",true]',
+     "машина стоит в колонке моделями своего входа, по именам, в порядке контроллера; две остановленные модели, которых не зовёт ни один пул, "
+     "сложены под «+ 2 stopped models»; машина без моделей входа стоит моделями своего движка — у них порт движка (11434 — порт движка, не "
+     "ячейки); в выборе для строки — те же модели и где они стоят; сложенную модель строка и история находят по выходу; negative: «ячеек» "
+     "в кнопке нет — строка машины всегда модель, а не ячейка по порту, как до 2026-11-07"),
     # ── the account itself is set up on the main board (the owner, 2026-10-12) ──
     ("account_card_sets_nothing_up",
      'globalThis.__issues = { or: "<div class=\\"cloud-api-issues\\">tripped</div>" };',
@@ -778,17 +805,17 @@ PINS = [
      '',
      r"""(() => { const [b] = board(); const { svg } = rigged(b);
        const rest = b.drawCables(); const atRest = [rest, svg.innerHTML.includes("<g "), b.drops];
-       b.trace = { key: "client:23001", pinned: true }; const n = b.drawCables();
+       b.trace = { key: "client:client-hermes", pinned: true }; const n = b.drawCables();
        const gs = svg.innerHTML.match(/<g [^>]*>/g) || [], cls = svg.innerHTML.match(/class="pb-cable[^"]*"/g) || [];
        b.trace = { key: "pool:eco", pinned: true }; b.drawCables(); const eco = b.drops;
-       b.trace = { key: "client:23001", pinned: false }; const hovered = b.drawCables();
+       b.trace = { key: "client:client-hermes", pinned: false }; const hovered = b.drawCables();
        return [atRest, n, gs, cls, eco, hovered]; })()""",
      json.dumps([[0, False, []], 5,
-                 ['<g data-pb-cable="call" data-port="23001" data-pb-cable-key="client:23001/std">',
+                 ['<g data-pb-cable="call" data-pb-client-id="client-hermes" data-pb-cable-key="client:client-hermes/std">',
                   '<g data-pb-cable="row" data-pool="std" data-row="sub" data-pb-cable-key="row:std/sub">',
                   '<g data-pb-cable="row" data-pool="std" data-row="r1" data-pb-cable-key="row:std/r1">',
-                  '<g data-pb-cable="call" data-port="23001" data-pb-cable-key="client:23001/live:srv:22008">',
-                  '<g data-pb-cable="direct" data-pb-cable-key="direct:live:srv:22008">'],
+                  '<g data-pb-cable="call" data-pb-client-id="client-hermes" data-pb-cable-key="client:client-hermes/live:mm:coder">',
+                  '<g data-pb-cable="direct" data-pb-cable-key="direct:live:mm:coder">'],
                  ['class="pb-cable"', 'class="pb-cable-hit"', 'class="pb-cable"', 'class="pb-cable-hit"', 'class="pb-cable lit"', 'class="pb-cable"', 'class="pb-cable"'],
                  [{"what": "row:eco/sub", "from": True, "to": False}], 0]),
      "в покое канатов нет (владелец, 2026-10-27: канаты — только когда тянем, когда выбран блок или когда бегут запросы); закреплён клиент — его канаты: к пулу, "
@@ -815,7 +842,7 @@ PINS = [
            Object.keys(dots).filter((k) => dots[k].classes.has("flowing")).length]; };
        return [look(RUN({ cloudPoolId: "std", poolStepId: "sub" })), look(SAW({ cloudPoolId: "std", poolStepId: "sub", finishedAt: 998 })),
          look(RUN({ cloudPoolId: "std", poolStepId: "sub", phase: "queued" })), look(RUN({ cloudPoolId: "ghost", poolStepId: "sub" })),
-         look(RUN({ cloudPoolId: "std", poolStepId: "sub" }, 23999)), look(RUN({ cloudPoolId: "live:srv:22008", poolStepId: "r1" })), look(undefined)]; })()""",
+         look(RUN({ cloudPoolId: "std", poolStepId: "sub" }, "client-gone")), look(RUN({ cloudPoolId: "live:mm:coder", poolStepId: "r1" })), look(undefined)]; })()""",
      json.dumps([
          [['class="pb-cable lit"', 'class="cable-flow fwd rising"', 'class="cable-flow back rising"', 'class="pb-cable lit"', 'class="cable-flow fwd rising"', 'class="cable-flow back rising"'], 4],
          [['class="pb-cable lit"', 'class="pb-cable lit"'], 0],
@@ -827,12 +854,12 @@ PINS = [
      "запрос Hermes идёт через пул Standart строкой sub — появляются, горят и несут капли два его каната: клиента к пулу и строки к модели; два конца каждого — четыре "
      "точки — в кольце; запрос закончился 2 с назад — горят те же два, без капель и без колец; запрос к модели напрямую — канат клиента к строке «Напрямую» и её к модели; "
      "negative: запрос в очереди не идёт — канатов нет вовсе (служащая строка без запроса каната не рисует: в покое канатов нет); пул, которого на доске нет, — "
-     "ничего; запрос порта, который не клиент входа, — только строка (две точки); монитор молчит — ничего"),
+     "ничего; запрос клиента, которого у доски больше нет, — только строка (две точки); монитор молчит — ничего"),
     ("the_cables_are_named_for_their_story",
      '',
      r"""(() => { const keys = (agents) => { CableFlow.reset(); const [b] = board({ agents: () => agents }); rigged(b); b.drawCables(); return [...CableFlow.seen.keys()].sort(); };
-       return [keys(RUN({ cloudPoolId: "std", poolStepId: "sub" })), keys(RUN({ cloudPoolId: "live:srv:22008", poolStepId: "r1" })), keys(undefined)]; })()""",
-     '[["pb:client:23001/std","pb:row:std/sub"],["pb:client:23001/live:srv:22008","pb:direct:live:srv:22008"],[]]',
+       return [keys(RUN({ cloudPoolId: "std", poolStepId: "sub" })), keys(RUN({ cloudPoolId: "live:mm:coder", poolStepId: "r1" })), keys(undefined)]; })()""",
+     '[["pb:client:client-hermes/std","pb:row:std/sub"],["pb:client:client-hermes/live:mm:coder","pb:direct:live:mm:coder"],[]]',
      "у каждого каната, что несёт запрос, свой ключ — по нему капли помнят, что кабель нёс: клиента к пулу или к строке «Напрямую», строки к модели, у каждого с "
      "приставкой доски (pb:), чтобы их не спутать с канатами главной доски (main:); negative: монитор молчит — ключей нет"),
     ("draw_cables_lets_the_drops_of_a_request_that_ended_go_down",
@@ -868,10 +895,10 @@ PINS = [
     ("flow_now_reads_the_boards_pools",
      '',
      r"""(() => { const [b] = board({ agents: () => RUN({ cloudPoolId: "std", poolStepId: "r1" }) }); const f = b.flowNow(); const none = board()[0].flowNow();
-       const straight = board({ agents: () => RUN({ cloudPoolId: "live:srv:22008", poolStepId: "r1" }) })[0].flowNow();
+       const straight = board({ agents: () => RUN({ cloudPoolId: "live:mm:coder", poolStepId: "r1" }) })[0].flowNow();
        return [[...f.active].sort(), [...f.recent], f.signature, [...f.direct], [...none.active], none.signature, [...straight.active].sort(), [...straight.direct]]; })()""",
-     json.dumps([["client:23001/std", "row:std/r1"], [], "client:23001/std|row:std/r1~", [], [], "~",
-                 ["client:23001/live:srv:22008", "direct:live:srv:22008"], [["live:srv:22008", [{"port": 23001, "active": True}]]]]),
+     json.dumps([["client:client-hermes/std", "row:std/r1"], [], "client:client-hermes/std|row:std/r1~", [], [], "~",
+                 ["client:client-hermes/live:mm:coder", "direct:live:mm:coder"], [["live:mm:coder", [{"id": "client-hermes", "active": True}]]]]),
      "доска читает монитор по своим пулам: запрос клиента через пул — канат клиента к пулу и строка; запрос к модели напрямую — канат клиента к строке «Напрямую», её канат "
      "к модели и сама строка «Напрямую» (пул из одной строки, live:…) с клиентом, чей запрос идёт; negative: без монитора — ничего и подпись «~»"),
     ("a_column_that_is_not_at_its_top_is_scrolled",
@@ -912,10 +939,10 @@ PINS = [
      ' const drop = async (el) => { target = el; b.press({ target: dot, button: 0, pointerId: 2, preventDefault() {} }); b.follow({ pointerId: 2, clientX: 30, clientY: 1 });'
      ' await b.release({ type: "pointerup", pointerId: 2, clientX: 30, clientY: 1 }); };'
      ' await drop(node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-astra", "data-name": "gpt-astra" }));'
-     ' await drop(node({ "data-pb-model": "", "data-output": "srv:22009", "data-name": "Gemma" }));'
+     ' await drop(node({ "data-pb-model": "", "data-output": "mm:gemma", "data-name": "Gemma" }));'
      ' return log.calls; })()',
      '[["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"accountId":"sub","model":"gpt-astra"},"nameAfter":"gpt-astra"}],'
-     '["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"output":"srv:22009"},"nameAfter":"Gemma"}]]',
+     '["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"output":"mm:gemma"},"nameAfter":"Gemma"}]]',
      "канат строки к модели подписки — аккаунт и модель; к ячейке — её выход; имя модели — с ним (пул с именем доски возьмёт его, 1.3.503)"),
     ("grab_rows_carry_new_cables",
      '',
@@ -926,12 +953,12 @@ PINS = [
        const carry = async (from, over, id) => { target = over; b.press({ target: from, button: 0, pointerId: id, preventDefault() {} }); const held = b.busy;
          b.follow({ pointerId: id, clientX: 30, clientY: 1 }); await b.release({ type: "pointerup", pointerId: id, clientX: 30, clientY: 1 }); return held; };
        const held = await carry(poolLabel, node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-astra", "data-name": "gpt-astra" }), 1);
-       await carry(poolGrab, node({ "data-pb-model": "", "data-output": "srv:22009", "data-name": "Gemma" }), 2);
+       await carry(poolGrab, node({ "data-pb-model": "", "data-output": "mm:gemma", "data-name": "Gemma" }), 2);
        await carry(poolLabel, node({}, node({ "data-pb-pool": "eco" })), 3); await carry(poolLabel, node({}), 4); await carry(poolLabel, null, 5);
        await b.click({ target: poolLabel, stopPropagation() {} });
        return [held, log.calls, b.busy]; })()""",
      '[true,[["/api/pools/add-row",{"poolId":"std","target":{"accountId":"sub","model":"gpt-astra"},"nameAfter":"gpt-astra"}],'
-     '["/api/pools/add-row",{"poolId":"std","target":{"output":"srv:22009"},"nameAfter":"Gemma"}]],false]',
+     '["/api/pools/add-row",{"poolId":"std","target":{"output":"mm:gemma"},"nameAfter":"Gemma"}]],false]',
      "«＋ строка» пула тянет новый канат с любой точки строки, не только с точки (владелец, 2026-10-12): строка пула над моделью — одна запись, новая строка "
      "сразу с канатом (/api/pools/add-row с целью): к модели подписки — аккаунт и модель, к ячейке — её выход; negative: отпущено над пулом, мимо модели или ни над "
      "чем — ничего не послано, открытой строки не осталось; щелчок по «＋» строке ничего не шлёт (он открывает список мест — пин chooser_*)"),
@@ -940,7 +967,7 @@ PINS = [
      r"""await (async () => { let under = node({}); const [b, log] = board({ at: () => under });
        const dot = node({ "data-pb-out": "row" }, node({ "data-pb-row": "r2" }, node({ "data-pb-pool": "std" })), { getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) });
        b.press({ target: dot, button: 0, pointerId: 3, preventDefault() {} }); b.follow({ pointerId: 3, clientX: 30, clientY: 1 }); await b.release({ type: "pointerup", pointerId: 3, clientX: 30, clientY: 1 });
-       under = node({ "data-pb-model": "", "data-output": "srv:22009", "data-name": "Gemma" });
+       under = node({ "data-pb-model": "", "data-output": "mm:gemma", "data-name": "Gemma" });
        b.press({ target: dot, button: 0, pointerId: 4, preventDefault() {} }); b.follow({ pointerId: 4, clientX: 30, clientY: 1 }); await b.release({ type: "pointercancel", pointerId: 4, clientX: 30, clientY: 1 });
        b.press({ target: dot, button: 0, pointerId: 5, preventDefault() {} }); b.follow({ pointerId: 5, clientX: 30, clientY: 1 }); b.onKey({ key: "Escape" }); const afterEsc = b.busy;
        b.press({ target: dot, button: 2, pointerId: 6, preventDefault() {} }); return [log.calls.length, afterEsc, b.busy]; })()""",
@@ -950,14 +977,31 @@ PINS = [
      '',
      r"""await (async () => { const [b, log] = board({ answers: [false, true] }); const click = (el) => b.click({ target: el, stopPropagation() {} });
        await click(node({ "data-pb-cable": "row", "data-pool": "std", "data-row": "sub" })); await click(node({ "data-pb-cable": "row", "data-pool": "std", "data-row": "r1" }));
-       await click(node({ "data-pb-cable": "call", "data-port": "23001" })); await click(node({ "data-pb-cable": "direct" }));
+       await click(node({ "data-pb-cable": "call", "data-pb-client-id": "client-hermes" })); await click(node({ "data-pb-cable": "direct" }));
        await click(node({ "data-pb-cable": "row", "data-pool": "std", "data-row": "nope" }));
        return [log.asks.map((a) => [a[0], a[1] === en.pbCutTitle, a[2]]), log.calls]; })()""",
      '[[["Take the cable of row 1 of Standart away from gpt-sol · ChatGPT? The row stays, not connected.",true,true],'
-     '["Take the cable of row 2 of Standart away from Coder :22008? The row stays, not connected.",true,true]],'
+     '["Take the cable of row 2 of Standart away from Coder? The row stays, not connected.",true,true]],'
      '[["/api/pools/connect-row",{"poolId":"std","rowId":"r1","target":null}]]]',
      "щелчок по канату строки — вопрос с обоими концами, потом строка снята с модели; negative: отказ в вопросе — ничего; канат клиента и канат «Напрямую» — то, "
      "что звали, а не связь, которую провели: резать нечего, вопроса нет (1.3.675); строки, которой нет, — ничего"),
+    ("a_reader_cable_cut_writes_the_absence",
+     '',
+     '''await (async () => { const [b, log] = board({ answers: [false, true] }); const click = (el) => b.click({ target: el, stopPropagation() {} });
+       const cable = node({ "data-pb-cable": ReaderBlock.key() });
+       b.top = { ...TOPO(), reader: { name: null, answer: "nothing" } };
+       await click(cable);
+       b.top = { ...TOPO(), reader: { name: "qwen-vl", answer: "reads" } };
+       await click(cable);
+       await click(cable);
+       return [log.asks.map((a) => [a[0], a[1] === en.pbCutTitle, a[2]]), log.calls]; })()''',
+     '[[["Take the reader qwen-vl off the board? Until another name stands here, nothing reads a picture for a request the pools cannot take.",true,true],'
+     '["Take the reader qwen-vl off the board? Until another name stands here, nothing reads a picture for a request the pools cannot take.",true,true]],'
+     '[["/api/board/reader",{"reader":null}]]]',
+     "щелчок по канату читателя — тот же вопрос и та же запись, что у пула: имя пишется отсутствием (`null`), а не пустой строкой, "
+     "чтобы проводка читалась как отсутствие; вопрос называет борд, потому что читатель — факт борда, а не пула; "
+     "negative: имени нет — нечего резать, и вопроса нет; negative: отказ в вопросе — ничего; корпус — `ReaderBlock.body`, "
+     "сказанный один раз в модуле, и ключ каната — `ReaderBlock.key()`, без пула"),
     ("pool_kinds",
      'st.topology.pools[0].kind = { jobs: ["llm"], inputs: ["text", "image"] }; st.topology.pools[1].kind = { mixed: true };'
      ' st.topology.pools.push({ id: "ears", name: "Ears", steps: [], kind: { jobs: ["asr"], languages: ["ru"] } },'
@@ -973,12 +1017,12 @@ PINS = [
     ("probe_model_choice",
      'st.topology.entry = { url: "https://caravan-api.example.org/v1", port: 23999 }; st.topology.clientProbes = [{ path: "/v1/chat/completions", paid: false }];'
      ' Object.assign(st.topology.proxies[0], { models: ["Standart", "Voice"] }); Object.assign(st.topology.proxies[1], { models: ["Standart"] });',
-     r"""await (async () => { const [b, log] = board(); b.trace = { key: "client:23001", pinned: true }; const hermes = () => part(b.dockHtml(), 'data-pb-client="23001"', "</aside>");
-       const card = node({ "data-pb-client": "23001" }); const asked = (h) => (h.match(/path=([^"]*)" data-t="pb-client-ask" data-t-id="model"/) || [])[1];
+     r"""await (async () => { const [b, log] = board(); b.trace = { key: "client:client-hermes", pinned: true }; const hermes = () => part(b.dockHtml(), 'data-pb-client="client-hermes"', "</aside>");
+       const card = node({ "data-pb-client": "client-hermes" }); const asked = (h) => (h.match(/path=([^"]*)" data-t="pb-client-ask" data-t-id="model"/) || [])[1];
        const first = hermes(); await b.change({ target: node({ "data-pb-probe-model": "" }, card, { value: "Voice" }) }); const chosen = hermes();
        await b.click({ target: node({ "data-pb-tests": "" }, card), stopPropagation() {} }); const opened = hermes();
        await b.click({ target: node({ "data-pb-probe": "/v1/chat/completions" }, card), stopPropagation() {} });
-       b.trace = { key: "client:23002", pinned: true }; const bot = part(b.dockHtml(), 'data-pb-client="23002"', "</aside>");
+       b.trace = { key: "client:client-bot", pinned: true }; const bot = part(b.dockHtml(), 'data-pb-client="client-bot"', "</aside>");
        return [(first.match(/<option[^>]*>[^<]*<\/option>/g) || []), (first.match(/data-t-id="model"/g) || []).length, asked(first),
          chosen.includes('<option value="Voice" selected>'), asked(chosen), log.calls[0][1].model, (opened.match(/data-pb-probe-model/g) || []).length,
          bot.includes("pb-probe-model"), asked(bot)]; })()""",
@@ -1039,21 +1083,21 @@ PINS = [
      'st.topology.entry = { url: "https://caravan-api.example.org/v1", port: 23999 }; st.topology.proxies[1].models = [];',
      r'''(() => { const [b] = board(); const head = b.clientsHtml(); const dock = (board, key) => { board.trace = { key, pinned: true }; return board.dockHtml(); };
        const links = (h) => (h.match(/<a class="pb-ask"[^>]*>[^<]*<\/a>/g) || []);
-       const hermes = dock(b, "client:23001"), bot = dock(b, "client:23002");
-       st.topology.entry = { url: "", port: null }; const [b2] = board(); const off = b2.clientsHtml() + dock(b2, "client:23001");
+       const hermes = dock(b, "client:client-hermes"), bot = dock(b, "client:client-bot");
+       st.topology.entry = { url: "", port: null }; const [b2] = board(); const off = b2.clientsHtml() + dock(b2, "client:client-hermes");
        return [head.includes(`<span class="pb-client-url" title="${esc(en.consumerEntryTitle + ": https://caravan-api.example.org/v1")}">caravan-api.example.org/v1</span>`),
          head.includes(`data-pb-copy-url data-t="pb-client-copy" title="${esc(en.consumerCopyEntry)}"`), (head.match(/pb-client-url/g) || []).length, links(hermes),
          links(bot).length, links(hermes).every((a) => a.includes(`title="${esc(en.pbClientAskTitle)}"`)), part(head, '<article class="pb-card pb-client').includes("pb-ask"),
          off.includes("pb-entry"), off.includes("pb-ask")]; })()''',
-     r'''[true,true,1,["<a class=\"pb-ask\" href=\"/api/consumers/ask?port=23001&amp;path=%2Fv1%2Fmodels\" data-t=\"pb-client-ask\" data-t-id=\"list\" title=\"Opens the answer this client gets here, asked with its own key\">/v1/models</a>",
-       "<a class=\"pb-ask\" href=\"/api/consumers/ask?port=23001&amp;path=%2Fv1%2Fmodels%2FStandart\" data-t=\"pb-client-ask\" data-t-id=\"model\" title=\"Opens the answer this client gets here, asked with its own key\">/v1/models/Standart</a>"],1,true,false,false,false]''',
+     r'''[true,true,1,["<a class=\"pb-ask\" href=\"/api/consumers/ask?routeId=client-hermes&amp;path=%2Fv1%2Fmodels\" data-t=\"pb-client-ask\" data-t-id=\"list\" title=\"Opens the answer this client gets here, asked with its own key\">/v1/models</a>",
+       "<a class=\"pb-ask\" href=\"/api/consumers/ask?routeId=client-hermes&amp;path=%2Fv1%2Fmodels%2FStandart\" data-t=\"pb-client-ask\" data-t-id=\"model\" title=\"Opens the answer this client gets here, asked with its own key\">/v1/models/Standart</a>"],1,true,false,false,false]''',
      "адрес, который дан клиентам, стоит ОДИН раз под заголовком колонки, без схемы (колонка узкая, 1.3.500; подсказка и ⧉ — адрес целиком) и с ⧉ (1.3.532: "
      "раньше он стоял на всех карточках); два вопроса GET клиента (список моделей и его модель) стоят в полосе под доской, пока клиент выбран, и каждый "
      "открывает ответ входа его ключу через контроллер (2026-10-12); у клиента, которому нечего звать, — только список; negative: на карточке клиента ссылок нет; входа нет — нет и адреса, и ссылок"),
     ("client_copy",
      'st.topology.entry = { url: "https://caravan-api.example.org/v1", port: 23999 };',
      'await (async () => { const [b, log] = board(); const copied = []; let ok = true; b.copy = async (x) => { copied.push(x); return ok; };'
-     ' const click = () => b.click({ target: node({ "data-pb-copy-url": "" }, node({ "data-pb-client": "23001" })), stopPropagation() {} });'
+     ' const click = () => b.click({ target: node({ "data-pb-copy-url": "" }, node({ "data-pb-client": "client-hermes" })), stopPropagation() {} });'
      ' const first = await click(); ok = false; const second = await click(); st.topology.entry = {}; b.html(st.topology); const third = await click();'
      ' return [first, second, third, copied, log.notes, log.calls.length]; })()',
      '[true,false,null,["https://caravan-api.example.org/v1","https://caravan-api.example.org/v1"],["Address copied","https://caravan-api.example.org/v1"],0]',
@@ -1063,14 +1107,14 @@ PINS = [
      'st.topology.entry = { url: "https://caravan-api.example.org/v1", port: 23999 }; st.topology.clientProbes = [{ path: "/v1/chat/completions", paid: false },'
      ' { path: "/v1/images/generations", paid: true }];',
      r'''await (async () => { const [b, log] = board(); const el = { innerHTML: "" }; b.root = { querySelector: (s) => (s === "[data-pb-root]" ? el : null) };
-       const strip = (h, port) => part(h, `class="pb-dock-client" data-pb-client="${port}"`, "</aside>");
-       b.trace = { key: "client:23001", pinned: true }; const shut = strip(b.dockHtml(), "23001"); const card = node({ "data-pb-client": "23001" });
-       await b.click({ target: node({ "data-pb-tests": "" }, card), stopPropagation() {} }); const hermes = strip(el.innerHTML, "23001");
+       const strip = (h, id) => part(h, `class="pb-dock-client" data-pb-client="${id}"`, "</aside>");
+       b.trace = { key: "client:client-hermes", pinned: true }; const shut = strip(b.dockHtml(), "client-hermes"); const card = node({ "data-pb-client": "client-hermes" });
+       await b.click({ target: node({ "data-pb-tests": "" }, card), stopPropagation() {} }); const hermes = strip(el.innerHTML, "client-hermes");
        const buttons = hermes.match(/<button class="pb-probe-btn"[^>]*>[^<]*<\/button>/g) || [];
-       b.trace = { key: "client:23002", pinned: true }; const bot = strip(b.dockHtml(), "23002");
-       b.trace = { key: "client:23001", pinned: true }; await b.click({ target: node({ "data-pb-tests": "" }, card), stopPropagation() {} });
-       const again = strip(el.innerHTML, "23001"); delete st.topology.clientProbes; const [b2] = board(); b2.tests.add("23001"); b2.trace = { key: "client:23001", pinned: true };
-       const none = strip(b2.dockHtml(), "23001"); const cardOnly = part(b.clientsHtml(), '<article class="pb-card pb-client');
+       b.trace = { key: "client:client-bot", pinned: true }; const bot = strip(b.dockHtml(), "client-bot");
+       b.trace = { key: "client:client-hermes", pinned: true }; await b.click({ target: node({ "data-pb-tests": "" }, card), stopPropagation() {} });
+       const again = strip(el.innerHTML, "client-hermes"); delete st.topology.clientProbes; const [b2] = board(); b2.tests.add("client-hermes"); b2.trace = { key: "client:client-hermes", pinned: true };
+       const none = strip(b2.dockHtml(), "client-hermes"); const cardOnly = part(b.clientsHtml(), '<article class="pb-card pb-client');
        return [shut.includes(`<button class="pb-tests-head" type="button" data-pb-tests aria-expanded="false" data-t="pb-client-tests">${esc(en.pbProbeRow)}</button>`),
          shut.includes("pb-probe-btn"), hermes.includes(`<button class="pb-tests-head open" type="button" data-pb-tests aria-expanded="true" data-t="pb-client-tests">`),
          buttons.map((x) => x.replace(/ title="[^"]*"/, "")), buttons[0].includes(`title="${esc(en.pbProbeTitle)}"`), buttons[1].includes(`title="${esc(en.pbProbePaidTitle)}"`),
@@ -1087,7 +1131,7 @@ PINS = [
      ' { path: "/v1/images/generations", paid: true }, { path: "/v1/audio/speech", paid: false }];',
      'await (async () => { const answer = { ok: true, request: { method: "POST", path: "/v1/chat/completions", model: "Standart", sent: "{\\"model\\": \\"Standart\\"}" },'
      ' status: 200, contentType: "application/json", ms: 1234, bytes: 512, text: "{\\"model\\":\\"gpt-6.1-sol\\",\\"choices\\":[]}", cut: false };'
-     ' const [b, log] = board({ res: answer, answers: [false, true] }); const card = node({ "data-pb-client": "23001" });'
+     ' const [b, log] = board({ res: answer, answers: [false, true] }); const card = node({ "data-pb-client": "client-hermes" });'
      ' const click = (attrs) => b.click({ target: node(attrs, card), stopPropagation() {} });'
      ' const pending = click({ "data-pb-probe": "/v1/chat/completions" }); const busy = b.probeHtml(); await pending; const done = b.probeHtml();'
      ' await click({ "data-pb-probe": "/v1/images/generations" }); const refusedPaid = [log.asks.length, log.calls.length];'
@@ -1098,16 +1142,16 @@ PINS = [
      ' done.includes(\'<p class="pb-probe-status ok" data-t="pb-probe-status"><b>200</b> · application/json · 1.2 s · 512 B</p>\'),'
      ' done.includes(esc(JSON.stringify({ model: "gpt-6.1-sol", choices: [] }, null, 2))), done.includes(`<h4>${esc(en.pbProbeSent)}</h4>`),'
      ' refusedPaid, log.asks[0][0] === fill(en.pbProbePaidAsk, { client: "Hermes" }), sentPaid, closed]; })()',
-     '[["/api/consumers/probe",{"port":23001,"path":"/v1/chat/completions","model":"Standart"}],true,true,true,true,true,true,[1,1],true,2,null]',
-     "проверка «как клиент» — один запрос контроллеру с портом, путём и именем модели клиента; окно ждёт, потом показывает адрес, что ушло, "
+     '[["/api/consumers/probe",{"routeId":"client-hermes","path":"/v1/chat/completions","model":"Standart"}],true,true,true,true,true,true,[1,1],true,2,null]',
+     "проверка «как клиент» — один запрос контроллеру с id клиента, путём и именем его модели; окно ждёт, потом показывает адрес, что ушло, "
      "код, тип, время, размер и тело ответа, разложенное по строкам; картинка — только после «да»; negative: «нет» — ничего не послано; Esc закрывает окно"),
     ("client_probe_failed_and_audio",
      'st.topology.entry = { url: "https://caravan-api.example.org/v1", port: 23999 }; st.topology.clientProbes = [{ path: "/v1/audio/speech", paid: false }];',
-     'await (async () => { const [b] = board({ fail: true }); const card = node({ "data-pb-client": "23001" });'
+     'await (async () => { const [b] = board({ fail: true }); const card = node({ "data-pb-client": "client-hermes" });'
      ' await b.click({ target: node({ "data-pb-probe": "/v1/audio/speech" }, card), stopPropagation() {} }); const failed = b.probeHtml();'
-     ' b.probe = { port: 23001, label: "Hermes", path: "/v1/audio/speech", model: "Standart", result: { request: { sent: "{}" }, status: 200,'
+     ' b.probe = { id: "client-hermes", label: "Hermes", path: "/v1/audio/speech", model: "Standart", result: { request: { sent: "{}" }, status: 200,'
      ' contentType: "audio/mpeg", ms: 80, bytes: 2048, audio: "SUQz" } }; const audio = b.probeHtml();'
-     ' b.probe = { port: 23001, path: "/v1/audio/speech", busy: true }; const late = b.runProbe("23002", "/v1/audio/speech");'
+     ' b.probe = { id: "client-hermes", path: "/v1/audio/speech", busy: true }; const late = b.runProbe("client-bot", "/v1/audio/speech");'
      ' b.probe = null; const landed = await late;'
      ' return [failed.includes(\'data-t-state="failed"\') && failed.includes(esc(fill(en.pbProbeFailed, { error: "controller is down" }))),'
      ' audio.includes(\'<audio controls src="data:audio/mpeg;base64,SUQz"></audio>\') && audio.includes("80 ms · 2 KB"), landed, b.probe]; })()',
@@ -1119,14 +1163,14 @@ PINS = [
      ' { method: "", path: "/v1/models", status: 401, count: 1, last: 1791700000, reason: "" }], more: 2 } });'
      ' Object.assign(st.topology.proxies[1], { misses: { items: [], more: 0 } });',
      r'''(() => { const [b] = board(); const dock = (key) => { b.trace = { key, pinned: true }; return b.dockHtml(); }; const h = b.clientsHtml();
-       const hermes = dock("client:23001"), bot = dock("client:23002");
-       const badge = (port) => (part(h, `data-pb-client="${port}"`).match(/<span class="pb-miss-badge"[^>]*>([^<]*)<\/span>/) || [])[1] || null;
+       const hermes = dock("client:client-hermes"), bot = dock("client:client-bot");
+       const badge = (id) => (part(h, `data-pb-client="${id}"`).match(/<span class="pb-miss-badge"[^>]*>([^<]*)<\/span>/) || [])[1] || null;
        return [hermes.includes(`<span class="pb-misses-head">⚠ ${esc(en.pbClientMisses)}</span>`),
          (hermes.match(/<li class="pb-miss"[^>]*>.*?<\/li>/g) || []).map((x) => x.replace(/<[^>]+>/g, "")),
          hermes.includes(`title="${esc(fill(en.pbClientMissTitle, { reason: "entry:invalid-url" }))}"`),
          hermes.includes(`<li class="pb-miss-more">${esc(fill(en.pbClientMissesMore, { n: "2" }))}</li>`), bot.includes("pb-client-misses"),
          [m.PoolBoard.size(900), m.PoolBoard.size(5000), m.PoolBoard.took(830), m.PoolBoard.took(2340), m.PoolBoard.when(0), m.PoolBoard.pretty("[1]", "text/plain")],
-         part(h, 'data-pb-client="23001"').includes('class="pb-client-misses"'), [badge(23001), badge(23002)]]; })()''',
+         part(h, 'data-pb-client="client-hermes"').includes('class="pb-client-misses"'), [badge("client-hermes"), badge("client-bot")]]; })()''',
      r'''[true,["POST /api/show 404 ×5 · Oct 12, 10:13 AM","/v1/models 401 ×1 · Oct 11, 06:26 AM"],true,true,false,["900 B","4.9 KB","830 ms","2.3 s","—","[1]"],false,["⚠ 6+",null]]''',
      "в полосе под доской — ошибки клиента за 30 дней: метод и путь, код, сколько раз и когда последний, причина — в подсказке, остальные — числом; "
      "запись без метода — только путь; на карточке клиента остаётся значок «⚠ N» с числом раз (6+ — не меньше: часть строк обрезана); "
@@ -1134,9 +1178,9 @@ PINS = [
     ("client_card_is_compact",
      'st.topology.entry = { url: "https://caravan-api.example.org/v1", port: 23999 }; st.topology.clientProbes = [{ path: "/v1/chat/completions", paid: false }];'
      ' Object.assign(st.topology.proxies[0], { misses: { items: [{ method: "POST", path: "/api/show", status: 404, count: 5, last: 1791800000, reason: "" }], more: 0 } });',
-     r'''(() => { const [b] = board(); const h = b.clientsHtml(); const card = (port) => item(h, '<article class="pb-card pb-client', `data-pb-client="${port}"`);
+     r'''(() => { const [b] = board(); const h = b.clientsHtml(); const card = (id) => item(h, '<article class="pb-card pb-client', `data-pb-client="${id}"`);
        const text = (x) => x.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); const cards = h.slice(h.indexOf("<article"));
-       return [text(card(23001)), text(card(23002)), ["pb-client-links", "pb-ask", "pb-tests-head", 'class="pb-client-misses"', "pb-probe-btn", "pb-client-url"].filter((c) => cards.includes(c))]; })()''',
+       return [text(card("client-hermes")), text(card("client-bot")), ["pb-client-links", "pb-ask", "pb-tests-head", 'class="pb-client-misses"', "pb-probe-btn", "pb-client-url"].filter((c) => cards.includes(c))]; })()''',
      r'''["⠿ Hermes 🔑 …a1b2 Sees all 5 ⚠ 5 ＋ Block","⠿ Bot 🔑 …c3d4 Sees 4 of 5 ⊘ Econom ＋ Block",[]]''',
      "карточка клиента — имя, хвост ключа, сколько моделей он видит, значок ошибок с числом раз и что ему запрещено, с «＋ Запретить»: ни адреса, ни ссылок, ни проверок, "
      "ни списка ошибок (1.3.532); negative: у клиента без ошибок значка нет, у клиента, которому ничего не запрещено, чипов нет"),
@@ -1144,8 +1188,8 @@ PINS = [
      '',
      r'''(() => { const [b] = board(); const empty = b.dockHtml(); b.trace = { key: "client:99999", pinned: true }; const gone = b.dockHtml(); const aim = (k) => b.dock.constructor.aim(k);
        return [empty.includes('data-t-state="empty"'), / inert[ >]/.test(empty), empty.replace(/<aside[^>]*>/, "").replace("</aside>", "") === "", gone === empty,
-         ["client:23001", "direct:live:srv:22008", "pool:std", "row:std/sub", "model:acc:sub/gpt-sol", "set:std-set", "setpool:std-set/std", "nonsense", "", "client:"].map(aim)]; })()''',
-     r'''[true,true,true,true,[{"kind":"client","id":"23001"},{"kind":"direct","id":"live:srv:22008"},{"kind":"pool","id":"std"},{"kind":"pool","id":"std"},{"kind":"model","id":"acc:sub/gpt-sol"},null,null,null,null,null]]''',
+         ["client:client-hermes", "direct:live:mm:coder", "pool:std", "row:std/sub", "model:acc:sub/gpt-sol", "set:std-set", "setpool:std-set/std", "nonsense", "", "client:"].map(aim)]; })()''',
+     r'''[true,true,true,true,[{"kind":"client","id":"client-hermes"},{"kind":"direct","id":"live:mm:coder"},{"kind":"pool","id":"std"},{"kind":"pool","id":"std"},{"kind":"model","id":"acc:sub/gpt-sol"},null,null,null,null,null]]''',
      "полоса под доской, когда ничего не выбрано и ни на что не наведено, пуста: ни подсказки, ни слов (владелец, 2026-10-14: «не отображай нижнюю полосу, когда ни на что не наведено или не выбрано»), "
      "и она inert; на карточке, которой уже нет на доске (клиент 99999), — то же самое, не догадка; "
      "ключ пути → о чём полоса: клиент — клиент, строка «Напрямую» — её модель по пулу из одной строки, строка пула — пул, модель — модель; "
@@ -1154,7 +1198,7 @@ PINS = [
      '',
      r'''(() => { const [b] = board(); const text = (x) => x.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
        const words = (x) => x.replace(en.topologyClientsSection, "{clients}").replace(en.pbPoolsSection, "{pools}").replace(en.topologyModelsLabel, "{models}");
-       b.trace = { key: "client:23001", pinned: false }; const pointed = b.dockHtml(); b.trace = { key: "client:23001", pinned: true }; const pinned = b.dockHtml();
+       b.trace = { key: "client:client-hermes", pinned: false }; const pointed = b.dockHtml(); b.trace = { key: "client:client-hermes", pinned: true }; const pinned = b.dockHtml();
        const route = (h) => (h.match(/<div><dt[^>]*>[^<]*<\/dt><dd[^>]*>[^<]*<\/dd><\/div>/g) || []).map((x) => words(text(x)));
        return [text(part(pinned, '<b class="pb-dock-name"', "</b>")), text(part(pinned, '<span class="pb-dock-sub"', "</span></span>")), route(pinned),
          pointed.includes(esc(en.pbDockPin)), pointed.includes(esc(en.pbDockPinned)), pinned.includes(esc(en.pbDockPinned)), pinned.includes('data-t-state="client"')]; })()''',
@@ -1163,7 +1207,7 @@ PINS = [
      "а не всё, что ему открыто; под курсором внизу «щёлкните, чтобы закрепить», закреплённая — «закреплено, ещё раз или Esc отпускают»"),
     ("dock_route_says_none",
      '',
-     r'''(() => { const [b] = board(); const text = (x) => x.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); b.trace = { key: "client:23002", pinned: true };
+     r'''(() => { const [b] = board(); const text = (x) => x.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(); b.trace = { key: "client:client-bot", pinned: true };
        const words = (x) => x.replace(en.topologyClientsSection, "{clients}").replace(en.pbPoolsSection, "{pools}").replace(en.topologyModelsLabel, "{models}");
        return (b.dockHtml().match(/<div><dt[^>]*>[^<]*<\/dt><dd[^>]*>[^<]*<\/dd><\/div>/g) || []).map((x) => words(text(x))); })()''',
      '["{clients} Bot","{pools} —","{models} —"]',
@@ -1172,10 +1216,10 @@ PINS = [
     ("dock_route_names_the_account_of_a_twin",
      'st.topology.pools.push({ id: "twin", name: "Twin", steps: [{ id: "a", kind: "account", accountId: "sub", model: "x", enabled: true },'
      ' { id: "b", kind: "account", accountId: "or", model: "x", enabled: true }, { id: "c", kind: "account", accountId: "sub", model: "y", enabled: true }] });',
-     r'''(() => { const [b] = board(); const names = (key) => b.routeOf(key).map((l) => l.names); return [names("pool:twin"), names("pool:eco"), names("client:23002")]; })()''',
-     r'''[[[],["Twin"],["x · ☁ ChatGPT","x · ☁ OpenRouter","y"]],[[],["Econom"],["gpt-luna","srv:22999"]],[["Bot"],[],[]]]''',
+     r'''(() => { const [b] = board(); const names = (key) => b.routeOf(key).map((l) => l.names); return [names("pool:twin"), names("pool:eco"), names("client:client-bot")]; })()''',
+     r'''[[[],["Twin"],["x · ☁ ChatGPT","x · ☁ OpenRouter","y"]],[[],["Econom"],["gpt-luna","mm:lost"]],[["Bot"],[],[]]]''',
      "путь в именах по колонкам: модель, которую дают два аккаунта, названа с аккаунтом (иначе «x, x»), прочие — просто именем; пул, который никто не звал, — "
-     "пустой уровень клиентов; клиент, который ничего не звал, — только он сам, остальные уровни пусты (не выдумка); модель, которой нет на доске (srv:22999), названа тем, что в строке"),
+     "пустой уровень клиентов; клиент, который ничего не звал, — только он сам, остальные уровни пусты (не выдумка); модель, которой нет на доске (mm:lost), названа тем, что в строке"),
     ("dock_painting",
      '',
      r'''(() => { const [b] = board(); const writes = []; const el = { set innerHTML(v) { writes.push(v); }, get innerHTML() { return writes[writes.length - 1] || ""; }, attrs: {},
@@ -1195,10 +1239,10 @@ PINS = [
          setAttribute(k, v) { this.attrs[k] = v; }, removeAttribute(k) { delete this.attrs[k]; } };
        const rootEl = { classList: { toggle() {} }, querySelectorAll: () => [] };
        b.root = { querySelector: (s) => (s === "[data-pb-root]" ? rootEl : s === "[data-pb-dock]" ? el : null) }; b.dockDrawn = "";
-       b.hover({ target: node({}, node({ "data-pb-node": "client:23001" })) }); const onClient = [writes.length, el.attrs["data-t-state"], el.innerHTML.includes("Hermes")];
+       b.hover({ target: node({}, node({ "data-pb-node": "client:client-hermes" })) }); const onClient = [writes.length, el.attrs["data-t-state"], el.innerHTML.includes("Hermes")];
        b.hover({ target: node({}, node({ "data-pb-node": "pool:std" })) }); const onPool = [writes.length, el.attrs["data-t-state"], el.innerHTML.includes("Standart")];
        b.pin({ target: node({}, node({ "data-pb-node": "pool:eco" })) }); const pinned = [writes.length, el.innerHTML.includes("Econom"), el.innerHTML.includes(esc(en.pbDockPinned))];
-       b.hover({ target: node({}, node({ "data-pb-node": "client:23001" })) }); const stillPinned = writes.length;
+       b.hover({ target: node({}, node({ "data-pb-node": "client:client-hermes" })) }); const stillPinned = writes.length;
        b.trace = null; b.lightPath(); return [onClient, onPool, pinned, stillPinned, el.attrs["data-t-state"], el.innerHTML.includes("Econom")]; })()''',
      '[[1,"client",true],[2,"pool",true],[3,true,true],3,"empty",true]',
      "полоса идёт за указателем: навели на клиента — его полоса, на пул — полоса пула, щелчок закрепил — полоса пула «закреплено»; negative: пока закреплено, "
@@ -1333,21 +1377,21 @@ PINS = [
     ("row_names",
      '',
      '(() => { const [b] = board(); const [a, c, o] = st.topology.pools[0].steps; return [b.rowName(a), b.rowName(c), b.rowName(o), b.rowName(st.topology.pools[1].steps[1])]; })()',
-     '["gpt-sol · ChatGPT","Coder :22008","not connected","srv:22999"]',
-     "строка в вопросах и в истории — модель с аккаунтом, ячейка с портом, «без каната»; пропавший выход — его id"),
+     '["gpt-sol · ChatGPT","Coder","not connected","mm:lost"]',
+     "строка в вопросах и в истории — модель с аккаунтом, модель машины по имени (без порта), «без каната»; пропавший выход — его id"),
     # ── when a model is open (1.3.498): its ⏱ beside its name, a pool's row of a model closed now ──
     ("schedule_chip_on_each_model",
-     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:srv:22008": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
+     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:mm:coder": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
      '(() => { const [b] = board(); const h = b.html(st.topology);'
      ' const row = (key) => item(h, \'<div class="pb-model\', `data-pb-key="${key}"`);'
      ' const state = (key) => (row(key).match(/data-t="pb-model-schedule" data-t-id="[^"]*" data-t-state="([^"]*)"/) || [])[1];'
-     ' return [state("acc:sub/gpt-sol"), state("out:srv:22008"), state("acc:sub/gpt-astra"),'
+     ' return [state("acc:sub/gpt-sol"), state("out:mm:coder"), state("acc:sub/gpt-astra"),'
      ' /<span class="pb-model-head"><span class="pb-model-grab"[^>]*>⠿<\\/span><span class="pb-model-name"[^>]*><code>gpt-sol<\\/code><\\/span><span class="pb-chips"><span class="pb-chip"[^>]*>[^<]*<\\/span><button class="pb-sched open"/.test(row("acc:sub/gpt-sol"))]; })()',
      '["open","closed","none",true]',
      "⏱ у каждой модели правой колонки, среди меток справа от имени, после метки «switch…»: у модели аккаунта и у ячейки машины; без расписания — тихий ⏱; "
      "перед именем — ручка модели (1.3.503)"),
     ("row_of_a_closed_model_says_so",
-     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:srv:22008": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
+     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:mm:coder": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
      '(() => { const [b] = board(); const h = b.html(st.topology);'
      ' const r1 = item(h, \'<li class="pool-rung">\', \'data-t-id="std/r1"\'); const sub = item(h, \'<li class="pool-rung">\', \'data-t-id="std/sub"\');'
      ' return [r1.includes(\'data-t-state="closed"\'), r1.includes(">" + fill(en.pbSchedClosedUntil, { time: "19:00" }) + "<"),'
@@ -1356,7 +1400,7 @@ PINS = [
      "строка ячейки, закрытой расписанием, говорит «закрыта до 19:00» — слово контроллера сейчас важнее последнего слова прокси «отвечает»; "
      "negative: строка модели, которая открыта, говорит своё, как раньше"),
     ("chip_opens_the_window_escape_closes",
-     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:srv:22008": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
+     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:mm:coder": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
      'await (async () => { const [b] = board(); await b.click({ target: node({ "data-ms-open": "acc:sub/gpt-sol", "data-ms-title": "gpt-sol" }), stopPropagation() {} });'
      ' const h = b.inner(); await b.click({ target: node({ "data-ms-add": "" }, node({ "data-ms": "" })), stopPropagation() {} });'
      ' const windows = b.schedule.form.windows.length; b.key({ key: "Escape", preventDefault() {}, target: node({}) });'
@@ -1364,7 +1408,7 @@ PINS = [
      '[true,1,null]',
      "щелчок по ⏱ открывает окно этой модели поверх Маршрутизации, кнопки окна ведёт само окно, Escape закрывает его"),
     ("painting_holds_the_board",
-     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:srv:22008": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
+     'const NOW = Date.UTC(2026, 9, 12, 8, 0) / 1000; st.setTopology({ ...st.topology, modelSchedules: { zone: { name: "UTC", known: true, offsetMinutes: 0 }, now: NOW, models: { "acc:sub/gpt-sol": { enabled: true, windows: [], open: true, until: NOW + 3600, opensAt: null }, "out:mm:coder": { enabled: true, windows: [], open: false, until: null, opensAt: NOW + 11 * 3600 } } } });',
      '(() => { const [b] = board(); const el = { innerHTML: "old" }; b.root = { querySelector: (s) => (s === "[data-pb-root]" ? el : null) };'
      ' b.schedule.open("acc:sub/gpt-sol", "gpt-sol"); el.innerHTML = "old"; b.pending = false;'
      ' b.schedule.painting = { open: true, mask: new Uint8Array(10080) }; b.redraw(); const held = [el.innerHTML, b.busy, b.pending];'
@@ -1374,13 +1418,13 @@ PINS = [
     # ── 1.3.503: where the cables go (the owner, 2026-10-12) ──
     ("click_is_not_a_cable",
      '',
-     r"""await (async () => { const model = node({ "data-pb-model": "", "data-output": "srv:22009", "data-name": "Gemma" }); const [b, log] = board({ at: () => model });
+     r"""await (async () => { const model = node({ "data-pb-model": "", "data-output": "mm:gemma", "data-name": "Gemma" }); const [b, log] = board({ at: () => model });
        const dot = node({ "data-pb-out": "row" }, node({ "data-pb-row": "r2" }, node({ "data-pb-pool": "std" })), { getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) });
        const go = async (id, dx) => { b.press({ target: dot, button: 0, pointerId: id, clientX: 10, clientY: 10, preventDefault() {} });
          if (dx) b.follow({ pointerId: id, clientX: 10 + dx, clientY: 10 }); const moved = b.drag.moved;
          await b.release({ type: "pointerup", pointerId: id, clientX: 10 + dx, clientY: 10 }); return moved; };
        const moves = [await go(1, 0), await go(2, 3)]; const quiet = log.calls.length; moves.push(await go(3, 30)); return [moves, quiet, log.calls, b.busy]; })()""",
-     '[[false,false,true],0,[["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"output":"srv:22009"},"nameAfter":"Gemma"}]],false]',
+     '[[false,false,true],0,[["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"output":"mm:gemma"},"nameAfter":"Gemma"}]],false]',
      "нажатие, которое не уехало дальше 5 px, — щелчок, а не канат: над моделью отпущено — ничего не послано (щелчок открывает список); "
      "уехало — канат, и он ложится на модель"),
     ("row_says_its_cell_is_off",
@@ -1388,14 +1432,14 @@ PINS = [
      '''(() => { const [b] = board(); const S = (output, serving) => { const pool = { id: "p", steps: [{ id: "r", kind: "output", output, enabled: true }] };
        const state = { selectedStepId: serving ? "r" : null, steps: serving ? [{ stepId: "r", reason: "ready" }] : [] };
        const said = b.status(pool, pool.steps[0], state); return [said.look, said.text]; };
-       return [S("srv:22009"), S("srv:22009", true), S("srv:22011"), S("srv:22008", true), S("srv:22008"), S("srv:22999")]; })()''',
+       return [S("mm:gemma"), S("mm:gemma", true), S("mm:small"), S("mm:coder", true), S("mm:coder"), S("mm:lost")]; })()''',
      '[["off-cell","cell off"],["off-cell","cell off"],["missing","failed"],["serving","Serving now"],["unknown","No request yet"],["unknown","No request yet"]]',
      "строка пула, чья ячейка не работает, говорит это словом контроллера сейчас (1.3.504; владелец: «не видно, что канат ведёт к "
      "выключенной ячейке»): остановлена — «cell off», даже если прокси последним словом сказал «отвечает»; упала — красным; "
      "negative: у работающей ячейки и у ячейки, которой нет, — слово прокси, как раньше"),
     ("carry_swallows_its_click",
      '',
-     '''await (async () => { const model = node({ "data-pb-model": "", "data-output": "srv:22009", "data-name": "Gemma" }); const [b] = board({ at: () => model }); const added = [];
+     '''await (async () => { const model = node({ "data-pb-model": "", "data-output": "mm:gemma", "data-name": "Gemma" }); const [b] = board({ at: () => model }); const added = [];
        b.win.addEventListener = (type, fn, opts) => { if (type === "click") added.push([fn, opts]); }; b.win.setTimeout = () => 0;
        const dot = node({ "data-pb-out": "row" }, node({ "data-pb-row": "r2" }, node({ "data-pb-pool": "std" })), { getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) });
        b.press({ target: dot, button: 0, pointerId: 1, clientX: 10, clientY: 10, preventDefault() {} }); await b.release({ type: "pointerup", pointerId: 1, clientX: 10, clientY: 10 });
@@ -1412,23 +1456,23 @@ PINS = [
      '''(() => { const S = m.PoolBoard.source, A = m.PoolBoard.ask, P = m.PoolBoard.placeOf;
        const pool = node({ "data-pb-pool": "std" }); const row = node({ "data-pb-row": "r2" }, pool);
        const acc = node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-sol", "data-name": "gpt-sol" });
-       const cell = node({ "data-pb-model": "", "data-output": "srv:22008", "data-name": "Coder" });
+       const cell = node({ "data-pb-model": "", "data-output": "mm:coder", "data-name": "Coder" });
        const src = [S(node({ "data-pb-out": "row" }, row)), S(node({ "data-pb-out": "new-row" }, pool)), S(node({ "data-pb-out": "model" }, acc)),
-         S(node({ "data-pb-out": "model" }, cell)), S(node({ "data-pb-out": "model" })), S(node({})), S(null), S(node({ "data-pb-out": "client", "data-port": "23001" }))];
+         S(node({ "data-pb-out": "model" }, cell)), S(node({ "data-pb-out": "model" })), S(node({})), S(null), S(node({ "data-pb-out": "client", "data-pb-client-id": "client-hermes" }))];
        const places = [P(node({ "data-pb-pool": "p" })), P(acc), P(cell), P(node({ "data-pb-pools-drop": "" })), P(node({})), P(null),
-         P(node({ "data-pb-set": "s" })), P(node({ "data-pb-client": "23001" }))];
+         P(node({ "data-pb-set": "s" })), P(node({ "data-pb-client": "client-hermes" }))];
        const asks = [A("row", { poolId: "p", rowId: "r" }, P(cell)), A("new-row", { poolId: "p", rowId: "" }, P(acc)), A("model", src[2].from, { pool: "p" }),
          A("model", src[3].from, { newPool: true })];
        const none = [A("row", { poolId: "p", rowId: "r" }, { newPool: true }), A("new-row", { poolId: "p" }, { pool: "p" }), A("model", src[2].from, { set: "s" }),
-         A("client", { port: 1 }, { set: "s" }), A("set", { setId: "s" }, { pool: "p" }), A("nope", {}, { pool: "p" })];
+         A("client", { id: "client-x" }, { set: "s" }), A("set", { setId: "s" }, { pool: "p" }), A("nope", {}, { pool: "p" })];
        return [src, places, asks, none]; })()''',
      '[[{"kind":"row","from":{"poolId":"std","rowId":"r2"}},{"kind":"new-row","from":{"poolId":"std","rowId":""}},'
-     '{"kind":"model","from":{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol"}},{"kind":"model","from":{"target":{"output":"srv:22008"},"name":"Coder"}},null,null,null,null],'
-     '[{"pool":"p"},{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol"},{"target":{"output":"srv:22008"},"name":"Coder"},{"newPool":true},{},{},{},{}],'
-     '[["/api/pools/connect-row",{"poolId":"p","rowId":"r","target":{"output":"srv:22008"},"nameAfter":"Coder"}],'
+     '{"kind":"model","from":{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol"}},{"kind":"model","from":{"target":{"output":"mm:coder"},"name":"Coder"}},null,null,null,null],'
+     '[{"pool":"p"},{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol","entry":""},{"target":{"output":"mm:coder"},"name":"Coder","entry":""},{"newPool":true},{},{},{},{}],'
+     '[["/api/pools/connect-row",{"poolId":"p","rowId":"r","target":{"output":"mm:coder"},"nameAfter":"Coder"}],'
      '["/api/pools/add-row",{"poolId":"p","target":{"accountId":"sub","model":"gpt-sol"},"nameAfter":"gpt-sol"}],'
      '["/api/pools/add-row",{"poolId":"p","target":{"accountId":"sub","model":"gpt-sol"},"nameAfter":"gpt-sol"}],'
-     '["/api/pools/create",{"target":{"output":"srv:22008"},"nameAfter":"Coder"}]],'
+     '["/api/pools/create",{"target":{"output":"mm:coder"},"nameAfter":"Coder"}]],'
      '[null,null,null,null,null,null]]',
      "выход говорит, что он начинает: строка — пул и строку, «＋» пула — пул без строки, модель — цель и имя, как его пишет доска; место — пул, модель с именем, "
      "колонка пулов — новый пул; одна дверь на канат и на выбор из списка: строка → модель (с именем модели), модель → пул или новый пул; "
@@ -1449,12 +1493,51 @@ PINS = [
      '[["pool",null,null,null,null],["column",null]]',
      "модель ложится на пул — строкой, а мимо пулов на колонку «Pools» — своим пулом; "
      "negative: строка на пул не ложится; каната клиента и набора больше нет (1.3.675) — им места нет"),
+    ("a_model_row_says_the_name_the_entry_calls_it",
+     '',
+     '''(() => { const [b] = board();
+       b.top = { ...TOPO(), liveCatalog: [...TOPO().liveCatalog,
+         { id: "gpt-luna (sub)", pool: "live:acc:sub/gpt-luna", runs: true, accountId: "sub", model: "gpt-luna" },
+         { id: "gpt-luna (other)", pool: "live:acc:other/gpt-luna", runs: true, accountId: "other", model: "gpt-luna" }] };
+       const row = b.accountModelHtml({ id: "sub" }, "gpt-luna", new Map());
+       return [b.entryNameOf("acc:sub/gpt-luna"), b.entryNameOf("acc:other/gpt-luna"), b.entryNameOf("out:mm:coder"), b.entryNameOf("acc:sub/nobody"),
+         row.includes('data-name="gpt-luna" data-entry-name="gpt-luna (sub)"')]; })()''',
+     '["gpt-luna (sub)","gpt-luna (other)","Coder","",true]',
+     "строка модели знает имя, каким её зовёт вход (liveCatalog — слово сервера): одна модель двух аккаунтов — два имени с аккаунтом после, "
+     "модель машины — имя каталога; имя стоит на строке рядом с id модели, а не вместо него (по id пул называют в честь модели); "
+     "negative: модель, которую вход не предлагает, — пусто, а не её id"),
+    ("reader_landing_and_where_it_writes",
+     'st.setTopology({ ...TOPO(), reader: { name: "qwen-vl", answer: "reads" } });',
+     '''(() => { const [b] = board(); const S = m.PoolBoard.source, A = m.PoolBoard.ask, P = m.PoolBoard.placeOf;
+       const col = node({ "data-pb-pools-drop": "", "data-pb-list": "pools" }); const pool = node({ "data-pb-pool": "eco" }, col);
+       const row = node({ "data-t": ReaderBlock.HOOKS.row }, col);
+       const dot = node({ "data-pb-out": ReaderBlock.PREFIX }, row);
+       const model = node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-sol", "data-name": "qwen-vl", "data-entry-name": "qwen-vl (sub)" }, col);
+       const bare = node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-sol", "data-name": "gpt-sol" }, col);
+       const overModel = node({}, model), overPool = node({}, pool);
+       const land = (under, kind) => { const prev = under; globalThis.__at = () => under; b.drag = { kind };
+         const saved = b.doc.elementFromPoint; b.doc.elementFromPoint = () => under; const el = b.landing(1, 1); b.drag = null; b.doc.elementFromPoint = saved;
+         return el === model ? "model" : el === pool ? "pool" : el ? "other" : null; };
+       return [m.PoolBoard.onto(ReaderBlock.PREFIX), m.PoolBoard.onto("row"), S(dot), S(node({ "data-pb-out": "row" }, node({}, pool))),
+         A(ReaderBlock.PREFIX, {}, P(model)), A(ReaderBlock.PREFIX, {}, P(pool)), land(overModel, ReaderBlock.PREFIX), land(overPool, ReaderBlock.PREFIX), land(overPool, "model"),
+         A(ReaderBlock.PREFIX, {}, P(bare))]; })()''',
+     '[["[data-pb-model]"],["[data-pb-model]"],'
+     '{"kind":"reader","from":{}},'
+     '{"kind":"row","from":{"poolId":"eco","rowId":""}},'
+     '["/api/board/reader",{"reader":"qwen-vl (sub)"}],null,"model",null,"pool",["/api/board/reader",{"reader":"acc:sub/gpt-sol"}]]',
+     "канат читателя тянется от его строки и ложится на модель — как канат строки; `onto` читает вид читателя здесь, при вызове, "
+     "а не как ключ таблицы: таблицу, которая читает соседний модуль в момент своего определения, падает при другом порядке "
+     "загрузки (ReferenceError), и это решено здесь, а не в таблице; "
+     "negative: строка на пул не ложится; канат читателя пишет имя читателя, а не цель строки; место не модели — ничего; "
+     "имя — то, каким модель зовёт вход (`data-entry-name` из liveCatalog): у двух аккаунтов одна модель — два разных имени, а голый id "
+     "не называет ни одну (на живой доске 2026-11-07 дверь отказала `gpt-6-luna` как незнакомому); negative: модель, которую вход не "
+     "предлагает ни под каким именем, спрашивается ключом — дверь откажет словами правила, а голый id мог бы назвать чужую модель"),
     ("carry_a_model",
      '',
      '''await (async () => { let under = null; const [b, log] = board({ at: () => under }); const box = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) };
        const acc = node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-astra", "data-name": "gpt-astra" }); const accIn = node({ "data-pb-in": "" }, acc, box);
        acc.querySelector = (s) => (s === "[data-pb-in]" ? accIn : null); const grab = node({ "data-pb-out": "model" }, acc, box);
-       const cell = node({ "data-pb-model": "", "data-output": "srv:22009", "data-name": "Gemma" }); cell.querySelector = () => null; const cellGrab = node({ "data-pb-out": "model" }, cell, box);
+       const cell = node({ "data-pb-model": "", "data-output": "mm:gemma", "data-name": "Gemma" }); cell.querySelector = () => null; const cellGrab = node({ "data-pb-out": "model" }, cell, box);
        const col = node({ "data-pb-pools-drop": "" }); const pool = node({ "data-pb-pool": "eco" }, col);
        const carry = async (from, over, id) => { under = over; b.press({ target: from, button: 0, pointerId: id, clientX: 0, clientY: 0, preventDefault() {} });
          const anchor = b.drag.dot; b.follow({ pointerId: id, clientX: 50, clientY: 0 }); await b.release({ type: "pointerup", pointerId: id, clientX: 50, clientY: 0 }); return anchor; };
@@ -1462,7 +1545,7 @@ PINS = [
        await carry(grab, node({ "data-pb-set": "std-set" }), 4); return [a1 === accIn, a3 === cellGrab, log.calls, b.busy]; })()''',
      '[true,true,[["/api/pools/add-row",{"poolId":"eco","target":{"accountId":"sub","model":"gpt-astra"},"nameAfter":"gpt-astra"}],'
      '["/api/pools/create",{"target":{"accountId":"sub","model":"gpt-astra"},"nameAfter":"gpt-astra"}],'
-     '["/api/pools/create",{"target":{"output":"srv:22009"},"nameAfter":"Gemma"}]],false]',
+     '["/api/pools/create",{"target":{"output":"mm:gemma"},"nameAfter":"Gemma"}]],false]',
      "модель, перенесённая за ручку на пул, — его новая строка; на колонку «Pools» — новый пул из неё, с её именем (ячейка — своим выходом "
      "и своим именем); канат модели тянется от её входа, а без входа — от ручки; negative: на набор модель не ложится"),
     # ── cables pulled from the right (1.3.587; the owner, 2026-10-18) ──
@@ -1471,9 +1554,9 @@ PINS = [
      r"""(() => { const S = m.PoolBoard.source;
        const poolIn = node({ "data-pb-in": "" }, node({ "data-pb-pool": "std" }));
        const acc = node({ "data-pb-model": "", "data-account": "sub", "data-model": "gpt-sol", "data-name": "gpt-sol" }); const accIn = node({ "data-pb-in": "" }, acc);
-       const cell = node({ "data-pb-model": "", "data-output": "srv:22008", "data-name": "Coder" }); const cellIn = node({ "data-pb-in": "" }, cell);
+       const cell = node({ "data-pb-model": "", "data-output": "mm:coder", "data-name": "Coder" }); const cellIn = node({ "data-pb-in": "" }, cell);
        return [S(poolIn), S(accIn), S(cellIn), S(node({ "data-pb-in": "" })), S(node({}))]; })()""",
-     '[null,{"kind":"model","from":{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol"}},{"kind":"model","from":{"target":{"output":"srv:22008"},"name":"Coder"}},null,null]',
+     '[null,{"kind":"model","from":{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol"}},{"kind":"model","from":{"target":{"output":"mm:coder"},"name":"Coder"}},null,null]',
      "вход модели — тоже начало каната, который тянут влево: то же, что её ручка (строка или новый пул); negative: вход пула — куда приходят вызовы клиентов — "
      "ничего не тянет (1.3.675: клиент зовёт то, что называет, и наборов нет); вход вне карточки и не вход — ничего"),
     ("pull_a_cable_from_an_input",
@@ -1531,19 +1614,19 @@ PINS = [
     ("chooser_choices",
      '',
      '''(() => { const [b] = board(); const c = (kind, from) => b.choices(kind, from).map((x) => [x.key, x.label, x.hint, x.now, x.to]);
-       return [c("client", { port: 23001 }), c("set", { setId: "std-set" }),
-         c("row", { poolId: "std", rowId: "sub" }).filter((x) => x[3] || /^out:srv:2200[89]$/.test(x[0])), c("row", { poolId: "std", rowId: "sub" }).map((x) => x[0]),
+       return [c("client", { id: "client-hermes" }), c("set", { setId: "std-set" }),
+         c("row", { poolId: "std", rowId: "sub" }).filter((x) => x[3] || /^out:mm:(coder|gemma)$/.test(x[0])), c("row", { poolId: "std", rowId: "sub" }).map((x) => x[0]),
          c("new-row", { poolId: "std", rowId: "" }).filter((x) => x[3]).length, c("model", { target: { accountId: "sub", model: "gpt-sol" }, name: "gpt-sol" }), c("nope", {})]; })()''',
      '[[],[],'
      '[["acc:sub/gpt-sol","gpt-sol","☁ ChatGPT",true,{"target":{"accountId":"sub","model":"gpt-sol"},"name":"gpt-sol"}],'
-     '["out:srv:22008","Coder","🖥 Box :22008",true,{"target":{"output":"srv:22008"},"name":"Coder"}],'
-     '["out:srv:22009","Gemma","🖥 Box :22009",false,{"target":{"output":"srv:22009"},"name":"Gemma"}]],'
-     '["acc:sub/gpt-sol","acc:sub/gpt-astra","acc:sub/gpt-luna","out:srv:22008","out:srv:22009","out:srv:22010","out:srv:22011"],2,'
+     '["out:mm:coder","Coder","🖥 Box",true,{"target":{"output":"mm:coder"},"name":"Coder"}],'
+     '["out:mm:gemma","Gemma","🖥 Box",false,{"target":{"output":"mm:gemma"},"name":"Gemma"}]],'
+     '["acc:sub/gpt-sol","acc:sub/gpt-astra","acc:sub/gpt-luna","out:mm:coder","out:mm:gemma","out:mm:big","out:mm:small"],2,'
      '[["pool:new","＋ New pool “gpt-sol”","",false,{"newPool":true}],["pool:std","Standart","gpt-sol, Coder",true,{"pool":"std"}],'
-     '["pool:eco","Econom","gpt-luna, srv:22999",false,{"pool":"eco"}]],[]]',
-     "список мест по щелчку: строке и новой строке — модели карточек аккаунтов и ячейки всех машин (модели этого пула отмечены: дважды в одном пуле модель "
+     '["pool:eco","Econom","gpt-luna, mm:lost",false,{"pool":"eco"}]],[]]',
+     "список мест по щелчку: строке и новой строке — модели карточек аккаунтов и модели всех машин (модели этого пула отмечены: дважды в одном пуле модель "
      "пробовалась бы дважды), модели — сначала свой новый пул, потом пулы (где она уже есть — отмечены); в строке — что внутри: модели пула, аккаунт или "
-     "машина с портом; negative: клиенту и набору мест нет (1.3.675: клиент каната не тянет, наборов нет)"),
+     "машина (без порта); negative: клиенту и набору мест нет (1.3.675: клиент каната не тянет, наборов нет)"),
     ("chooser_found",
      '',
      '''(() => { const list = [{ key: "a", label: "Alpha", hint: "one" }, { key: "b", label: "Beta", hint: "two" }, { key: "c", label: "Gamma", hint: "ONE more" }];
@@ -1562,14 +1645,14 @@ PINS = [
        const dot = (left, top) => node({ "data-pb-out": "row" }, node({ "data-pb-row": "r2" }, node({ "data-pb-pool": "std" })),
          { getBoundingClientRect: () => ({ left, top, right: left + 12, bottom: top + 12, width: 12, height: 12 }) });
        await b.click({ target: dot(140, 200), stopPropagation() {} }); const opened = [b.chooser, html.includes('style="left: 60px; top: 468px"'), html.includes(esc(en.pbChooseModel)),
-         html.includes('data-pb-choose="acc:sub/gpt-sol"') && html.includes('data-pb-choose="out:srv:22009"'), field.focused];
+         html.includes('data-pb-choose="acc:sub/gpt-sol"') && html.includes('data-pb-choose="out:mm:gemma"'), field.focused];
        await b.click({ target: dot(1080, 800), stopPropagation() {} }); const up = b.chooser.at;
        const inChooser = (attrs) => node(attrs, node({ "data-pb-chooser": "" }));
-       await b.click({ target: inChooser({ "data-pb-choose": "out:srv:22009" }), stopPropagation() {} }); const chosen = [b.chooser, html, log.calls];
+       await b.click({ target: inChooser({ "data-pb-choose": "out:mm:gemma" }), stopPropagation() {} }); const chosen = [b.chooser, html, log.calls];
        await b.click({ target: dot(140, 200), stopPropagation() {} }); const outside = await b.click({ target: node({}, node({ "data-pb-node": "pool:std" })), stopPropagation() {} });
        return [opened, up, chosen, [outside, b.chooser, b.trace]]; })()''',
      '[[{"kind":"row","from":{"poolId":"std","rowId":"r2"},"query":"","at":{"x":60,"y":468,"up":false}},true,true,true,true],{"x":692,"y":1044,"up":true},'
-     '[null,"",[["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"output":"srv:22009"},"nameAfter":"Gemma"}]]],[true,null,null]]',
+     '[null,"",[["/api/pools/connect-row",{"poolId":"std","rowId":"r2","target":{"output":"mm:gemma"},"nameAfter":"Gemma"}]]],[true,null,null]]',
      "щелчок по выходу строки открывает список мест под ним, в рамке доски с её прокруткой, и ставит фокус в поиск; у нижнего края — вверх, у правого — "
      "прижат внутрь; выбор места — тот же запрос, что канат; щелчок мимо списка закрывает его и ничего больше — путь не закрепляется"),
     ("chooser_refusals",
@@ -1578,14 +1661,14 @@ PINS = [
          getBoundingClientRect: () => ({ left: 0, top: 0, right: 1000, bottom: 800 }), insertAdjacentHTML(_p, h) { html = h; } };
        b.root = { querySelector: (s) => (s === "[data-pb-root]" ? box : s === "[data-pb-chooser]" ? (html ? { remove() { html = ""; } } : null) : null) };
        const dot = node({ "data-pb-out": "row" }, node({ "data-pb-row": "r1" }, node({ "data-pb-pool": "std" })), { getBoundingClientRect: () => ({ left: 0, top: 0, right: 12, bottom: 12 }) });
-       await b.click({ target: dot, stopPropagation() {} }); const now = await b.choose("out:srv:22008"); const nowCalls = log.calls.length;
-       const failed = await b.choose("out:srv:22009"); return [now, nowCalls, failed, log.notes, b.chooser?.kind, html.includes("data-pb-chooser")]; })()''',
+       await b.click({ target: dot, stopPropagation() {} }); const now = await b.choose("out:mm:coder"); const nowCalls = log.calls.length;
+       const failed = await b.choose("out:mm:gemma"); return [now, nowCalls, failed, log.notes, b.chooser?.kind, html.includes("data-pb-chooser")]; })()''',
      '[null,0,null,["controller is down"],"row",true]',
      "negative: место, куда канат уже идёт (модель, которая уже есть в этом пуле), не выбирается — запроса нет; отказ контроллера — тост с его словами, и список возвращается"),
     ("escape_order",
      '',
      '''(() => { const [b] = board(); const esc1 = () => b.escape({ key: "Escape", defaultPrevented: false, preventDefault() {} });
-       b.denying = { port: 23002, query: "" }; b.chooser = { kind: "row", from: { poolId: "std", rowId: "r2" }, query: "" }; b.trace = { key: "pool:std", pinned: true };
+       b.denying = { id: "client-bot", query: "" }; b.chooser = { kind: "row", from: { poolId: "std", rowId: "r2" }, query: "" }; b.trace = { key: "pool:std", pinned: true };
        const r = [esc1(), b.denying, b.chooser?.kind, esc1(), b.chooser, b.trace?.key, esc1(), b.trace, esc1()];
        b.trace = { key: "pool:std", pinned: true }; const taken = b.escape({ key: "Escape", defaultPrevented: true, preventDefault() {} });
        b.drag = { kind: "row" }; const held = esc1(); b.drag = null; const other = b.escape({ key: "Enter", defaultPrevented: false });
@@ -1596,17 +1679,17 @@ PINS = [
     ("path_through_cards",
      '',
      '''(() => { const p = (key) => { const r = m.PoolBoard.path(st.topology, key); return [[...r.nodes].sort(), [...r.cables].sort()]; };
-       return [p("model:acc:sub/gpt-sol"), p("pool:eco"), p("client:23001"), p("client:23002"), p("row:std/r1"), p("direct:live:srv:22008"), p("model:out:srv:22008"),
+       return [p("model:acc:sub/gpt-sol"), p("pool:eco"), p("client:client-hermes"), p("client:client-bot"), p("row:std/r1"), p("direct:live:mm:coder"), p("model:out:mm:coder"),
          p("setpool:std-set/std")[1], p(""), p("nonsense")]; })()''',
-     json.dumps([[["client:23001", "model:acc:sub/gpt-sol", "pool:std", "row:std/sub"], ["client:23001/std", "row:std/sub"]],
-                 [["model:acc:sub/gpt-luna", "model:out:srv:22999", "pool:eco", "row:eco/r1", "row:eco/sub"], ["row:eco/r1", "row:eco/sub"]],
-                 [["client:23001", "direct:live:srv:22008", "model:acc:sub/gpt-sol", "model:out:srv:22008", "pool:std", "row:std/r1", "row:std/r2", "row:std/sub"],
-                  ["client:23001/live:srv:22008", "client:23001/std", "direct:live:srv:22008", "row:std/r1", "row:std/sub"]],
-                 [["client:23002"], []],
-                 [["client:23001", "model:out:srv:22008", "pool:std", "row:std/r1"], ["client:23001/std", "row:std/r1"]],
-                 [["client:23001", "direct:live:srv:22008", "model:out:srv:22008"], ["client:23001/live:srv:22008", "direct:live:srv:22008"]],
-                 [["client:23001", "direct:live:srv:22008", "model:out:srv:22008", "pool:std", "row:std/r1"],
-                  ["client:23001/live:srv:22008", "client:23001/std", "direct:live:srv:22008", "row:std/r1"]],
+     json.dumps([[["client:client-hermes", "model:acc:sub/gpt-sol", "pool:std", "row:std/sub"], ["client:client-hermes/std", "row:std/sub"]],
+                 [["model:acc:sub/gpt-luna", "model:out:mm:lost", "pool:eco", "row:eco/r1", "row:eco/sub"], ["row:eco/r1", "row:eco/sub"]],
+                 [["client:client-hermes", "direct:live:mm:coder", "model:acc:sub/gpt-sol", "model:out:mm:coder", "pool:std", "row:std/r1", "row:std/r2", "row:std/sub"],
+                  ["client:client-hermes/live:mm:coder", "client:client-hermes/std", "direct:live:mm:coder", "row:std/r1", "row:std/sub"]],
+                 [["client:client-bot"], []],
+                 [["client:client-hermes", "model:out:mm:coder", "pool:std", "row:std/r1"], ["client:client-hermes/std", "row:std/r1"]],
+                 [["client:client-hermes", "direct:live:mm:coder", "model:out:mm:coder"], ["client:client-hermes/live:mm:coder", "direct:live:mm:coder"]],
+                 [["client:client-hermes", "direct:live:mm:coder", "model:out:mm:coder", "pool:std", "row:std/r1"],
+                  ["client:client-hermes/live:mm:coder", "client:client-hermes/std", "direct:live:mm:coder", "row:std/r1"]],
                  [], [[], []], [[], []]]),
      "путь через карточку — вверх до клиентов и вниз до моделей, по тому, что звали за три дня (1.3.675): модель — её строки, пулы и клиенты, что их звали, и её "
      "строка «Напрямую» с клиентами, что звали её без пула; клиент — пулы и модели, что он звал, с их строками и моделями; строка — её модель и путь её пула вверх; "
@@ -1616,19 +1699,19 @@ PINS = [
      '',
      '''(() => { const [b] = board(); const el = (key, attr = "pbNode") => { const e = { dataset: { [attr]: key }, cls: new Set() };
          e.classList = { toggle: (c, on) => (on ? e.cls.add(c) : e.cls.delete(c)) }; return e; };
-       const nodes = ["client:23001", "client:23002", "pool:std", "pool:eco", "row:std/sub", "model:acc:sub/gpt-sol"].map((k) => el(k));
-       const cables = ["client:23001/std", "row:std/sub", "row:eco/sub"].map((k) => el(k, "pbCableKey"));
+       const nodes = ["client:client-hermes", "client:client-bot", "pool:std", "pool:eco", "row:std/sub", "model:acc:sub/gpt-sol"].map((k) => el(k));
+       const cables = ["client:client-hermes/std", "row:std/sub", "row:eco/sub"].map((k) => el(k, "pbCableKey"));
        const rootEl = el("root"); rootEl.querySelectorAll = (s) => (s === "[data-pb-node]" ? nodes : s === "[data-pb-cable-key]" ? cables : []);
        b.root = { querySelector: (s) => (s === "[data-pb-root]" ? rootEl : null) };
        const lit = () => [[...rootEl.cls].sort(), nodes.filter((n) => n.cls.has("on-path")).map((n) => n.dataset.pbNode), cables.filter((c) => c.cls.has("on-path")).map((c) => c.dataset.pbCableKey)];
        b.hover({ target: node({}, node({ "data-pb-node": "model:acc:sub/gpt-sol" })) }); const hovered = lit();
        b.pin({ target: node({}, node({ "data-pb-node": "pool:eco" })) }); const pinned = lit();
-       b.hover({ target: node({}, node({ "data-pb-node": "client:23002" })) }); const stillPinned = lit();
+       b.hover({ target: node({}, node({ "data-pb-node": "client:client-bot" })) }); const stillPinned = lit();
        const onControl = b.pin({ target: node({ "data-pb-out": "row" }, node({ "data-pb-node": "row:std/sub" })) });
        b.pin({ target: node({}, node({ "data-pb-node": "pool:eco" })) }); const unpinned = lit();
        b.drag = { kind: "row", moved: true }; b.hover({ target: node({}, node({ "data-pb-node": "pool:std" })) }); const carrying = [b.trace, lit()]; b.drag = null;
        return [hovered, pinned, stillPinned, onControl, unpinned, carrying]; })()''',
-     '[[["tracing"],["client:23001","pool:std","row:std/sub","model:acc:sub/gpt-sol"],["client:23001/std","row:std/sub"]],'
+     '[[["tracing"],["client:client-hermes","pool:std","row:std/sub","model:acc:sub/gpt-sol"],["client:client-hermes/std","row:std/sub"]],'
      '[["path-alone","traced","tracing"],["pool:eco"],["row:eco/sub"]],[["path-alone","traced","tracing"],["pool:eco"],["row:eco/sub"]],false,[[],[],[]],[null,[[],[],[]]]]',
      "наведение зажигает путь карточки — только «tracing», без «traced»: остальное не отступает (правило стилей, test_path_dim_css.py; владелец, 2026-10-27) "
      "и других канатов не прячет; щелчок закрепляет путь («traced» — тогда остальное отступает) и оставляет доске только его "
@@ -1637,14 +1720,14 @@ PINS = [
      '',
      '''(() => { const [b] = board(); const el = (key, attr = "pbNode") => { const e = { dataset: { [attr]: key }, cls: new Set() };
          e.classList = { toggle: (c, on) => (on ? e.cls.add(c) : e.cls.delete(c)) }; return e; };
-       const nodes = ["client:23001", "client:23002", "pool:std", "pool:eco", "row:std/sub", "model:acc:sub/gpt-sol"].map((k) => el(k));
-       const cables = ["client:23001/std", "row:std/sub", "row:eco/sub"].map((k) => el(k, "pbCableKey"));
+       const nodes = ["client:client-hermes", "client:client-bot", "pool:std", "pool:eco", "row:std/sub", "model:acc:sub/gpt-sol"].map((k) => el(k));
+       const cables = ["client:client-hermes/std", "row:std/sub", "row:eco/sub"].map((k) => el(k, "pbCableKey"));
        const rootEl = el("root"); rootEl.querySelectorAll = (s) => (s === "[data-pb-node]" ? nodes : s === "[data-pb-cable-key]" ? cables : []);
        b.root = { querySelector: (s) => (s === "[data-pb-root]" ? rootEl : null) };
        const look = () => [[...rootEl.cls].sort(), nodes.filter((n) => n.cls.has("on-path")).length, cables.filter((c) => c.cls.has("on-path")).map((c) => c.dataset.pbCableKey)];
        b.trace = { key: "pool:eco", pinned: true }; b.lightPath(); const pinned = look();
        b.drag = { kind: "row", moved: true }; b.lightPath(); const carrying = look(); b.drag = null; b.lightPath(); const dropped = look();
-       b.trace = { key: "client:23002", pinned: true }; b.lightPath(); const bare = look();
+       b.trace = { key: "client:client-bot", pinned: true }; b.lightPath(); const bare = look();
        b.trace = { key: "pool:gone", pinned: true }; b.lightPath(); const gone = look();
        b.trace = { key: "pool:eco", pinned: false }; b.lightPath(); const pointed = look();
        b.trace = null; b.lightPath(); const let_go = look();
@@ -1691,7 +1774,7 @@ PINS = [
        return [text(part(h, '<b class="pb-dock-name"', "</b>")), steps.map((x) => [(x.match(/data-t-id="([^"]*)"/) || [])[1], (x.match(/data-t-state="([^"]*)"/) || [])[1], text(x)]),
          h.includes('<div class="pb-dock-pool" data-pb-pool="std" data-pool-id="std" data-t="pb-dock-pool">'), h.includes('data-pb-out="new-row"'), h.includes('data-t="pb-settings"'),
          viaRow.includes('data-pb-pool="std"'), gone.includes('data-t-state="empty"'), b.dockDetailsHtml({ kind: "pool", id: "nope" })]; })()""",
-     r'''["Standart",[["std/sub","stop","1 gpt-sol ☁ ChatGPT Stop level reached ↓ next when 30% (5h) is left"],["std/r1","serving","2 Coder 🖥 Box :22008 Serving now ↓ next when the cell is busy or silent"],["std/r2","open","3 not connected — drag from the dot to a model"]],true,true,true,true,true,""]''',
+     r'''["Standart",[["std/sub","stop","1 gpt-sol ☁ ChatGPT Stop level reached ↓ next when 30% (5h) is left"],["std/r1","serving","2 Coder 🖥 Box Serving now ↓ next when the cell is busy or silent"],["std/r2","open","3 not connected — drag from the dot to a model"]],true,true,true,true,true,""]''',
      "полоса пула: его имя, по строке на каждую — номер, модель с местом, слово прокси целиком (у строки без каната слова нет), под строкой — когда пул идёт дальше; "
      "«＋ строка» с точкой каната и «Pool settings»; пул, на котором стоит строка под курсором, показан тем же; negative: пула, которого нет, полоса не показывает — она пуста («empty»)"),
     ("row_state_dot_when_no_news",
@@ -1736,7 +1819,7 @@ PINS = [
      '',
      r"""(() => { const [b] = board(); const text = (x) => x.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
        const strip = (key) => { b.trace = { key, pinned: true }; return b.dockHtml(); }; const body = (h) => text(part(h, '<div class="pb-dock-body"', "</div></aside>"));
-       const sol = strip("model:acc:sub/gpt-sol"), key = strip("model:acc:or/b/two"), run = strip("model:out:srv:22008"), dead = strip("model:out:srv:22011"), gone = strip("model:acc:gone/x"), ghost = strip("model:out:srv:99999");
+       const sol = strip("model:acc:sub/gpt-sol"), key = strip("model:acc:or/b/two"), run = strip("model:out:mm:coder"), dead = strip("model:out:mm:small"), gone = strip("model:acc:gone/x"), ghost = strip("model:out:mm:ghost");
        const cell = (h) => [(h.match(/data-t="pb-dock-cell" data-t-state="([^"]*)"/) || [])[1], text(part(h, '<div class="pb-dock-cell"', "</div>"))];
        return [text(part(sol, '<b class="pb-dock-name"', "</b>")), sol.includes('data-t="pb-dock-levels"'), sol.includes('[bars sub sub/gpt-sol'),
          key.includes(en.cloudConnected) && key.includes("pb-dock-note"), key.includes("[bars"), cell(run), cell(dead), body(gone), body(ghost)]; })()""",
@@ -1805,7 +1888,7 @@ PINS = [
      '',
      '''(() => { const [b] = board(); const T = (row) => b.turnText(row); const L = m.PoolBoard.levelsText;
        return [T({ kind: "account", accountId: "sub", model: "gpt-sol" }), T({ kind: "account", accountId: "sub", model: "gpt-luna" }),
-         T({ kind: "account", accountId: "or", model: "a/one" }), T({ kind: "account", accountId: "gone", model: "x" }), T({ kind: "output", output: "srv:1" }),
+         T({ kind: "account", accountId: "or", model: "a/one" }), T({ kind: "account", accountId: "gone", model: "x" }), T({ kind: "output", output: "mm:x" }),
          T({ kind: "open" }), T(null), L({ "604800": 20, "18000": 30 }), L({}), L({ "18000": 0, x: 5 }), L(null), L({ "86400": 15 })]; })()''',
      '["next when 30% (5h) is left","next when 10% (5h) is left","next when it refuses","next when it refuses","next when the cell is busy or silent","","",'
      '"30% (5h) · 20% (7d)","","","","15% (24h)"]',
@@ -1817,26 +1900,26 @@ PINS = [
      '''(() => { const [b] = board(); const seats = (h) => (h.match(/data-pb-seat="[^"]*"/g) || []).map((x) => x.slice(14, -1)); const h = b.html(st.topology);
        const first = [seats(h), (h.match(/data-pb-list="[^"]*"/g) || []), (h.match(/data-pb-card-grip/g) || []).length,
          h.includes(`data-pb-pools-drop data-pb-drop-hint="${esc(en.pbDropNewPool)}"`), h.includes(`data-t="pb-arrange" title="${esc(en.pbArrangeTitle)}"`),
-         ["client:23001", "pool:eco", "row:std/r2", "model:out:srv:22008", "model:acc:sub/gpt-astra"].filter((k) => !h.includes(`data-pb-node="${k}"`))];
-       st.setTopology({ ...st.topology, layout: { clientOrder: [23001, 4242] } }); const ordered = seats(b.html(st.topology)).slice(0, 2);
+         ["client:client-hermes", "pool:eco", "row:std/r2", "model:out:mm:coder", "model:acc:sub/gpt-astra"].filter((k) => !h.includes(`data-pb-node="${k}"`))];
+       st.setTopology({ ...st.topology, layout: { clientOrder: ["client-hermes", "client-none"] } }); const ordered = seats(b.html(st.topology)).slice(0, 2);
        return [first, ordered]; })()''',
-     '[[["23002","23001","std","eco","cloud:sub","cloud:or","node:box"],["data-pb-list=\\"clients\\"","data-pb-list=\\"pools\\"","data-pb-list=\\"models\\""],7,true,true,[]],["23001","23002"]]',
+     '[[["client-bot","client-hermes","std","eco","cloud:sub","cloud:or","node:box"],["data-pb-list=\\"clients\\"","data-pb-list=\\"pools\\"","data-pb-list=\\"models\\""],7,true,true,[]],["client-hermes","client-bot"]]',
      "каждая карточка клиентов, пулов и моделей — в своём гнезде с ручкой, колонки — списки для переноса; на колонке пулов — подсказка для "
-     "модели; у каждой карточки и строки — ключ пути; клиенты — в порядке оператора, пулы — по порядку файла; negative: порт без клиента "
+     "модели; у каждой карточки и строки — ключ пути; клиенты — в порядке оператора, пулы — по порядку файла; negative: id без клиента "
      "в порядке ничего не рисует"),
     ("card_parts_and_orders",
      '',
      '''await (async () => { const P = m.PoolBoard.CARDS; const card = { id: "c" }; const seat = { dataset: { pbSeat: "eco" }, firstElementChild: card };
        const parts = [P.item, P.list, P.grip, P.idOf(seat), P.ownerOf({ dataset: { pbList: "pools" } }), P.card(seat) === card];
        const timers = []; const [b, log] = board(); b.win.setTimeout = (fn) => timers.push(fn);
-       const saved = [await b.saveOrder("pools", ["eco", "std"]), await b.saveOrder("clients", ["23002", "23001"])].map((r) => !!r);
+       const saved = [await b.saveOrder("pools", ["eco", "std"]), await b.saveOrder("clients", ["client-bot", "client-hermes"])].map((r) => !!r);
        const quiet = [b.pending, timers.length]; const unknown = await b.saveOrder("sets", ["empty", "std-set"]);
        return [parts, saved, log.calls, quiet, [unknown, log.calls.length, b.pending, timers.length]]; })()''',
      '[[".pb-seat","[data-pb-list]","[data-pb-card-grip]","eco","pools",true],[true,true],'
-     '[["/api/pools/order",{"ids":["eco","std"]}],["/api/consumers/order",{"order":[23002,23001]}]],'
+     '[["/api/pools/order",{"ids":["eco","std"]}],["/api/consumers/order",{"order":["client-bot","client-hermes"]}]],'
      '[false,0],[null,2,true,1]]',
      "перенос карточки: гнездо, колонка, ручка, id карточки и род колонки; новый порядок — дверью своей колонки: пулы — их id, "
-     "клиенты — порты числами; negative: колонка без двери (наборов больше нет) ничего не шлёт, а доска будет нарисована заново"),
+     "клиенты — их id; negative: колонка без двери (наборов больше нет) ничего не шлёт, а доска будет нарисована заново"),
     ("refused_order_draws_again",
      '',
      '''await (async () => { const timers = []; const [b, log] = board({ fail: true }); b.win.setTimeout = (fn) => timers.push(fn); let drawn = 0;
@@ -1868,7 +1951,7 @@ PINS = [
     ("reveal_goes_with_the_pointer",
      '',
      r"""(() => { const [b] = board(); const s = stage(b, CARDS);
-       b.hover(over("row:std/sub")); b.hover(over("client:23001")); const stale = (s.timers[0][0](), s.calls.length); s.timers[1][0]();
+       b.hover(over("row:std/sub")); b.hover(over("client:client-hermes")); const stale = (s.timers[0][0](), s.calls.length); s.timers[1][0]();
        b.hover(over("row:std/sub")); b.hover({ target: node({}) });
        const leftBoard = s.calls.length; s.timers[2][0](); return [s.timers.length, s.cleared, stale, said(s), leftBoard, s.calls.length]; })()""",
      '[3,[0,1,0,3],0,[["models",464,"smooth"]],1,1]',
@@ -1888,7 +1971,7 @@ PINS = [
      "у человека, который просил меньше движения (prefers-reduced-motion), колонка встаёт на место сразу, без плавной прокрутки"),
     ("reveal_keeps_the_pointers_own_column_still",
      '',
-     r"""(() => { const [b] = board(); const s = stage(b, { ...CARDS, "pool:std": ["pools", 730, 1500, 280, 200], "client:23001": ["clients", 50, 1300, 280, 70] });
+     r"""(() => { const [b] = board(); const s = stage(b, { ...CARDS, "pool:std": ["pools", 730, 1500, 280, 200], "client:client-hermes": ["clients", 50, 1300, 280, 70] });
        b.hover(over("row:std/sub")); s.timers[0][0](); return said(s); })()""",
      '[["clients",864,"smooth"],["models",464,"smooth"]]',
      "колонка, где стоит указатель, не двигается, как бы далеко ни стояла в ней карточка пути (пул под строкой — в 1500); остальные колонки идут: клиент, что был "
@@ -1919,7 +2002,7 @@ PINS = [
     ("reveal_across_goes_to_the_model_of_the_row",
      '',
      r"""(() => { const [b] = board(); const s = stage(b, { "row:std/sub": ["pools", 667, 144, 327, 26], "pool:std": ["pools", 650, 110, 360, 200], "setpool:std-set/std": ["sets", 220, 260, 260, 24],
-         "set:std-set": ["sets", 200, 220, 300, 120], "client:23001": ["clients", 50, 200, 280, 70], "model:acc:sub/gpt-sol": ["models", 1071, 180, 335, 24] }, { boxWidth: 1100 });
+         "set:std-set": ["sets", 200, 220, 300, 120], "client:client-hermes": ["clients", 50, 200, 280, 70], "model:acc:sub/gpt-sol": ["models", 1071, 180, 335, 24] }, { boxWidth: 1100 });
        b.pointer = { x: 800, y: 150 }; b.hover(over("row:std/sub", 800, 150)); s.timers[0][0](); const row = said(s);
        b.hover(over("model:acc:sub/gpt-sol", 900, 150)); s.timers[1][0](); return [row, said(s).slice(row.length)]; })()""",
      '[[["box",318,"smooth"]],[["pools",78,"smooth"]]]',
@@ -1934,7 +2017,7 @@ PINS = [
     ("reveal_not_while_something_is_carried",
      '',
      r"""(() => { const [b] = board(); const s = stage(b, CARDS); b.trace = { key: "row:std/sub", pinned: false }; b.drag = { kind: "row", moved: true };
-       const carried = b.reveal("row:std/sub"); b.drag = null; b.trace = { key: "client:23002", pinned: false }; const other = b.reveal("row:std/sub");
+       const carried = b.reveal("row:std/sub"); b.drag = null; b.trace = { key: "client:client-bot", pinned: false }; const other = b.reveal("row:std/sub");
        return [carried, other, s.calls.length]; })()""",
      '[false,false,0]',
      "пока в руке канат или карточка, доска сама не прокручивается (под рукой ничего не уезжает); negative: путь, что давно не тот, под указателем уже другая карточка, — тоже ничего"),
@@ -1966,19 +2049,19 @@ PINS = [
     ("queue_key_is_the_row_a_request_is_on",
      '',
      r"""(() => { const [b] = board(); const k = (item) => b.queueKey(item);
-       return [k({ cloudPoolId: "std", poolStepId: "r1", routedOutputId: "srv:22999" }), k({ cloudPoolId: "std", poolStepId: "sub", routedOutputId: "srv:22008" }),
-         k({ routedOutputId: "srv:22009" }), k({ cloudPoolId: "gone", poolStepId: "r1", routedOutputId: "srv:22010" }), k({ cloudPoolId: "std", poolStepId: "r9" }), k({})]; })()""",
-     '["out:srv:22008","","out:srv:22009","out:srv:22010","",""]',
+       return [k({ cloudPoolId: "std", poolStepId: "r1", routedOutputId: "mm:lost" }), k({ cloudPoolId: "std", poolStepId: "sub", routedOutputId: "mm:coder" }),
+         k({ routedOutputId: "mm:gemma" }), k({ cloudPoolId: "gone", poolStepId: "r1", routedOutputId: "mm:big" }), k({ cloudPoolId: "std", poolStepId: "r9" }), k({})]; })()""",
+     '["out:mm:coder","","out:mm:gemma","out:mm:big","",""]',
      "модель запроса — по строке пула, на которой он сейчас (а не по выходу, которым он шёл раньше); на строке подписки — ни одной очереди; "
      "пришедший к ячейке напрямую — по её выходу; negative: строки, которой у пула нет, и запроса без адреса — ни одной"),
     ("queue_on_the_cells_line",
      '',
-     r"""(() => { const [b] = board({ agents: () => QA(), slots: () => ({ "10.0.0.5:22008": 1 }) }); const models = b.modelsHtml();
-       const line = item(models, '<div class="pb-model', 'data-pb-key="out:srv:22008"'); const idle = item(models, '<div class="pb-model', 'data-pb-key="out:srv:22011"');
-       const [b2] = board({ agents: () => QA() }); const unknown = item(b2.modelsHtml(), '<div class="pb-model', 'data-pb-key="out:srv:22008"');
-       return [line.includes('<span class="pb-queue-chip waiting" data-pb-queue-chip="out:srv:22008" data-t="pb-queue-chip" title="'
+     r"""(() => { const [b] = board({ agents: () => QA(), slots: () => ({ "10.0.0.5:8092/Coder": 1 }) }); const models = b.modelsHtml();
+       const line = item(models, '<div class="pb-model', 'data-pb-key="out:mm:coder"'); const idle = item(models, '<div class="pb-model', 'data-pb-key="out:mm:small"');
+       const [b2] = board({ agents: () => QA() }); const unknown = item(b2.modelsHtml(), '<div class="pb-model', 'data-pb-key="out:mm:coder"');
+       return [line.includes('<span class="pb-queue-chip waiting" data-pb-queue-chip="out:mm:coder" data-t="pb-queue-chip" title="'
          + esc(fill(en.pbQueueChipTitle, { busy: "1", slots: "1", n: "1" })) + '">' + esc(fill(en.pbQueueChipWaiting, { busy: "1", slots: "1", n: "1" })) + "</span>"),
-         idle.includes('data-pb-queue-chip="out:srv:22011" data-t="pb-queue-chip" hidden></span>'), unknown.includes(">1 of ? · 1 waiting<")]; })()""",
+         idle.includes('data-pb-queue-chip="out:mm:small" data-t="pb-queue-chip" hidden></span>'), unknown.includes(">1 of ? · 1 waiting<")]; })()""",
      '[true,true,true]',
      "строка ячейки: «1 из 1 · ждут 1», янтарная, с подсказкой; negative: у ячейки без запросов метка пустая и скрыта; слотов никто не сказал — «?»"),
     ("queue_on_the_row_that_waits",
@@ -1993,9 +2076,9 @@ PINS = [
      "negative: у строки подписки обёртки нет, у строки ячейки без ждущих — пустые слова"),
     ("queue_in_the_strip_of_a_cell",
      'st.topology.proxyPolicy = { queueYieldSec: 90, queueLimitSec: 1500 };',
-     r"""(() => { const [b] = board({ agents: () => QA(), slots: () => ({ "10.0.0.5:22008": 1 }) }); const strip = b.modelDetailsHtml("out:srv:22008");
-       const idle = b.modelDetailsHtml("out:srv:22009");
-       return [strip.includes('<div class="pb-queue-live" data-pb-queue-live="out:srv:22008"><div class="pb-queue" data-t="pb-queue" data-t-state="waiting">'),
+     r"""(() => { const [b] = board({ agents: () => QA(), slots: () => ({ "10.0.0.5:8092/Coder": 1 }) }); const strip = b.modelDetailsHtml("out:mm:coder");
+       const idle = b.modelDetailsHtml("out:mm:gemma");
+       return [strip.includes('<div class="pb-queue-live" data-pb-queue-live="out:mm:coder"><div class="pb-queue" data-t="pb-queue" data-t-state="waiting">'),
          strip.includes(esc(fill(en.pbQueueRunning, { time: "2:10" }))), strip.includes(esc(en.pbQueueTo503)), strip.includes(esc(en.pbQueueNext)),
          strip.includes(esc(fill(en.pbQueueYieldSaid, { time: "1.5 min" }))) && strip.includes(esc(fill(en.pbQueueLimitSaid, { time: "25 min" }))),
          strip.includes('data-pb-queue-open data-t="pb-queue-edit"'), idle.includes('data-t-state="idle"') && idle.includes(esc(en.pbQueueNobody)),
@@ -2007,10 +2090,10 @@ PINS = [
      "negative: у пустой — «никто не ждёт», у модели подписки очереди нет, id пула (std) в полосе не стоит; пул, которого доска не знает, — его id"),
     ("queue_names_the_builtin_clients_model",
      'WITH_OWUI();',
-     r"""(() => { const agents = () => ({ "23009": { port: 23009, active: [{ id: "o1", route: "Open WebUI", phase: "queued", cloudPoolId: "live:srv:22008",
-         poolStepId: "r1", routedOutputId: "srv:22008", upstream: "10.0.0.5:22008", queue: { since: 975, leaveAt: 4275, leaveTo: "refuse", position: 0 } }] } });
-       const [b] = board({ agents }); const strip = b.modelDetailsHtml("out:srv:22008");
-       return [strip.includes("<b>Open WebUI</b> · Coder<"), strip.includes("live:srv:22008"), b.poolName("live:acc:sub/gpt-sol"), b.poolName("live:srv:22009"), b.poolName("live:nope")]; })()""",
+     r"""(() => { const agents = () => ({ "client-owui": { routeId: "client-owui", active: [{ id: "o1", route: "Open WebUI", phase: "queued", cloudPoolId: "live:mm:coder",
+         poolStepId: "r1", routedOutputId: "mm:coder", upstream: "10.0.0.5:8092/Coder", queue: { since: 975, leaveAt: 4275, leaveTo: "refuse", position: 0 } }] } });
+       const [b] = board({ agents }); const strip = b.modelDetailsHtml("out:mm:coder");
+       return [strip.includes("<b>Open WebUI</b> · Coder<"), strip.includes("live:mm:coder"), b.poolName("live:acc:sub/gpt-sol"), b.poolName("live:mm:gemma"), b.poolName("live:nope")]; })()""",
      '[true,false,"gpt-sol","Gemma","live:nope"]',
      "запрос к модели напрямую в очереди модели назван её именем, каким её зовут клиенты (каталог доски, liveCatalog), а не id её пула "
      "(владелец, 2026-10-27: в полосе стояло «Open WebUI · live:mm:3a5…») — и остановленной модели тоже; negative: пул, которого нет ни в файле, ни в каталоге, — его id"),
@@ -2059,13 +2142,13 @@ PINS = [
      "negative: 61 мин не отправлены — поле вернулось к 25, сказано, в каких границах"),
     ("queue_painted_in_place",
      '',
-     r"""(() => { let now = 1000000; const seen1 = QA(now); const [b] = board({ agents: () => seen1, slots: () => ({ "10.0.0.5:22008": 1 }), now: () => now });
+     r"""(() => { let now = 1000000; const seen1 = QA(now); const [b] = board({ agents: () => seen1, slots: () => ({ "10.0.0.5:8092/Coder": 1 }), now: () => now });
        const el = (attrs, extra = {}) => { const n = node(attrs, null, { textContent: "", innerHTML: "", hidden: true, title: null, ...extra });
          n.classList.toggle = (c, on) => { if (on) n.classes.add(c); else n.classes.delete(c); };
          n.setAttribute = (k, v) => { n.title = v; }; n.removeAttribute = () => { n.title = null; }; return n; };
        const wait = el({ "data-t": "pb-row-wait" });
-       const els = { "[data-pb-queue-chip]": [el({ "data-pb-queue-chip": "out:srv:22008" }), el({ "data-pb-queue-chip": "out:srv:22011" })],
-         "[data-pb-row-wait]": [el({ "data-pb-row-wait": "std/r1" }, { querySelector: () => wait })], "[data-pb-queue-live]": [el({ "data-pb-queue-live": "out:srv:22008" })] };
+       const els = { "[data-pb-queue-chip]": [el({ "data-pb-queue-chip": "out:mm:coder" }), el({ "data-pb-queue-chip": "out:mm:small" })],
+         "[data-pb-row-wait]": [el({ "data-pb-row-wait": "std/r1" }, { querySelector: () => wait })], "[data-pb-queue-live]": [el({ "data-pb-queue-live": "out:mm:coder" })] };
        b.root = { querySelectorAll: (s) => els[s] || [] }; b.top = st.topology;
        const first = b.paintQueue(); const chip = els["[data-pb-queue-chip]"][0]; const seen = [chip.textContent, chip.hidden, chip.classes.has("waiting"), wait.textContent,
          els["[data-pb-row-wait]"][0].classes.has("waiting"), els["[data-pb-queue-live]"][0].innerHTML.includes("pb-queue-wait"), els["[data-pb-queue-chip]"][1].hidden];
@@ -2075,20 +2158,20 @@ PINS = [
      "монитор прочитан: метка, строка пула и полоса рисуются на месте; negative: то же чтение не трогает ничего (0), "
      "через 5 с меняется только то, где время (строка пула и полоса)"),
     ("queue_idle_strip_says_its_slots",
-     'st.topology.routers[0].outputs[1].slotGroup = "10.0.0.5:22009";',
+     'st.topology.routers[0].outputs[1].slotGroup = "10.0.0.5:8092/Gemma";',
      r"""(() => { const busy = (n) => ">" + esc(fill(en.pbQueueBusy, { busy: "0", slots: n })) + "<";
-       const [b] = board({ slots: () => ({ "10.0.0.5:22009": 1, "10.0.0.5:22010": 4 }) });
-       const [b2] = board(); const [b3] = board({ slots: () => ({ "10.0.0.5:22009": 0 }) });
-       return [b.modelDetailsHtml("out:srv:22009").includes(busy("1")), b2.modelDetailsHtml("out:srv:22009").includes(busy("?")),
-         b3.modelDetailsHtml("out:srv:22009").includes(busy("?")), b.modelDetailsHtml("out:srv:22010").includes(busy("?"))]; })()""",
+       const [b] = board({ slots: () => ({ "10.0.0.5:8092/Gemma": 1, "10.0.0.5:8092/Big": 4 }) });
+       const [b2] = board(); const [b3] = board({ slots: () => ({ "10.0.0.5:8092/Gemma": 0 }) });
+       return [b.modelDetailsHtml("out:mm:gemma").includes(busy("1")), b2.modelDetailsHtml("out:mm:gemma").includes(busy("?")),
+         b3.modelDetailsHtml("out:mm:gemma").includes(busy("?")), b.modelDetailsHtml("out:mm:big").includes(busy("?"))]; })()""",
      '[true,true,true,true]',
      "полоса модели, которой никто не занят, говорит её слоты по имени её очереди (slotGroup выхода): «0 из 1» (владелец, 2026-10-26: «вижу баги внизу»); "
      "negative: прокси слотов не сказал или сказал 0 — «?»; у выхода без имени очереди — тоже «?», чужие слоты (22010) ему не достаются"),
     ("queue_side_door_beside_its_title",
      'st.topology.proxyPolicy = { queueYieldSec: 90, queueLimitSec: 1500 };',
-     r"""(() => { const [b] = board(); const strip = b.modelDetailsHtml("out:srv:22009"); const side = strip.slice(strip.indexOf('data-t="pb-queue-side"'));
+     r"""(() => { const [b] = board(); const strip = b.modelDetailsHtml("out:mm:gemma"); const side = strip.slice(strip.indexOf('data-t="pb-queue-side"'));
        const head = side.slice(0, side.indexOf("</div>")); const wait = (time) => "<p>" + esc(fill(en.pbQueueClientWaitSaid, { time })) + "</p>";
-       st.topology.proxyPolicy = { queueYieldSec: 90, clientTimeoutSec: 1800 }; const [b2] = board(); const half = b2.modelDetailsHtml("out:srv:22009");
+       st.topology.proxyPolicy = { queueYieldSec: 90, clientTimeoutSec: 1800 }; const [b2] = board(); const half = b2.modelDetailsHtml("out:mm:gemma");
        return [head.includes("<b>" + esc(en.pbQueueSettingsTitle) + "</b>"), head.includes('data-t="pb-queue-edit"'),
          side.split('data-t="pb-queue-edit"').length - 1, side.indexOf('data-t="pb-queue-edit"') < side.indexOf("pb-queue-legend"),
          strip.startsWith('<div class="pb-queue-wrap"><div class="pb-queue-main"><div class="pb-dock-cell"'), side.includes(wait("60 min")),
@@ -2099,10 +2182,10 @@ PINS = [
      "такой тайм-аут ставить агентам (несказанное — 60 мин); negative: второй кнопки после легенды нет, при 30 мин — 30, а не 60"),
     ("queue_slot_says_its_clients_deadline",
      '',
-     r"""(() => { const at = 1000; const item = (deadline) => ({ "23005": { port: 23005, active: [{ id: "x1", route: "Bot", phase: "streaming",
-         routedOutputId: "srv:22008", upstream: "10.0.0.5:22008", startedAt: at - 140, slotAt: at - 130, ...(deadline ? { clientDeadline: deadline } : {}) }] } });
-       const words = (deadline) => { const [b] = board({ agents: () => item(deadline), slots: () => ({ "10.0.0.5:22008": 1 }) });
-         return (b.modelDetailsHtml("out:srv:22008").match(/<span class="pb-queue-time run">([^<]*)<\/span>/) || [])[1]; };
+     r"""(() => { const at = 1000; const item = (deadline) => ({ "client-bot": { routeId: "client-bot", active: [{ id: "x1", route: "Bot", phase: "streaming",
+         routedOutputId: "mm:coder", upstream: "10.0.0.5:8092/Coder", startedAt: at - 140, slotAt: at - 130, ...(deadline ? { clientDeadline: deadline } : {}) }] } });
+       const words = (deadline) => { const [b] = board({ agents: () => item(deadline), slots: () => ({ "10.0.0.5:8092/Coder": 1 }) });
+         return (b.modelDetailsHtml("out:mm:coder").match(/<span class="pb-queue-time run">([^<]*)<\/span>/) || [])[1]; };
        return [words(at - 140 + 3600) === fill(en.pbQueueRunningLeft, { time: "2:10", left: "57:40" }), words(null) === fill(en.pbQueueRunning, { time: "2:10" })]; })()""",
      '[true,true]',
      "в слоте полосы — сколько идёт запрос и сколько ещё ждёт его клиент, по сроку, который сказал прокси (владелец, 2026-10-26: "
@@ -2111,10 +2194,10 @@ PINS = [
     # what they called.
     ("clients_column_with_builtin",
      'WITH_OWUI();',
-     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const own = part(h, 'data-pb-client="23009"'); const at = (x) => h.indexOf(x);
-       return [at('data-pb-client="23009"') < at('data-pb-client="23002"'), h.includes("pb-clients-divider"), own.includes('data-t-state="builtin"'),
+     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const own = part(h, 'data-pb-client="client-owui"'); const at = (x) => h.indexOf(x);
+       return [at('data-pb-client="client-owui"') < at('data-pb-client="client-bot"'), h.includes("pb-clients-divider"), own.includes('data-t-state="builtin"'),
          own.includes(">" + en.consumerBuiltinChip + "<"), own.includes(">" + fill(en.pbClientSeesAll, { all: "5" }) + "<"), own.includes("data-pb-anchor"),
-         own.includes("pb-card-grip"), own.includes("data-pb-deny-open"), h.includes('data-pb-seat="23009"'), h.includes('data-pb-seat="23001"')]; })()""",
+         own.includes("pb-card-grip"), own.includes("data-pb-deny-open"), h.includes('data-pb-seat="client-owui"'), h.includes('data-pb-seat="client-hermes"')]; })()""",
      '[true,false,true,true,true,true,false,true,false,true]',
      "встроенный — первым, без черты под ним (1.3.675: он клиент, как любой другой): «свой», «видит все 5», точка, откуда идут его канаты, «＋ Запретить»; "
      "negative: ни ручки переноса, ни места в порядке — он всегда первый; у обычных место осталось"),
@@ -2125,44 +2208,44 @@ PINS = [
      "negative: встроенного нет — нет и черты"),
     ("client_count_not_known",
      'WITH_OWUI({ models: undefined });',
-     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const own = part(h, 'data-pb-client="23009"'), her = part(h, 'data-pb-client="23001"');
-       st.topology.entryModels = null; const [c] = board(); const now = part(c.clientsHtml(), 'data-pb-client="23001"');
+     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const own = part(h, 'data-pb-client="client-owui"'), her = part(h, 'data-pb-client="client-hermes"');
+       st.topology.entryModels = null; const [c] = board(); const now = part(c.clientsHtml(), 'data-pb-client="client-hermes"');
        return [own.includes(">" + en.pbClientModelsUnknown + "<"), own.includes('data-t="pb-client-count" data-t-state="unknown"'),
          her.includes('data-t="pb-client-count" data-t-state="all"'), now.includes(">" + en.pbClientModelsUnknown + "<"), now.includes("Sees")]; })()""",
      '[true,true,true,true,false]',
      "что видит клиент, не прочитано — «моделей: не известно»; не прочитано, что видит клиент, которому ничего не запрещено, — то же у каждого: "
      "сравнить не с чем; negative: «не известно» — не «ни одной модели» и не «видит все»"),
     ("closed_marks_on_models",
-     'st.topology.proxies[1].deny = ["model:srv:22008", "account:sub", "host:box"];',
+     'st.topology.proxies[1].deny = ["model:mm:coder", "account:sub", "host:box"];',
      r"""(() => { const [b] = board(); const html = b.modelsHtml(); const sub = part(html, 'data-pb-account="sub"'), box = part(html, 'data-pb-machine="box"');
        const row = (h, key) => item(h, '<div class="pb-model', `data-pb-key="${key}"`);
        const closed = (x) => (x.match(/data-t="pb-model-closed"[^>]*>⊘ ([^<]*)</) || [])[1] || null;
        const head = (x) => part(x, '<div class="pb-src-head"', "</div>");
        st.setTopology(TOPO()); const [c] = board(); const plain = c.modelsHtml();
-       return [closed(row(box, "out:srv:22008")), closed(row(box, "out:srv:22009")), closed(head(sub)), closed(head(box)), closed(row(sub, "acc:sub/gpt-sol")),
-         row(box, "out:srv:22008").includes(`title="${esc(fill(en.pbClosedTitle, { names: "Bot" }))}"`), plain.includes("pb-model-closed"),
-         m.PoolBoard.denyKey("out:srv:1"), m.PoolBoard.denyKey("acc:a/m"), m.PoolBoard.denyKey("x"), m.PoolBoard.closedHtml([])]; })()""",
-     '["Bot",null,"Bot","Bot",null,true,false,"model:srv:1","model:acc:a/m","",""]',
+       return [closed(row(box, "out:mm:coder")), closed(row(box, "out:mm:gemma")), closed(head(sub)), closed(head(box)), closed(row(sub, "acc:sub/gpt-sol")),
+         row(box, "out:mm:coder").includes(`title="${esc(fill(en.pbClosedTitle, { names: "Bot" }))}"`), plain.includes("pb-model-closed"),
+         m.PoolBoard.denyKey("out:mm:x"), m.PoolBoard.denyKey("acc:a/m"), m.PoolBoard.denyKey("x"), m.PoolBoard.closedHtml([])]; })()""",
+     '["Bot",null,"Bot","Bot",null,true,false,"model:mm:x","model:acc:a/m","",""]',
      "что запрещено клиенту, видно и на моделях (владелец, 2026-10-27, макет: «запрещена для: SpiderMonkey»): модель машины — на своей строке, аккаунт и машина целиком — "
      "в голове своей карточки, с именами клиентов в подсказке; ключ модели на доске → ключ её запрета: выход машины — model:<выход>, модель аккаунта — model:acc:…; "
      "negative: модель, запрещённая только через источник, своей метки не несёт (метка у источника); никому ничего не запрещено — меток нет; ключ не модели — пусто"),
     ("two_builtins_on_routing",
      'WITH_BOTH();',
-     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const ow = part(h, 'data-pb-client="23009"'), oc = part(h, 'data-pb-client="23010"'); const at = (x) => h.indexOf(x);
+     r"""(() => { const [b] = board(); const h = b.clientsHtml(); const ow = part(h, 'data-pb-client="client-owui"'), oc = part(h, 'data-pb-client="client-ocode"'); const at = (x) => h.indexOf(x);
        const subHead = part(part(b.modelsHtml(), 'data-pb-account="sub"'), '<div class="pb-src-head"', "</div>");
-       return [at('data-pb-client="23009"') < at('data-pb-client="23010"') && at('data-pb-client="23010"') < at('data-pb-client="23002"'),
+       return [at('data-pb-client="client-owui"') < at('data-pb-client="client-ocode"') && at('data-pb-client="client-ocode"') < at('data-pb-client="client-bot"'),
          oc.includes(">⊘ ChatGPT<"), oc.includes(`title="${esc(fill(en.pbDenySource, { name: "ChatGPT" }))}"`), oc.includes(">" + fill(en.pbClientSeesSome, { n: "3", all: "5" }) + "<"),
-         ow.includes("data-pb-anchor") && oc.includes("data-pb-anchor"), [...m.PoolBoard.path(st.topology, "client:23010").nodes], subHead.includes(">⊘ opencode<")]; })()""",
-     '[true,true,true,true,true,["client:23010"],true]',
+         ow.includes("data-pb-anchor") && oc.includes("data-pb-anchor"), [...m.PoolBoard.path(st.topology, "client:client-ocode").nodes], subHead.includes(">⊘ opencode<")]; })()""",
+     '[true,true,true,true,true,["client:client-ocode"],true]',
      "два встроенных — первыми, в порядке видов, потом остальные; opencode запрещён аккаунт целиком — на его карточке чип с именем аккаунта, «видит 3 из 5», а голова "
      "аккаунта говорит, кому он запрещён; оба — с точкой своих канатов; путь opencode, который ничего не звал, — он один"),
     ("builtin_path",
      'WITH_OWUI();',
-     r"""(() => { const top = st.topology; const own = m.PoolBoard.path(top, "client:23009"); const sol = m.PoolBoard.path(top, "model:acc:sub/gpt-sol");
+     r"""(() => { const top = st.topology; const own = m.PoolBoard.path(top, "client:client-owui"); const sol = m.PoolBoard.path(top, "model:acc:sub/gpt-sol");
        const astra = m.PoolBoard.path(top, "model:acc:sub/gpt-astra"); const [b] = board();
-       return [[...own.nodes].sort(), [...own.cables].sort(), sol.nodes.has("client:23009"), sol.nodes.has("client:23001"),
-         astra.nodes.has("client:23009"), b.routeOf("model:acc:sub/gpt-sol")[0].names]; })()""",
-     '[["client:23009","direct:live:acc:sub/gpt-sol","model:acc:sub/gpt-sol"],["client:23009/live:acc:sub/gpt-sol","direct:live:acc:sub/gpt-sol"],true,true,false,["Open WebUI","Hermes"]]',
+       return [[...own.nodes].sort(), [...own.cables].sort(), sol.nodes.has("client:client-owui"), sol.nodes.has("client:client-hermes"),
+         astra.nodes.has("client:client-owui"), b.routeOf("model:acc:sub/gpt-sol")[0].names]; })()""",
+     '[["client:client-owui","direct:live:acc:sub/gpt-sol","model:acc:sub/gpt-sol"],["client:client-owui/live:acc:sub/gpt-sol","direct:live:acc:sub/gpt-sol"],true,true,false,["Open WebUI","Hermes"]]',
      "путь встроенного — как любого клиента, по тому, что он звал: Open WebUI звал gpt-sol напрямую — его путь идёт через строку «Напрямую» к модели; путь модели "
      "называет его среди клиентов рядом с Hermes, что звал её пулом; negative: модель, которую он не звал, его не зажигает"),
     # «Напрямую» (the owner, 2026-10-27, option В2): pinned on the top of the pools' column, a row for each model called straight now — all of them.
@@ -2170,27 +2253,27 @@ PINS = [
      '',
      r"""(() => { const look = (agents, trace = null) => { const [b] = board({ agents: () => agents }); b.trace = trace; return [b.directRows(), b.directHtml()]; };
        const [rest, restHtml] = look(undefined);
-       const [live, liveHtml] = look(RUN({ cloudPoolId: "live:srv:22008", poolStepId: "r1" }));
-       const [ended, endedHtml] = look(SAW({ cloudPoolId: "live:srv:22008", poolStepId: "r1", finishedAt: 998 }));
-       const [pinned, pinnedHtml] = look(undefined, { key: "client:23001", pinned: true });
-       const [model] = look(undefined, { key: "model:out:srv:22008", pinned: true });
-       const [row] = look(undefined, { key: "direct:live:srv:22009", pinned: true });
-       const [hovered] = look(undefined, { key: "client:23001", pinned: false });
+       const [live, liveHtml] = look(RUN({ cloudPoolId: "live:mm:coder", poolStepId: "r1" }));
+       const [ended, endedHtml] = look(SAW({ cloudPoolId: "live:mm:coder", poolStepId: "r1", finishedAt: 998 }));
+       const [pinned, pinnedHtml] = look(undefined, { key: "client:client-hermes", pinned: true });
+       const [model] = look(undefined, { key: "model:out:mm:coder", pinned: true });
+       const [row] = look(undefined, { key: "direct:live:mm:gemma", pinned: true });
+       const [hovered] = look(undefined, { key: "client:client-hermes", pinned: false });
        const [unknown] = look(RUN({ cloudPoolId: "live:mm:zzz", poolStepId: "r1" }));
-       st.topology.proxies[0].calls = [{ pool: "live:gone", count: 1, last: 1 }]; const [gone] = look(undefined, { key: "client:23001", pinned: true });
+       st.topology.proxies[0].calls = [{ pool: "live:gone", count: 1, last: 1 }]; const [gone] = look(undefined, { key: "client:client-hermes", pinned: true });
        const who = (h) => (h.match(/class="pb-direct-who" title="[^"]*">([^<]*)</) || [])[1];
        return [rest, restHtml.includes('data-t="pb-direct" data-t-state="quiet"') && restHtml.includes(">" + en.pbDirectNone + "<"), live,
-         liveHtml.includes('data-pb-node="direct:live:srv:22008"') && liveHtml.includes('<span class="pb-led" aria-hidden="true">'),
-         liveHtml.includes('<small class="pb-direct-where">🖥 Box :22008</small>'), liveHtml.includes(">" + fill(en.pbDirectPaths, { n: "1" }) + "<"), who(liveHtml),
+         liveHtml.includes('data-pb-node="direct:live:mm:coder"') && liveHtml.includes('<span class="pb-led" aria-hidden="true">'),
+         liveHtml.includes('<small class="pb-direct-where">🖥 Box</small>'), liveHtml.includes(">" + fill(en.pbDirectPaths, { n: "1" }) + "<"), who(liveHtml),
          ended[0].state, who(endedHtml), pinned, pinnedHtml.includes(">" + en.pbDirectPicked + "<"), who(pinnedHtml), model, row, hovered, unknown, gone]; })()""",
      json.dumps([[], True,
-                 [{"pool": "live:srv:22008", "name": "Coder", "key": "out:srv:22008", "ports": [23001], "state": "live", "count": 0}],
+                 [{"pool": "live:mm:coder", "name": "Coder", "key": "out:mm:coder", "clients": ["client-hermes"], "state": "live", "count": 0}],
                  True, True, True, "Hermes", "ended", "Hermes · just now",
-                 [{"pool": "live:srv:22008", "name": "Coder", "key": "out:srv:22008", "ports": [23001], "state": "recent", "count": 3}], True, "Hermes · 3 in 3 days",
-                 [{"pool": "live:srv:22008", "name": "Coder", "key": "out:srv:22008", "ports": [23001], "state": "recent", "count": 3}],
-                 [{"pool": "live:srv:22009", "name": "Gemma", "key": "out:srv:22009", "ports": [], "state": "recent", "count": 0}],
+                 [{"pool": "live:mm:coder", "name": "Coder", "key": "out:mm:coder", "clients": ["client-hermes"], "state": "recent", "count": 3}], True, "Hermes · 3 in 3 days",
+                 [{"pool": "live:mm:coder", "name": "Coder", "key": "out:mm:coder", "clients": ["client-hermes"], "state": "recent", "count": 3}],
+                 [{"pool": "live:mm:gemma", "name": "Gemma", "key": "out:mm:gemma", "clients": [], "state": "recent", "count": 0}],
                  [],
-                 [{"pool": "live:mm:zzz", "name": "live:mm:zzz", "key": "", "ports": [23001], "state": "live", "count": 0}],
+                 [{"pool": "live:mm:zzz", "name": "live:mm:zzz", "key": "", "clients": ["client-hermes"], "state": "live", "count": 0}],
                  []]),
      "«Напрямую»: в покое — ни строки, «сейчас никто»; запрос к модели напрямую — её строка по имени модели, с лампой, где она стоит и кто её зовёт, в голове — "
      "сколько путей сейчас; запрос только что кончился — строка ещё стоит: «только что»; закреплён клиент — модели, что он звал напрямую за три дня, со счётом, "
@@ -2201,7 +2284,7 @@ PINS = [
      '',
      r"""(() => { let agents; const [b] = board({ agents: () => agents });
        const el = { innerHTML: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } }; b.root = { querySelector: (s) => (s === "[data-pb-direct-block]" ? el : null) };
-       const same = b.paintDirect(); agents = RUN({ cloudPoolId: "live:srv:22008", poolStepId: "r1" }); const changed = b.paintDirect(); const after = [el.attrs["data-t-state"], el.innerHTML.includes(">Coder<")];
+       const same = b.paintDirect(); agents = RUN({ cloudPoolId: "live:mm:coder", poolStepId: "r1" }); const changed = b.paintDirect(); const after = [el.attrs["data-t-state"], el.innerHTML.includes(">Coder<")];
        const again = b.paintDirect(); agents = undefined; const gone = b.paintDirect(); const quiet = el.attrs["data-t-state"]; b.root = null; const none = b.paintDirect();
        return [same, changed, after, again, gone, quiet, none]; })()""",
      '[false,true,["paths",true],false,true,"quiet",false]',
@@ -2209,24 +2292,66 @@ PINS = [
     ("cable_of",
      '',
      r"""(() => { const [b] = board(); const c = (k) => { const x = b.cableOf(k); return x && [x.from, x.to, x.cuts, x.quiet, x.lit]; };
-       return [c("client:23001/std"), c("client:23001/live:srv:22008"), c("client:4242/std"), c("direct:live:srv:22008"), c("direct:live:nope"),
+       return [c("client:client-hermes/std"), c("client:client-hermes/live:mm:coder"), c("client:client-none/std"), c("direct:live:mm:coder"), c("direct:live:nope"),
          c("row:std/r1"), c("row:std/r2"), c("row:eco/r1"), c("set:std-set/std"), c("nonsense")]; })()""",
-     json.dumps([['[data-pb-node="client:23001"] [data-pb-anchor]', '[data-pb-pool="std"] > [data-pb-in]', False, False, False],
-                 ['[data-pb-node="client:23001"] [data-pb-anchor]', '[data-pb-direct="live:srv:22008"] [data-pb-direct-in]', False, False, False],
-                 ['[data-pb-node="client:4242"] [data-pb-anchor]', '[data-pb-pool="std"] > [data-pb-in]', False, True, False],
-                 ['[data-pb-direct="live:srv:22008"] [data-pb-direct-out]', '[data-pb-key="out:srv:22008"] [data-pb-in]', False, False, False],
+     json.dumps([['[data-pb-node="client:client-hermes"] [data-pb-anchor]', '[data-pb-pool="std"] > [data-pb-in]', False, False, False],
+                 ['[data-pb-node="client:client-hermes"] [data-pb-anchor]', '[data-pb-direct="live:mm:coder"] [data-pb-direct-in]', False, False, False],
+                 ['[data-pb-node="client:client-none"] [data-pb-anchor]', '[data-pb-pool="std"] > [data-pb-in]', False, True, False],
+                 ['[data-pb-direct="live:mm:coder"] [data-pb-direct-out]', '[data-pb-key="out:mm:coder"] [data-pb-in]', False, False, False],
                  ['[data-pb-direct="live:nope"] [data-pb-direct-out]', '[data-pb-key=""] [data-pb-in]', False, True, False],
-                 ['[data-pb-pool="std"] [data-pb-row="r1"] [data-pb-out]', '[data-pb-key="out:srv:22008"] [data-pb-in]', True, False, True],
+                 ['[data-pb-pool="std"] [data-pb-row="r1"] [data-pb-out]', '[data-pb-key="out:mm:coder"] [data-pb-in]', True, False, True],
                  None,
-                 ['[data-pb-pool="eco"] [data-pb-row="r1"] [data-pb-out]', '[data-pb-key="out:srv:22999"] [data-pb-in]', True, True, False],
+                 ['[data-pb-pool="eco"] [data-pb-row="r1"] [data-pb-out]', '[data-pb-key="out:mm:lost"] [data-pb-in]', True, True, False],
                  None, None]),
      "где идёт канат по его ключу: клиента — от его точки к входу пула или к строке «Напрямую» (не режется), строки «Напрямую» — к модели (не режется), строки пула — "
-     "к модели (режется щелчком, служащая горит); `quiet` — конец, которого нет по известной причине: порт не клиент входа, модель «Напрямую» неизвестна, ячейка "
+     "к модели (режется щелчком, служащая горит); `quiet` — конец, которого нет по известной причине: клиента больше нет, модель «Напрямую» неизвестна, ячейка "
      "строки пропала; negative: строка без каната, ключи набора и непонятные — канатов нет"),
+    ("the_reader_cable_and_the_absence_of_its_name",
+      'st.setTopology({ ...TOPO(), reader: { name: "qwen-vl", answer: "reads" } });',
+      '''(() => { const c = (b, k) => { const x = b.cableOf(k); return x && [x.from, x.to, x.attrs, x.title, x.cuts, x.quiet, x.lit]; };
+        const rowOf = (h) => { const x = h.match(/data-t="pb-reader" data-t-id="([^"]*)" data-t-state="([^"]*)"/) || []; return [x[1], x[2]]; };
+        const [named] = board(); const hn = named.poolsHtml(); const blockNamed = part(hn, 'data-t="pb-reader-block"', "</section>");
+        st.setTopology({ ...TOPO(), reader: { name: null, answer: "nothing" } });
+        const [quiet] = board(); const hq = quiet.poolsHtml(); const blockQuiet = part(hq, 'data-t="pb-reader-block"', "</section>");
+        return [c(named, ReaderBlock.key()), c(quiet, ReaderBlock.key()), rowOf(hn), rowOf(hq),
+          blockNamed.includes('data-t-state="named"'), blockQuiet.includes('data-t-state="quiet"'),
+          blockQuiet.includes(en.pbReaderNotNamed), blockNamed.includes("data-pb-in"),
+          blockNamed.includes(`data-pb-out="${ReaderBlock.PREFIX}"`), ReaderBlock.wiredKeys({ name: null })]; })()''',
+      '[["[data-t=\\\"pb-reader\\\"] [data-pb-out]", "[data-pb-model][data-entry-name=\\\"qwen-vl\\\"] [data-pb-in]", '
+      '"data-pb-cable=\\\"reader\\\" data-pb-cable-key=\\\"reader\\\"", "Reader for a picture — for the whole board → qwen-vl", '
+      'true, true, false], null, ["reader", "reads"], ["reader", "nothing"], true, true, true, false, true, []]',
+      "канат читателя рисуется в покое: от его строки к модели, которую назвали; режется щелчком и называется `quiet`, потому что строка "
+      "называет читателя на себе — капля здесь была бы тот же факт дважды; ключ — `ReaderBlock.key()`, сказанный один раз, без пула: "
+      "один борд — один читатель; negative: имени нет — каната нет, и блок рисуется всё равно; состояние блока — факт об имени "
+      "(`named` / `quiet`), а не о пулах; пустое имя сказано словами; входной точки у строки нет — в читателя канат не тянется"),
+    # The order of the column, read from contract/media_reader_board.json (`column`). The owner, 2026-11-06: Direct is not
+    # pinned while the column scrolls — it is simply always the first block, and the reader block stands directly below it.
+    # A part that is not drawn is named as absent by the table, so a drawing that puts it back makes the pin red.
+    ("the_reader_block_sits_below_direct",
+     '',
+     '(() => { const cases = %s; return cases.map((c) => {'
+     ' st.setTopology({ ...TOPO(), pools: Array.from({ length: c.pools }, (_, i) => ({ id: "p" + i, name: "P" + i, reader: "qwen-vl", wiring: "reads", steps: [] })) });'
+     ' const [b] = board(); const h = b.poolsHtml();'
+     ' return c.parts.map((p) => [p.part, h.indexOf(p.marker)]).filter(([, i]) => i >= 0).map(([n]) => n); }); })()'
+     % json.dumps(COLUMN),
+     json.dumps([[p["part"] for p in c["parts"] if p["drawn"]] for c in COLUMN]),
+     "порядок — тот, что назван в таблице: direct, блок читателя, `empty`, карточки пулов; negative: блок читателя нарисован "
+     "до direct, и часть, названная в таблице ненарисованной, но нарисованная, попадает в значение — случай без пулов называет "
+     "только direct и empty"),
+    # What a reader cable and a click on it send: the pool under `pool`, said once in `PoolCards.body` (pools.js). On the live
+    # board, 2026-11-06, the cable sent the field without the pool around it, and the door answered `unknown pool: None`.
+    ("the_reader_body_is_the_name_under_reader",
+     '',
+     '(() => { const cases = %s; return cases.map((c) => { const body = c.through ? ReaderBlock.body(c.build.reader) : c.build;'
+     ' return [body, body.reader ?? null]; }); })()' % json.dumps(SAVE),
+     json.dumps([[c["body"], c["read"]] for c in SAVE]),
+     "корпус двери читателя — имя под ключом `reader`, сказанный один раз в `ReaderBlock.body`, и тот же ключ читает дверь "
+     "(`EntryModels::READER_FIELD`), поэтому страница и дверь не могут назвать его по-разному; negative: третья строка — корпус, "
+     "собранный без модуля: страница его построить не может, и дверь читает из него ничего, поэтому он назван отсутствием"),
     # What a client is closed to (1.3.675, option А): chips on its card and the window "＋ Close" opens.
     ("deny_labels",
      '',
-     r"""(() => { const [b] = board(); return ["pool:eco", "model:srv:22008", "account:sub", "host:box", "pool:old", "model:mm:gone", "account:nope", "host:far", "junk"]
+     r"""(() => { const [b] = board(); return ["pool:eco", "model:mm:coder", "account:sub", "host:box", "pool:old", "model:mm:gone", "account:nope", "host:far", "junk"]
        .map((k) => { const l = b.denyLabel(k); return [l.name, l.title, !!l.gone]; }); })()""",
      json.dumps([["Econom", "Blocked: the pool Econom", False], ["Coder", "Blocked: the model Coder", False], ["ChatGPT", "Blocked: every model of ChatGPT", False],
                  ["Box", "Blocked: every model of Box", False],
@@ -2235,53 +2360,53 @@ PINS = [
      "чип запрета называет запрещённое так, как его зовёт доска: пул и модель — по имени, аккаунт и машина — по имени карточки; negative: ключ, чьего пула, модели "
      "или источника на доске больше нет, — «нет на доске»: он ничего не закрывает, и его снимают в окне (не догадка о том, что это было)"),
     ("deny_window",
-     'st.topology.proxies[1].deny = ["pool:eco", "model:srv:22008", "pool:old"];',
-     r"""(() => { const [b] = board(); b.denying = { port: 23002, query: "" }; const h = b.denyHtml();
+     'st.topology.proxies[1].deny = ["pool:eco", "model:mm:coder", "pool:old"];',
+     r"""(() => { const [b] = board(); b.denying = { id: "client-bot", query: "" }; const h = b.denyHtml();
        const items = [...h.matchAll(/<label class="pb-deny-item([^"]*)" data-t="pb-deny-item" data-t-id="([^"]+)" data-t-state="([^"]+)">/g)].map((x) => [x[2], x[3], x[1].trim()]);
        const still = (h.match(/data-t="pb-deny-still">([^<]*)</) || [])[1], more = (h.match(/data-t="pb-deny-more">([^<]*)</) || [])[1];
        b.denying.query = "gem"; const found = b.denyBodyHtml(st.topology.proxies[1]); const foundItems = [...found.matchAll(/data-t-id="([^"]+)" data-t-state/g)].map((x) => x[1]);
-       b.denying.query = ""; st.topology.proxies[1].deny = ["pool:std", "model:srv:22008"];
+       b.denying.query = ""; st.topology.proxies[1].deny = ["pool:std", "model:mm:coder"];
        const alone = (b.denyBodyHtml(st.topology.proxies[1]).match(/data-t="pb-deny-still">([^<]*)</) || [])[1] || null;
        st.topology.proxies[1].deny = ["host:box"]; const whole = b.denyBodyHtml(st.topology.proxies[1]);
-       const coder = (whole.match(/<label[^>]*data-t-id="model:srv:22008"[^>]*>.*?<\/label>/) || [""])[0];
-       st.topology.denyChoices = null; const unread = b.denyBodyHtml(st.topology.proxies[1]); b.denying = { port: 4242, query: "" };
+       const coder = (whole.match(/<label[^>]*data-t-id="model:mm:coder"[^>]*>.*?<\/label>/) || [""])[0];
+       st.topology.denyChoices = null; const unread = b.denyBodyHtml(st.topology.proxies[1]); b.denying = { id: "client-none", query: "" };
        return [h.includes(">" + esc(fill(en.pbDenyTitle, { name: "Bot" })) + "<"), h.includes("data-pb-deny-query"), items, still, alone, more, found.includes(esc(en.pbDenyStopped)), foundItems,
          coder.includes(" checked") && coder.includes(" disabled") && coder.includes(esc(fill(en.pbDenyBySource, { name: "Box" }))), unread.includes('data-t="pb-deny-unread"'), b.denyHtml()]; })()""",
      json.dumps([True, True,
-                 [["host:box", "open", "head"], ["model:srv:22008", "closed", "closed"], ["account:sub", "open", "head"], ["model:acc:sub/gpt-sol", "open", ""],
+                 [["host:box", "open", "head"], ["model:mm:coder", "closed", "closed"], ["account:sub", "open", "head"], ["model:acc:sub/gpt-sol", "open", ""],
                   ["model:acc:sub/gpt-astra", "open", ""], ["pool:std", "open", ""], ["pool:eco", "closed", "closed"], ["pool:old", "closed", "closed"]],
-                 "Its pools still call it: Standart", None, "1 more — find them by name", True, ["host:box", "model:srv:22009", "pool:old"], True, True, ""]),
+                 "Its pools still call it: Standart", None, "1 more — find them by name", True, ["host:box", "model:mm:gemma", "pool:old"], True, True, ""]),
      "окно «Что запретить для Bot»: источники — машина и аккаунт, каждый с галкой «целиком» и своими моделями под ним: сразу видны работающие и уже запрещённые, остальные "
      "сказаны счётом и находятся поиском; потом пулы; запрещённое отмечено; запрещённая модель, которую ещё зовёт разрешённый клиенту пул, говорит это (владелец: пул работает "
      "целиком), а когда запрещён и сам пул — молчит; запрет, чьего на доске нет, — отдельно, его снимают; поиск находит и остановленную модель — её можно запретить заранее; машина запрещена целиком — её модели "
      "отмечены и не разрешаются по одной, «запрещена вместе с Box»; negative: не прочитано — так и сказано, а не пустое окно; окна для клиента, которого нет, нет"),
     ("deny_toggle_saves",
      '',
-     r"""await (async () => { const [b, log] = board(); b.denying = { port: 23002, query: "" };
-       await b.change({ target: node({ "data-pb-deny-key": "model:srv:22008" }, null, { checked: true }) });
+     r"""await (async () => { const [b, log] = board(); b.denying = { id: "client-bot", query: "" };
+       await b.change({ target: node({ "data-pb-deny-key": "model:mm:coder" }, null, { checked: true }) });
        await b.change({ target: node({ "data-pb-deny-key": "pool:eco" }, null, { checked: false }) });
        b.denying = null; const idle = await b.toggleDeny("pool:std", true);
-       const [c, log2] = board({ fail: true }); c.denying = { port: 23002, query: "" }; const refused = await c.toggleDeny("pool:std", true);
+       const [c, log2] = board({ fail: true }); c.denying = { id: "client-bot", query: "" }; const refused = await c.toggleDeny("pool:std", true);
        return [log.calls, log.applied.length, idle, log.calls.length, refused, log2.notes]; })()""",
-     '[[["/api/consumers/deny",{"port":23002,"deny":["pool:eco","model:srv:22008"]}],["/api/consumers/deny",{"port":23002,"deny":[]}]],2,null,2,null,["controller is down"]]',
+     '[[["/api/consumers/deny",{"routeId":"client-bot","deny":["pool:eco","model:mm:coder"]}],["/api/consumers/deny",{"routeId":"client-bot","deny":[]}]],2,null,2,null,["controller is down"]]',
      "галка в окне сохраняется сразу: запреты клиента с этим ключом или без него (/api/consumers/deny), доска рисуется с ответом; negative: окно закрыто — ничего; "
      "отказ контроллера — тост с его словами"),
     ("deny_window_opens_and_closes",
      '',
-     r"""await (async () => { const [b] = board(); const card = node({ "data-pb-client": "23002" });
+     r"""await (async () => { const [b] = board(); const card = node({ "data-pb-client": "client-bot" });
        await b.click({ target: node({ "data-pb-deny-open": "" }, card), stopPropagation() {} }); const opened = b.denying;
        const e = { key: "Escape", defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; const byEsc = [b.escape(e), b.denying, e.defaultPrevented];
-       b.denying = { port: 23002, query: "" }; await b.click({ target: node({ "data-pb-deny": "" }), stopPropagation() {} }); const byBackdrop = b.denying;
-       b.denying = { port: 23002, query: "" }; await b.click({ target: node({}, node({ "data-pb-deny-close": "" })), stopPropagation() {} }); const byDone = b.denying;
-       b.denying = { port: 23002, query: "" }; await b.click({ target: node({}, node({ "data-pb-deny": "" })), stopPropagation() {} }); const inside = b.denying;
-       b.denying = null; const nobody = b.openDeny("4242");
+       b.denying = { id: "client-bot", query: "" }; await b.click({ target: node({ "data-pb-deny": "" }), stopPropagation() {} }); const byBackdrop = b.denying;
+       b.denying = { id: "client-bot", query: "" }; await b.click({ target: node({}, node({ "data-pb-deny-close": "" })), stopPropagation() {} }); const byDone = b.denying;
+       b.denying = { id: "client-bot", query: "" }; await b.click({ target: node({}, node({ "data-pb-deny": "" })), stopPropagation() {} }); const inside = b.denying;
+       b.denying = null; const nobody = b.openDeny("client-none");
        return [opened, byEsc, byBackdrop, byDone, inside, nobody, b.denying]; })()""",
-     '[{"port":23002,"query":""},[true,null,true],null,null,{"port":23002,"query":""},null,null]',
+     '[{"id":"client-bot","query":""},[true,null,true],null,null,{"id":"client-bot","query":""},null,null]',
      "«＋ Запретить» на карточке открывает окно этого клиента; закрывают его Esc, щелчок мимо окна и «Готово»; negative: щелчок внутри окна его не закрывает; "
      "клиента, которого нет, окно не открывает"),
     # The move to clients without sets (rust/crates/admin/src/cloud/entry_move.rs): the window shown once, and the twins it deletes.
     ("move_window",
-     'st.topology.entryMove = { clients: [{ name: "Hermes", port: 23001, had: "Standart set" }, { name: "Bot", port: 23002, had: "" }],'
+     'st.topology.entryMove = { clients: [{ name: "Hermes", routeId: "client-hermes", had: "Standart set" }, { name: "Bot", routeId: "client-bot", had: "" }],'
      ' sets: [{ name: "Standart set", pools: ["Standart"] }, { name: "Empty", pools: [] }], sees: 5,'
      ' twins: [{ id: "gpt-sol", name: "gpt-sol", where: "sub" }, { id: "coder", name: "Coder", where: "box" }] };',
      r"""await (async () => { const [b, log] = board(); const h = b.moveHtml(); const text = (x) => x.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();

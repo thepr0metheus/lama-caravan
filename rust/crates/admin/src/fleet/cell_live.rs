@@ -1,5 +1,6 @@
 //! A live talk with a running cell over the cell's own WebSocket, through the controller.
 
+use super::cell_doorway::CellDoorway;
 use super::cell_talk::CellTalk;
 use crate::app::App;
 use crate::web::Exchange;
@@ -101,28 +102,28 @@ impl<'app> CellLive<'app> {
         Self { app }
     }
 
-    /// `((ip, port), path, config)` of a running cell whose runner talks live.
-    fn target(&self, host_id: &str, port: Option<&Value>) -> Result<(String, &'static str, Value), AppError> {
+    /// `(the way to it, path, config)` of a running cell whose runner talks live.
+    fn target(&self, cell: &str) -> Result<(CellDoorway, &'static str, Value), AppError> {
         let talk = CellTalk::of(self.app);
-        let (address, config) = talk.cell(host_id, CellTalk::port_of(port)?)?;
+        let (way, config) = talk.cell(cell)?;
         let row = talk.runner_of(&config).row();
         if row.live.path.is_empty() {
             let who = if row.id.is_empty() { "command" } else { row.id };
             return Err(AppError::new(format!("a {who} cell does not talk live")));
         }
-        Ok((address, row.live.path, config))
+        Ok((way, row.live.path, config))
     }
 
     /// What a talk would reach, and whether the cell answers its health.
-    pub fn check(&self, host_id: &str, port: Option<&Value>) -> Result<Value, AppError> {
-        let (address, _, config) = self.target(host_id, port)?;
+    pub fn check(&self, cell: &str) -> Result<Value, AppError> {
+        let (way, _, config) = self.target(cell)?;
         let talk = CellTalk::of(self.app);
         let runner = talk.runner_of(&config);
         let health = {
             let said = runner.health_path(&serde_json::Map::new());
             if said.is_empty() { "/health".to_string() } else { said }
         };
-        let out = match talk.ask(&address, &health, None) {
+        let out = match talk.ask(&way, &health, None) {
             Ok(answer) => {
                 let error = if answer.status < 400 { String::new() } else { CellTalk::refusal(answer.status, &answer.raw) };
                 json!({"status": answer.status, "error": error, "ms": answer.ms})
@@ -158,8 +159,12 @@ impl<'app> CellLive<'app> {
         Ok(CellHead::new(data, rest))
     }
 
-    fn open(&self, address: &str, path: &str, ask: &LiveAsk) -> Result<(TcpStream, CellHead), AppError> {
-        let silent = |error: String| AppError::with_status(format!("the cell on {address} did not answer: {error}"), 502);
+    /// The cell's WebSocket on `path`, opened through its machine's scout: the scout passes the upgrade on to the cell and every
+    /// byte after it both ways (the scout's cells/door.rs), so what comes back is the cell's own handshake.
+    fn open(&self, way: &CellDoorway, path: &str, ask: &LiveAsk) -> Result<(TcpStream, CellHead), AppError> {
+        let address = way.address();
+        let named = way.named();
+        let silent = |error: String| AppError::with_status(format!("the {named} did not answer: {error}"), 502);
         let place = address
             .to_socket_addrs()
             .map_err(|error| silent(error.to_string()))?
@@ -168,16 +173,17 @@ impl<'app> CellLive<'app> {
         let mut socket = TcpStream::connect_timeout(&place, Self::CONNECT).map_err(|error| silent(error.to_string()))?;
         drop(socket.set_read_timeout(Some(Self::CONNECT)));
         let mut request = vec![
-            format!("GET {path} HTTP/1.1"),
+            format!("GET {} HTTP/1.1", way.target(path)),
             format!("Host: {address}"),
             "Upgrade: websocket".to_string(),
             "Connection: Upgrade".to_string(),
         ];
+        request.extend(way.fields().iter().map(|(name, value)| format!("{name}: {value}")));
         request.extend(ask.lines());
         let text = format!("{}\r\n\r\n", request.join("\r\n"));
         socket
             .write_all(text.as_bytes())
-            .map_err(|error| AppError::with_status(format!("the cell on {address} broke off the handshake: {error}"), 502))?;
+            .map_err(|error| AppError::with_status(format!("the {named} broke off the handshake: {error}"), 502))?;
         let answer = self.read_head(&mut socket)?;
         if answer.status != 101 {
             let line = if answer.line.is_empty() { "no answer" } else { &answer.line };
@@ -251,23 +257,22 @@ impl<'app> CellLive<'app> {
     }
 
     /// `GET /api/cell-live` answered: what it would reach when no WebSocket is asked for, else the talk itself.
-    pub fn serve(&self, h: &mut Exchange<'_>, host_id: &str, port: Option<&Value>) -> Result<(), AppError> {
+    pub fn serve(&self, h: &mut Exchange<'_>, cell: &str) -> Result<(), AppError> {
         if !LiveAsk::wanted(h) {
-            h.ok(&self.check(host_id, port)?);
+            h.ok(&self.check(cell)?);
             return Ok(());
         }
         let ask = LiveAsk::read(h)?;
-        let (address, path, config) = self.target(host_id, port)?;
+        let (way, path, config) = self.target(cell)?;
         let id = CellTalk::of(self.app).runner_of(&config).row().id;
-        let (cell, answer) = self.open(&address, path, &ask)?;
+        let (socket, answer) = self.open(&way, path, &ask)?;
         h.close = true;
         h.write(&answer.head);
-        let port_word = Coerce::str_of(port);
-        Log::line(&format!("cell-live {host_id}:{port_word} {id} {path} opened"));
+        Log::line(&format!("cell-live {cell} through {} {id} {path} opened", way.address()));
         let (_, client) = h.socket();
-        let moved = self.relay(client, &cell, &answer.rest);
+        let moved = self.relay(client, &socket, &answer.rest);
         Log::line(&format!(
-            "cell-live {host_id}:{port_word} ended ({}): {} B up, {} B down, {} s",
+            "cell-live {cell} ended ({}): {} B up, {} B down, {} s",
             Coerce::text(moved.get("ended")),
             Coerce::str_of(moved.get("up")),
             Coerce::str_of(moved.get("down")),

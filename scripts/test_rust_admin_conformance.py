@@ -96,6 +96,7 @@ class Fixture:
         self.file("models/translate/models--facebook--nllb-200-distilled-600M/refs/main", b"abc")
         self.file("models/templates/chat.jinja", b"{{ x }}")
         self.pricing()
+        self.codex()
 
     def pricing(self):
         """The controller's copy of LiteLLM's price table, written fresh for its day: /api/model-pricing then answers this, never the internet. The
@@ -110,6 +111,13 @@ class Fixture:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(table) + "\n")
 
+    def codex(self):
+        """The controller's own copy of npm's latest for @openai/codex, written fresh for its day: the version the pins hold is then the copy, never
+        the internet. The snapshot was made by reading npm, and the copy is read again from npm when it is older than a day (ModelCatalog::NPM_TTL_SEC),
+        so every answer holding it moves with npm: when npm published 0.167.0, 75 frozen answers went red under every merge request on 2026-11-06.
+        `endpoints` is written as the snapshot left it — an open breaker is what the pins hold, and the program only writes it when a call is made."""
+        self.file("state/model-catalog.json", json.dumps({"endpoints": {}, "codexNpm": {"version": "0.166.0", "checkedAt": int(time.time())}}) + "\n")
+
 
 #: The window a model was trained on, as a server's card says it. Spelled so that scripts/check_context_window.py, which keeps every reader of
 #: this field out of the tree, sees that this is no reader.
@@ -122,7 +130,7 @@ class FakeWorld(ThreadingHTTPServer):
     daemon_threads = True
     #: A path a GET is answered on, by what it says.
     READS = {
-        "/api/pairing": {"service": "caravan-scout", "version": "2.43.0", "hostname": "hotel", "paired": False},
+        "/api/pairing": {"service": "caravan-scout", "version": "2.48.0", "hostname": "hotel", "paired": False},
         "/health": {"status": "ok"},
         "/props": {"default_generation_settings": {"n_ctx": 4096}, "modalities": {"vision": False, "audio": False}, "model_alias": "qwen"},
         "/v1/models": {"object": "list", "data": [{"id": "qwen", "object": "model", "owned_by": "llamacpp", "created": 1, "max_model_len": 4096, "aliases": ["q"], "meta": {"n_ctx": 4096, TRAINED_WINDOW: 8192}}]},
@@ -168,8 +176,20 @@ class FakeWorld(ThreadingHTTPServer):
 
 
 class FakeWorldHandler(BaseHTTPRequestHandler):
+    #: The scout's door to a cell: `<DOOR><cell><the cell's own path>` (rules::CellDoor). The world is the scout and the cell at once, so
+    #: what the door leads to is answered as the cell's own path; what was asked is written down as it was sent.
+    DOOR = "/api/cell/"
+
     def log_message(self, *args):
         pass
+
+    def own_path(self):
+        """The path a request means: the cell's own behind the scout's door, else the path as sent; no query either way."""
+        path = self.path.split("?")[0]
+        if not path.startswith(self.DOOR):
+            return path
+        rest = path[len(self.DOOR):]
+        return rest[rest.find("/"):] if "/" in rest else "/"
 
     def answer(self, payload, status=200):
         raw = json.dumps(payload).encode()
@@ -180,7 +200,7 @@ class FakeWorldHandler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self):
-        path = self.path.split("?")[0]
+        path = self.own_path()
         if path == "/metrics":
             raw = b"llamacpp:prompt_tokens_seconds 10\nllamacpp:predicted_tokens_seconds 20\nllamacpp:requests_processing 1\nllamacpp:requests_deferred 0\n"
             self.send_response(200)
@@ -204,8 +224,8 @@ class FakeWorldHandler(BaseHTTPRequestHandler):
             body = "<not json>"
         with self.server.lock:
             self.server.asked.append({"path": self.path, "body": body})
-        said = self.server.TAKEN.get(self.path.split("?")[0])
-        if self.path.split("?")[0] == "/v1/audio/speech":
+        said = self.server.TAKEN.get(self.own_path())
+        if self.own_path() == "/v1/audio/speech":
             raw = b"RIFF0000WAVE"
             self.send_response(200)
             self.send_header("Content-Type", "audio/wav")
@@ -540,13 +560,16 @@ class Scenarios:
         return self.ask(name, "POST", "/api/topology/client-heartbeat", report, {"X-Caravan-Token": self.token()})
 
     def report(self, host="hotel", nodes=None):
-        """What a machine's scout says of itself: a card, two cells, an engine, a cache, a model of its own."""
+        """What a machine's scout says of itself: a card, two cells, an engine, a cache, a model of its own. A scout of 2.48 names each cell, opens a
+        door to each (a cell listens on its machine's loopback, rules::CellDoor), and a cell holds a port only while it runs; the one running here is a cell of before, `c<port>`, whose start request the scout keeps: the controller
+        makes its record of it (ServerCells::adopt)."""
         cell = self.world.port
+        own = f"c{cell}"
         return {
             "host": {"id": host, "name": host.title(), "hostname": f"{host}.local", "ip": "127.0.0.1"},
             "agentUrl": f"http://127.0.0.1:{cell}",
             "platform": "linux",
-            "scoutVersion": "2.43.0",
+            "scoutVersion": "2.48.0",
             "gpus": [{"index": 0, "uuid": "GPU-1", "name": "GeForce RTX 5090", "vendor": "nvidia", "driverStatus": "ok", "memoryTotalMiB": 32768, "memoryUsedMiB": 2048, "memoryFreeMiB": 30720, "utilizationGpuPct": 7, "temperatureC": 41, "powerDrawW": 55}],
             "computeApps": [{"gpuUuid": "GPU-1", "pid": 4242, "name": "llama-server", "usedMiB": 1024}],
             "cpu": {"loadPct": 12, "ncpu": 16, "logicalCores": 32, "physicalCores": 16, "availableCores": 32, "ram": {"usedGb": 10.5, "totalGb": 64}},
@@ -555,14 +578,15 @@ class Scenarios:
             "llamaBinaryVersion": "version: 7000 (abc)",
             "llamaBinaryMtime": "2026-10-31",
             "llamaUpdate": {"running": False},
-            "autostart": [cell],
+            "autostart": [own],
+            "autostartRequests": {own: {"config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf", "CTX_SIZE": "4096"}, "modelPath": "Qwen/author/Q4/qwen-Q4.gguf", "cacheModels": False}} if host == "hotel" else {},
             "llamaNodes": nodes if nodes is not None else [
-                {"running": True, "port": cell, "modelPath": "/models/Qwen/author/Q4/qwen-Q4.gguf", "pid": 4242, "pids": [4242, 4243], "uptimeSec": 100, "ramBytes": 1000, "phase": "ready", "promptTps": 10.5, "genTps": 20.5, "requestsProcessing": 1, "requestsWaiting": 0, "ctxMax": 4096, "ctxUsed": 100, "modalities": {"vision": True, "audio": False}, "listening": True},
-                {"running": False, "port": 22011, "modelPath": "/models/Qwen/author/Q8/qwen-Q8-00001-of-00002.gguf", "lastError": "it fell", "phase": "stopped", "crash": {"kind": "oom", "at": 1}, "firewall": {"open": True}},
+                {"id": own, "running": True, "port": cell, "modelPath": "/models/Qwen/author/Q4/qwen-Q4.gguf", "pid": 4242, "pids": [4242, 4243], "uptimeSec": 100, "ramBytes": 1000, "phase": "ready", "promptTps": 10.5, "genTps": 20.5, "requestsProcessing": 1, "requestsWaiting": 0, "ctxMax": 4096, "ctxUsed": 100, "modalities": {"vision": True, "audio": False}, "listening": True},
+                {"id": "c22011", "running": False, "port": None, "modelPath": "/models/Qwen/author/Q8/qwen-Q8-00001-of-00002.gguf", "lastError": "it fell", "phase": "stopped", "crash": {"kind": "oom", "at": 1}, "firewall": {"open": True}},
             ],
             "llamaSuspect": {"suspect": True, "crashes15m": 3, "builtAt": 5, "currentCommit": "abc", "firstSeenAt": 6, "lastSeenAt": 7, "restoreCandidate": {"id": "b1", "commit": "c", "version": "b1", "builtAt": 1, "sizeMb": 2}},
             "telemetry": {"watchedSeconds": 60, "idleSeconds": 30, "retentionSeconds": 600},
-            "entryModels": [{"id": "qwen", "state": "ready", "kind": "llm", "window": 4096, "copies": [{"port": cell, "state": "ready"}]}],
+            "entryModels": [{"id": "qwen", "state": "ready", "kind": "llm", "window": 4096, "copies": [{"id": own, "port": cell, "state": "ready"}]}],
             "modelCache": {"dir": "/cache", "keep": 3, "budgetBytes": None, "files": [{"name": "a.gguf", "bytes": 5, "own": True}], "totalBytes": 5, "freeBytes": 100, "foreignBytes": 0},
         }
 
@@ -574,59 +598,66 @@ class Scenarios:
         self.beat(name, {"host": {"id": "../bad"}})
         self.beat(name, self.report())
         self.beat(name, self.report("india", nodes=[]))
-        for target in ("/api/machines", "/api/topology", "/api/state", "/api/system-monitor?since=1", "/metrics", "/api/topology/client-monitor?hostId=hotel", "/api/topology/client-monitor?hostId=hotel&kind=btop", "/api/topology/client-monitor?hostId=nope", "/api/fleet/llama-update-status?hostId=hotel", "/api/fleet/vllm?hostId=hotel", "/api/fleet/vllm", "/api/fleet/vllm/update-status?hostId=hotel", "/api/fleet/llama-builds?hostId=hotel", "/api/topology/client-llama/list-cache?hostId=hotel", "/api/cell-log?hostId=hotel&port=22011&lines=5", "/api/cell-log?hostId=hotel", "/api/port-exclusions", "/api/port-exclusions?scan=1", "/api/topology/client-llama/configs?hostId=hotel", "/api/monitor/nvidia-smi", "/api/monitor/nope"):
+        for target in ("/api/machines", "/api/topology", "/api/state", "/api/system-monitor?since=1", "/metrics", "/api/topology/client-monitor?hostId=hotel", "/api/topology/client-monitor?hostId=hotel&kind=btop", "/api/topology/client-monitor?hostId=nope", "/api/fleet/llama-update-status?hostId=hotel", "/api/fleet/vllm?hostId=hotel", "/api/fleet/vllm", "/api/fleet/vllm/update-status?hostId=hotel", "/api/fleet/llama-builds?hostId=hotel", "/api/topology/client-llama/list-cache?hostId=hotel", "/api/cell-log?cell=c22011&lines=5", "/api/cell-log?cell=x", "/api/cell-log", "/api/port-exclusions", "/api/topology/client-llama/configs?hostId=hotel", "/api/monitor/nvidia-smi", "/api/monitor/nope"):
             self.ask(name, "GET", target)
         hotel = {"hostId": "hotel"}
         cell = self.world.port
+        own = f"c{cell}"
+        new_cell = None
         for path, extra in (
             ("/api/fleet/llama-update", {"tag": "b1"}), ("/api/fleet/llama-update", {"tag": "bad tag!"}), ("/api/fleet/llama-restore", {"id": "b1"}), ("/api/fleet/llama-restore", {}),
             ("/api/fleet/vllm/update", {"version": "0.9.1"}), ("/api/fleet/vllm/update", {"version": "bad version"}), ("/api/fleet/llama-suspect-dismiss", {}),
-            ("/api/host/reboot", {}), ("/api/host/poweroff", {}), ("/api/host/power-schedule", {"schedule": {"enabled": True, "at": "03:30", "daily": False}}), ("/api/host/power-schedule", {"schedule": {"enabled": False, "at": "99:99"}}),
+            # A power schedule time a scenario sends must be past at EVERY hour of a run: the program stamps
+            # `lastFired` only for a time it has already passed, so a promise that holds that day is kept only on runs
+            # after the time — pipelines #596, #603, #604 were green only after 03:30. `00:00` is past at every hour.
+            ("/api/host/reboot", {}), ("/api/host/poweroff", {}), ("/api/host/power-schedule", {"schedule": {"enabled": True, "at": "00:00", "daily": False}}), ("/api/host/power-schedule", {"schedule": {"enabled": False, "at": "99:99"}}),
             ("/api/topology/client-llama/purge-cache", {}), ("/api/topology/client-llama/cache-keep", {"keep": 2}), ("/api/topology/client-llama/cache-budget", {"budgetBytes": 1 << 31}), ("/api/topology/client-llama/cache-budget", {"budgetBytes": None}), ("/api/topology/client-llama/cache-dir", {"path": "/x/y"}), ("/api/topology/client-llama/cache-delete-foreign", {"expectBytes": 5}),
             ("/api/topology/client-llama/configs/save", {"name": "one", "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf", "CTX_SIZE": "4096"}}), ("/api/topology/client-llama/configs/save", {"name": "two", "config": {}}),
-            ("/api/topology/server-slot/add", {"port": 22020}), ("/api/topology/server-slot/add", {"port": 22020}), ("/api/topology/server-slot/add", {"port": 1}), ("/api/topology/server-slot/add", {}),
-            ("/api/topology/server-slot/note", {"port": 22020, "note": " a note "}), ("/api/topology/server-slot/note", {"port": 9999, "note": "x"}),
-            ("/api/topology/server-cell/save-config", {"port": 22020, "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf", "CTX_SIZE": "4096", "N_GPU_LAYERS": "99"}, "cacheModels": True}),
-            ("/api/topology/server-cell/save-config", {"port": 22020, "config": {"MODEL_FILE": "../../x.gguf"}}),
-            ("/api/topology/server-cell/action", {"port": 22020, "action": "start"}), ("/api/topology/server-cell/action", {"port": 22020, "action": "stop"}), ("/api/topology/server-cell/action", {"port": 22020, "action": "restart"}), ("/api/topology/server-cell/action", {"port": 22020, "action": "enable"}), ("/api/topology/server-cell/action", {"port": 22020, "action": "disable"}), ("/api/topology/server-cell/action", {"port": 22020, "action": "nope"}), ("/api/topology/server-cell/action", {"port": 9999, "action": "start"}),
-            ("/api/topology/server-cell/schedule", {"port": 22020, "schedule": {"enabled": True, "from": "08:00", "to": "20:00", "days": [0, 1, 2]}}), ("/api/topology/server-cell/schedule", {"port": 22020, "schedule": {"enabled": False}}), ("/api/topology/server-cell/schedule", {"port": 9999, "schedule": {}}),
-            ("/api/topology/server-cell/reassign-port", {"port": 22020, "newPort": 22021}), ("/api/topology/server-cell/reassign-port", {"port": 22021, "newPort": 22021}), ("/api/topology/server-cell/reassign-port", {"port": 9999, "newPort": 22022}),
-            ("/api/topology/server-slot/add", {"port": 22030}), ("/api/topology/server-cell/swap-port", {"port": 22021, "targetPort": 22030}), ("/api/topology/server-cell/swap-port", {"port": 9999, "targetPort": 22030}),
-            ("/api/topology/client-llama/start", {"port": 22021, "modelPath": "Qwen/author/Q4/qwen-Q4.gguf", "gpuLayers": 99, "ctxSize": 4096, "cacheModels": False, "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf"}, "cellPort": 22021}),
-            ("/api/topology/client-llama/start", {"port": 22021}), ("/api/topology/client-llama/stop", {"port": 22021}), ("/api/topology/client-llama/stop", {}),
+            # A cell is known by its id (Papyrus `caravan-scout-port-lease`, step 2): a new one gets one, `<cell>` here, and no port.
+            ("/api/topology/server-slot/add", {}), ("/api/topology/server-slot/add", {"hostId": ""}),
+            ("/api/topology/server-slot/note", {"cellId": "<cell>", "note": " a note "}), ("/api/topology/server-slot/note", {"cellId": "c9999", "note": "x"}), ("/api/topology/server-slot/note", {"port": 22020, "note": "x"}),
+            ("/api/topology/server-cell/save-config", {"cellId": "<cell>", "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf", "CTX_SIZE": "4096", "N_GPU_LAYERS": "99", "PORT": "22020"}, "cacheModels": True}),
+            ("/api/topology/server-cell/save-config", {"cellId": "<cell>", "config": {"MODEL_FILE": "../../x.gguf"}}),
+            ("/api/topology/server-cell/action", {"cellId": "<cell>", "action": "start"}), ("/api/topology/server-cell/action", {"cellId": "<cell>", "action": "stop"}), ("/api/topology/server-cell/action", {"cellId": "<cell>", "action": "restart"}), ("/api/topology/server-cell/action", {"cellId": "<cell>", "action": "enable"}), ("/api/topology/server-cell/action", {"cellId": "<cell>", "action": "disable"}), ("/api/topology/server-cell/action", {"cellId": "<cell>", "action": "nope"}), ("/api/topology/server-cell/action", {"cellId": "c9999", "action": "start"}),
+            ("/api/topology/server-cell/schedule", {"cellId": "<cell>", "schedule": {"enabled": True, "from": "08:00", "to": "20:00", "days": [0, 1, 2]}}), ("/api/topology/server-cell/schedule", {"cellId": "<cell>", "schedule": {"enabled": False}}), ("/api/topology/server-cell/schedule", {"cellId": "c9999", "schedule": {}}),
+            # The port's controls are gone with the port: a cell holds one only while it runs.
+            ("/api/topology/server-cell/reassign-port", {"cellId": "<cell>", "newPort": 22021}), ("/api/topology/server-cell/swap-port", {"cellId": "<cell>", "targetPort": 22030}),
+            ("/api/topology/client-llama/start", {"cellId": "<cell>", "modelPath": "Qwen/author/Q4/qwen-Q4.gguf", "gpuLayers": 99, "ctxSize": 4096, "cacheModels": False, "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf"}}),
+            ("/api/topology/client-llama/start", {"cellId": "<cell>"}), ("/api/topology/client-llama/stop", {"cellId": "<cell>"}), ("/api/topology/client-llama/stop", {}),
             ("/api/engine-outputs/expose", {"kind": "ollama", "model": "llama3:8b", "exposed": True}), ("/api/engine-outputs/expose", {"kind": "ollama", "model": "nope", "exposed": True}), ("/api/engine-outputs/expose", {"kind": "ollama", "model": "llama3:8b", "exposed": False}),
             ("/api/engines/unload", {"kind": "ollama", "model": "llama3:8b"}), ("/api/engines/delete", {"kind": "ollama", "model": "llama3:8b"}), ("/api/engines/start", {"kind": "ollama"}), ("/api/engines/stop", {"kind": "ollama"}), ("/api/engines/start", {"kind": "nope"}),
-            ("/api/topology/server-slot/delete", {"port": 22030}), ("/api/topology/server-slot/delete", {"port": 9999}),
+            ("/api/topology/server-slot/delete", {"cellId": "<cell>"}), ("/api/topology/server-slot/delete", {"cellId": "c9999"}),
         ):
-            self.ask(name, "POST", path, {**hotel, **extra})
+            body = json.loads(json.dumps({**hotel, **extra}).replace('"<cell>"', json.dumps(new_cell)))
+            answer = self.ask(name, "POST", path, body)
+            if path == "/api/topology/server-slot/add" and answer[0] == 200 and new_cell is None:
+                new_cell = (json.loads(answer[2]).get("cell") or {}).get("id")
         self.ask(name, "GET", "/api/topology/client-llama/configs?hostId=hotel")
-        self.ask(name, "POST", "/api/port-exclusions", {"add": [{"port": 22050, "note": "kept", "host": "hotel"}, 22051], "remove": []})
         self.ask(name, "POST", "/api/port-exclusions", {"add": [80], "remove": []})
-        self.ask(name, "POST", "/api/port-exclusions", {"remove": [22051]})
         self.ask(name, "POST", "/api/topology/scout/scan", {"networks": "10.255.255.1", "port": cell})
         self.ask(name, "POST", "/api/topology/scout/scan", {"networks": "127.0.0.1", "port": cell})
         self.ask(name, "POST", "/api/topology/scout/scan", {"networks": "8.8.8.8"})
         self.ask(name, "POST", "/api/topology/scout/connect", {"address": "127.0.0.1", "port": cell})
         self.ask(name, "POST", "/api/topology/scout/connect", {"address": "bad address"})
-        self.ask(name, "POST", "/api/topology/server-cell/save-config", {"hostId": "hotel", "port": cell, "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf"}})
+        self.ask(name, "POST", "/api/topology/server-cell/save-config", {"cellId": own, "config": {"MODEL_FILE": "Qwen/author/Q4/qwen-Q4.gguf"}})
         for mode, ask in (("text-chat", {"text": "hi"}), ("text-chat", {"text": "hi", "history": [{"role": "user", "text": "before"}], "system": "be brief"}), ("text-chat", {}), ("speech", {"text": "hi", "voice": "ana"}), ("transcription", {"audio": "UklGRg=="}), ("heard-chat", {"audio": "UklGRg=="}), ("spoken-chat", {"text": "hi"}), ("speech-translation", {"audio": "!!"}), ("nope", {})):
-            self.ask(name, "POST", "/api/cell-talk", {"hostId": "hotel", "port": cell, "mode": mode, **ask})
-        self.ask(name, "POST", "/api/cell-talk", {"hostId": "hotel", "port": 9999, "mode": "text-chat", "text": "x"})
-        self.ask(name, "POST", "/api/cell-talk", {"hostId": "nope", "port": cell, "mode": "text-chat", "text": "x"})
-        self.ask(name, "GET", f"/api/cell-talk/voices?hostId=hotel&port={cell}")
-        self.ask(name, "GET", "/api/cell-talk/voices?hostId=hotel&port=x")
-        self.ask(name, "POST", "/api/cell-talk/voice", {"hostId": "hotel", "port": cell, "name": "mine", "sample": "UklGRg==", "text": "hello", "consent": True})
-        self.ask(name, "POST", "/api/cell-talk/voice", {"hostId": "hotel", "port": cell})
-        self.ask(name, "GET", f"/api/cell-live?hostId=hotel&port={cell}")
+            self.ask(name, "POST", "/api/cell-talk", {"cellId": own, "mode": mode, **ask})
+        self.ask(name, "POST", "/api/cell-talk", {"cellId": "c9999", "mode": "text-chat", "text": "x"})
+        self.ask(name, "POST", "/api/cell-talk", {"cellId": "c22011", "mode": "text-chat", "text": "x"})
+        self.ask(name, "GET", f"/api/cell-talk/voices?cell={own}")
+        self.ask(name, "GET", "/api/cell-talk/voices?cell=x")
+        self.ask(name, "POST", "/api/cell-talk/voice", {"cellId": own, "name": "mine", "sample": "UklGRg==", "text": "hello", "consent": True})
+        self.ask(name, "POST", "/api/cell-talk/voice", {"cellId": own})
+        self.ask(name, "GET", f"/api/cell-live?cell={own}")
         for runner, modes in (("voice-clone", ("speech",)), ("lfm-audio", ("spoken-chat", "speech")), ("qwen3-tts", ("speech",)), ("seamless", ("speech-translation",)), ("vllm", ("text-chat",)), ("strata", ("text-chat",)), ("custom", ("text-chat",))):
-            self.ask(name, "POST", "/api/topology/server-cell/save-config", {"hostId": "hotel", "port": cell, "config": {"RUNNER": runner, "MODEL_FILE": "Qwen/author/NVFP4", "COMMAND": "run"}})
+            self.ask(name, "POST", "/api/topology/server-cell/save-config", {"cellId": own, "config": {"RUNNER": runner, "MODEL_FILE": "Qwen/author/NVFP4", "COMMAND": "run"}})
             for mode in modes:
-                self.ask(name, "POST", "/api/cell-talk", {"hostId": "hotel", "port": cell, "mode": mode, "text": "hi", "audio": "UklGRg==", "voice": "ana"})
-            self.ask(name, "GET", f"/api/cell-talk/voices?hostId=hotel&port={cell}")
-            self.ask(name, "POST", "/api/cell-talk/voice", {"hostId": "hotel", "port": cell, "name": "mine", "sample": "UklGRg==", "text": "hello", "consent": True})
-            self.ask(name, "POST", "/api/cell-talk/voice", {"hostId": "hotel", "port": cell, "name": "mine"})
-            self.ask(name, "GET", f"/api/cell-live?hostId=hotel&port={cell}")
-        self.ask(name, "GET", "/api/cell-live?hostId=hotel&port=x")
+                self.ask(name, "POST", "/api/cell-talk", {"cellId": own, "mode": mode, "text": "hi", "audio": "UklGRg==", "voice": "ana"})
+            self.ask(name, "GET", f"/api/cell-talk/voices?cell={own}")
+            self.ask(name, "POST", "/api/cell-talk/voice", {"cellId": own, "name": "mine", "sample": "UklGRg==", "text": "hello", "consent": True})
+            self.ask(name, "POST", "/api/cell-talk/voice", {"cellId": own, "name": "mine"})
+            self.ask(name, "GET", f"/api/cell-live?cell={own}")
+        self.ask(name, "GET", "/api/cell-live?cell=x")
         self.ask(name, "POST", "/api/topology/host/move-cells", {"from": "hotel", "to": "india"})
         self.ask(name, "POST", "/api/topology/host/move-cells", {"from": "hotel", "to": "hotel"})
         self.ask(name, "POST", "/api/topology/server-order", {"order": ["node:india", "node:hotel"]})
@@ -657,19 +688,25 @@ class Scenarios:
             self.ask(name, "GET", target)
 
     def journal(self):
-        """What the proxy's journal says, read four ways."""
+        """What the proxy's journal says, read four ways. A row names its client by its id; a row written before 2026-11-07, by the number
+        the client had then, which the table of former numbers makes the same client's."""
         name = "journal"
         self.signed_in()
+        config = self.program.folder / "data" / "config" / "agent-proxies.json"
+        held = json.loads(config.read_text()) if config.exists() else {}
+        held["formerPorts"] = {"23001": "client-hermes0"}
+        config.write_text(json.dumps(held))
         now = int(time.time())
         def row(at, event="finished", **item):
-            whole = {"port": 23001, "route": "Hermes", "client": "hermes", "requestId": f"r{at}", "startedAt": at - 1, "finishedAt": at, "status": 200, "upstreamType": "cloud", "cloudAccountId": "key1", "cloudModel": "gpt-x", "model": "gpt-x", "providerId": "p1", "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}, "latency": {"prepMs": 1.5, "connectMs": 2.5, "connReused": False, "headersMs": 3.5, "firstChunkMs": 4.5, "cpuMs": 1.0}, "queuedMs": 3, "firstByteMs": 12, "durationMs": 300}
+            whole = {"routeId": "client-hermes0", "route": "Hermes", "client": "hermes", "requestId": f"r{at}", "startedAt": at - 1, "finishedAt": at, "status": 200, "upstreamType": "cloud", "cloudAccountId": "key1", "cloudModel": "gpt-x", "model": "gpt-x", "providerId": "p1", "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}, "latency": {"prepMs": 1.5, "connectMs": 2.5, "connReused": False, "headersMs": 3.5, "firstChunkMs": 4.5, "cpuMs": 1.0}, "queuedMs": 3, "firstByteMs": 12, "durationMs": 300}
             whole.update(item)
+            whole = {key: value for key, value in whole.items() if value is not None}
             return json.dumps({"time": at, "event": event, "route": whole["route"], "status": whole["status"], "item": whole, "active": [], "queue": []})
         today = [
-            row(now - 60),
+            row(now - 60, routeId=None, port=23001),
             row(now - 50, status=429, errorKind="upstream", usage={}),
             row(now - 45, event="upstream_response", status=429, upstream_response={"status": 429, "body": "too many"}),
-            row(now - 40, upstreamType="llama", port=23002, route="Local", client="opencode", cloudAccountId="", cloudModel="", model="qwen", usage={"prompt_tokens": 10, "completion_tokens": 20}, tokensPerSecond=30.5, promptTokensPerSecond=90.5),
+            row(now - 40, upstreamType="llama", routeId="client-local00", route="Local", client="opencode", cloudAccountId="", cloudModel="", model="qwen", usage={"prompt_tokens": 10, "completion_tokens": 20}, tokensPerSecond=30.5, promptTokensPerSecond=90.5),
             row(now - 30, status=503, errorKind="pool-exhausted", cloudAccountId="", cloudModel="", providerId="p1"),
             row(now - 20, event="received", status=0),
         ]
@@ -680,7 +717,7 @@ class Scenarios:
         for day, lines in days.items():
             (folder / f"{day}.jsonl").write_text("\n".join(lines) + "\n")
         day = time.strftime("%Y-%m-%d", time.gmtime(now))
-        for target in ("/api/agent-proxy-logs", f"/api/agent-proxy-logs?date={day}", f"/api/agent-proxy-logs?date={day}&limit=2", f"/api/agent-proxy-logs?date={day}&errors=1", f"/api/agent-proxy-logs?date={day}&slim=1", f"/api/agent-proxy-logs?date={day}&summary=1", f"/api/agent-proxy-logs?date={day}&port=23002", f"/api/agent-proxy-logs?date={day}&route=Local", f"/api/agent-proxy-logs?date={day}&client=hermes", f"/api/agent-proxy-logs?date={day}&event=finished", f"/api/agent-proxy-logs?date={day}&since={now - 35}", f"/api/agent-proxy-logs?date={day}&limit=x", "/api/agent-proxy-logs?date=2026-01-01", "/api/proxy-daily-stats", f"/api/proxy-daily-stats?date={day}", "/api/proxy-daily-stats?date=2026-01-01", "/api/agent-proxy-latency?port=23001", "/api/agent-proxy-latency?port=23001&range=1h", "/api/agent-proxy-latency?port=23002&range=nope", "/api/cloud-upstream-errors", "/api/usage-stats", "/api/usage-stats?days=1", "/api/cloud-accounts/proxy-spend", "/api/topology"):
+        for target in ("/api/agent-proxy-logs", f"/api/agent-proxy-logs?date={day}", f"/api/agent-proxy-logs?date={day}&limit=2", f"/api/agent-proxy-logs?date={day}&errors=1", f"/api/agent-proxy-logs?date={day}&slim=1", f"/api/agent-proxy-logs?date={day}&summary=1", f"/api/agent-proxy-logs?date={day}&routeId=client-local00", f"/api/agent-proxy-logs?date={day}&routeId=client-hermes0", f"/api/agent-proxy-logs?date={day}&port=23002", f"/api/agent-proxy-logs?date={day}&routeId=a%20b", f"/api/agent-proxy-logs?date={day}&route=Local", f"/api/agent-proxy-logs?date={day}&client=hermes", f"/api/agent-proxy-logs?date={day}&event=finished", f"/api/agent-proxy-logs?date={day}&since={now - 35}", f"/api/agent-proxy-logs?date={day}&limit=x", "/api/agent-proxy-logs?date=2026-01-01", "/api/proxy-daily-stats", f"/api/proxy-daily-stats?date={day}", "/api/proxy-daily-stats?date=2026-01-01", "/api/agent-proxy-latency?routeId=client-hermes0", "/api/agent-proxy-latency?routeId=client-hermes0&range=1h", "/api/agent-proxy-latency?routeId=client-local00&range=nope", "/api/agent-proxy-latency?port=23001", "/api/token-history?routeId=client-hermes0", "/api/token-history?port=23001", "/api/cloud-upstream-errors", "/api/usage-stats", "/api/usage-stats?days=1", "/api/cloud-accounts/proxy-spend", "/api/topology"):
             self.ask(name, "GET", target)
 
     def clients(self):
@@ -695,7 +732,7 @@ class Scenarios:
             ("/api/topology/agent-route/model", {"hostId": "golf", "agentId": "golf", "modelName": "qwen"}), ("/api/topology/agent-route/model", {"hostId": "golf", "agentId": "golf", "modelNameAuto": True}), ("/api/topology/agent-route/model", {"hostId": "golf", "agentId": "nope"}),
             ("/api/topology/agent-route/remove", {"hostId": "golf", "agentId": "golf", "role": "fallback"}), ("/api/topology/agent-route/remove", {"hostId": "golf", "agentId": "golf", "role": "fallback"}),
             ("/api/topology/assignments", {"hostId": "golf", "assignments": [{"agentId": "golf", "routes": [{"role": "primary", "proxyId": "x", "endpoint": "http://h:1"}]}]}), ("/api/topology/assignments", {"hostId": "golf", "assignments": "x"}),
-            ("/api/topology/agent-proxy-bind", {"hostId": "golf", "agentId": "golf", "port": 23001, "role": "fallback"}), ("/api/topology/agent-proxy-bind", {"hostId": "golf", "agentId": "golf", "port": 1}),
+            ("/api/topology/agent-proxy-bind", {"hostId": "golf", "agentId": "golf", "port": 23001, "role": "fallback"}), ("/api/topology/agent-proxy-bind", {"hostId": "golf", "agentId": "golf", "routeId": "client-golf0000"}),
             ("/api/topology/client/agent/delete", {"clientId": "golf", "agentId": "nope"}), ("/api/topology/client/agent/delete", {"clientId": "golf", "agentId": "golf"}), ("/api/topology/client/delete", {"clientId": "nope"}), ("/api/topology/client/delete", {"clientId": "golf"}),
         ):
             self.ask(name, "POST", path, body)
@@ -720,31 +757,34 @@ class Scenarios:
             ("/api/pools/model-jobs", {"accountId": "key1", "model": "gpt-x", "jobs": ["llm"]}), ("/api/pools/model-jobs", {"accountId": "key1", "model": "gpt-x", "jobs": ["nope"]}), ("/api/pools/model-jobs", {"accountId": "key1", "model": "gpt-x", "jobs": []}),
             ("/api/pools/level", {"accountId": "sub1", "model": "gpt-5", "windowSeconds": 18000, "pct": 50, "level": "switch"}), ("/api/pools/level", {"accountId": "sub1", "model": "gpt-5", "windowSeconds": 604800, "pct": 80, "level": "stop"}), ("/api/pools/level", {"accountId": "sub1", "model": "gpt-5", "windowSeconds": 18000, "pct": 500, "level": "stop"}), ("/api/pools/level", {"accountId": "sub1", "model": "gpt-5", "windowSeconds": 18000, "pct": 50, "level": "low"}),
             ("/api/board-providers/add", {"kind": "openrouter"}), ("/api/board-providers/add", {"kind": "nope"}), ("/api/board-providers/remove", {"kind": "openrouter"}),
+            # The board's reader door: a key's model that says nothing of its inputs, a name the caravan does not know, the
+            # absence named, and a body that names nothing. Each answer carries the board, and the board carries `reader`.
+            ("/api/board/reader", {"reader": "gpt-x"}), ("/api/board/reader", {"reader": "nope"}), ("/api/board/reader", {"reader": None}), ("/api/board/reader", {}),
             ("/api/models/schedule", {"model": "acc:key1/gpt-x", "schedule": {"enabled": True, "windows": [{"days": [], "from": "00:00", "to": "00:00"}]}}), ("/api/models/schedule", {"model": "out:srv:22021", "schedule": {"enabled": False, "windows": []}}), ("/api/models/schedule", {"model": "acc:key1/gpt-x", "schedule": {"enabled": True, "windows": "x"}}), ("/api/models/schedule", {"model": "gpt-x", "schedule": {"enabled": True}}), ("/api/models/schedule", {"model": "gpt-x", "schedule": None}), ("/api/models/schedule", {"model": "", "schedule": {}}),
             ("/api/local-pricing", {"inputPer1M": 1.5, "outputPer1M": "2"}), ("/api/local-pricing", {"inputPer1M": "x"}), ("/api/api-pricing", {"model": "gpt-x", "inputPer1M": 3, "outputPer1M": 4}), ("/api/api-pricing", {"model": "gpt-y", "inputPer1M": 0}), ("/api/api-pricing", {}),
             ("/api/consumers/create", {"name": "Hermes"}), ("/api/consumers/create", {"name": "Hermes"}), ("/api/consumers/create", {"name": ""}), ("/api/consumers/create", {"name": "Built", "kind": "opencode"}),
-            ("/api/consumers/deny", {"port": "<hermes>", "deny": ["pool:x"]}), ("/api/consumers/deny", {"port": "<hermes>", "deny": []}), ("/api/consumers/deny", {"port": 1, "deny": []}), ("/api/consumers/deny", {"port": "<hermes>", "deny": "x"}), ("/api/consumers/key", {"port": "<hermes>"}), ("/api/consumers/key", {"port": 1}),
-            ("/api/consumers/order", {"order": ["<hermes>", 23001]}), ("/api/consumers/order", {"order": "x"}),
-            ("/api/consumers/probe", {"port": "<hermes>", "path": "/v1/nope"}), ("/api/consumers/probe", {"port": 1, "path": "/v1/embeddings"}), ("/api/consumers/probe", {"port": "<hermes>", "path": "/v1/embeddings", "model": "x"}),
-            ("/api/agent-proxies/route-policy", {"port": "<hermes>", "label": "Hermes two"}), ("/api/agent-proxies/route-policy", {"port": "<hermes>", "priority": 3}), ("/api/agent-proxies/route-policy", {"port": 9, "label": "x"}),
+            ("/api/consumers/deny", {"routeId": "<hermes>", "deny": ["pool:x"]}), ("/api/consumers/deny", {"routeId": "<hermes>", "deny": []}), ("/api/consumers/deny", {"routeId": "client-nope0000", "deny": []}), ("/api/consumers/deny", {"routeId": "<hermes>", "deny": "x"}), ("/api/consumers/key", {"routeId": "<hermes>"}), ("/api/consumers/key", {"routeId": "client-nope0000"}), ("/api/consumers/key", {"port": 23001}), ("/api/consumers/key", {"routeId": "a b"}),
+            ("/api/consumers/order", {"order": ["<hermes>", "client-nope0000"]}), ("/api/consumers/order", {"order": ["<hermes>", 23001]}), ("/api/consumers/order", {"order": "x"}),
+            ("/api/consumers/probe", {"routeId": "<hermes>", "path": "/v1/nope"}), ("/api/consumers/probe", {"routeId": "client-nope0000", "path": "/v1/embeddings"}), ("/api/consumers/probe", {"routeId": "<hermes>", "path": "/v1/embeddings", "model": "x"}),
+            ("/api/agent-proxies/route-policy", {"routeId": "<hermes>", "label": "Hermes two"}), ("/api/agent-proxies/route-policy", {"routeId": "<hermes>", "priority": 3}), ("/api/agent-proxies/route-policy", {"routeId": "client-nope0000", "label": "x"}), ("/api/agent-proxies/route-policy", {"routeId": "<hermes>", "portClosed": False}), ("/api/agent-proxies/route-policy", {"port": 9, "label": "x"}),
             ("/api/agent-proxies/policy", {"policy": {"maxSlots": 3, "queueAbortPct": 80}}), ("/api/agent-proxies/policy", {"maxSlots": "x"}),
             ("/api/agent-proxy-entry", {"port": 23999, "publicUrl": "https://entry.test/v1"}), ("/api/agent-proxy-entry", {"port": 80}), ("/api/agent-proxy-entry", {"port": 23999, "publicUrl": "bad url"}),
-            ("/api/agent-proxies/stop", {"port": "<hermes>"}), ("/api/agent-proxies/stop", {"requestId": "nope"}),
+            ("/api/agent-proxies/stop", {"routeId": "<hermes>"}), ("/api/agent-proxies/stop", {"requestId": "nope"}), ("/api/agent-proxies/stop", {"port": 23001}),
             ("<entry>", {}),
-            ("/api/agent-proxies/route-delete", {"port": "<hermes>"}), ("/api/agent-proxies/route-delete", {"port": 9}),
+            ("/api/agent-proxies/route-delete", {"routeId": "<hermes>"}), ("/api/agent-proxies/route-delete", {"routeId": "client-nope0000"}), ("/api/agent-proxies/route-delete", {"port": 9}),
             ("/api/entry-move/seen", {}), ("/api/cloud-api-health/retry", {"key": "key1:models"}), ("/api/queue-thresholds/recalc", {}),
             ("/api/cloud-accounts/subscription-reset", {"id": "sub1", "creditId": "x", "idempotencyKey": "x", "confirmed": False}), ("/api/cloud-accounts/oauth/device-start", {"id": "key1"}), ("/api/cloud-accounts/key-delete", {"id": "key1"}), ("/api/cloud-accounts/delete", {"id": "key2"}), ("/api/cloud-accounts/delete", {"id": "nope"}),
         ):
             if path == "<entry>":
                 self.entry_probes(name, hermes)
                 continue
-            body = json.loads(json.dumps(body).replace('"<hermes>"', str(hermes)))
+            body = json.loads(json.dumps(body).replace('"<hermes>"', json.dumps(hermes)))
             answer = self.ask(name, "POST", path, body)
             if path == "/api/pools/create" and answer[0] == 200 and pool is None:
                 pool = json.loads(answer[2]).get("pool", {}).get("id")
             if path == "/api/consumers/create" and answer[0] == 200 and hermes is None:
-                hermes = json.loads(answer[2]).get("port")
-        for target in ("/api/agent-proxies/raw", "/api/agent-proxy-entry", "/api/queue-thresholds", "/api/agent-proxy-logs", "/api/agent-proxy-logs?summary=1", "/api/agent-proxy-logs?date=bad", "/api/proxy-daily-stats", "/api/proxy-daily-stats?date=2026-10-01", "/api/token-history", "/api/token-history?range=1h", "/api/agent-proxy-latency?port=23001", "/api/agent-proxy-latency?port=x", "/api/agent-proxy-model-card?port=23001", "/api/agent-proxy-model-card?port=x", "/api/agent-proxy-model-card?port=9", "/api/consumers/ask?port=23001&path=/v1/nope", "/api/consumers/ask?port=9&path=/v1/models", "/api/pools/refs?id=p1", "/api/pools/refs", "/api/model-pricing"):
+                hermes = json.loads(answer[2]).get("routeId")
+        for target in ("/api/agent-proxies/raw", "/api/agent-proxy-entry", "/api/queue-thresholds", "/api/agent-proxy-logs", "/api/agent-proxy-logs?summary=1", "/api/agent-proxy-logs?date=bad", "/api/proxy-daily-stats", "/api/proxy-daily-stats?date=2026-10-01", "/api/token-history", "/api/token-history?range=1h", "/api/agent-proxy-latency?routeId=client-nope0000", "/api/agent-proxy-latency?routeId=x%2Fy", "/api/agent-proxy-model-card?routeId=client-nope0000", "/api/agent-proxy-model-card?routeId=x%2Fy", "/api/agent-proxy-model-card?port=9", "/api/consumers/ask?routeId=client-nope0000&path=/v1/nope", "/api/consumers/ask?port=9&path=/v1/models", "/api/pools/refs?id=p1", "/api/pools/refs", "/api/model-pricing"):
             self.ask(name, "GET", target)
         if pool is not None:
             for path, body in (
@@ -769,10 +809,10 @@ class Scenarios:
         self.ask(name, "POST", "/api/agent-proxy-entry", {"port": port})
         world = FakeWorld(port)
         try:
-            for target in (f"/api/consumers/ask?port={hermes}&path=/v1/models", f"/api/consumers/ask?port={hermes}&path=/v1/models/qwen%20x", f"/api/consumers/ask?port=x&path=/v1/models", f"/api/agent-proxy-model-card?port={hermes}"):
+            for target in (f"/api/consumers/ask?routeId={hermes}&path=/v1/models", f"/api/consumers/ask?routeId={hermes}&path=/v1/models/qwen%20x", "/api/consumers/ask?routeId=x%2Fy&path=/v1/models", f"/api/agent-proxy-model-card?routeId={hermes}"):
                 self.ask(name, "GET", target)
             for path in ("/v1/chat/completions", "/v1/responses", "/v1/embeddings", "/v1/audio/transcriptions", "/v1/images/generations", "/v1/audio/speech"):
-                self.ask_timeless(name, "/api/consumers/probe", {"port": hermes, "path": path, "model": "gpt-x"})
+                self.ask_timeless(name, "/api/consumers/probe", {"routeId": hermes, "path": path, "model": "gpt-x"})
         finally:
             world.shutdown()
             world.server_close()

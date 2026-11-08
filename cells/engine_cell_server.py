@@ -25,7 +25,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cell_base import CellServer, _Server, _handler_for  # noqa: E402
+from cell_base import LISTEN, CellServer, _Server, _handler_for  # noqa: E402
 
 
 class EngineApi:
@@ -428,7 +428,7 @@ class EngineCell(CellServer):
         signal.signal(signal.SIGTERM, on_stop)
         signal.signal(signal.SIGINT, on_stop)
         threading.Thread(target=self._load_thread, daemon=True).start()
-        _Server(("0.0.0.0", self.port), self.handler_class()).serve_forever()
+        _Server((LISTEN, self.port), self.handler_class()).serve_forever()
 
 
 if __name__ == "__main__":

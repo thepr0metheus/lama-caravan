@@ -254,6 +254,57 @@ fn a_token_of_kv_cache_weighs_what_vllm_counts() {
 }
 
 #[test]
+fn a_model_of_experts_says_how_many_and_a_model_that_names_none_has_none() {
+    // Qwen3-Omni nests its language model twice deep; DeepSeek and Mixtral name the figure their own way.
+    let omni = json!({"thinker_config": {"text_config": {"num_experts": 128, "num_experts_per_tok": 8}}});
+    assert_eq!(ModelCheckpoints::experts_of(&omni), 128);
+    assert_eq!(ModelCheckpoints::experts_of(&json!({"n_routed_experts": 256, "num_experts_per_tok": 8})), 256);
+    assert_eq!(ModelCheckpoints::experts_of(&json!({"text_config": {"num_local_experts": 8}})), 8);
+    assert_eq!(ModelCheckpoints::experts_of(&json!({"moe_num_experts": 64})), 64);
+    // The owner's Cosmos-Reason2-2B names none: it reads all its weights for every token.
+    let cosmos = json!({"text_config": {"num_hidden_layers": 28, "hidden_size": 2048}});
+    assert_eq!(ModelCheckpoints::experts_of(&cosmos), 0);
+    for dense in
+        [json!({"num_experts": 1}), json!({"num_experts": 0}), json!({"num_experts": "8"}), json!({"num_experts_per_tok": 8})]
+    {
+        assert_eq!(
+            ModelCheckpoints::experts_of(&dense),
+            0,
+            "{dense}: one expert, a word or a share alone is no model of experts"
+        );
+    }
+}
+
+#[test]
+fn a_rows_experts_are_said_only_when_its_config_was_read() {
+    let folder = TestFolder::new("checkpoint-experts");
+    let omni = folder.path.join("omni");
+    std::fs::create_dir_all(&omni).unwrap();
+    std::fs::write(
+        omni.join("config.json"),
+        json!({"model_type": "qwen3_omni_moe", "thinker_config": {"text_config": {"num_experts": 128}}}).to_string(),
+    )
+    .unwrap();
+    let app = TestApp::over(&folder.path, &[]);
+    assert_eq!(ModelCheckpoints::of(&app).facts(&omni).get("expertCount"), Some(&json!(128)));
+    let bare = folder.path.join("bare");
+    std::fs::create_dir_all(&bare).unwrap();
+    assert_eq!(
+        ModelCheckpoints::of(&app).facts(&bare).get("expertCount"),
+        None,
+        "no config.json: not 0, which would say the model has none"
+    );
+    let broken = folder.path.join("broken");
+    std::fs::create_dir_all(&broken).unwrap();
+    std::fs::write(broken.join("config.json"), "{not json").unwrap();
+    assert_eq!(
+        ModelCheckpoints::of(&app).facts(&broken).get("expertCount"),
+        None,
+        "a config.json that cannot be read says nothing either"
+    );
+}
+
+#[test]
 fn a_cells_model_gets_a_short_name() {
     assert_eq!(ModelCheckpoints::display_name("Q/a/b/x.GGUF"), "x.GGUF");
     assert_eq!(ModelCheckpoints::display_name("/m/Qwen/nvidia/NVFP4"), "Qwen");

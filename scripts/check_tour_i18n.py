@@ -133,6 +133,21 @@ login_words = re.findall(r"^    (\w+):\{langLabel:", auth, re.M)
 if sorted(login_words) != sorted(LANGS):
     fail(f"the sign-in page's words hold {sorted(login_words)}, LANGS is {sorted(LANGS)}")
 
+# ── A language is a translation only (the owner, 2026-11-07) ─────────────────
+# "для арабского языка и других, что читаются справа налево, — не будем это делать и менять дизайн. пусть просто будет перевод
+# и все. не надо ломать интерфейс": Arabic was drawn right to left from MR !391 on (and on the sign-in page before it), and the
+# mirrored pages read as a broken interface. No page writes its direction, and no stylesheet has rules for one.
+PAGES_JS = [*sorted((ROOT / "static" / "js").glob("*.js")), ROOT / "rust/crates/admin/src/web/page_shell.html"]
+for path in PAGES_JS:
+    text = path.read_text(encoding="utf-8")
+    for no, line in enumerate(text.splitlines(), 1):
+        if re.search(r"documentElement\.dir\s*=(?!=)|setAttribute\(\s*[\"']dir[\"']", line):
+            fail(f"{path.relative_to(ROOT)}:{no} writes the page's direction — a language is a translation only (the owner, 2026-11-07)")
+for path in [*sorted((ROOT / "static" / "css").glob("*.css")), *sorted((ROOT / "static").glob("*.html"))]:
+    for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if re.search(r"\[dir\s*=|:dir\(", line):
+            fail(f"{path.relative_to(ROOT)}:{no} has a rule for a page's direction — every page is laid out left to right (the owner, 2026-11-07)")
+
 if errors:
     print(f"check_tour_i18n: FAIL ({len(errors)} problems)")
     for e in errors:

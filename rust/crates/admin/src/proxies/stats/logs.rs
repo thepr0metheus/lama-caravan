@@ -1,6 +1,7 @@
 //! One day of the journal, as the page asks for it.
 
 use super::*;
+use crate::proxies::config::ProxiesConfig;
 use std::collections::VecDeque;
 
 /// What a page asks of a day's rows.
@@ -8,7 +9,9 @@ struct LogFilter<'asked> {
     /// The oldest moment asked for.
     cutoff: Option<f64>,
     events: BTreeSet<&'asked str>,
-    port: Option<i64>,
+    /// One client's rows: those of its id, and those of the number it had before 2026-11-07.
+    route_id: Option<&'asked str>,
+    former: FormerPorts,
     route_part: String,
     client: &'asked str,
     errors: bool,
@@ -21,7 +24,7 @@ impl LogFilter<'_> {
         self.cutoff.is_none_or(|cutoff| Coerce::float_or_zero(row.get("time")) >= cutoff)
             && (self.events.is_empty()
                 || row.get("event").and_then(Value::as_str).is_some_and(|event| self.events.contains(event)))
-            && self.port.is_none_or(|port| item_of("port") == Some(&json!(port)))
+            && self.route_id.is_none_or(|id| row.get("item").and_then(|item| self.former.client_of(item)).as_deref() == Some(id))
             && (self.route_part.is_empty() || Coerce::str_of(row.get("route")).to_lowercase().contains(&self.route_part))
             && (self.client.is_empty() || item_of("client").and_then(Value::as_str) == Some(self.client))
             && (!self.errors
@@ -113,20 +116,21 @@ impl<'app> ProxyStats<'app> {
         }
         // A limit that does not read asks for the default; a limit of 0 too, as `int(limit or 200)` does.
         let limit = Coerce::strip(&asked.limit).parse::<i64>().ok().filter(|limit| *limit != 0).unwrap_or(200).clamp(1, 2000);
-        let port = Self::asked_number(&asked.port, "invalid port")?;
+        let former = FormerPorts::of(&ProxiesConfig::of(self.app).read_payload());
         // absent-ok: no `since` asks for the whole day.
         let since = Self::asked_number(&asked.since, "invalid since")?.unwrap_or(0).max(0);
         let filter = LogFilter {
             cutoff: (since != 0).then(|| self.app.now() - (since * 60) as f64),
             events: asked.event.split(',').map(Coerce::strip).filter(|word| !word.is_empty()).collect(),
-            port,
+            route_id: asked.route_id.as_deref(),
+            former,
             route_part: Coerce::strip(&asked.route).to_lowercase(),
             client: Coerce::strip(&asked.client),
             errors: asked.errors,
         };
         if asked.summary {
             let rows: Vec<Value> = self.kept_rows(&date, &filter, None)?.into();
-            return Ok(json!({"date": date, "dates": dates, "summary": Self::logs_summary(&rows)}));
+            return Ok(json!({"date": date, "dates": dates, "summary": Self::logs_summary(&rows, &filter.former)}));
         }
         let mut rows: Vec<Value> = self.kept_rows(&date, &filter, Some(limit as usize))?.into();
         rows.reverse();
@@ -136,7 +140,8 @@ impl<'app> ProxyStats<'app> {
         Ok(json!({"date": date, "dates": dates, "rows": rows, "limit": limit}))
     }
 
-    pub(super) fn logs_summary(rows: &[Value]) -> Value {
+    /// Counts per client, keyed by its id; the entry's refusals before a key named anyone, under "entry".
+    pub(super) fn logs_summary(rows: &[Value], former: &FormerPorts) -> Value {
         let mut totals = Map::new();
         for row in rows {
             if !matches!(row.get("event").and_then(Value::as_str), Some("finished" | "blocked" | "client_disconnected_queued")) {
@@ -144,12 +149,19 @@ impl<'app> ProxyStats<'app> {
             }
             let empty = json!({});
             let item = row.get("item").filter(|item| Coerce::truthy(Some(*item))).unwrap_or(&empty);
-            let Some(port) = item.get("port").filter(|port| Coerce::truthy(Some(*port))) else {
+            let id = former.client_of(item);
+            let label = Coerce::str_of(row.get("route")).replace("None", "");
+            // A row of no client — the entry's refusal before a key named one, a number no client had — is counted under the name
+            // the journal gave it ("entry"), with no id.
+            // absent-ok: no client is no id, said as "".
+            let shown_id = id.clone().unwrap_or_default();
+            let key = if shown_id.is_empty() { label.clone() } else { shown_id.clone() };
+            if key.is_empty() {
                 continue;
-            };
-            let entry = totals.entry(Coerce::str_of(Some(port))).or_insert_with(|| {
-                json!({"port": port, "route": Coerce::str_of(row.get("route")).replace("None", ""), "total": 0, "errors": 0, "byKind": {}, "clients": {}})
-            });
+            }
+            let entry = totals.entry(key).or_insert_with(
+                || json!({"routeId": shown_id, "route": label, "total": 0, "errors": 0, "byKind": {}, "clients": {}}),
+            );
             Self::bump(entry, "total", 1);
             let caller = Coerce::stripped(item.get("client"));
             if !caller.is_empty()

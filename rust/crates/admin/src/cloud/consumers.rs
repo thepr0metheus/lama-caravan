@@ -5,6 +5,7 @@ use super::data::CloudData;
 use crate::app::App;
 use crate::common::cloud_pools::CloudPools;
 use crate::common::entry::{BuiltinClient, ClientFields};
+use crate::proxies::client_ids::ClientIds;
 use crate::proxies::config::{KeyAudit, ProxiesConfig};
 use rules::{AppError, ClientDeny, Coerce, EntryModels};
 use serde_json::{Value, json};
@@ -30,11 +31,6 @@ impl<'app> ConsumerDesk<'app> {
         ProxiesConfig::of(self.app)
     }
 
-    fn port_of(route: &Value) -> i64 {
-        // absent-ok: `int(route.get("port") or 0)`: a route that names no port is no client's.
-        Coerce::whole(route.get("port"))
-    }
-
     fn is_consumer(route: &Value) -> bool {
         Coerce::text(route.get("kind")) == Self::KIND
     }
@@ -52,13 +48,14 @@ impl<'app> ConsumerDesk<'app> {
         BuiltinClient::KINDS.iter().map(|row| row.0).collect::<Vec<_>>().join(", ")
     }
 
-    fn new_route(&self, label: &str, port: i64, kind: &str) -> Result<Value, AppError> {
-        let mut route = json!({"label": label, "port": port, "kind": Self::KIND});
+    /// A new client's record among `routes`: its own id and key, and no number (the owner, 2026-11-07).
+    fn new_route(routes: &[Value], label: &str, kind: &str) -> Result<Value, AppError> {
+        let id = ClientIds::mint(&ClientIds::taken(routes))?;
+        let mut route = json!({"id": id, "label": label, "kind": Self::KIND});
         if !kind.is_empty() {
             Coerce::put(&mut route, BuiltinClient::FIELD, json!(kind));
         }
         Coerce::put(&mut route, "apiKey", json!(ProxiesConfig::new_route_key()?));
-        Coerce::put(&mut route, "portClosed", json!(true));
         Coerce::put(&mut route, ClientDeny::FIELD, json!([]));
         Coerce::put(&mut route, "upstreamType", json!("cloud"));
         Coerce::put(&mut route, "routerId", json!(""));
@@ -90,21 +87,21 @@ impl<'app> ConsumerDesk<'app> {
         } else {
             Self::clean_name(name, &routes, None)?
         };
-        let route = self.new_route(&name, self.config().next_free_port(&routes)?, kind)?;
+        let route = Self::new_route(&routes, &name, kind)?;
         routes.push(route.clone());
         KeyAudit::enforce(&routes)?;
         Coerce::put(&mut payload, "routes", Value::Array(routes));
         self.config().write_payload(payload)?;
-        Ok(json!({"port": route.get("port"), "name": name, "key": route.get("apiKey"), (ClientDeny::FIELD): []}))
+        Ok(json!({"routeId": route.get("id"), "name": name, "key": route.get("apiKey"), (ClientDeny::FIELD): []}))
     }
 
     /// What a client is closed to from now on: the whole list, `[]` opening everything.
-    pub fn set_deny(&self, port: Option<&Value>, deny: Option<&Value>) -> Result<Value, AppError> {
+    pub fn set_deny(&self, route_id: &str, deny: Option<&Value>) -> Result<Value, AppError> {
         let Some(deny) = deny.and_then(Value::as_array) else {
             return Err(AppError::new("deny must be a list of keys: pool:<id>, model:<place>, account:<id>, host:<id>"));
         };
         let mut payload = self.config().load()?;
-        let at = Self::consumer_at(&payload, port)?;
+        let at = Self::consumer_at(&payload, route_id)?;
         let raw = Value::Array(deny.clone());
         let cleaned = ClientFields::deny_list(Some(&raw));
         let bad: Vec<String> = deny
@@ -134,12 +131,12 @@ impl<'app> ConsumerDesk<'app> {
                 shown.join(", ")
             )));
         }
-        let port = Self::with_route(&mut payload, at, |route| {
+        let id = Self::with_route(&mut payload, at, |route| {
             Coerce::put(route, ClientDeny::FIELD, json!(cleaned));
-            route.get("port").cloned()
+            route.get("id").cloned()
         });
         self.config().write_payload(payload)?;
-        Ok(json!({"port": port, (ClientDeny::FIELD): cleaned}))
+        Ok(json!({"routeId": id, (ClientDeny::FIELD): cleaned}))
     }
 
     fn with_route<R>(payload: &mut Value, at: usize, change: impl FnOnce(&mut Value) -> Option<R>) -> Option<R> {
@@ -147,18 +144,18 @@ impl<'app> ConsumerDesk<'app> {
     }
 
     /// A new key for a consumer, answered this once.
-    pub fn new_key(&self, port: Option<&Value>) -> Result<Value, AppError> {
+    pub fn new_key(&self, route_id: &str) -> Result<Value, AppError> {
         let mut payload = self.config().load()?;
-        let at = Self::consumer_at(&payload, port)?;
+        let at = Self::consumer_at(&payload, route_id)?;
         let key = ProxiesConfig::new_route_key()?;
-        let (port, name) = Self::with_route(&mut payload, at, |route| {
+        let (id, name) = Self::with_route(&mut payload, at, |route| {
             Coerce::put(route, "apiKey", json!(key));
-            Some((route.get("port").cloned(), Coerce::text(route.get("label"))))
+            Some((route.get("id").cloned(), Coerce::text(route.get("label"))))
         })
         .unwrap_or((None, String::new()));
         KeyAudit::enforce(&Self::routes_of(&payload))?;
         self.config().write_payload(payload)?;
-        Ok(json!({"port": port, "name": name, "key": key}))
+        Ok(json!({"routeId": id, "name": name, "key": key}))
     }
 
     /// The built-in client of `kind`, made when the caravan has none (the owner, 2026-10-27). The entry it needs is opened by `open_entry`.
@@ -183,20 +180,20 @@ impl<'app> ConsumerDesk<'app> {
         }
         let mut routes = Self::routes_of(&payload);
         let name = Self::builtin_name(&routes, kind, None);
-        let route = self.new_route(&name, self.config().next_free_port(&routes)?, kind)?;
-        let port = route.get("port").cloned();
+        let route = Self::new_route(&routes, &name, kind)?;
+        let id = route.get("id").cloned();
         routes.push(route);
         KeyAudit::enforce(&routes)?;
         Coerce::put(&mut payload, "routes", Value::Array(routes));
         self.config().write_payload(payload)?;
-        Ok(Some(json!({"port": port, "name": name, "kind": kind, "entry": opened, "entryRefused": refused})))
+        Ok(Some(json!({"routeId": id, "name": name, "kind": kind, "entry": opened, "entryRefused": refused})))
     }
 
-    /// The kind's name, or "… 2", 3… when a client of that name is there (`but`, a port, not counted).
-    fn builtin_name(routes: &[Value], kind: &str, but: Option<i64>) -> String {
+    /// The kind's name, or "… 2", 3… when a client of that name is there (`but`, a client's id, not counted).
+    fn builtin_name(routes: &[Value], kind: &str, but: Option<&str>) -> String {
         let taken: BTreeSet<String> = routes
             .iter()
-            .filter(|route| Self::is_consumer(route) && Some(Self::port_of(route)) != but)
+            .filter(|route| Self::is_consumer(route) && Some(ClientIds::of(route).as_str()) != but)
             .map(|route| EntryModels::key_of(&Coerce::text(route.get("label"))))
             .collect();
         let base = BuiltinClient::name(kind);
@@ -209,18 +206,16 @@ impl<'app> ConsumerDesk<'app> {
     }
 
     /// The consumer's name: a client is told apart by it on the board and in the journal.
-    pub fn clean_name(raw: Option<&Value>, routes: &[Value], own_port: Option<i64>) -> Result<String, AppError> {
+    pub fn clean_name(raw: Option<&Value>, routes: &[Value], own_id: Option<&str>) -> Result<String, AppError> {
         let name: String = Coerce::stripped(raw).chars().take(Self::NAME_MAX).collect();
         let name = Coerce::strip(&name).to_string();
         if name.is_empty() {
             return Err(AppError::new("name is required: the consumer's name, as the board and the journal show it"));
         }
         let wanted = EntryModels::key_of(&name);
-        // absent-ok: `int(own_port or 0)`: no port of its own is no route's.
-        let own = own_port.unwrap_or(0);
         let taken = routes
             .iter()
-            .filter(|route| Self::is_consumer(route) && Self::port_of(route) != own)
+            .filter(|route| Self::is_consumer(route) && Some(ClientIds::of(route).as_str()) != own_id)
             .any(|route| EntryModels::key_of(&Coerce::text(route.get("label"))) == wanted);
         if taken {
             return Err(AppError::with_status(format!("a consumer named {name} exists — give this one another name"), 409));
@@ -255,7 +250,7 @@ impl<'app> ConsumerDesk<'app> {
                 Coerce::put(route, ClientDeny::FIELD, json!(cleaned));
                 changed = true;
             }
-            clients.push(json!({"name": Coerce::text(route.get("label")), "port": Self::port_of(route), "had": had}));
+            clients.push(json!({"name": Coerce::text(route.get("label")), "routeId": ClientIds::of(route), "had": had}));
         }
         if changed {
             self.config().write_payload(payload)?;
@@ -304,13 +299,12 @@ impl<'app> ConsumerDesk<'app> {
         String::new()
     }
 
-    /// Where the consumer on `port` stands in the routes.
-    fn consumer_at(payload: &Value, port: Option<&Value>) -> Result<usize, AppError> {
-        let target = port.and_then(Coerce::int).ok_or_else(|| AppError::new("port must be a number"))?;
+    /// Where the client `route_id` names stands in the routes.
+    fn consumer_at(payload: &Value, route_id: &str) -> Result<usize, AppError> {
         let routes = Self::routes_of(payload);
-        let at = routes.iter().position(|route| Self::port_of(route) == target);
+        let at = routes.iter().position(|route| ClientIds::of(route) == route_id);
         at.filter(|at| routes.get(*at).is_some_and(Self::is_consumer))
-            .ok_or_else(|| AppError::with_status(format!("no consumer has the number {target}"), 404))
+            .ok_or_else(|| AppError::with_status(format!("no client has the id {route_id}"), 404))
     }
 }
 
@@ -320,20 +314,22 @@ mod tests {
 
     #[test]
     fn a_name_is_trimmed_and_unique_without_case() {
-        let routes =
-            [json!({"kind": "consumer", "port": 1, "label": "Hermes"}), json!({"kind": "service", "port": 2, "label": "other"})];
+        let routes = [
+            json!({"kind": "consumer", "id": "client-h", "label": "Hermes"}),
+            json!({"kind": "service", "id": "client-o", "label": "other"}),
+        ];
         assert_eq!(ConsumerDesk::clean_name(Some(&json!("  a ")), &routes, None).unwrap(), "a");
         assert_eq!(ConsumerDesk::clean_name(Some(&json!("other")), &routes, None).unwrap(), "other");
         assert_eq!(ConsumerDesk::clean_name(Some(&json!("hermes")), &routes, None).unwrap_err().status, 409);
-        assert_eq!(ConsumerDesk::clean_name(Some(&json!("hermes")), &routes, Some(1)).unwrap(), "hermes");
+        assert_eq!(ConsumerDesk::clean_name(Some(&json!("hermes")), &routes, Some("client-h")).unwrap(), "hermes");
         assert_eq!(ConsumerDesk::clean_name(Some(&json!(" ")), &routes, None).unwrap_err().status, 400);
     }
 
     #[test]
     fn a_built_in_name_is_made_free() {
-        let routes = [json!({"kind": "consumer", "port": 1, "label": "opencode"})];
+        let routes = [json!({"kind": "consumer", "id": "client-oc", "label": "opencode"})];
         assert_eq!(ConsumerDesk::builtin_name(&routes, "opencode", None), "opencode 2");
-        assert_eq!(ConsumerDesk::builtin_name(&routes, "opencode", Some(1)), "opencode");
+        assert_eq!(ConsumerDesk::builtin_name(&routes, "opencode", Some("client-oc")), "opencode");
         assert_eq!(ConsumerDesk::builtin_name(&[], "open-webui", None), "Open WebUI");
     }
 }

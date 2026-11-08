@@ -26,6 +26,8 @@ class StandSmi:
             "temperature.gpu": 41,
             "power.draw": "31.50",
             "driver_version": StandCards.DRIVER,
+            "pcie.link.gen.max": card["pcie_gen"],
+            "pcie.link.width.current": card["pcie_width"],
         }
         return table[field]
 

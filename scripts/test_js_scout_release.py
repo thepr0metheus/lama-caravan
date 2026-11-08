@@ -2,10 +2,12 @@
 """Снимок static/js/scout-release.js — пункт «Обновить скаута» в меню машины.
 
 Пинится значениями: какой из исходов следует из ответа контроллера (выпуска нет,
-скаут не умеет заменять себя, уже этот выпуск, новый), что сказано оператору в
+скаут не умеет заменять себя, уже этот выпуск, та же программа под другим коммитом,
+новый), что сказано оператору в
 каждом, что без согласия на провод ничего не уходит, что «взял» и «работает» —
-разные слова: второе говорит только следующий отчёт машины, и что машина, не
-вернувшаяся за отведённое время, так и названа.
+разные слова: второе говорит только следующий отчёт машины, что скаут, который
+ждёт запросы, идущие через него, так и назван и за ним следят столько, сколько
+он может ждать, и что машина, не вернувшаяся за отведённое время, так и названа.
 
 Подписи берутся из static/js/i18n/en.js программно, а не по памяти.
 
@@ -66,7 +68,12 @@ OLD = {"release": {"commit": "new1", "sha256": "ff", "bytes": 9}, "running": "ol
 SAME = {"release": {"commit": "new1", "sha256": "ff", "bytes": 9}, "running": "new1"}
 NO_BUNDLE = {"release": None, "running": "old1"}
 NO_WORD = {"release": {"commit": "new1", "sha256": "ff", "bytes": 9}, "running": None}
+ONE_PROGRAM = {**OLD, "sameScout": True}
+WAITING = {"ok": True, "commit": "new1", "restarting": False, "waiting": {"words": "box 1: not now: :22001 is loading", "retrySec": 120, "tries": 15}}
+WAITS = {"ok": True, "commit": "new1", "restarting": True, "waitsFor": {"words": ["2 requests through the machine's entry"], "requests": 2, "mostSec": 600}}
 TRIES = 30
+#: The looks a watch adds for a scout that waits up to ten minutes for its requests: one every 2 s.
+PATIENCE_TRIES = 300
 
 
 def only_said(words, outcome):
@@ -76,10 +83,14 @@ def only_said(words, outcome):
 PINS = [
     ("offer_of_each_answer",
      "",
-     "[" + ", ".join(f"sr.ScoutRelease.offer({json.dumps(x)})" for x in (OLD, SAME, NO_BUNDLE, NO_WORD, {}, None)) + "]",
+     "[" + ", ".join(f"sr.ScoutRelease.offer({json.dumps(x)})" for x in (OLD, SAME, NO_BUNDLE, NO_WORD, {}, None, ONE_PROGRAM,
+                                                                         {**OLD, "sameScout": None}, {**OLD, "sameScout": False})) + "]",
      json.dumps([{"kind": "new", "commit": "new1", "running": "old1"}, {"kind": "current", "commit": "new1", "running": "new1"},
-                 {"kind": "no-release"}, {"kind": "cannot", "commit": "new1"}, {"kind": "no-release"}, {"kind": "no-release"}]),
-     "четыре исхода из значений; negative: пустой ответ и его отсутствие — «выпуска нет», а не «новый»"),
+                 {"kind": "no-release"}, {"kind": "cannot", "commit": "new1"}, {"kind": "no-release"}, {"kind": "no-release"},
+                 {"kind": "same", "commit": "new1", "running": "old1"},
+                 {"kind": "new", "commit": "new1", "running": "old1"}, {"kind": "new", "commit": "new1", "running": "old1"}]),
+     "пять исходов из значений; negative: пустой ответ и его отсутствие — «выпуска нет», а не «новый»; "
+     "negative: контроллер не может сравнить (null) или программы разные — «новый», а не «та же»"),
     ("no_release_says_so_and_sends_nothing",
      "",
      f"await pressed({{ answers: [{json.dumps(NO_BUNDLE)}] }})",
@@ -95,6 +106,23 @@ PINS = [
      f"await pressed({{ answers: [{json.dumps(SAME)}] }})",
      only_said(en("scoutUpdateCurrent", host="box 1", commit="new1"), "current"),
      "negative: уже этот выпуск — сказано, ничего не перезапускается"),
+    ("one_program_under_another_commit_is_not_taken",
+     "",
+     f"await pressed({{ answers: [{json.dumps(ONE_PROGRAM)}] }})",
+     only_said(en("scoutUpdateSame", host="box 1", running="old1", commit="new1"), "same"),
+     "negative: та же программа под другим коммитом — сказано, вопроса нет, ничего не перезапускается"),
+    ("a_busy_scout_is_taken_over_by_the_cycle",
+     "",
+     f"await pressed({{ answers: [{json.dumps(OLD)}], update: {json.dumps(WAITING)} }})",
+     json.dumps({"outcome": "waiting", "calls": [["/api/fleet/scout-release?hostId=box%201"], ["/api/fleet/scout-update", "POST", UPDATE_BODY]],
+                 "said": [en("scoutUpdateWaiting", host="box 1", commit="new1", why="box 1: not now: :22001 is loading", minutes=2, total=30)],
+                 "asked": [[en("scoutUpdateAsk", host="box 1", running="old1", commit="new1"), en("scoutUpdateOk")]], "pauses": 0}, ensure_ascii=False),
+     "занятый скаут: контроллер спрашивает снова сам, сказано как часто и как долго; negative: «взял» не сказано, за отчётом не следим"),
+    ("a_waiting_answer_without_figures_says_dashes",
+     "",
+     f"await (async () => {{ const seen = await pressed({{ answers: [{json.dumps(OLD)}], update: {{ ok: true, waiting: {{ words: 'not now' }} }} }}); return [seen.outcome, seen.said]; }})()",
+     json.dumps(["waiting", [en("scoutUpdateWaiting", host="box 1", commit="new1", why="not now", minutes="—", total="—")]], ensure_ascii=False),
+     "negative: ответ без чисел — прочерки, а не выдуманные минуты"),
     ("declined_sends_nothing",
      "",
      f"await pressed({{ answers: [{json.dumps(OLD)}], yes: false }})",
@@ -116,6 +144,28 @@ PINS = [
      f"await (async () => {{ const seen = await pressed({{ answers: [{json.dumps(OLD)}] }}); return [seen.outcome, seen.pauses, seen.said]; }})()",
      json.dumps(["silent", TRIES, [en("scoutUpdateTaking", host="box 1", commit="new1"), en("scoutUpdateSilent", host="box 1", commit="new1")]], ensure_ascii=False),
      "negative: машина не сообщила новый выпуск за отведённое время — так и сказано, а не «работает»"),
+    ("taken_and_restarts_once_its_requests_are_done",
+     "",
+     f"await pressed({{ answers: [{json.dumps(OLD)}, {json.dumps(OLD)}, {json.dumps(SAME)}], update: {json.dumps(WAITS)} }})",
+     json.dumps({"outcome": "done",
+                 "calls": [["/api/fleet/scout-release?hostId=box%201"], ["/api/fleet/scout-update", "POST", UPDATE_BODY],
+                           ["/api/fleet/scout-release?hostId=box%201"], ["/api/fleet/scout-release?hostId=box%201"]],
+                 "said": [en("scoutUpdateTakenWaits", host="box 1", commit="new1", why="2 requests through the machine's entry", minutes=10),
+                          en("scoutUpdateDone", host="box 1", commit="new1")],
+                 "asked": [[en("scoutUpdateAsk", host="box 1", running="old1", commit="new1"), en("scoutUpdateOk")]], "pauses": 2}, ensure_ascii=False),
+     "скаут взял выпуск, но через него идут запросы: сказано, что он перезапустится, когда они закончатся, и самое долгое; "
+     "«работает» — по-прежнему только по отчёту машины"),
+    ("a_scout_that_waits_is_watched_as_long_as_it_may_wait",
+     "",
+     f"await (async () => {{ const seen = await pressed({{ answers: [{json.dumps(OLD)}], update: {json.dumps(WAITS)} }}); return [seen.outcome, seen.pauses, seen.said.slice(1)]; }})()",
+     json.dumps(["silent", TRIES + PATIENCE_TRIES, [en("scoutUpdateSilent", host="box 1", commit="new1")]], ensure_ascii=False),
+     "negative: за отчётом следят столько, сколько скаут может ждать свои запросы, и ещё обычную минуту — а не минуту, после "
+     "которой ждущего скаута назвали бы молчащим"),
+    ("a_wait_without_figures_says_dashes_and_adds_no_looks",
+     "",
+     f"await (async () => {{ const seen = await pressed({{ answers: [{json.dumps(OLD)}], update: {{ ok: true, restarting: true, waitsFor: {{ words: 'x', mostSec: null }} }} }}); return [seen.outcome, seen.pauses, seen.said[0]]; }})()",
+     json.dumps(["silent", TRIES, en("scoutUpdateTakenWaits", host="box 1", commit="new1", why="—", minutes="—")], ensure_ascii=False),
+     "negative: ответ без слов списком и без срока — прочерки, а не выдуманные минуты, и к обычной слежке ничего не прибавлено"),
     ("a_refusal_of_the_scout_is_said",
      "",
      f"await (async () => {{ const seen = await pressed({{ answers: [{json.dumps(OLD)}], update: {{ error: 'box 1: not now: :22013 is loading' }} }}); return [seen.outcome, seen.said, seen.pauses]; }})()",

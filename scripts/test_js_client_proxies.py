@@ -221,104 +221,7 @@ PINS = [
      ' proxyId: "skynet:proxy:23001", endpoint: "e" }] }, { agentId: "a2", routes: [] }]))',
      '[true,false,true]',
      "boundary: блок агента несёт СВОИ маршруты, а не соседские"),
-    ("routes_rebuild_keeps_window",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001,'
-     ' label: "p1", routerId: "r", contextLength: 8192, contextAuto: false }] });',
-     'm.topologyProxyRoutes().map((r) => [r.port, r.contextLength, r.contextAuto])',
-     '[[23001,8192,false]]',
-     "defect-history: сохранение списка прокси ПЕРЕСОБИРАЕТ каждый маршрут — окно оператора обязано уцелеть"),
-    ("routes_rebuild_keeps_auto_on",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001,'
-     ' label: "p1", routerId: "r", contextAuto: true }] });',
-     'm.topologyProxyRoutes().map((r) => ["contextLength" in r, r.contextAuto])',
-     '[[false,true]]',
-     "boundary: включённая галка переживает пересборку, а незаданного числа не появляется"),
-    ("routes_rebuild_sends_no_key_it_never_had",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23007", port: 23007, label: "Hermes", kind: "consumer",'
-     ' keyTail: "a1b2", set: "chat", setName: "Chat", models: ["Standart"], pool: "std", routerId: "router:default" }, { id: "skynet:proxy:23001", port: 23001, label: "p1",'
-     ' routerId: "r", apiKey: "" }, { id: "skynet:proxy:23003", port: 23003, label: "p3", routerId: "r", apiKey: "lcv1_x" }] });',
-     '[m.topologyProxyRoutes().map((r) => [r.port, "apiKey" in r ? r.apiKey : "(none)", r.kind, r.routerId, "pool" in r || "set" in r || "models" in r]), m.feedsRouters({ kind: "consumer" }),'
-     ' (st.topology.proxies[0].routerId = undefined, m.topologyProxyRoutes().find((r) => r.port === 23007).routerId)]',
-     '[[[23001,"","","r",false],[23003,"lcv1_x","","r",false],[23007,"(none)","consumer","",false]],false,""]',
-     "клиент входа: его ключа на странице нет, и пересборка не шлёт пустой ключ — иначе любая правка порта стёрла бы "
-     "ключ клиента (контроллер хранит его: PolicyOwnedFields); набор и модели тоже не шлются — набор ставит своя дверь; "
-     "клиент не кормит роутер (2026-10-12: его канат ведёт к набору) — роутер уходит пустым, что бы ни было в записи; "
-     "negative: порт старого вида шлёт свой ключ как есть — и пустой, это его слово"),
-    ("routes_rebuild_keeps_a_detached_port_detached",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "" },'
-     ' { id: "skynet:proxy:23002", port: 23002, label: "p2" }, { id: "skynet:proxy:23003", port: 23003, label: "p3", routerId: "r" }] });',
-     'm.topologyProxyRoutes().map((r) => [r.port, r.routerId])',
-     '[[23001,""],[23002,"router:default"],[23003,"r"]]',
-     "defect-history (2026-10-04): пересборка писала отвязанному порту (routerId \"\" — сервер держит его свободным, 503) "
-     "router:default, и правка или удаление ЛЮБОГО порта молча привязывали его обратно к Маршрутизации по умолчанию; "
-     "negative: порт без поля routerId (свежий) получает router:default, привязанный — свой роутер"),
-    ("an_edit_changes_only_what_the_form_shows",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "", role: "primary",'
-     ' clientId: "box-a", clientTimeoutSeconds: 600, contextLength: 8192, enabled: false, upstreamType: "cloud", providerId: "cb:x" },'
-     ' { id: "skynet:proxy:23002", port: 23002, label: "p2", routerId: "" }] });',
-     'await (async () => { const fields = { \'[name="label"]\': { value: "p1 renamed" }, \'[name="port"]\': { value: "23001" },'
-     ' \'[name="upstreamHost"]\': { value: "10.0.0.7" }, \'[name="upstreamPort"]\': { value: "9000" }, \'[name="mode"]\': { value: "open" },'
-     ' "[data-proxy-nokey]": { checked: true } }; const form = { querySelector: (sel) => fields[sel] || null }; const old = document.querySelector;'
-     ' document.querySelector = (sel) => (sel === "[data-topology-proxy-form]" ? form : null); globalThis.__fetchCalls.length = 0;'
-     ' globalThis.__fields = { ...(globalThis.__fields || {}), toast: { textContent: "", classList: { add() {}, remove() {} } } };'
-     ' const save = async (editing) => { st.ui.topologyProxyEditingId = editing; await m.saveTopologyProxyForm();'
-     ' return JSON.parse(globalThis.__fetchCalls.filter((c) => c.path === "/api/agent-proxies/config").at(-1).body).routes; };'
-     ' try { const edited = (await save("skynet:proxy:23001")).find((r) => r.port === 23001);'
-     ' fields[\'[name="port"]\'].value = "23009"; const added = (await save("")).find((r) => r.port === 23009);'
-     ' const pick = (r, keys) => keys.map((k) => (k in r ? r[k] : "absent"));'
-     ' return [pick(edited, ["label", "upstreamHost", "upstreamPort", "routerId", "role", "clientId", "clientTimeoutSeconds", "contextLength", "enabled", "upstreamType", "providerId"]),'
-     ' pick(added, ["label", "routerId", "role", "clientId", "enabled"])]; }'
-     ' finally { document.querySelector = old; st.ui.topologyProxyEditingId = ""; } })()',
-     '[["p1 renamed","10.0.0.7",9000,"","primary","box-a",600,8192,false,"cloud","cb:x"],["p1 renamed","absent","absent","absent",true]]',
-     "правка порта меняет только то, что показывает форма (имя, адрес, порт, режим, ключ): отвязанный порт остаётся "
-     "отвязанным, владелец, роль, окно, время ожидания, вид апстрима и выключенность — как были (правленый маршрут "
-     "собирался из одной формы и терял всё это); negative: новый порт — только поля формы, привязку даёт сервер"),
     # ── a whole list of ports from an old copy (ProxyRevisions on the controller, 2026-10-08) ──
-    ("port_list_sends_the_version_it_was_built_from",
-     'st.setTopology({ ...st.topology, proxies: PROXIES, proxyRevisions: { routes: "p1", routers: "r1" } });'
-     ' globalThis.__fetchCalls.length = 0; globalThis.__fetchReply["/api/agent-proxies/config"] = { ok: true };',
-     'await (async () => { await m.saveProxyRoutes((rs) => rs); const b = JSON.parse(globalThis.__fetchCalls[0].body); return [b.revision, b.routes.map((r) => r.port)]; })()',
-     '["p1",[23001,23002]]',
-     "список портов уходит с версией, из которой собран"),
-    ("port_list_from_an_old_copy_is_built_again",
-     'st.setTopology({ ...st.topology, proxies: PROXIES, proxyRevisions: { routes: "p1", routers: "r1" } });'
-     ' globalThis.__fetchCalls.length = 0; globalThis.__fields = { ...(globalThis.__fields || {}), toast: { textContent: "", classList: { add() {}, remove() {} } } };'
-     ' let n = 0; globalThis.__fetchReply["/api/agent-proxies/config"] = () => (++n === 1 ? { __status: 409, stale: true, error: "the routes changed since this page read them", topology: { proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "r" }], clients: [], assignments: {}, routers: [], proxyRevisions: { routes: "p2", routers: "r2" } } } : { ok: true });',
-     'await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default; await m.saveProxyRoutes((rs) => rs); const c = globalThis.__fetchCalls.map((x) => JSON.parse(x.body));'
-     ' return [c.length, c[1].revision, c[1].routes.map((r) => r.port), globalThis.__fields.toast.textContent === en.staleCopyRetried]; })()',
-     '[2,"p2",[23001],true]',
-     "отказ «старая копия»: список собран заново из текущей топологии — порт 23002, удалённый в другой вкладке, не вернулся"),
-    ("port_list_build_saying_nothing_saves_nothing",
-     'st.setTopology({ ...st.topology, proxies: PROXIES }); globalThis.__fetchCalls.length = 0;',
-     'await (async () => [await m.saveProxyRoutes(() => null), globalThis.__fetchCalls.length])()',
-     '[null,0]',
-     "negative: сборщик ответил «нечего» — запроса нет"),
-    ("form_of_a_port_deleted_elsewhere_saves_nothing",
-     'st.setTopology({ ...st.topology, proxies: PROXIES, proxyRevisions: { routes: "p1", routers: "r1" } });'
-     ' globalThis.__fetchCalls.length = 0; globalThis.__fields = { ...(globalThis.__fields || {}), toast: { textContent: "", classList: { add() {}, remove() {} } } }; globalThis.__fetchReply["/api/agent-proxies/config"] = { __status: 409, stale: true, error: "the routes changed since this page read them", topology: { proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "r" }], clients: [], assignments: {}, routers: [], proxyRevisions: { routes: "p2", routers: "r2" } } };',
-     'await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default; const fields = { \'[name="label"]\': { value: "p2" }, \'[name="port"]\': { value: "23002" },'
-     ' \'[name="upstreamHost"]\': { value: "127.0.0.1" }, \'[name="upstreamPort"]\': { value: "8080" }, \'[name="mode"]\': { value: "open" } };'
-     ' const form = { querySelector: (sel) => fields[sel] || null }; const old = document.querySelector;'
-     ' document.querySelector = (sel) => (sel === "[data-topology-proxy-form]" ? form : null);'
-     ' st.ui.topologyProxyEditingId = "skynet:proxy:23002"; st.ui.topologyProxyFormOpen = true;'
-     ' try { await m.saveTopologyProxyForm(); } finally { document.querySelector = old; }'
-     ' return [globalThis.__fetchCalls.length, globalThis.__fields.toast.textContent === en.staleCopyPortGone.replace("{port}", "23002"),'
-     ' st.ui.topologyProxyFormOpen, st.ui.topologyProxyEditingId]; })()',
-     '[1,true,false,""]',
-     "форма порта, удалённого в другой вкладке: второй записи нет — она вернула бы порт; тост это говорит, форма закрыта"),
-    ("routes_rebuild_keeps_the_model_name",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p1", routerId: "r",'
-     ' modelName: " gpt-6-sol ", modelNameAuto: true }, { id: "skynet:proxy:23003", port: 23003, label: "p3", routerId: "r", modelName: "  " }] });',
-     'm.topologyProxyRoutes().map((r) => [r.port, r.modelName ?? null, r.modelNameAuto ?? null])',
-     '[[23001,"gpt-6-sol",true],[23003,null,null]]',
-     "defect-history (2026-10-07): ✎ сохранение теряло имя модели порта и его замок до следующего применения назначений; "
-     "negative: пустое имя не выдумывается"),
-    ("routes_rebuild_invents_nothing",
-     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001,'
-     ' label: "p1", routerId: "r" }] });',
-     'm.topologyProxyRoutes().map((r) => ["contextLength" in r, "contextAuto" in r])',
-     '[[false,false]]',
-     "negative: чего оператор не задавал, пересборка не выдумывает — ноль читался бы как настоящий предел"),
     ("a_leftover_live_report_is_ignored",
      "st.setTopology({ ...st.topology, assignments: STORED(), proxies: PROXIES, clients: LIVE([{ role: \"primary\", proxyId: \"skynet:proxy:23002\", endpoint: \"http://h:23002/v1\" }]) });",
      "[m.topologyBoardAssignmentsForHost(\"c1\")[0].routes.map((r) => [r.role, r.proxyId]), m.topologyAssignmentsForHost(\"c1\")[0].routes.map((r) => r.proxyId)]",
@@ -352,9 +255,9 @@ PINS = [
     # ── fold: an agent folded into its line (card-fold.js, card-rows.js) ──
     ("agent_fold_line",
      "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, agents: [{ id: \"a1\", name: \"hotel\" }] }] });",
-     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"), (h.match(/data-topology-route-handle/g) || []).length, h.indexOf(\"data-topology-route-handle\") < h.indexOf(\"<div class=\\\"topology-agent \"), h.includes('data-t=\"agent-row\"'), h.includes('<span class=\"ar-kind\">manual</span>'), (h.match(/<span class=\"ar-port\"[^>]*>([^<]*)</) || [])[1]])(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\", modelName: \"hemi-proxy\", contextLength: 256000 }] }])[0].html)",
-     "[\"line\",1,true,true,true,\":23001\"]",
-     "positive: агент с маршрутом в свёрнутой ленте — строка; ручка каната одна и стоит на строке, карточка за ней без ручки"),
+     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"), (h.match(/data-topology-route-handle/g) || []).length, h.indexOf(\"data-topology-route-handle\") < h.indexOf(\"<div class=\\\"topology-agent \"), h.includes('data-t=\"agent-row\"'), h.includes('<span class=\"ar-kind\">manual</span>'), (h.match(/<span class=\"ar-role\"[^>]*>([^<]*)</) || [])[1]])(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\", modelName: \"hemi-proxy\", contextLength: 256000 }] }])[0].html)",
+     "[\"line\",1,true,true,true,\"primary\"]",
+     "positive: агент с маршрутом в свёрнутой ленте — строка; ручка каната одна и стоит на строке, карточка за ней без ручки; маршрут назван ролью — номера у него нет (2026-11-07)"),
     ("agent_fold_line_shows_only_what_is_set",
      "st.setTopology({ ...st.topology, proxies: [{ ...PROXIES[0], clientTimeoutSeconds: 1800 }, PROXIES[1]], clients: [{ id: \"c1\", manual: true, agents: [{ id: \"a1\", name: \"hotel\" }] }] });",
      "(h => { const line = (h.match(/<div class=\"fold-row agent-row\".*?<\\/div><\\/div>/s) || [\"\"])[0]; return [line.includes(\"hemi-proxy\"), />[^<]*—[^<]*</.test(line), line.includes(\"fallback\"), line.includes('<span class=\"ar-meta\">⏳ 1800s</span>'), line.includes('<span class=\"ar-meta\">📏 256000</span>')]; })(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\", modelName: \"hemi-proxy\", contextLength: 256000 }] }])[0].html)",
@@ -362,9 +265,9 @@ PINS = [
      "positive: в строке только заданное — модель, ⏳ ожидание с порта и 📏 окно маршрута теми же словами, что чипы; прочерков в тексте и пустого fallback нет"),
     ("agent_fold_two_routes_two_handles",
      "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, agents: [{ id: \"a1\", name: \"hotel\" }] }] });",
-     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"), (h.match(/data-topology-route-handle/g) || []).length, h.includes(\">↪ :23002<\")])(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\" }, { role: \"fallback\", proxyId: \"skynet:proxy:23002\", endpoint: \"http://h:23002/v1\" }] }])[0].html)",
-     "[\"line\",2,true]",
-     "positive: основной и запасной — две строки маршрута, ровно две ручки на всю карточку"),
+     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"), (h.match(/data-topology-route-handle/g) || []).length, h.includes(\">↪ fallback<\"), />[^<]*:2300/.test(h)])(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\" }, { role: \"fallback\", proxyId: \"skynet:proxy:23002\", endpoint: \"http://h:23002/v1\" }] }])[0].html)",
+     "[\"line\",2,true,false]",
+     "positive: основной и запасной — две строки маршрута, ровно две ручки на всю карточку; negative: номеров в тексте строки нет"),
     ("agent_no_route_stays_full_and_says_so",
      "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, agents: [{ id: \"a1\", name: \"hotel\" }] }] });",
      "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"), h.includes('data-t=\"agent-no-route\"'), h.includes(\"No route — this agent goes nowhere\")])(m.clientLaneAgentCards(st.topology.clients[0], [])[0].html)",

@@ -279,6 +279,44 @@ impl LauncherRunners {
         ..LauncherCell::FAMILY
     };
 
+    /// InferSSD (wici-ai, Apache-2.0): llama.cpp's server forked to read a MoE model's experts from an SSD with io_uring and keep the most used ones in RAM and on the card (Papyrus
+    /// caravan-big-models-ssd, step 10; the owner gave its go on 2026-11-03). One card, as its documentation describes. Its model sits on the machine's fast disk: the folder for Strata's
+    /// files, where the scout copies every part of a split GGUF before the start.
+    const INFERSSD: RunnerRow = RunnerRow {
+        id: "inferssd",
+        icon: "\u{1f4bd}",
+        label_key: "runnerInferssd",
+        benefits_key: "runnerInferssdBenefits",
+        minus_key: "runnerInferssdMinus",
+        needs_key: "runnerNeedsInferssdGguf",
+        artifacts: &["deepseek41-gguf"],
+        formats: &["gguf"],
+        gguf_archs: &["deepseek41"],
+        api: "openai",
+        health: "/health",
+        default_health_path: "/health",
+        talk: TalkSpec { modes: &["text-chat"], ..TalkSpec::NONE },
+        // The scout that copies what a start asks for onto the fast disk (the folder for Strata's files).
+        min_scout: Some((2, 44, 0)),
+        work_folder: true,
+        launcher: Some(LauncherSpec {
+            launcher: "run_inferssd.sh",
+            // The window Strata's DeepSeek cell was measured at: the two compared on the same questions (step 11).
+            args: &["--context", "32768", "{model}"],
+            folder_rule: "picked",
+            vram_mib: 31744,
+            vram_who: "InferSSD",
+            vram_why: "it takes the card it is given whole: its expert cache fills what the card admits (vram.budget = auto)",
+            display_name: "InferSSD",
+        }),
+        ..LauncherCell::FAMILY
+    };
+
+    /// The cell of InferSSD: it stands beside Strata's DeepSeek cell, the other server of the same model.
+    pub fn inferssd() -> Box<dyn Runner> {
+        Box::new(LauncherCell { row: Self::INFERSSD })
+    }
+
     /// All but the last, which stands after the voice-clone cell in the editor: see `after_voice_clone`.
     pub fn all() -> Vec<Box<dyn Runner>> {
         [Self::PERSONAPLEX, Self::LFM_AUDIO, Self::STEP_AUDIO2, Self::QWEN3_OMNI, Self::QWEN3_TTS]
@@ -290,5 +328,77 @@ impl LauncherRunners {
     /// The cell of MiniCPM-o.
     pub fn after_voice_clone() -> Box<dyn Runner> {
         Box::new(LauncherCell { row: Self::MINICPM_OMNI })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::runner::{RunnerDefaults, RunnerRegistry};
+
+    const Q8: &str = "DeepSeek-V4.1-Flash-1017-GGUF/mrfakename/Q8_0/DeepSeek-V4.1-Flash-1017-Q8_0-00001-of-00010.gguf";
+
+    fn config(pairs: &[(&str, &str)]) -> Config {
+        pairs.iter().map(|(key, value)| ((*key).to_string(), json!(value))).collect()
+    }
+
+    fn registry() -> RunnerRegistry {
+        RunnerRegistry::new(&RunnerDefaults { models_dir: "/m".to_string(), home: "/home/u".to_string() }).unwrap()
+    }
+
+    #[test]
+    fn inferssd_reads_a_deepseek_gguf_beside_strata_from_the_fast_disk() {
+        let registry = registry();
+        let ids: Vec<&str> = registry.all().map(|runner| runner.row().id).collect();
+        let at = |id: &str| ids.iter().position(|said| *said == id);
+        assert_eq!(
+            at("inferssd"),
+            at("strata-ds").map(|place| place + 1),
+            "it stands beside the other server of the same model: {ids:?}"
+        );
+        let (inferssd, strata) = (registry.get("inferssd").row(), registry.get("strata-ds").row());
+        assert_eq!((inferssd.artifacts, inferssd.gguf_archs), (&["deepseek41-gguf"][..], &["deepseek41"][..]));
+        assert_eq!(
+            strata.artifacts.first(),
+            inferssd.artifacts.first(),
+            "one kind for both, named after the model: a DeepSeek-V4.1 GGUF opens both tabs"
+        );
+        assert!(
+            !registry.get("llama-server").row().artifacts.contains(&"deepseek41-gguf"),
+            "negative: llama.cpp's tab stays grey for it"
+        );
+        assert!(inferssd.work_folder && inferssd.one_card && inferssd.gpu_only, "the fast disk, one card, no CPU");
+        assert!(
+            !registry.get("personaplex").row().work_folder,
+            "negative: the other launcher cells read their model where the cache keeps it"
+        );
+        let runner = registry.get("inferssd");
+        assert_eq!(
+            runner.model_file_values(&config(&[("MODEL_FILE", Q8)])),
+            vec![("MODEL_FILE".to_string(), Q8.to_string())],
+            "the part picked, which names the others"
+        );
+    }
+
+    #[test]
+    fn inferssd_reserves_the_card_it_is_given_whole() {
+        let runner = LauncherRunners::inferssd();
+        let gpus = [json!({"index": 0}), json!({"index": 1})];
+        let pinned = runner.vram_reservation(&config(&[("MODEL_FILE", Q8), ("ENV", "CUDA_VISIBLE_DEVICES=1")]), &gpus).unwrap();
+        assert_eq!(
+            (pinned["device"].clone(), pinned["reserveMiB"].clone(), pinned["who"].clone()),
+            (json!(1), json!(31744), json!("InferSSD"))
+        );
+        assert_eq!(
+            runner.vram_reservation(&config(&[("MODEL_FILE", Q8)]), &gpus).unwrap()["device"],
+            json!(0),
+            "unpinned: the first card"
+        );
+        assert_eq!(
+            runner.vram_reservation(&config(&[("ENV", "CUDA_VISIBLE_DEVICES=2")]), &gpus),
+            None,
+            "negative: a card the machine lacks"
+        );
+        assert_eq!(runner.vram_plan(), json!({"fixedMiB": 31744}));
     }
 }

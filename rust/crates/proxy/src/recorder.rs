@@ -77,7 +77,7 @@ mod tests {
     fn a_row_says_what_a_python_row_says_and_who_wrote_it() {
         let place = folder("row");
         let board = Arc::new(Board::default());
-        board.add_active("a", 1, json!({"id": "r1"}));
+        board.add_active("a", "client-a", json!({"id": "r1"}));
         let recorder = Recorder::new(Journal::new(place.clone(), None), board, Arc::new(SystemClock::new()));
         recorder.event("received", "a", "r1", Some(&json!({"id": "r1", "route": "a"})), json!({"status": 200}));
         recorder.event("blocked", "", "", Some(&json!({"id": "r2", "route": "b"})), json!({"queue": {"queuedMs": 5}}));

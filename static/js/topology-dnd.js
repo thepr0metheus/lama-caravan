@@ -56,10 +56,6 @@ import {
   topologyQueuePriorityEdits,
 } from "./topology-modals.js";
 import { closeIncidentsModal } from "./topology-nodes.js";
-import {
-  editTopologyProxy,
-  saveTopologyProxyForm,
-} from "./topology-proxies.js";
 import { flushPendingTopologyRender, renderTopology } from "./topology-render.js";
 import {
   fetchUsageStats,
@@ -76,32 +72,21 @@ export let topologySchedulePaintOutput = "";  // output id currently selected fo
 export let topologyScheduleGrid = null;       // working [7][24] grid of outputId|"" while editing
 export let _schedulePainting = false;
 export let _schedulePointerUpBound = false;
-// Delete a proxy port from wherever its button sits (the port form, the route
-// detail). Says what leaves with it: a port is a listener AND whatever the agent
-// on the other side is configured to call, so deleting one without naming the
-// agent turns a tidy click into a silent outage on some other machine.
-async function deleteProxyPort(port) {
-  const route = (topology?.proxies || []).find((p) => Number(p.port) === port);
-  if (!port) return;
-  const bound = Object.entries(topology?.assignments || {}).flatMap(([host, row]) =>
-    (row.assignments || [])
-      .filter((a) => (a.routes || []).some((r) => String(r.proxyId).endsWith(`:${port}`)))
-      .map((a) => `${host}/${a.agentId}`));
-  const detail = [
-    `:${port} ${route?.label || ""}`,
-    bound.length ? `${t("proxyDeleteBound")}: ${bound.join(", ")}` : t("proxyDeleteUnbound"),
-  ].join("\n");
-  if (!await appConfirm(t("proxyDeleteConfirm", { port: String(port) }),
-                        { detail, danger: true })) return;
+// Delete a client from the route detail, asked first: its key stops opening the entry in the same write, and a program that
+// still calls with it is refused from then on. A client is named by its id (2026-11-07), never by a number.
+async function deleteClientRoute(routeId) {
+  const route = (topology?.proxies || []).find((p) => String(p.id) === String(routeId));
+  if (!route) return;
+  const name = String(route.label || "");
+  if (!await appConfirm(t("consumerDeleteText", { name }),
+                        { title: t("consumerDeleteTitle", { name }), danger: true, confirmLabel: t("deleteAction") })) return;
   try {
     const res = await api("/api/agent-proxies/route-delete", {
-      method: "POST", body: JSON.stringify({ port }),
+      method: "POST", body: JSON.stringify({ routeId: String(routeId) }),
     });
     if (res.topology) setTopology(res.topology);
-    ui.topologyProxyFormOpen = false;
-    ui.topologyProxyEditingId = "";
     renderTopology();
-    toast(t("proxyDeleted", { port: String(port) }));
+    toast(t("consumerDeleted", { name }));
   } catch (err) { toast(err.message); }
 }
 
@@ -109,40 +94,6 @@ export let topologyRouteDetail = null;
 export function bindTopologyDragAndDrop() {
   const logsButton = $("topologyLogsBtn");
   // topologyLogsBtn removed — no longer used
-  document.querySelector("[data-topology-proxy-save]")?.addEventListener("click", () => {
-    saveTopologyProxyForm().catch((err) => toast(err.message));
-  });
-  // Roll a fresh data-plane API key into the form field (saved on Save).
-  // "Do not require a key" is the plain-language version of "apiKey is empty",
-  // which the form used to express only by a blank text box — indistinguishable
-  // from a key the operator had not typed yet.
-  document.querySelector("[data-proxy-nokey]")?.addEventListener("change", (e) => {
-    const on = !!e.target.checked;
-    const label = document.querySelector("[data-topology-proxy-form] .proxy-apikey-label");
-    if (label) label.hidden = on;
-    const input = document.querySelector('[data-topology-proxy-form] [name="apiKey"]');
-    if (on && input) input.value = "";
-    if (!on && input && !input.value) {
-      // Unticking asks for a key; an empty box would save as "open" again and
-      // the operator would think they had closed the port.
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      input.value = "lcv1_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-    }
-  });
-  document.querySelector("[data-proxy-genkey]")?.addEventListener("click", () => {
-    const input = document.querySelector('[data-topology-proxy-form] [name="apiKey"]');
-    if (!input) return;
-    const bytes = crypto.getRandomValues(new Uint8Array(24));
-    input.value = "lcv1_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-  });
-  document.querySelector("[data-topology-proxy-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyProxyOverlay !== undefined) {
-      ui.topologyProxyFormOpen = false;
-      ui.topologyProxyEditingId = "";
-      renderTopology();
-    }
-  });
   // "Add Cloud Provider" button is now rendered dynamically — handled via delegation below
   const historyBtn = $("topologyRequestHistoryBtn");
   if (historyBtn) historyBtn.addEventListener("click", () => openRequestHistory());
@@ -353,10 +304,10 @@ export function bindTopologyDragAndDrop() {
   // ── Per-proxy drag handles ───────────────────────────────────────────────
   (function attachQpProxyHandles() {
     document.querySelectorAll("[data-qp-proxy-handle]").forEach((handle) => {
-      const port = Number(handle.dataset.qpProxyHandle);
+      const routeId = String(handle.dataset.qpProxyHandle || "");
       const pctKey = handle.dataset.qpPctKey;
       const MIN = pctKey === "queueAbortPct" ? 1 : 0;
-      const proxy = (topology?.proxies || []).find((p) => Number(p.port) === port);
+      const proxy = (topology?.proxies || []).find((p) => String(p.id) === routeId);
       const eff = proxy ? proxyEffectiveWaitTimeout(proxy) : 0;
       const wt = eff > 0 ? eff : 3600;
       const track = handle.closest("[data-qp-proxy-track]");
@@ -370,8 +321,8 @@ export function bindTopologyDragAndDrop() {
       }
       function applyPct(pct) {
         if (!topologyQueuePriorityEdits.routes) topologyQueuePriorityEdits.routes = {};
-        if (!topologyQueuePriorityEdits.routes[port]) topologyQueuePriorityEdits.routes[port] = {};
-        topologyQueuePriorityEdits.routes[port][pctKey] = pct;
+        if (!topologyQueuePriorityEdits.routes[routeId]) topologyQueuePriorityEdits.routes[routeId] = {};
+        topologyQueuePriorityEdits.routes[routeId][pctKey] = pct;
         updateHandleLive(pct);
       }
       const onMove = (clientX) => {
@@ -394,7 +345,7 @@ export function bindTopologyDragAndDrop() {
         document.addEventListener("touchend", onTE);
       }, { passive: false });
       handle.addEventListener("keydown", (e) => {
-        const cur = topologyQueuePriorityEdits.routes?.[port]?.[pctKey]
+        const cur = topologyQueuePriorityEdits.routes?.[routeId]?.[pctKey]
           ?? Math.round(parseFloat(handle.style.left || "0"));
         if (e.key === "ArrowRight" || e.key === "ArrowUp") {
           e.preventDefault(); applyPct(Math.min(100, cur + 1));
@@ -407,9 +358,9 @@ export function bindTopologyDragAndDrop() {
   // ── Per-proxy reset ──────────────────────────────────────────────────────
   document.querySelectorAll("[data-qp-proxy-reset]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const port = Number(btn.dataset.qpProxyReset);
+      const routeId = String(btn.dataset.qpProxyReset || "");
       if (topologyQueuePriorityEdits.routes) {
-        topologyQueuePriorityEdits.routes[port] = {
+        topologyQueuePriorityEdits.routes[routeId] = {
           cloudFallbackPct: null, priorityPreemptPct: null, queueAbortPct: null,
         };
       }
@@ -571,25 +522,10 @@ export function bindTopologyDragAndDrop() {
       renderTopology();
     }
   });
-  document.querySelector("[data-topology-proxy-cancel]")?.addEventListener("click", () => {
-    ui.topologyProxyFormOpen = false;
-    ui.topologyProxyEditingId = "";
-    renderTopology();
-  });
-  document.querySelector("[data-topology-proxy-delete]")?.addEventListener("click", () => {
-    // The id is `skynet:proxy:<port>`, not a bare number.
-    deleteProxyPort(Number(String(ui.topologyProxyEditingId || "").split(":").pop() || 0));
-  });
-  // The route detail used to show statistics only: a port named by a slip was
-  // seen there and could be renamed or deleted nowhere near — only from the
-  // Routing's ✎ or the port form. Its two actions lead to those same places.
-  document.querySelectorAll("[data-route-detail-edit]").forEach((button) => button.addEventListener("click", () => {
-    topologyRouteDetail = null;
-    editTopologyProxy(button.dataset.routeDetailEdit);
-  }));
+  // The route detail used to show statistics only: a client named by a slip was seen there and could be deleted nowhere near.
   document.querySelectorAll("[data-route-detail-delete]").forEach((button) => button.addEventListener("click", () => {
     topologyRouteDetail = null;
-    deleteProxyPort(Number(button.dataset.routeDetailDelete || 0));
+    deleteClientRoute(button.dataset.routeDetailDelete || "");
   }));
   // ── Router card → Routing, in this tab (the owner, 2026-10-17: it was a new tab) ──────────────
   document.querySelectorAll("[data-topology-router]").forEach((card) => {
@@ -837,14 +773,13 @@ export function bindTopologyDragAndDrop() {
     const open = (tab = null) => {
       const proxyId = row.dataset.topologyRouteDetail || "";
       const clientIp = row.dataset.clientIp || "";
-      // The proxy port is the consumer key: prefer the resolved proxy object,
-      // else parse it from the proxyId ("skynet:proxy:<port>").
+      // The client's id is its key (2026-11-07): the proxy the board has under the route's proxyId, none when it has none.
       const proxy = (topology?.proxies || []).find((p) => p.id === proxyId);
-      const port = Number(proxy?.port || String(proxyId).split(":").pop()) || null;
+      const routeId = proxy ? String(proxy.id) : "";
       const changedRoute = !topologyRouteDetail || topologyRouteDetail.proxyId !== proxyId;
       topologyRouteDetail = {
         proxyId,
-        port,
+        routeId,
         routeLabel: proxy?.label || "",
         clientIp,
         clientName: row.dataset.clientName || "",

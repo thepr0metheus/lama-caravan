@@ -21,8 +21,9 @@ impl CloudModelRefs {
         Self { routes: objects("routes"), routers: objects("routers") }
     }
 
-    fn port(route: &Value) -> Value {
-        json!({"port": route.get("port"), "label": Coerce::text(route.get("label"))})
+    /// A client as a reference names it: its id and its name.
+    fn client(route: &Value) -> Value {
+        json!({"routeId": route.get("id"), "label": Coerce::text(route.get("label"))})
     }
 
     /// Every reference to a pool.
@@ -32,10 +33,10 @@ impl CloudModelRefs {
         let (mut routes, mut fallbacks) = (Vec::new(), Vec::new());
         for route in &self.routes {
             if Coerce::text(route.get("providerId")) == block_id {
-                routes.push(Self::port(route));
+                routes.push(Self::client(route));
             }
             if Coerce::text(route.get("cloudFallbackProviderId")) == block_id {
-                fallbacks.push(Self::port(route));
+                fallbacks.push(Self::client(route));
             }
         }
         let (mut edges, mut queue_roles, mut rescue_roles, mut rule_hits) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -135,7 +136,7 @@ mod tests {
 
     fn cfg() -> Value {
         json!({
-            "routes": [{"port": 1, "label": "a", "providerId": "p"}, {"port": 2, "cloudFallbackProviderId": "p"}],
+            "routes": [{"id": "c1", "label": "a", "providerId": "p"}, {"id": "c2", "cloudFallbackProviderId": "p"}],
             "routers": [{
                 "id": "r",
                 "outputs": [{"id": "cb:p"}],
@@ -149,8 +150,8 @@ mod tests {
     fn every_kind_of_reference_is_found() {
         let mut refs = CloudModelRefs::new(&cfg());
         let found = refs.of("p");
-        assert_eq!(found["routes"], json!([{"port": 1, "label": "a"}]));
-        assert_eq!(found["fallbacks"], json!([{"port": 2, "label": ""}]));
+        assert_eq!(found["routes"], json!([{"routeId": "c1", "label": "a"}]));
+        assert_eq!(found["fallbacks"], json!([{"routeId": "c2", "label": ""}]));
         assert_eq!(found["edges"][0]["id"], "e1");
         assert_eq!(found["queueRoles"], json!([{"router": "r", "node": "q", "role": "admit"}]));
         assert_eq!(found["rules"], json!([{"router": "r", "rule": "default"}, {"router": "r", "rule": "dormantDefault"}]));

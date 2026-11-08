@@ -15,7 +15,7 @@ import { $, api, escapeHtml, isStaleCopy, pill, toast } from "./utils.js";
 export let topologyOutputsFolded = {};            // "host:<host>" -> bool: rows folded on the canvas servers block
 export let topologyQuietShown = {};               // machine key -> true: its fold of rows nothing leads to is listed
 // Per-OUTPUT activity: is a request actually being served by THIS output right now?
-// Matches active proxy items by their resolved upstream (host:port). Used so only the
+// Matches active proxy items by the queue the proxy names on them (OutputCells.upstream). Used so only the
 // cable to the output actually carrying traffic animates (not every output).
 // With `router`, only the requests that came in by its ports count: a pool also serves the
 // entry's free clients directly (2026-10-11), their requests carry the pool's id as well, and the
@@ -34,8 +34,8 @@ export function topologyOutputActivity(out, router = null) {
       ? String(it.routedOutputId || "") === String(out.id || "")
       : (String(it.upstreamType || "llama") !== "cloud" && String(it.upstream || "") === want);
   const inputs = router ? new Set((router.inputs || []).map(String)) : null;
-  const ports = inputs ? new Set((topology?.proxies || []).filter((p) => inputs.has(String(p.id))).map((p) => Number(p.port))) : null;
-  return topologyItemsActivity((it, port) => (!ports || ports.has(port)) && matches(it));
+  const ids = inputs ? new Set((topology?.proxies || []).filter((p) => inputs.has(String(p.id))).map((p) => String(p.id))) : null;
+  return topologyItemsActivity((it, id) => (!ids || ids.has(id)) && matches(it));
 }
 
 export function topologyRouterOutputLabel(out) {
@@ -44,17 +44,10 @@ export function topologyRouterOutputLabel(out) {
     const pool = _poolForOut(out);
     return out.label || `☁ ${pool?.name || out.providerId || "cloud"}`;
   }
-  // An engine's model: its name in the engine and the engine, as the
-  // controller labelled it — no cell stands on the engine's port.
-  if (String(out.upstreamType || "") === "engine") {
-    return out.label || `${out.upstreamModel || ""} · ${out.engine || ""}`;
-  }
-  // A model of a machine's entry: its name — the port is the machine's entry, every model's.
-  if (String(out.upstreamType || "") === "machine") return String(out.upstreamModel || out.label || "");
-  // A cell: what it runs, as the cell itself is named (output-cells.js), then its port —
-  // not the label the server baked from the model file, which read "en" for a moonshine cell.
-  const name = new OutputCells(topology).name(out);
-  return name ? `${name} :${out.upstreamPort}` : `${out.upstreamHost}:${out.upstreamPort}`;
+  // A local output — a model of a machine's entry or of an engine — as its row names it (output-cells.js): no port, for a
+  // machine's entry and an engine serve many models on one, and a cell holds one only while it runs. An output nothing names
+  // is named by its id.
+  return new OutputCells(topology).name(out) || String(out.id || "");
 }
 
 // The pool a cloud output leads to (its output is `cb:<pool id>`), or null.
@@ -159,8 +152,11 @@ export function routerById(routers, id) { return routers.find((s) => s.id === id
 // A router's local outputs by the machine that serves them: [{ key, name, address, outs }].
 // One grouping for the router's panel and Routing's servers block, which
 // each held a copy. The machine is machineAt(the output's address) — two
-// addresses of one machine (loopback and its LAN address) are one group; the
-// groups go in the order of their lowest port, each group's outputs by port.
+// addresses of one machine (loopback and its LAN address) are one group. The
+// groups go in the order their first outputs stand in, and each group's outputs
+// in the controller's order (rust/crates/admin/src/proxies/config/outputs.rs). They went by port
+// while a cell was an output of its own (`srv:<port>`, until 2026-11-07): a machine's
+// entry and an engine serve many models on one port, which orders none of them.
 export function localOutputGroups(outputs) {
   const byMachine = new Map();
   (outputs || []).filter((o) => String(o.upstreamType || "llama") !== "cloud").forEach((o) => {
@@ -170,10 +166,7 @@ export function localOutputGroups(outputs) {
     }
     byMachine.get(machine.key).outs.push(o);
   });
-  const port = (o) => Number(o.upstreamPort || 0);
-  return [...byMachine.values()]
-    .map((g) => ({ ...g, outs: [...g.outs].sort((a, b) => port(a) - port(b)) }))
-    .sort((a, b) => port(a.outs[0]) - port(b.outs[0]));
+  return [...byMachine.values()];
 }
 
 // A machine group's head: its name, and its address beside it, muted — the
@@ -193,7 +186,7 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
 
   const liveTitle = { active: t("rtLiveActive"), recent: t("rtLiveRecent"), idle: t("cvQIdle") };
   const cells = new OutputCells(topology, router);
-  // A serving cell's dot says its traffic. A cell that is not serving has no traffic to say:
+  // A serving model's dot says its traffic. A model that is not serving has no traffic to say:
   // its dot is a ring, and its state is said in words at the row's end.
   const liveDot = (out, st) => {
     if (st !== "running") return `<span class="router-out-live live-off" aria-hidden="true"></span>`;
@@ -202,30 +195,17 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
   };
   const stateWord = (st) => OutputCells.WORDS[st]
     ? `<span class="router-out-state state-${st}" data-t="routing-out-state" data-t-state="${st}">${escapeHtml(t(OutputCells.WORDS[st]))}</span>` : "";
-  const twinNote = (note) => {
-    if (!note) return "";
-    if (note.same) return `<span class="router-out-twin" title="${escapeHtml(t("rtTwinSame", { port: String(note.same) }))}">= :${escapeHtml(String(note.same))}</span>`;
-    const shown = note.differ.slice(0, 2).map(([k, v]) => (v === null ? `${k} ≠` : `${k}=${v === "" ? "∅" : v.slice(0, 24)}`));
-    const more = note.differ.length > 2 ? ` +${note.differ.length - 2}` : "";
-    return `<span class="router-out-twin" title="${escapeHtml(t("rtTwinDiffer", { keys: note.keys.join(", ") }))}">${escapeHtml(shown.join(" · ") + more)}</span>`;
-  };
-  const outputRow = (out, extraCls, note) => {
+  const outputRow = (out, extraCls) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
     const pool = isCloud ? _poolForOut(out) : null;
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
     const st = cells.state(out);
     const marks = isCloud ? "" : cells.marks(out);
-    // A cell's port stands apart from its name: a long name gives way to the state word, the
-    // port never does — "Qwen3-Coder-30B-A3B-Instruct :220…" named no cell at all.
-    const cellRow = String(out.upstreamType || "llama") === "llama";
-    const shown = cellRow ? (cells.name(out) || String(out.upstreamHost || "")) : topologyRouterOutputLabel(out);
     return `<label class="router-out-row ${isDef ? "is-default" : ""}${st && st !== "running" ? ` cell-${st}` : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}"${st ? ` data-cell-state="${st}"` : ""}>
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out, st)}
-      <span class="router-out-name">${marks ? `<span class="router-out-marks">${marks}</span> ` : ""}${escapeHtml(shown)}</span>
-      ${cellRow ? `<span class="router-out-port cell-port">:${escapeHtml(String(out.upstreamPort))}</span>` : ""}
-      ${twinNote(note)}
+      <span class="router-out-name">${marks ? `<span class="router-out-marks">${marks}</span> ` : ""}${escapeHtml(topologyRouterOutputLabel(out))}</span>
       ${pool ? _poolMarks(pool) : ""}
       ${badge}
       ${stateWord(st)}
@@ -242,9 +222,8 @@ export function renderServersBlockHtml(router, modelQueues = {}) {
         <span class="router-out-host-label">${machineLabelHtml(g)}</span>
         <span class="router-prov-count">${g.outs.length}</span>
       </div>`;
-    const notes = cells.twins(g.outs);
-    const rows = (outs) => outs.map((o) => outputRow(o, "", notes.get(o.id)) + (modelQueues[o.id] || "")).join("");
-    // The stopped cells nothing leads to, under one row of their own — folded until the operator
+    const rows = (outs) => outs.map((o) => outputRow(o, "") + (modelQueues[o.id] || "")).join("");
+    // The stopped models nothing leads to, under one row of their own — folded until the operator
     // opens it. Their outputs stay named on the row (data-cv-group-outs), so a cable that comes
     // to one before the next render still has an end.
     const { shown, quiet } = cells.split(g.outs);
@@ -299,7 +278,7 @@ export async function rebindProxyRouter(proxyId, routerId) {
   if (!proxy || !routerId || proxy.routerId === routerId) return;
   const data = await api("/api/agent-proxies/route-policy", {
     method: "POST",
-    body: JSON.stringify({ port: proxy.port, routerId }),
+    body: JSON.stringify({ routeId: proxy.id, routerId }),
   });
   if (data.config) await refreshTopology(); else renderTopology();
   toast("proxy re-bound");
@@ -320,16 +299,16 @@ export function renderTopologyRouterDetail() {
   // The ports that could feed this router and do not, for the head's list. Only those that can
   // feed a router count: a cloud model's own port is an output of the Servers panel, and four of
   // them read as "4 unassigned" clients — a false alarm.
-  const allProxies = (topology?.proxies || []).filter(feedsRouters).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+  const allProxies = (topology?.proxies || []).filter(feedsRouters).sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
   const routerIds = new Set((topology?.routers || []).map((s) => s.id));
   const routerNameOf = (id) => (topology?.routers || []).find((s) => s.id === id)?.name || id;
   const onOther = allProxies.filter((p) => p.routerId && p.routerId !== router.id && routerIds.has(p.routerId));
   const free = allProxies.filter((p) => !p.routerId || !routerIds.has(p.routerId));
   const portRole = (p) => (p.role || (String(p.label || "").match(/(primary|fallback)$/i)?.[1]?.toLowerCase()) || "");
-  const portName = (p) => p.label || ("proxy " + p.port);
+  const portName = (p) => p.label || String(p.id || "");
   const pill = (p, kind) => {
     const ri = (portRole(p)[0] || "").toUpperCase();
-    const head = `<span class="router-pill-r">${escapeHtml(ri)}</span><span class="router-pill-port">${escapeHtml(p.port)}</span>`;
+    const head = `<span class="router-pill-r">${escapeHtml(ri)}</span>`;
     // In the unassigned list a port says whose it is: the number alone named nobody.
     const name = `<span class="router-pill-name">${escapeHtml(topologyProxyOwner(p.id)?.title || portName(p))}</span>`;
     if (kind === "other") {
@@ -337,7 +316,7 @@ export function renderTopologyRouterDetail() {
     }
     // A free port answers 503 until a router takes it. A client of the entry is never listed:
     // it feeds no router (feedsRouters), its cable leads to a set of models.
-    return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) + " :" + p.port }))}">${head}${name}<span class="router-pill-503">503</span></span>`;
+    return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) }))}">${head}${name}<span class="router-pill-503">503</span></span>`;
   };
   // The ports that could feed this router and do not: free ones (no router — 503 until bound)
   // and those on another Routing. The badge opens their list, and a click on a port binds it

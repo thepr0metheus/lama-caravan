@@ -47,7 +47,7 @@ impl<'a> Progress<'a> {
         if facts.stream.events > 0 {
             patch.insert("stream".into(), facts.stream.live_json());
         }
-        self.proxy.board.update_active(self.record.route.port, &self.record.id, Value::Object(patch));
+        self.proxy.board.update_active(&self.record.route.id, &self.record.id, Value::Object(patch));
     }
 }
 
@@ -78,8 +78,9 @@ impl<'a> StreamRelay<'a> {
     ) -> Result<(), Ending> {
         let mut lines = Lines::new(body);
         loop {
-            let line = match lines.next_line() {
-                Ok(Next::Line(line)) => line,
+            let read = match lines.next_line() {
+                Ok(Next::Line(line)) => (line, true),
+                Ok(Next::PastCap(piece)) => (piece, false),
                 Ok(Next::End) => return Ok(()),
                 Err(error) if Waited::is(&error) => {
                     watch.waited_for_upstream(client)?;
@@ -87,14 +88,9 @@ impl<'a> StreamRelay<'a> {
                 }
                 Err(error) => return Err(Ending::Upstream(UpstreamEnd::of(&error))),
             };
-            watch.byte_came();
-            self.progress.piece_came(facts, clock, line.len());
-            facts.stream.add_line(&line);
-            client.write(&line)?;
-            watch.check_stop()?;
-            self.progress.tell_board(facts);
-            if line.windows(Self::DONE.len()).any(|piece| piece == Self::DONE) {
-                let trailing = line.iter().rev().take_while(|byte| **byte == b'\n').count();
+            self.pass(&read.0, read.1, facts, clock, watch, client)?;
+            if read.1 && read.0.windows(Self::DONE.len()).any(|piece| piece == Self::DONE) {
+                let trailing = read.0.iter().rev().take_while(|byte| **byte == b'\n').count();
                 let missing = 2usize.saturating_sub(trailing);
                 if missing > 0 {
                     client.write(b"\n\n".get(..missing).unwrap_or_default())?;
@@ -103,6 +99,30 @@ impl<'a> StreamRelay<'a> {
                 return Ok(());
             }
         }
+    }
+
+    /// One read of the stream: counted, read for the record when it is a whole line, and named as a piece when it is not. What comes of it
+    /// goes to the client as it came.
+    fn pass(
+        &mut self,
+        bytes: &[u8],
+        whole: bool,
+        facts: &mut Facts,
+        clock: &mut RequestClock,
+        watch: &mut Watch,
+        client: &mut ClientSide,
+    ) -> Result<(), Ending> {
+        watch.byte_came();
+        self.progress.piece_came(facts, clock, bytes.len());
+        if whole {
+            facts.stream.add_line(bytes);
+        } else {
+            facts.stream.line_past_cap();
+        }
+        client.write(bytes)?;
+        watch.check_stop()?;
+        self.progress.tell_board(facts);
+        Ok(())
     }
 }
 
@@ -213,6 +233,12 @@ impl<'a> TranslatedRelay<'a> {
         while !translator.ended() {
             let line = match lines.next_line() {
                 Ok(Next::Line(line)) => line,
+                Ok(Next::PastCap(_)) => {
+                    // Nothing of a piece can be made into a chunk, so the client is not told about it; the record says what was missed.
+                    watch.byte_came();
+                    facts.stream.line_past_cap();
+                    continue;
+                }
                 Ok(Next::End) => break,
                 Err(error) if Waited::is(&error) => {
                     watch.waited_for_upstream(client)?;
@@ -225,6 +251,9 @@ impl<'a> TranslatedRelay<'a> {
                 self.emit(&chunk, whole, facts, clock, watch, client)?;
             }
         }
+        // The `[DONE]` written below ends the client's stream, but it is not the provider's word for how the answer ended: `done` is only
+        // what the provider said, so a stream that stopped at the wire says so by not saying it.
+        facts.stream.done = translator.ended();
         self.emit(translator.closing(), whole, facts, clock, watch, client)
     }
 }
@@ -254,8 +283,9 @@ impl<'a> ResponsesRelay<'a> {
         let mut tally = ResponsesTally::default();
         let mut lines = Lines::new(body);
         loop {
-            let line = match lines.next_line() {
-                Ok(Next::Line(line)) => line,
+            let read = match lines.next_line() {
+                Ok(Next::Line(line)) => (line, true),
+                Ok(Next::PastCap(piece)) => (piece, false),
                 Ok(Next::End) => return Ok(tally),
                 Err(error) if Waited::is(&error) => {
                     watch.waited_for_upstream(client)?;
@@ -264,11 +294,16 @@ impl<'a> ResponsesRelay<'a> {
                 Err(error) => return Err(Ending::Upstream(UpstreamEnd::of(&error))),
             };
             watch.byte_came();
-            self.progress.piece_came(facts, clock, line.len());
-            tally.line(&line);
+            self.progress.piece_came(facts, clock, read.0.len());
+            if read.1 {
+                tally.line(&read.0);
+            } else {
+                // A piece is not an event, so the tally says nothing about it and the record names what was missed.
+                facts.stream.line_past_cap();
+            }
             facts.stream.take_tally(&tally);
             if to_client {
-                client.write(&line)?;
+                client.write(&read.0)?;
                 watch.check_stop()?;
                 self.progress.tell_board(facts);
             }

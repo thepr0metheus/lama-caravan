@@ -75,7 +75,6 @@
     // translated — so a Russian page announced its language selector as
     // "Language". textContent cannot carry it: the <select> holds <option>s.
     document.querySelectorAll("[data-i18n-aria]").forEach(function (el) { el.setAttribute("aria-label", T(el.dataset.i18nAria)); });
-    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   }
   sel.addEventListener("change", function () {
     lang = sel.value;

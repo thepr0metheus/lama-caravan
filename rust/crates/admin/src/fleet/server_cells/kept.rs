@@ -13,16 +13,9 @@ impl<'app> KeptCells<'app> {
         Self { app }
     }
 
-    pub(super) fn port(key: &str) -> i64 {
-        key.parse::<i64>()
-            .ok()
-            .filter(|port| (1..=65535).contains(port) && key.chars().all(|digit| digit.is_ascii_digit()))
-            // absent-ok: no cell yet: the first port of the range is next.
-            .unwrap_or(0)
-    }
-
-    /// A record made of each kept request the controller lacks; the ports.
-    pub fn adopt(&self, host_id: &str, requests: Option<&Value>) -> Result<Vec<i64>, AppError> {
+    /// A record made of each kept request the controller lacks; the cells' ids. A request is kept under its cell's id, or — by a
+    /// scout of before the cells had names — under its port, which names the cell `c<port>` (`rules::CellId`).
+    pub fn adopt(&self, host_id: &str, requests: Option<&Value>) -> Result<Vec<String>, AppError> {
         let host_id = Coerce::strip(host_id);
         let Some(requests) = requests.and_then(Value::as_object) else {
             return Ok(Vec::new());
@@ -31,33 +24,25 @@ impl<'app> KeptCells<'app> {
             return Ok(Vec::new());
         }
         let cells = ServerCells::of(self.app);
-        let mut keys: Vec<&String> = requests.keys().collect();
-        keys.sort_by_key(|key| Self::port(key));
+        let mut kept: Vec<(String, &Value)> = requests
+            .iter()
+            .filter_map(|(key, request)| CellId::read(&json!(key)).map(|id| (id, request)))
+            .filter(|(_, request)| request.get("config").is_some_and(Value::is_object))
+            .collect();
+        kept.sort_by(|a, b| a.0.cmp(&b.0));
         let mut made = Vec::new();
-        for key in keys {
-            let port = Self::port(key);
-            let Some(request) =
-                requests.get(key).filter(|request| port != 0 && request.get("config").is_some_and(Value::is_object))
-            else {
-                continue;
-            };
-            if self.app.admin.change(|doc| Topology::of(doc).has_slot(host_id, port)) {
-                continue;
-            }
-            if cells.used_ports(None).contains(&port) {
-                Log::line(&format!(
-                    "[cells] {host_id}:{port}: its scout keeps a cell there, but the number is taken here — no record made"
-                ));
+        for (id, request) in kept {
+            if self.app.admin.change(|doc| Topology::of(doc).has_slot(&id)) {
                 continue;
             }
             let model = request.get("modelPath").filter(|model| Coerce::truthy(Some(*model)));
-            let mut slot = cells.upsert_slot(host_id, port, request.get("config"), model, None)?;
+            let mut slot = cells.upsert_slot(host_id, &id, request.get("config"), model, None)?;
             Coerce::put(&mut slot, "cacheModels", json!(Coerce::truthy(request.get("cacheModels"))));
             Coerce::put(&mut slot, "adoptedFrom", json!("scout"));
             self.app.admin.change(|doc| {
-                Topology::of(doc).put_slot(host_id, port, slot);
+                Topology::of(doc).put_slot(&id, slot);
             });
-            made.push(port);
+            made.push(id);
         }
         if !made.is_empty() {
             self.app.save_admin();

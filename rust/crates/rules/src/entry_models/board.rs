@@ -19,13 +19,6 @@ impl EntryModels {
         Casefold::of(Coerce::strip(name))
     }
 
-    /// This reading with the pools only: what a pool's name is compared against, and what its callers are looked for in.
-    #[must_use]
-    pub fn pools_only(mut self) -> Self {
-        self.live.clear();
-        self
-    }
-
     /// Whether a pool other than `but` (an id) is already called `name`.
     pub fn taken(&self, name: &str, but: Option<&str>) -> bool {
         let wanted = Self::key_of(name);

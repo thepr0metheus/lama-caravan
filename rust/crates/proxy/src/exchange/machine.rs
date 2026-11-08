@@ -17,10 +17,18 @@ impl Exchange<'_> {
         if self.asked.streaming && !self.client.head_sent() {
             self.client.open_stream()?;
         }
+        // The pictures are read before the model's queue: a place on the model is not held while its reader works.
+        let body = self.body_for(row.read_first)?;
         let row_key = format!("row:{}", row.row_id);
         let settings = Arc::clone(&self.settings);
-        let ask =
-            PoolAsk { proxy: self.proxy, settings: &settings, pool: &self.pool, body: &self.asked.body, path: &self.record.path };
+        let ask = PoolAsk {
+            proxy: self.proxy,
+            settings: &settings,
+            pool: &self.pool,
+            body: &self.asked.body,
+            path: &self.record.path,
+            reads: self.reads,
+        };
         let admission = Admission::new(self.proxy, self.record, &row.output, &settings.policy, row.leave);
         let way_on = || ask.can_go_on_past(&walk.excluded, &row_key, true);
         let place = match admission.wait(&mut self.client, &way_on) {
@@ -34,14 +42,7 @@ impl Exchange<'_> {
             Err(other) => return Err(other),
         };
         self.note_started(None, None);
-        let mut call = UpstreamCall::new(
-            self.proxy,
-            self.record,
-            &row.output,
-            &self.asked.headers,
-            &self.asked.target,
-            self.asked.body.clone(),
-        );
+        let mut call = UpstreamCall::new(self.proxy, self.record, &row.output, &self.asked.headers, &self.asked.target, body);
         let loading_wait = settings.policy.loading_model_wait_sec as f64;
         let answer = match call.ask(&mut self.clock, &mut self.watch, &mut self.client, loading_wait) {
             Ok(answer) => answer,

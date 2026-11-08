@@ -75,7 +75,7 @@ fn every_real_cell_starts_with_the_line_it_had() {
         same(&root.join("commands").join(format!("{port}.sh")), &rendered, &mut problems);
         compared += 1;
         if app.runners.for_config(&config).row().command_path {
-            let line = script.command_cell_shell_line(&config, None).unwrap_or_else(|error| refused(error.message));
+            let line = script.command_cell_shell_line(&config).unwrap_or_else(|error| refused(error.message));
             same(&root.join("shell-lines").join(format!("{port}.txt")), &format!("{line}\n"), &mut problems);
             compared += 1;
         }

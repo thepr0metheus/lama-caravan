@@ -293,23 +293,56 @@ def _en(key):
 
 PINS += [
     ("fingerprint_sees_autostart",
-     'st.setTopology({ ...st.topology, server: { llamaServers: [{ id: "s", port: 22021, model: "m", phase: "stopped",'
+     'st.setTopology({ ...st.topology, server: { llamaServers: [{ id: "slot:c22021", cellId: "c22021", port: null, model: "m", phase: "stopped",'
      ' bootSupported: true, bootEnabled: false }] } }); globalThis.__fpA = m.topologyStructureFingerprint();'
-     ' st.setTopology({ ...st.topology, server: { llamaServers: [{ id: "s", port: 22021, model: "m", phase: "stopped",'
+     ' st.setTopology({ ...st.topology, server: { llamaServers: [{ id: "slot:c22021", cellId: "c22021", port: null, model: "m", phase: "stopped",'
      ' bootSupported: true, bootEnabled: true }] } });',
      'm.topologyStructureFingerprint() !== globalThis.__fpA',
      'true',
      "defect-history: ↟ нажат, сервер включил автозапуск — отпечаток видит это, доска перерисовывается; без этого "
      "кнопка крутилась, пока не изменится что-то ещё"),
     ("fingerprint_sees_autostart_support",
-     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ port: 22021, model: "m",'
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ cellId: "c22021", port: null, model: "m",'
      ' phase: "stopped" }] }] }); globalThis.__fpB = m.topologyStructureFingerprint();'
-     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ port: 22021, model: "m",'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ cellId: "c22021", port: null, model: "m",'
      ' phase: "stopped", bootSupported: true }] }] });',
      'm.topologyStructureFingerprint() !== globalThis.__fpB',
      'true',
      "скаут обновился до 2.4 — ↟ на его ячейках становится доступным без перезагрузки страницы"),
+    # 2026-11-08: a cell is in the board's structure by its id, and its card's slots panel by its model's queue — not by the port its
+    # run holds, which the board does not draw.
+    ("fingerprint_follows_the_cells_queue_not_its_port",
+     'const NODE = (port, outs) => ({ id: "h1", role: "host", servers: [{ cellId: "c3f9a02b1", port, model: "m", phase: "running" }],'
+     ' entryModels: [{ id: "m", copies: [{ id: "c3f9a02b1", port, state: "running" }] }] });'
+     ' const TOP = (port, outs) => ({ ...st.topology, nodes: [NODE(port)], routers: [{ id: "router:default", outputs: outs }] });'
+     ' const OUT = { id: "mm:aaa", upstreamType: "machine", hostId: "h1", upstreamModel: "m", slotGroup: "10.0.0.5:8092/m" };'
+     ' globalThis.__fpQ = (port, outs) => { st.setTopology(TOP(port, outs)); return m.topologyStructureFingerprint(); };',
+     '[__fpQ(22011, []) !== __fpQ(22011, [OUT]), __fpQ(22011, [OUT]) === __fpQ(22044, [OUT]), __fpQ(22011, [OUT]).includes("c3f9a02b1>10.0.0.5:8092/m")]',
+     '[true, true, true]',
+     "positive: модель машины начала числить ячейку — у её карточки другая очередь слотов, доска перерисовывается; negative: прогон "
+     "ячейки взял другой порт — для доски это не новая структура: порта она не рисует"),
 ]
+
+# A machine's page drawn earlier, one downloading cell on it: its card and its line answer only to a lookup by the cell's id
+# (data-cell-id="c3f9a02b1"), as the browser's DOM does — a lookup by anything else finds nothing. @ROW@ is the row of the next report.
+_LIVE_COPY_SETUP = (
+    'globalThis.CSS = { escape: (x) => x };'
+    ' const el = () => ({ textContent: "", style: {}, dataset: {}, classList: { toggle: () => {} }, setAttribute: () => {}, removeAttribute: () => {} });'
+    ' const strip = { bar: el(), words: Object.assign(el(), { dataset: { stripName: "a" } }) };'
+    ' const card = { bar: el(), words: el() };'
+    ' const line = { querySelector: (sel) => sel === "[data-live-rowdl]" ? strip.words : sel === ".fr-strip .msl-bar > span" ? strip.bar : sel === "[data-live-rowtps]" ? el() : null,'
+    '   classList: { toggle: () => {} } };'
+    ' const cardEl = { querySelector: (sel) => sel === "[data-live-dl]" ? card.words : null,'
+    '   querySelectorAll: (sel) => sel.includes(".msl-bar:not(.indeterminate)") ? [card.bar] : [] };'
+    ' const nodeEl = { querySelector: (sel) => sel === \'.node-server[data-cell-id="c3f9a02b1"]\' ? cardEl'
+    '   : sel === \'.cell-row[data-cell-id="c3f9a02b1"]\' ? line : null };'
+    ' globalThis.__live = { strip, card };'
+    ' globalThis.__qs = document.querySelector;'
+    ' document.querySelector = (sel) => sel.includes(\'data-node-id="h1"\') ? nodeEl : null;'
+    ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [], servers: [@ROW@] }] });')
+_LIVE_COPY_RUN = ('(() => { try { m.syncTopologyLive(); const { strip, card } = globalThis.__live;'
+                  ' return [strip.words.textContent, strip.bar.style.width ?? null, card.words.textContent, card.bar.style.width ?? null]; }'
+                  ' finally { document.querySelector = globalThis.__qs; } })()')
 
 PINS += [
     ("live_patch_moves_a_silent_hosts_age",
@@ -328,26 +361,21 @@ PINS += [
     # 2026-10-18: a cell that is being started stays a line, and the strip under its name carries the copy's figures; the card's own bar
     # followed `.remote-dl-bar`, a class the status line does not have, and stood where it was first drawn: "12 %" said, a sliver shown.
     ("live_patch_moves_the_copy_in_the_line_and_the_card",
-     'globalThis.CSS = { escape: (x) => x };'
-     ' const el = () => ({ textContent: "", style: {}, dataset: {}, classList: { toggle: () => {} }, setAttribute: () => {}, removeAttribute: () => {} });'
-     ' const strip = { bar: el(), words: Object.assign(el(), { dataset: { stripName: "a" } }) };'
-     ' const card = { bar: el(), words: el() };'
-     ' const line = { querySelector: (sel) => sel === "[data-live-rowdl]" ? strip.words : sel === ".fr-strip .msl-bar > span" ? strip.bar : sel === "[data-live-rowtps]" ? el() : null,'
-     '   classList: { toggle: () => {} } };'
-     ' const cardEl = { querySelector: (sel) => sel === "[data-live-dl]" ? card.words : null,'
-     '   querySelectorAll: (sel) => sel.includes(".msl-bar:not(.indeterminate)") ? [card.bar] : [] };'
-     ' const nodeEl = { querySelector: (sel) => sel.startsWith(".node-server[") ? cardEl : sel.startsWith(".cell-row[") ? line : null };'
-     ' globalThis.__live = { strip, card };'
-     ' globalThis.__qs = document.querySelector;'
-     ' document.querySelector = (sel) => sel.includes(\'data-node-id="h1"\') ? nodeEl : null;'
-     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [], servers: [{ port: 22001, isSlot: true, phase: "downloading",'
-     ' downloadingFile: "a-Q4_K_M-00001-of-00002.gguf (1/2)", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 3 * 2 ** 30 }] }] });',
-     '(() => { try { m.syncTopologyLive(); const { strip, card } = globalThis.__live;'
-     ' return [strip.words.textContent, strip.bar.style.width, card.words.textContent, card.bar.style.width]; }'
-     ' finally { document.querySelector = globalThis.__qs; } })()',
+     _LIVE_COPY_SETUP.replace("@ROW@", '{ cellId: "c3f9a02b1", port: 22001, isSlot: true, phase: "downloading",'
+     ' downloadingFile: "a-Q4_K_M-00001-of-00002.gguf (1/2)", downloadedBytes: 1.5 * 2 ** 30, totalBytes: 3 * 2 ** 30 }'),
+     _LIVE_COPY_RUN,
      json.dumps(["Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%", "50%", "a-Q4_K_M-00001-of-00002.gguf (1/2) · 1.5/3.0 GB · 50%", "50%"]),
-     "positive: живой тик двигает и полоску под строкой ячейки (слова без имени модели, ширина полосы), и полосу самой карточки; "
-     "defect-history: полоса карточки искала `.remote-dl-bar` и не двигалась — слова росли, а полоса стояла там, где её нарисовали"),
+     "positive: живой тик двигает и полоску под строкой ячейки (слова без имени модели, ширина полосы), и полосу самой карточки — "
+     "находя их по имени ячейки (data-cell-id); defect-history: полоса карточки искала `.remote-dl-bar` и не двигалась — слова росли, "
+     "а полоса стояла там, где её нарисовали"),
+    # 2026-11-08: a cell holds a port only while it runs, and the next run may lease another: the card is the cell's by its id.
+    ("live_patch_finds_a_card_by_its_cell_not_its_port",
+     _LIVE_COPY_SETUP.replace("@ROW@", '{ cellId: "c0000beef", port: 22001, isSlot: true, phase: "downloading",'
+     ' downloadingFile: "b.gguf", downloadedBytes: 1, totalBytes: 2 }'),
+     _LIVE_COPY_RUN,
+     json.dumps(["", None, "", None]),
+     "negative: в отчёте другая ячейка на том же порту, что держит прогон нарисованной — тик не трогает чужую карточку и строку: "
+     "ячейку ищут по её имени, а не по порту (до 2026-11-08 нашли бы по data-llama-port)"),
     # 2026-10-11: the pools' cards say which step serves and why the others wait — the proxy's word
     # changes between structural renders, so every live tick asks the lane, which draws itself only
     # when its own key moved (cloud.js).

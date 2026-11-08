@@ -668,10 +668,31 @@ export function modelChoiceOf(pfx = "") {
  * model does not have (gemma-4-12B Q5_K_M, "model doesn't contain MTP layers").
  */
 export class ModelCompanions {
-  constructor(row, model) {
+  // The config field each kind of companion is kept in.
+  static FIELD = { mmproj: "MMPROJ_FILE", draft: "SPEC_DRAFT_MODEL_FILE" };
+
+  constructor(row, model, own = new Set()) {
     this.row = row || null;
     const parts = String(model || "").split("/");
     this.folder = parts.length >= 2 ? `${parts.slice(0, -1).join("/")}/` : "";
+    this.own = own;
+  }
+
+  /** The config fields of the companions the runner of `pfx`'s form names itself: its registry row's `ownCompanions`. */
+  static ownOf(pfx) {
+    return new Set((runnerRegistry().find((r) => r.id === effectiveRunnerId(pfx)) || {}).ownCompanions || []);
+  }
+
+  /** Whether the cell's runner names this kind of companion itself (Strata's DeepSeek sets: the controller finds the drafter and the picture
+   *  reader by Strata's names when the cell is saved). Then the file the cell names is the cell's, whatever the model list pairs with the
+   *  model: the DSpark drafter lies in another repository, the list pairs none, and the form drew the cell's drafter as none (2026-11-03). */
+  owned(kind) {
+    return this.own.has(ModelCompanions.FIELD[kind]);
+  }
+
+  /** Whether the file the cell names stays: one the model list allows, or one the runner names itself. */
+  keeps(kind, path) {
+    return this.owned(kind) || this.allows(kind, path);
   }
 
   /** The server's list of `kind` ("mmproj" or "draft") for this model, or null when it gave none. */
@@ -897,25 +918,27 @@ function drawModelPickers(pfx = "") {
 
   // The companions this model may launch with (ModelCompanions): the server's lists.
   const selectedRow = models.find((row) => row.kind === "model" && row.path === currentModel);
-  const companions = new ModelCompanions(selectedRow, currentModel);
+  const companions = new ModelCompanions(selectedRow, currentModel, ModelCompanions.ownOf(pfx));
 
-  // Auto-correct stale companions: files that are not this model's companions.
+  // Auto-correct stale companions: files that are not this model's companions — a companion the runner names itself is not stale.
   if (currentModel) {
-    if (currentMmproj && !companions.allows("mmproj", currentMmproj)) {
+    if (currentMmproj && !companions.keeps("mmproj", currentMmproj)) {
       currentMmproj = selectedRow?.suggestedMmproj || "";
       if (mmprojEl) mmprojEl.value = currentMmproj;
     }
-    if (currentDraft && !companions.allows("draft", currentDraft)) {
+    if (currentDraft && !companions.keeps("draft", currentDraft)) {
       currentDraft = selectedRow?.suggestedDraft || "";
       if (draftEl) draftEl.value = currentDraft;
     }
   }
+  // The runner's own companion is offered by its name where the library has it, not as a file outside the list.
+  const offered = (kind, path, current) => companions.allows(kind, path) || (companions.owned(kind) && path === current);
 
   // Mmproj items
   const mmprojItems = [
     { value: "", label: t("textOnlyOption"), kind: "mmproj" },
     ...models
-      .filter((row) => row.kind === "mmproj" && companions.allows("mmproj", row.path))
+      .filter((row) => row.kind === "mmproj" && offered("mmproj", row.path, currentMmproj))
       .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "mmproj", libraryOnly: !!row.libraryOnly, store: row.store || null })),
   ];
   if (currentMmproj && !mmprojItems.find((i) => i.value === currentMmproj)) {
@@ -932,7 +955,7 @@ function drawModelPickers(pfx = "") {
     const draftItems = [
       { value: "", label: t("noDraftOption"), kind: "draft" },
       ...models
-        .filter((row) => row.kind === "draft" && companions.allows("draft", row.path))
+        .filter((row) => row.kind === "draft" && offered("draft", row.path, currentDraft))
         .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "draft", libraryOnly: !!row.libraryOnly, store: row.store || null })),
     ];
     if (currentDraft && !draftItems.find((i) => i.value === currentDraft)) {
@@ -1133,7 +1156,12 @@ export function renderModelInsight(pfx = "") {
   if (selected.suggestedDraft || selected.hasMtpBuiltin) badges.push(mbadge("mtp", "⚡ mtp"));
   if (selected.capability === "embedding_likely") badges.push(mbadge("embed", "🧬 embed"));
 
-  const { modelSize, mmprojSize, fileTotalSize, kvSize, batchSize, runtimeSize } = estimateRuntimeMemoryGb(pfx);
+  const { modelSize, mmprojSize, draft, draftSize, fileTotalSize, kvSize, batchSize, runtimeSize } = estimateRuntimeMemoryGb(pfx);
+  // The draft the start loads (cell-plan.js CellDraft): its own figure — a dash when the library has not its file — and, under the
+  // line, where it goes when not on the cards and what is not counted of it. Its state is the hook's (docs/testability.md).
+  const draftFigure = draft ? (draftSize === null ? "—" : formatSizeGb(draftSize)) : "";
+  const draftHook = draft ? `data-t="cell-remote-draft" data-t-state="${draft.state}"` : "";
+  const draftNote = draft ? escapeHtml(t(draft.said.key, draft.said.args)) : "";
   const cpuMode = computeIsCpu(pfx);
   // With a partial offload the card only holds part of the model, so judging
   // the fit by the whole runtime size called a working configuration "over" and
@@ -1157,6 +1185,7 @@ export function renderModelInsight(pfx = "") {
     <div class="size-grid">
       <div class="size-chip"><span>${t("modelSize")}</span><strong>${formatSizeGb(modelSize)}</strong></div>
       <div class="size-chip"><span>${t("mmprojSize")}</span><strong>${selectedMmprojRow ? formatSizeGb(mmprojSize) : "none"}</strong></div>
+      ${draft ? `<div class="size-chip"><span>${t("draftSize")}</span><strong>${draftFigure}</strong></div>` : ""}
       <div class="size-chip"><span>${t("fileTotalSize")}</span><strong>${formatSizeGb(fileTotalSize)}</strong></div>
       <div class="size-chip estimate"><span>${t("kvCacheSize")}</span><strong>${kvSize ? formatSizeGb(kvSize) : "n/a"}</strong></div>
       <div class="size-chip estimate"><span>${t("batchBufferSize")}</span><strong>${batchSize ? formatSizeGb(batchSize) : "n/a"}</strong></div>
@@ -1174,6 +1203,7 @@ export function renderModelInsight(pfx = "") {
   const mtpBuiltinLine = (selected.hasMtpBuiltin && !selected.suggestedDraft)
     ? `<div class="insight-mtp-builtin">${t("mtpBuiltinBadge")} — ${t("mtpBuiltinExplain")}</div>`
     : "";
+  const draftLine = (px) => (draft ? `<div class="insight-draft" style="font-size:${px}px;color:var(--muted)">⚡ ${draftNote}</div>` : "");
 
   const familyRecs = getFamilyRecommendations(selected, pfx);
   const familyRecKeys = Object.keys(familyRecs);
@@ -1211,8 +1241,10 @@ export function renderModelInsight(pfx = "") {
       <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:var(--muted)">
         <span>${t("modelSize")} <strong style="color:var(--text)">${fmt(modelSize)}</strong></span>
         ${selectedMmprojRow ? `<span style="color:var(--line)">+</span>
-        <span>${t("mmprojSize")} <strong style="color:var(--text)">${fmt(mmprojSize)}</strong></span>
-        <span style="color:var(--line)">=</span>
+        <span>${t("mmprojSize")} <strong style="color:var(--text)">${fmt(mmprojSize)}</strong></span>` : ""}
+        ${draft ? `<span style="color:var(--line)">+</span>
+        <span ${draftHook}>${t("draftSize")} <strong style="color:var(--text)">${draftFigure}</strong></span>` : ""}
+        ${selectedMmprojRow || draft ? `<span style="color:var(--line)">=</span>
         <span>${t("fileTotalSize")} <strong style="color:var(--text)">${fmt(fileTotalSize)}</strong></span>` : ""}
         <span style="color:var(--line)">|</span>
         <span>KV≈<strong style="color:var(--text)">${fmt(kvSize)}</strong></span>
@@ -1227,6 +1259,7 @@ export function renderModelInsight(pfx = "") {
                                  vram: split.vramGb > 0.05 ? formatSizeGb(split.vramGb) : "0 GB",
                                  ram: split.ramGb > 0.05 ? formatSizeGb(split.ramGb) : "0 GB" })
       }</div>` : ""}
+      ${draftLine(11)}
       ${mtpBuiltinCompact}
       ${warnLine}
       ${familyBoxCompact}
@@ -1238,6 +1271,7 @@ export function renderModelInsight(pfx = "") {
     box.innerHTML = `
       <div class="badge-row">${badges.join("")}</div>
       ${sizeChips}
+      ${draftLine(12)}
       ${mtpBuiltinLine}
       ${warning}
       ${familyBox}
@@ -1276,10 +1310,6 @@ export function renderModelInsight(pfx = "") {
   });
 }
 
-export function syncPortChipsEl(chips, value) {
-  chips.forEach((chip) => chip.classList.toggle("active", chip.dataset.port === String(value)));
-}
-
 export function renderField(field, pfx = "") {
   const div = document.createElement("div");
   div.className = "field";
@@ -1293,20 +1323,6 @@ export function renderField(field, pfx = "") {
   const labelRow = pfx
     ? `<div class="label-row"><label for="${fid}">${field}</label><button class="tip-trigger" type="button" data-fieldhelp="${field}" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button></div>`
     : labelWithTip(field);
-
-  if (field === "PORT") {
-    // A plain input: the cell's port is picked on the board (the RESERVED
-    // step's port picker), not here. (The classic single-server form had a
-    // chip dropdown; it went with the controller's own cells in step 6.9.)
-    const currentPort = String(state.config.PORT || "8080");
-    div.innerHTML = `
-      ${labelRow}
-      <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
-        value="${escapeHtml(currentPort)}" autocomplete="off">
-      <p>${escapeHtml(help)}</p>
-    `;
-    return div;
-  }
 
   if (toggleFields.includes(field)) {
     const checked = toggleChecked(field);
@@ -1426,9 +1442,10 @@ export class ModelAlias {
 
 /**
  * Prefixed version — works for any form prefix (e.g. "tr-" for remote modal).
- * Always rewrites all companion fields to match the selected model, then draws
- * the previews from them (renderCellPreviews) — writing the fields and drawing
- * from them are one call, so neither can be reordered away from the other.
+ * Rewrites the companion fields to match the selected model — all but those the
+ * cell's runner names itself (ModelCompanions.owned) — then draws the previews
+ * from them (renderCellPreviews) — writing the fields and drawing from them are
+ * one call, so neither can be reordered away from the other.
  * Called on MODEL_FILE change, on form open and on a backup load.
  */
 export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
@@ -1464,10 +1481,11 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   // The pickers' options are those of the model the form held a moment ago: a <select> drops a value it has no
   // option for, so the companions are written only after the options of THIS model are drawn.
   drawModelPickers(pfx);
+  const companions = new ModelCompanions(selected, modelVal, ModelCompanions.ownOf(pfx));
 
-  // MMPROJ — always overwrite (clear if none found).
+  // MMPROJ — always overwrite (clear if none found), unless the runner names it itself.
   const mmprojEl = $(pfx + "MMPROJ_FILE");
-  if (mmprojEl) {
+  if (mmprojEl && !companions.owned("mmproj")) {
     const wanted = selected?.suggestedMmproj || "";
     if (mmprojEl.value !== wanted) { mmprojEl.value = wanted; mcUpdateTrigger(mmprojEl); }
   }
@@ -1483,11 +1501,11 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
     }
   }
 
-  // SPEC_DRAFT_MODEL_FILE + SPEC_TYPE — always overwrite together.
+  // SPEC_DRAFT_MODEL_FILE + SPEC_TYPE — always overwrite together; a drafter the runner names itself stays, and the type follows it.
   const draftEl = $(pfx + "SPEC_DRAFT_MODEL_FILE");
   const specTypeEl = $(pfx + "SPEC_TYPE");
   if (draftEl) {
-    const wantedDraft = selected?.suggestedDraft || "";
+    const wantedDraft = companions.owned("draft") ? draftEl.value : (selected?.suggestedDraft || "");
     const draftChanged = draftEl.value !== wantedDraft;
     if (draftChanged) { draftEl.value = wantedDraft; mcUpdateTrigger(draftEl); }
     // What the field HOLDS is the fact, not what was asked of it: a type set from the wish alone left the cell asking
@@ -1569,7 +1587,9 @@ export async function hoistExtraArgs(pfx = "") {
   const applied = [];
   for (const [field, value] of Object.entries(rec)) {
     const f = $(pfx + field);
-    if (!f || f.readOnly || f.disabled) continue;  // can't touch locked fields (e.g. a cell's PORT)
+    // A flag with no field of the form stays in the box as typed (`--port`: a cell's port is its scout's to lease at each start,
+    // and no form has one); a locked field is not written either.
+    if (!f || f.readOnly || f.disabled) continue;
     if (f.type === "checkbox") {
       f.checked = (String(value) === "1");
       if (optionalToggleFields.includes(field)) dirtyOptionalToggles.add(field);
@@ -1820,7 +1840,7 @@ export function readConfigForm(pfx = "") {
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
    "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "CPU_OFFLOAD_GB", "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
    "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
-   "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
+   "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB", "STRATA_ENGRAM_FILE", "STRATA_META_FILE",
    "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS", "TTS_ENGINE"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });

@@ -11,11 +11,11 @@ import { t } from "./i18n.js";
 import { runnerRegistry } from "./llama-edit.js";
 import { escapeHtml } from "./utils.js";
 
-/** A cell as its card links its page: the machine and port, its runner, its config. */
+/** A cell as its card links its page: its id (the link's hooks name the cell by it — a cell holds a port only while it runs),
+ *  its runner, its config. */
 export class PageCell {
-  constructor({ hostId, port, runner = "", config = {} } = {}) {
-    this.hostId = String(hostId || "");
-    this.port = String(port || "");
+  constructor({ cellId, runner = "", config = {} } = {}) {
+    this.cellId = String(cellId || "");
     this.runner = String(runner || "");
     this.config = config || {};
   }
@@ -58,7 +58,7 @@ export class PageCell {
     const address = this.address;
     if (!address) return shut(t("pageBadUrl", { field: spec.field }));
     if (!running) return shut(t("pageOpenStopped"));
-    const id = `${this.hostId}:${this.port}`;
+    const id = this.cellId;
     return `<a class="node-action-btn ok page" href="${escapeHtml(address)}" data-t="cell-page" data-t-id="${escapeHtml(id)}"`
       + ` data-cell-page="${escapeHtml(id)}" title="${escapeHtml(t("pageOpenTitle", { address }))}">${label}</a>`;
   }

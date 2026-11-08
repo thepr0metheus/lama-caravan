@@ -33,7 +33,8 @@ def esc(text):
             .replace('"', "&quot;").replace("'", "&#39;"))
 
 
-CFG = 'data-node-cell-start="h1" data-node-cell-port="22020" data-node-role="client"'
+CFG = 'data-node-cell-start="h1" data-cell-id="c3f9a02b1" data-node-role="client"'
+CELL = "c3f9a02b1"
 
 PROBE = r"""
 import "./_js_globals.mjs";
@@ -42,16 +43,17 @@ const root = process.env.JS_ROOT;
 const { CellWindow } = await import(pathToFileURL(root + "/cell-window.js").href);
 const en = (await import(pathToFileURL(root + "/i18n/en.js").href)).default;
 
-const START = 'data-node-cell-launch="h1" data-node-cell-port="22020" data-node-cell-runner="llama-server" data-node-cell-model="Hermes"';
-const STOP = 'data-node-cell-stop="h1" data-node-cell-port="22020" data-node-cell-model="Hermes"';
-const CFG = 'data-node-cell-start="h1" data-node-cell-port="22020" data-node-role="client"';
-const BOOT = 'data-node-cell-boot="h1" data-node-cell-port="22020" data-node-cell-boot-action="enable"';
+// A cell is known by its id (cellId); the attributes the board hands the window name it so too — the window passes them on.
+const START = 'data-node-cell-launch="h1" data-cell-id="c3f9a02b1" data-node-cell-runner="llama-server" data-node-cell-model="Hermes"';
+const STOP = 'data-node-cell-stop="h1" data-cell-id="c3f9a02b1" data-node-cell-model="Hermes"';
+const CFG = 'data-node-cell-start="h1" data-cell-id="c3f9a02b1" data-node-role="client"';
+const BOOT = 'data-node-cell-boot="h1" data-cell-id="c3f9a02b1" data-node-cell-boot-action="enable"';
 const base = {
-  key: "h1:22020", name: "Hermes-4-70B", port: 22020, address: "10.0.0.5:22020",
+  key: "c3f9a02b1", name: "Hermes-4-70B", address: "10.0.0.5",
   facts: ["LLM", "llama.cpp", "Q4_K_M", "70B", "", "39.6 GB"], place: ["Pipeline", "GPU0 · GPU1", "autostart off", ""],
   state: "running", sub: '<span data-live-cwband>6.1 t/s</span>',
   actions: { start: START, stop: STOP, configure: CFG, why: "not stopped" },
-  menu: { boot: { attrs: BOOT, on: false, supported: true, title: "enable autostart" }, port: "", detail: 'data-node-detail="h1:22020"',
+  menu: { boot: { attrs: BOOT, on: false, supported: true, title: "enable autostart" }, detail: 'data-node-detail="c3f9a02b1"',
           del: "", delTitle: "only a stopped cell" },
   overview: { notice: "", tiles: [{ id: "speed", label: "Speed", value: "6.1 t/s", sub: "reading 30.6", live: "data-live-cwtps", liveSub: "data-live-cwtpssub" },
                                   { id: "gpu", label: "Video memory", value: "", sub: "not reported" }],
@@ -59,7 +61,7 @@ const base = {
               slots: '<div class="topology-runtime-panel">slots</div>', extra: "" },
   memory: { badges: '<span class="mbadge">RAM 12.2G</span>', cards: [{ name: "GPU0 · RTX 3090", figure: "22.1 GB", sub: "of 24.0 GB" }],
             rows: [{ k: "Split", v: "Pipeline" }, { k: "Empty", v: "" }], configure: CFG },
-  settings: { rows: [{ k: "Context", v: "131072" }], configure: CFG, port: "", detail: 'data-node-detail="h1:22020"' },
+  settings: { rows: [{ k: "Context", v: "131072" }], configure: CFG, detail: 'data-node-detail="c3f9a02b1"' },
   log: [], talk: "",
 };
 const win = (o = {}) => new CellWindow({ ...base, ...o }).html();
@@ -73,15 +75,18 @@ const action = (h) => {
 const tabs = (h) => [...h.matchAll(/role="tab" class="cw-tab( on)?" aria-selected="(true|false)" data-cell-window-tab="([a-z]+)"/g)].map((m) => [m[3], m[2] === "true", !!m[1]]);
 const panels = (h) => [...h.matchAll(/data-cell-window-panel="([a-z]+)" data-t="cell-window-panel" data-t-id="[^"]*"( hidden)?>/g)].map((m) => [m[1], !m[2]]);
 const panel = (h, id) => { const i = h.indexOf(`data-cell-window-panel="${id}"`); if (i < 0) return null; const rest = h.slice(i); const end = rest.indexOf('data-cell-window-panel="', 10); return end > 0 ? rest.slice(0, end) : rest; };
-const items = (h) => [...h.matchAll(/<button type="button" role="(menuitem|menuitemcheckbox)"( aria-checked="(true|false)")? class="cwm-item([^"]*)" ([^>]*?)data-t="cell-window-item" data-t-id="h1:22020:([a-z]+)"( title="([^"]*)")?>/g)]
+const items = (h) => [...h.matchAll(/<button type="button" role="(menuitem|menuitemcheckbox)"( aria-checked="(true|false)")? class="cwm-item([^"]*)" ([^>]*?)data-t="cell-window-item" data-t-id="c3f9a02b1:([a-z]+)"( title="([^"]*)")?>/g)]
   .map((m) => ({ id: m[6], role: m[1], checked: m[3] || null, cls: m[4].trim(), attrs: m[5].trim(), tip: m[8] || "" }));
 
 const out = {};
 out.en = Object.fromEntries(Object.entries(en).filter(([k]) => k.startsWith("cw") || ["start", "stop", "stoppingLabel", "removingSlotLabel", "close", "a11yCell"].includes(k)));
+// The words of the window's port controls are gone from the dictionary with the controls: a cell has a port only while it runs.
+out.portWords = ["cwChangePort", "cwPortOnlyParked"].filter((k) => k in en);
 
 const running = html();
 out.running = { head: running.slice(0, running.indexOf('<div class="cw-live"')), band: band(running), action: action(running), tabs: tabs(running),
-                panels: panels(running), items: items(running), live: (running.match(/<div class="cw-live" data-cell-window-live="1" data-llama-port="([^"]*)">/) || [])[1] ?? null,
+                panels: panels(running), items: items(running), live: (running.match(/<div class="cw-live" data-cell-window-live="1" data-cell-id="([^"]*)">/) || [])[1] ?? null,
+                llamaPort: running.includes("data-llama-port"),
                 callMarks: (running.match(/ data-cell-live=/g) || []).length,
                 startsWithBackdrop: running.startsWith('<div class="cell-window-backdrop" data-cell-window-close="1" aria-hidden="true"></div>'),
                 dialog: (running.match(/<div class="(cell-window[^"]*)" role="dialog" aria-modal="true" aria-label="([^"]*)" data-t="cell-window" data-t-id="([^"]*)">/) || []).slice(1),
@@ -91,7 +96,7 @@ out.running = { head: running.slice(0, running.indexOf('<div class="cw-live"')),
 const states = ["running", "starting", "warming", "downloading", "broken", "stopped", "failed", "reserved", "stopping", "deleting", "nonsense"];
 out.states = Object.fromEntries(states.map((st) => {
   const h = html({ state: st });
-  return [st, { tone: (h.match(/<div class="cw-band ([a-z]+)"/) || [])[1], state: (h.match(/data-t="cell-window-band" data-t-id="h1:22020" data-t-state="([a-z]+)"/) || [])[1],
+  return [st, { tone: (h.match(/<div class="cw-band ([a-z]+)"/) || [])[1], state: (h.match(/data-t="cell-window-band" data-t-id="c3f9a02b1" data-t-state="([a-z]+)"/) || [])[1],
                 title: (h.match(/<strong class="cw-band-title">([^<]*)</) || [])[1], action: action(h), logButton: h.includes('class="cw-band-more" data-cell-window-tab="log"') }];
 }));
 out.shut = {
@@ -112,10 +117,12 @@ out.tabs = {
 
 // The "⋯", shut items and their reasons.
 out.menu = {
-  open: items(html({ menu: { ...base.menu, port: 'data-cell-port-reassign="h1:22020"', del: 'data-node-slot-del="h1:22020"', boot: { ...base.menu.boot, on: true } } })),
+  open: items(html({ menu: { ...base.menu, del: 'data-node-slot-del="c3f9a02b1"', boot: { ...base.menu.boot, on: true } } })),
+  // A builder that still hands the window a port's attribute gets no port item, open or shut: a cell is not moved to a port.
+  portGiven: html({ menu: { ...base.menu, port: 'data-cell-port-reassign="h1:22020"' } }),
   unsupported: items(html({ menu: { ...base.menu, boot: { attrs: "", on: true, supported: false, title: "too old" } } }))[0],
   noAddress: items(html({ address: "" })).map((i) => i.id),
-  hidden: /<div class="cwh-menu" role="menu" aria-label="[^"]*" hidden data-t="cell-window-menu" data-t-id="h1:22020">/.test(running),
+  hidden: /<div class="cwh-menu" role="menu" aria-label="[^"]*" hidden data-t="cell-window-menu" data-t-id="c3f9a02b1">/.test(running),
 };
 
 // Panels with nothing to say say so.
@@ -140,11 +147,11 @@ out.links = {
   both: panel(html({ overview: { tiles: [], notes: '<div class="node-server-note model">📖 a model</div>', links: LINKS } }), "overview"),
   alone: panel(html({ overview: { tiles: [], links: { models: LINKS.models, hf: "" }, empty: "No figures yet" } }), "overview"),
   none: panel(html({ overview: { tiles: [], links: { models: "", hf: "" }, empty: "No figures yet" } }), "overview"),
-  evil: panel(html({ key: 'h"1', overview: { tiles: [], links: { models: '/models?q="><b>', hf: "" } } }), "overview"),
+  evil: panel(html({ key: 'c"1', overview: { tiles: [], links: { models: '/models?q="><b>', hf: "" } } }), "overview"),
 };
 
 // What is escaped, and what passes as the HTML the board made.
-const evil = html({ key: '"><b>', name: "<i>x", port: '"1', address: "<u>1:2", facts: ["<s>a"], place: ["<p>b"], via: "<v>", viaTitle: 'say "hi"',
+const evil = html({ key: '"><b>', name: "<i>x", address: "<u>1:2", facts: ["<s>a"], place: ["<p>b"], via: "<v>", viaTitle: 'say "hi"',
                     engine: "a b", overview: { tiles: [{ id: "<t>", label: "<l>", value: "<v>", sub: "<sub>" }] },
                     memory: { cards: [{ name: "<n>", figure: "<f>", sub: "<c>" }], rows: [{ k: "<k>", v: "<w>" }] }, log: [{ title: "<lt>", detail: "<ld>", raw: "<lr>" }] });
 out.evil = evil;
@@ -169,7 +176,18 @@ out.speedSub = {
   noMetricsNext: CellWindow.speedSub({ ...speed(null, 0), unmeasured: true, measuredNext: true }, 0, fmt),
   noMetricsParked: CellWindow.speedSub({ ...speed(null, 0, false), unmeasured: true, measuredNext: true }, 0, fmt),
 };
-out.place = [CellWindow.place("sierra-pc:22001"), CellWindow.place("a:b:22001"), CellWindow.place("nokey")];
+// A cell is titled by the board's name, by its id when the board gives none — never by a port, even one an old builder hands it.
+const nameless = html({ name: "", port: 22020 });
+out.title = { named: new CellWindow({ key: "c22011", name: "gemma" }).title, nameless: new CellWindow({ key: "c22011", name: "" }).title,
+              head: (nameless.match(/<strong class="cwh-name">([^<]*)<\/strong>/) || [])[1] ?? null,
+              label: (nameless.match(/aria-label="([^"]*)" data-t="cell-window"/) || [])[1] ?? null,
+              portGiven: [html({ port: 22020 }).includes("22020"), nameless.includes("22020"), html({ port: 22020 }).includes("cwh-port")] };
+// The title a question outside the window names the cell by (cell-settings.js): the window's own, found by the cell's id.
+const titleDoc = (shown) => ({ asked: [], querySelector(sel) { this.asked.push(sel); return shown === null ? null : { textContent: shown }; } });
+const td = titleDoc("  Hermes-4-70B ");
+out.titleIn = { found: CellWindow.titleIn(td, "c3f9a02b1"), asked: td.asked, none: CellWindow.titleIn(titleDoc(null), "c3f9a02b1"),
+                empty: CellWindow.titleIn(titleDoc(""), "c3f9a02b1"), noDoc: CellWindow.titleIn(null, "c3f9a02b1"),
+                escaped: (() => { const d = titleDoc("x"); CellWindow.titleIn(d, 'c"1'); return d.asked[0]; })() };
 // The talk: a chat alone, a chat with the voice ways under it, the ways alone.
 const CHAT = '<section class="cw-chat">CHAT</section>';
 out.talkTabs = [tabs(html({ chat: CHAT })).map((x) => x[0]), tabs(html({ chat: "", talk: "" })).map((x) => x[0])];
@@ -185,7 +203,10 @@ const tail = (h) => h.slice(h.indexOf('<div class="cw-panels">'));
 out.edited = { settings: panel(edited, "settings"), memory: panel(edited, "memory"),
                foot: (tail(edited).match(/<\/div>(<div class="cw-foot"[^>]*>[^<]*<\/div>)<\/div><\/div>$/) || [])[1] ?? null,
                footParked: (html({ footSlot: true }).match(/<div class="cw-foot"[^>]*>[^<]*<\/div>/) || [])[0] ?? null,
-               noSlot: html({ foot: "FOOT" }).includes("cw-foot"), noEditor: panel(html(), "settings"), noPlace: panel(html(), "memory") };
+               noSlot: html({ foot: "FOOT" }).includes("cw-foot"), noEditor: panel(html(), "settings"), noPlace: panel(html(), "memory"),
+               // A builder that still hands the settings a port's attribute gets no port button, in the summary or under the editor.
+               portGiven: [panel(html({ settings: { ...base.settings, port: 'data-cell-port-reassign="h1:22020"' } }), "settings"),
+                           panel(html({ settings: { ...base.settings, editor: EDITOR, port: 'data-cell-port-reassign="h1:22020"' } }), "settings")] };
 console.log(JSON.stringify(out));
 """
 
@@ -212,20 +233,23 @@ en = got["en"]
 print("паспорт и ✕:")
 r = got["running"]
 check(r["startsWithBackdrop"], "первым — затемнение доски; клик по нему закрывает окно")
-check(r["dialog"] == ["cell-window cw", f'{en["a11yCell"]} :22020 Hermes-4-70B', "h1:22020"],
-      f"окно — диалог «Cell :порт имя» со своим хуком (got {r['dialog']})")
-check('<strong class="cwh-name">Hermes-4-70B</strong><span class="cwh-port">:22020</span>'
-      '<span class="cwh-facts">LLM · llama.cpp · Q4_K_M · 70B · 39.6 GB</span>' in r["head"],
-      "под именем — что она делает, чем запущена и что за файл, через « · »; negative: пустые слова выпали, двойных « ·  · » нет")
-check('<button type="button" class="cwh-addr" data-cell-window-copy="10.0.0.5:22020" data-t="cell-window-copy" data-t-id="h1:22020"'
-      f' title="{en["cwCopyAddress"]}"><span data-cell-window-copied>10.0.0.5:22020</span>' in r["head"],
+check(r["dialog"] == ["cell-window cw", f'{en["a11yCell"]} Hermes-4-70B', CELL],
+      f"окно — диалог «Cell имя» со своим хуком; data-t-id — имя ячейки (cellId) (got {r['dialog']})")
+check('<strong class="cwh-name">Hermes-4-70B</strong>'
+      '<span class="cwh-facts">LLM · llama.cpp · Q4_K_M · 70B · 39.6 GB</span>' in r["head"] and "cwh-port" not in r["head"],
+      "под именем — что она делает, чем запущена и что за файл, через « · »; negative: пустые слова выпали, двойных « ·  · » нет, "
+      "и порта после имени нет — порт у ячейки только пока она работает")
+check('<button type="button" class="cwh-addr" data-cell-window-copy="10.0.0.5" data-t="cell-window-copy" data-t-id="c3f9a02b1"'
+      f' title="{en["cwCopyAddress"]}"><span data-cell-window-copied>10.0.0.5</span>' in r["head"],
       "адрес машины — кнопка, которая копирует его; слово на время копирования встаёт в его span")
 check('<span class="cwh-place">Pipeline · GPU0 · GPU1 · autostart off</span>' in r["head"], "где считает: деление, карты, автозапуск")
-check(f'data-t="cell-window-close" data-t-id="h1:22020" title="{en["close"]}" aria-label="{en["close"]}">✕</button>' in r["head"],
+check(f'data-t="cell-window-close" data-t-id="c3f9a02b1" title="{en["close"]}" aria-label="{en["close"]}">✕</button>' in r["head"],
       "✕ со словом close и своим хуком")
-check(f'data-cell-window-more="h1:22020" aria-haspopup="menu" aria-expanded="false" data-t="cell-window-more" data-t-id="h1:22020"'
+check(f'data-cell-window-more="c3f9a02b1" aria-haspopup="menu" aria-expanded="false" data-t="cell-window-more" data-t-id="c3f9a02b1"'
       f' title="{en["cwMore"]}" aria-label="{en["cwMore"]}">' in r["head"], "«⋯» — кнопка меню, закрытого")
-check(r["live"] == "22020", "полоса и панели — в контейнере живых цифр с портом ячейки (syncTopologyLive находит их там)")
+check(r["live"] == CELL and r["llamaPort"] is False,
+      "полоса и панели — в контейнере живых цифр с именем ячейки, data-cell-id (syncTopologyLive находит их по нему); "
+      "negative: data-llama-port в окне нет — порт не адрес ячейки")
 check(r["callMarks"] == 0,
       "defect-history (1.3.621, до выкладки): negative — у окна (без кнопок разговора) нет ни одного data-cell-live: лента вешает живой "
       "звонок на каждый такой элемент (remote-cells.js), и обёртка с ним открывала бы звонок по клику на вкладку и глушила её")
@@ -284,26 +308,28 @@ print("меню «⋯»:")
 mn = got["menu"]
 check(mn["hidden"], "меню нарисовано закрытым")
 ids = [i["id"] for i in mn["open"]]
-check(ids == ["boot", "copy", "port", "detail", "delete"], f"пункты по порядку: автозапуск, адрес, порт, команда, удаление (got {ids})")
+check(ids == ["boot", "copy", "detail", "delete"], f"пункты по порядку: автозапуск, адрес, команда, удаление (got {ids})")
 boot = mn["open"][0]
 check(boot["role"] == "menuitemcheckbox" and boot["checked"] == "true" and 'data-node-cell-boot="h1"' in boot["attrs"]
       and boot["tip"] == "enable autostart", "автозапуск — пункт-флажок с атрибутами ↥ карточки и её подсказкой")
 check(mn["unsupported"]["checked"] == "false" and mn["unsupported"]["attrs"] == "disabled" and mn["unsupported"]["tip"] == "too old",
       "negative: скаут не умеет автозапуск — флажок снят (не «вкл» без поддержки), пункт закрыт, причина в подсказке")
-dele = mn["open"][4]
-check("cwm-danger" in dele["cls"] and 'data-node-slot-del="h1:22020"' in dele["attrs"], "удаление — красный пункт с атрибутами ✕ карточки")
+dele = mn["open"][3]
+check("cwm-danger" in dele["cls"] and 'data-node-slot-del="c3f9a02b1"' in dele["attrs"], "удаление — красный пункт с атрибутами ✕ карточки")
 shut = {i["id"]: i for i in got["running"]["items"]}
-check(shut["port"]["attrs"] == "disabled" and shut["port"]["tip"] == en["cwPortOnlyParked"]
-      and shut["delete"]["attrs"] == "disabled" and shut["delete"]["tip"] == "only a stopped cell",
-      "negative: работающей нельзя ни переехать, ни удалиться — пункты остаются закрытыми и говорят почему, а не исчезают")
+check(shut["delete"]["attrs"] == "disabled" and shut["delete"]["tip"] == "only a stopped cell",
+      "negative: работающей нельзя удалиться — пункт остаётся закрытым и говорит почему, а не исчезает")
+check(":port" not in mn["portGiven"] and "data-cell-port-reassign" not in mn["portGiven"] and got["portWords"] == [],
+      "negative: пункта «сменить порт» нет вовсе — ни открытого, ни закрытого, даже если доска по-старому даёт его атрибут "
+      "(порт ячейке выдаёт её скаут на время работы); слов cwChangePort и cwPortOnlyParked в словаре больше нет")
 check("copy" not in mn["noAddress"], "negative: адреса нет — нет и пункта «скопировать адрес»")
 
 print("панели:")
 ov = r["overview"]
-check('data-t="cell-window-tile" data-t-id="h1:22020:speed"' in ov and '<span class="cw-tile-value" data-live-cwtps>6.1 t/s</span>' in ov
+check('data-t="cell-window-tile" data-t-id="c3f9a02b1:speed"' in ov and '<span class="cw-tile-value" data-live-cwtps>6.1 t/s</span>' in ov
       and '<span class="cw-tile-sub" data-live-cwtpssub>reading 30.6</span>' in ov,
       "плитка скорости — число и его строка с метками живого патча")
-check('data-t-id="h1:22020:gpu"' in ov and '<span class="cw-tile-value">—</span><span class="cw-tile-sub">not reported</span>' in ov,
+check('data-t-id="c3f9a02b1:gpu"' in ov and '<span class="cw-tile-value">—</span><span class="cw-tile-sub">not reported</span>' in ov,
       "negative: значения нет — «—» и причина под ним, а не пустая плитка и не 0")
 check(f'<h4 class="cw-sec-title">{en["cwAlerts"]}</h4><div class="cw-chips"><span class="mbadge">⇪</span></div>' in ov
       and f'<h4 class="cw-sec-title">{en["cwAboutModel"]}</h4><div class="node-server-note model">' in ov
@@ -312,29 +338,29 @@ lk = got["links"]
 check(f'<h4 class="cw-sec-title">{en["cwAboutModel"]}</h4><div class="node-server-note model">📖 a model</div>'
       '<div class="cw-buttons cw-links">'
       '<a class="cw-btn cw-link" href="/models?q=Hermes%2Flms%2FQ4%2F" data-t="cell-window-link" '
-      f'data-t-id="h1:22020:models">{en["cwModelInLibrary"]}</a>'
+      f'data-t-id="c3f9a02b1:models">{en["cwModelInLibrary"]}</a>'
       '<a class="cw-btn cw-link" href="/hf?q=lms%2FHermes" data-t="cell-window-link" '
-      f'data-t-id="h1:22020:hf">{en["cwModelOnHf"]}</a></div>' in lk["both"],
+      f'data-t-id="c3f9a02b1:hf">{en["cwModelOnHf"]}</a></div>' in lk["both"],
       "1.3.660 (владелец, 2026-10-26: «ссылку на модель в нашем хранилище и ещё на нашу страницу в HF»): под тем, что сказано о "
       "модели, — две ссылки; negative: не в новой вкладке — всё в караване открывается в этой же (check_same_tab_links.py)")
 check(f'<h4 class="cw-sec-title">{en["cwAboutModel"]}</h4><div class="cw-buttons cw-links">' in lk["alone"]
-      and "cwModelOnHf" not in lk["alone"] and 'data-t-id="h1:22020:hf"' not in lk["alone"] and "No figures yet" not in lk["alone"],
+      and "cwModelOnHf" not in lk["alone"] and 'data-t-id="c3f9a02b1:hf"' not in lk["alone"] and "No figures yet" not in lk["alone"],
       "только хранилище (у пути нет репозитория) — одна ссылка, и секция стоит без описания; negative: ссылки на HF нет, "
       "«нечего показать» не сказано")
 check("cw-links" not in lk["none"] and en["cwAboutModel"] not in lk["none"] and "No figures yet" in lk["none"],
       "negative: ссылок нет — ни пустой строки ссылок, ни пустой секции")
-check('href="/models?q=&quot;&gt;&lt;b&gt;"' in lk["evil"] and 'data-t-id="h&quot;1:models"' in lk["evil"] and "<b>" not in lk["evil"],
+check('href="/models?q=&quot;&gt;&lt;b&gt;"' in lk["evil"] and 'data-t-id="c&quot;1:models"' in lk["evil"] and "<b>" not in lk["evil"],
       "адрес и ключ экранированы")
 me = r["memory"]
 check('<span class="cw-mem-name">GPU0 · RTX 3090</span><span class="cw-mem-figure">22.1 GB</span><span class="cw-mem-sub">of 24.0 GB</span>' in me
       and '<dt>Split</dt><dd>Pipeline</dd>' in me and "<dt>Empty</dt>" not in me,
       "память: что держит каждая карта и размещение из настроек; negative: пустое поле размещения не рисуется строкой")
-check('data-t="cell-window-button" data-t-id="h1:22020:placement">' + en["cwPlacementEdit"] in me and 'data-node-cell-start="h1"' in me,
+check('data-t="cell-window-button" data-t-id="c3f9a02b1:placement">' + en["cwPlacementEdit"] in me and 'data-node-cell-start="h1"' in me,
       "«Изменить размещение…» открывает форму ячейки")
 se = r["settings"]
 check("<dt>Context</dt><dd>131072</dd>" in se and en["cwSettingsLead"] in se
-      and 'data-t-id="h1:22020:configure">' + en["cwSettingsOpen"] in se and 'data-t-id="h1:22020:detail">' + en["cwDetails"] in se
-      and "h1:22020:port" not in se, "настройки: главное, «все настройки», команда; negative: порта нет — нет и его кнопки")
+      and 'data-t-id="c3f9a02b1:configure">' + en["cwSettingsOpen"] in se and 'data-t-id="c3f9a02b1:detail">' + en["cwDetails"] in se
+      and ":port" not in se, "настройки: главное, «все настройки», команда; negative: кнопки порта нет")
 check(en["cwLogEmpty"] in r["log"], "журнал без записей так и говорит")
 em = got["empty"]
 check(en["cwHeldNothing"] in em["memory"] and en["cwPlacementDefault"] in em["memory"] and "cell-window-button" not in em["memory"],
@@ -360,16 +386,28 @@ check("cw-empty" not in oe["withNote"] and "💬 kept" in oe["withNote"] and "cw
 print("экранирование и движок:")
 ev = got["evil"]
 check(all(x not in ev for x in ['"><b>', "<i>x", "<u>", "<s>a", "<p>b", "<v>", "<l>", "<sub>", "<n>", "<f>", "<k>", "<w>", "<lt>", "<ld>", "<lr>", '"hi"']),
-      "имя, порт, ключ, адрес, факты, место, движок, плитки, карты, строки и журнал экранируются")
+      "имя, ключ, адрес, факты, место, движок, плитки, карты, строки и журнал экранируются")
 check('class="cell-window cw" role="dialog"' in ev, "negative: слово, не годное в класс движка, класса не даёт")
 check('<div class="cell-window cw engine-ollama" role="dialog"' in got["engine"]
       and '<span class="cwh-via" data-t="cell-window-via" title="to &quot;Ollama&quot;">→ 127.0.0.1:11434</span>' in got["engine"],
       "ячейка в движке — в его цвет; после адреса — куда идут запросы, подсказка экранирована")
-check('aria-label="' + en["a11yCell"] + ' :"' in got["empty_ctor"] and 'data-t-state="stopped"' in got["empty_ctor"],
+check('aria-label="' + en["a11yCell"] + '"' in got["empty_ctor"] and 'data-t-state="stopped"' in got["empty_ctor"],
       "пустое окно не падает: подпись без имени, состояние «стоит»")
 
-check(got["place"] == [{"hostId": "sierra-pc", "port": "22001"}, {"hostId": "a:b", "port": "22001"}, {"hostId": "", "port": ""}],
-      "ключ ячейки — машина и порт по последнему «:» (журнал и чат окна спрашивают по ним); negative: без «:» — ничего")
+print("имя окна:")
+ti = got["title"]
+check(ti["named"] == "gemma" and ti["nameless"] == "c22011",
+      "окно называется именем, которое дала доска; без имени — именем ячейки (cellId), а не пусто")
+check(ti["head"] == CELL and ti["label"] == f'{en["a11yCell"]} {CELL}',
+      "безымянная ячейка — её cellId и в заголовке, и в подписи для экранного чтеца")
+check(ti["portGiven"] == [False, False, False],
+      "negative: доска по-старому даёт окну port — его нет нигде в окне: ни после имени, ни в подписи, ни в атрибутах")
+tn = got["titleIn"]
+check(tn["found"] == "Hermes-4-70B" and tn["asked"] == ['[data-t="cell-window"][data-t-id="c3f9a02b1"] .cwh-name'],
+      "имя окна для вопроса вне его (cell-settings.js) — заголовок окна этой ячейки, найденного по её имени")
+check(tn["none"] == "" and tn["empty"] == "" and tn["noDoc"] == "",
+      "negative: окна ячейки нет, заголовок пуст, документа нет — пусто, а не чужое имя (вопрос назовёт ячейку её cellId)")
+check(tn["escaped"] == '[data-t="cell-window"][data-t-id="c\\"1"] .cwh-name', "кавычка в ключе экранирована в селекторе")
 tt, tp = got["talkTabs"], got["talkPanels"]
 check(tt[0][-1] == "talk" and "talk" not in tt[1], "чат — уже повод для вкладки «Разговор»; negative: ни чата, ни кнопок — вкладки нет")
 check('<section class="cw-chat">CHAT</section>' in tp[0] and en["cwTalkLead"] not in tp[0]
@@ -401,21 +439,23 @@ check(ss["parked"] == en["cwNotRunning"] and ss["parkedWithPrompt"] == en["cwNot
 print("настройки, правленые в окне:")
 ed = got["edited"]
 check(('<section class="cw-sec cws">EDITOR</section><div class="cw-buttons cw-set-more">'
-                              f'<button type="button" class="cw-btn" {CFG} data-t="cell-window-button" data-t-id="h1:22020:configure">{en["cwSettingsOpen"]}</button>'
-                              f'<button type="button" class="cw-btn" data-node-detail="h1:22020" data-t="cell-window-button" data-t-id="h1:22020:detail">{en["cwDetails"]}</button></div></div>') in ed["settings"]
+                              f'<button type="button" class="cw-btn" {CFG} data-t="cell-window-button" data-t-id="c3f9a02b1:configure">{en["cwSettingsOpen"]}</button>'
+                              f'<button type="button" class="cw-btn" data-node-detail="c3f9a02b1" data-t="cell-window-button" data-t-id="c3f9a02b1:detail">{en["cwDetails"]}</button></div></div>') in ed["settings"]
       and "cw-rows" not in ed["settings"] and en["cwSettingsLead"] not in ed["settings"],
-      "редактор полей стоит во вкладке вместо сводки «главного» и её слов; под ним — все настройки и команда (порт закрыт — его кнопки нет)")
+      "редактор полей стоит во вкладке вместо сводки «главного» и её слов; под ним — все настройки и команда")
 check('<section class="cw-sec"><div class="cw-place">MAP</div></section>' in ed["memory"] and en["cwPlacement"] not in ed["memory"]
       and "cw-rows" not in ed["memory"] and en["cwPlacementEdit"] not in ed["memory"]
-      and f'data-t-id="h1:22020:placement">{en["cwSettingsOpen"]}</button>' in ed["memory"],
+      and f'data-t-id="c3f9a02b1:placement">{en["cwSettingsOpen"]}</button>' in ed["memory"],
       "negative: при карте сводки сохранённого размещения нет — пока не применено, она рассказывала бы другое; заголовка секции "
       "тоже нет — карта называет себя сама; где считать — в полных настройках")
-check(ed["foot"] == '<div class="cw-foot" data-cell-window-foot="h1:22020" data-running="1">FOOT</div>',
+check(ed["foot"] == '<div class="cw-foot" data-cell-window-foot="c3f9a02b1" data-running="1">FOOT</div>',
       "подвал — после панелей, не прокручивается с ними; знает, что ячейка работает")
-check(ed["footParked"] == '<div class="cw-foot" data-cell-window-foot="h1:22020" data-running=""></div>',
+check(ed["footParked"] == '<div class="cw-foot" data-cell-window-foot="c3f9a02b1" data-running=""></div>',
       "место подвала есть и пустым, пока не применять нечего; не работает — пусто")
 check(ed["noSlot"] is False and "cw-rows" in ed["noEditor"] and "cw-rows" in ed["noPlace"],
       "negative: окно не правит настройки — подвала нет вовсе, а вкладки показывают сводки, как раньше")
+check(all(":port" not in x and "data-cell-port-reassign" not in x for x in ed["portGiven"]),
+      "negative: кнопки «сменить порт» нет ни под сводкой, ни под редактором, даже если доска по-старому даёт её атрибут")
 
 print()
 if _fail:

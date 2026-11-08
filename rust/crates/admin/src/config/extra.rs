@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 pub struct ExtraFlags;
 
 impl ExtraFlags {
-    const VALUE_FLAGS: [(&'static str, &'static str); 79] = [
+    const VALUE_FLAGS: [(&'static str, &'static str); 78] = [
         ("--ctx-size", "CTX_SIZE"),
         ("-c", "CTX_SIZE"),
         ("--threads", "THREADS"),
@@ -72,7 +72,6 @@ impl ExtraFlags {
         ("--chat-template-kwargs", "CHAT_TEMPLATE_KWARGS"),
         ("--pooling", "POOLING"),
         ("--embd-normalize", "EMBD_NORMALIZE"),
-        ("--host", "HOST"),
         ("--port", "PORT"),
         ("--checkpoint-min-step", "CHECKPOINT_MIN_STEP"),
         ("-cms", "CHECKPOINT_MIN_STEP"),

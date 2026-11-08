@@ -70,10 +70,10 @@ impl CacheKeeper {
             let (models, target) = (Arc::clone(&self.models), new.clone());
             let switch = Box::new(move || if back { models.folders.cache.forget() } else { models.choose_folder(&target) });
             let files = FileMove { from: old, to: new, names: self.own_names() };
-            return files.start(self.models.shelf, &self.models.relocation, ModelFetcher::LEFT_FREE, switch);
+            return self.models.start_move(files, switch);
         }
         // A running cell's scratch stays in the old folder: the cell writes there.
-        let made = self.models.clear_scratches(&self.cells.live_ports());
+        let made = self.models.clear_scratches(&self.cells.live_cells());
         let result = Self::with_made(&self.models.clear(), made);
         self.prune_empty();
         if back {
@@ -95,11 +95,11 @@ impl CacheKeeper {
 
     /// Refuses while a start is bringing its model: `what` does not happen then, and the cells are named.
     pub(super) fn refuse_while_loading(&self, what: &str) -> Result<(), AppError> {
-        let loading = self.cells.loading_ports();
+        let loading = self.cells.loading_cells();
         if loading.is_empty() {
             return Ok(());
         }
-        let named: Vec<String> = loading.iter().map(|port| format!(":{port}")).collect();
+        let named = self.cells.called(&loading);
         Err(AppError::with_status(
             format!("{what} while a cell is bringing its model: {} — try again when it runs", named.join(", ")),
             409,
@@ -127,8 +127,8 @@ impl CacheKeeper {
         if record.is_file() {
             take(&record);
         }
-        let live = self.cells.live_ports();
-        for (_, folder) in self.models.scratch_folders().into_iter().filter(|(port, _)| !live.contains(port)) {
+        let live = self.cells.live_cells();
+        for (_, folder) in self.models.scratch_folders().into_iter().filter(|(cell, _)| !live.contains(cell)) {
             Walk::files_with_sizes(&folder).iter().for_each(|(file, _)| take(file));
         }
         names.into_iter().collect()

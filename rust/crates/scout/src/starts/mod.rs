@@ -1,6 +1,9 @@
 //! Starting a cell: the controller's request, accepted or refused, and the launch that follows it: a `llama-server` or whatever a command cell runs.
 //!
 //! The firewall is not opened here since 2.40: the owner decided on 2026-10-26 that the cells' ports answer the controller alone, by his own rule for their whole range.
+//!
+//! The request names the cell (`cellId`) and the range its port may be leased from (`ports`), never a port (Papyrus `caravan-scout-port-lease`, step 2): the
+//! start leases the lowest free one, fills every place the controller left for it (`{{PORT}}`), and the cell holds it until it stops.
 
 pub mod artifacts;
 pub mod assets;
@@ -9,6 +12,8 @@ mod llama;
 mod room;
 
 use crate::cells::Cells;
+use crate::cells::lease::PortLease;
+use crate::cells::table::{Cell, CellTable};
 use crate::errors::AppError;
 use crate::models::{CacheKeeper, ModelFetcher};
 use crate::process::HostProcesses;
@@ -32,6 +37,9 @@ impl StartRequest {
     pub(crate) const SCRATCH_ENV: &'static str = "CARAVAN_CELL_SCRATCH";
     /// The kinds that are not a llama cell.
     const KINDS: [(&'static str, StartOfKind); 1] = [("command", command::CommandStart::run)];
+    /// What the controller writes where the port goes, in a llama cell's arguments and a command cell's line (the controller's
+    /// `LlamaArgs::LEASED_PORT`): the start fills it with the port it leased.
+    const PORT_MARK: &'static str = "{{PORT}}";
 
     /// The request of this payload.
     pub fn of(cells: Arc<Cells>, payload: Map<String, Value>) -> Self {
@@ -121,62 +129,89 @@ impl StartRequest {
         Some(if root.is_empty() { "/".to_string() } else { root.to_string() })
     }
 
-    /// The port it names.
-    pub fn port(&self) -> Result<i64, AppError> {
-        let said =
-            [self.config.get("PORT").cloned(), self.payload.get("port").cloned(), self.cells.config.get("llamaNodeDefaultPort")]
-                .into_iter()
-                .flatten()
-                .find(|value| Coerce::truthy(Some(value)));
-        let Some(said) = said else {
-            return Ok(8180);
-        };
-        Coerce::int(&said).ok_or_else(|| {
-            AppError::with_status(format!("invalid literal for int() with base 10: {}", Coerce::text(Some(&said))), 500)
-        })
+    /// The cell it starts: the name the controller gives it (`cellId`). A request that names none is refused: a cell is not its port any more.
+    pub fn cell_id(&self) -> Result<String, AppError> {
+        CellTable::named(self.payload.get("cellId"))
     }
 
-    /// The refusal when the port already runs a server or a start is under way there; `None` when it is free.
-    pub(crate) fn busy(&self, port: i64) -> Option<Value> {
-        let cell = self.cells.table.at(port);
-        if cell.process.status().get("running") == Some(&Value::Bool(true)) {
-            return Some(json!({"ok": false, "error": format!("a server is already running on port {port}")}));
+    /// The port `cell`'s run is leased, from the range the request names (`ports`, the cells' own when it names none), and every place the
+    /// request leaves for it filled with it: the config's `PORT`, a llama cell's arguments, a command cell's line, command and environment. The
+    /// refusal of a range with no free port, in words.
+    pub(crate) fn lease_port(&mut self, cell: &Arc<Cell>) -> Result<i64, AppError> {
+        let range = PortLease::of(self.payload.get("ports"))?;
+        let recorded = self.cells.records.ports_besides(&cell.id);
+        let listening = self.cells.machine.listening_ports_now();
+        let port = match self.cells.table.lease(cell, &range, &recorded, listening.as_ref()) {
+            Ok(port) => port,
+            Err(words) => {
+                // The cell says why it did not start, as a start that failed on its way does: a refusal that left it with nothing to say
+                // stood on the board as a cell of no phase.
+                self.cells.table.say(&cell.id, &json!({"phase": "error", "error": words}));
+                return Err(AppError::with_status(words, 409));
+            }
+        };
+        self.fill_port(port);
+        Ok(port)
+    }
+
+    /// `port` written where the request left its place.
+    fn fill_port(&mut self, port: i64) {
+        let word = port.to_string();
+        let filled = |text: &str| text.replace(Self::PORT_MARK, &word);
+        self.config.insert("PORT".to_string(), json!(word));
+        if let Some(Value::Object(config)) = self.payload.get_mut("config") {
+            config.insert("PORT".to_string(), json!(word));
         }
-        let startup = self.cells.table.startup(port);
+        for key in ["shellLine", "command"] {
+            if let Some(Value::String(text)) = self.payload.get_mut(key) {
+                *text = filled(text);
+            }
+        }
+        for list in ["args"] {
+            for item in self.payload.get_mut(list).and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Value::String(text) = item {
+                    *text = filled(text);
+                }
+            }
+        }
+        for value in self.payload.get_mut("env").and_then(Value::as_object_mut).into_iter().flat_map(|env| env.values_mut()) {
+            if let Value::String(text) = value {
+                *text = filled(text);
+            }
+        }
+    }
+
+    /// The refusal when `cell` already runs or its start is under way; `None` when it may start.
+    pub(crate) fn busy(&self, cell: &Arc<Cell>) -> Option<Value> {
+        let id = &cell.id;
+        if cell.process.status().get("running") == Some(&Value::Bool(true)) {
+            return Some(json!({"ok": false, "error": format!("the cell {id} is already running")}));
+        }
+        let startup = cell.facts().startup.clone();
         let phase = startup.get("phase").and_then(Value::as_str);
         if let Some(phase) = phase.filter(|phase| matches!(*phase, "resolving" | "downloading" | "loading")) {
             return Some(
-                json!({"ok": false, "error": format!("startup already in progress on port {port} ({phase})"), "phase": phase}),
+                json!({"ok": false, "error": format!("startup already in progress for the cell {id} ({phase})"), "phase": phase}),
             );
         }
-        // A cell this scout started and lost track of still runs there, a start that was loading when the scout was killed (2026-10-14). A second copy beside it loads its model again and fights it for the port and the card: it is
-        // held again instead, and the board shows it.
-        let lost = self.cells.survivor(port);
+        // A process of this cell that this scout started and lost track of still runs, a start that was loading when the scout was killed (2026-10-14). A second copy beside it loads its
+        // model again and fights it for the card: it is held again instead, and the board shows it.
+        let lost = self.cells.survivor(id);
         if lost != 0 {
-            self.cells.adopt_found(port, lost);
+            self.cells.adopt_found(id, lost);
             let error = format!(
-                "a server is already running on port {port} (pid {lost}, started by this scout and lost track of) — it is held again; stop it from the board to start another"
+                "the cell {id} is already running (pid {lost}, started by this scout and lost track of) — it is held again; stop it from the board to start it anew"
             );
             return Some(json!({"ok": false, "adopted": true, "pid": lost, "error": error}));
-        }
-        // A process no scout started holds the port: the cell would load its model, and only then fail to bind it.
-        let holder = self.cells.processes.listener(port);
-        if holder != 0 {
-            let line = self.cells.processes.command_line(holder);
-            let error = format!(
-                "port {port} is held by pid {holder} ({}), which no scout started — stop it first, or pick another port",
-                Coerce::first_letters(&line, 80)
-            );
-            return Some(json!({"ok": false, "listenerPid": holder, "error": error}));
         }
         None
     }
 
     /// A launch thread. A system that gives no thread says it on the cell's card.
-    pub(crate) fn in_background(&self, port: i64, launch: impl FnOnce() + Send + 'static) {
-        let started = std::thread::Builder::new().name(format!("start-{port}")).spawn(launch);
+    pub(crate) fn in_background(&self, id: &str, launch: impl FnOnce() + Send + 'static) {
+        let started = std::thread::Builder::new().name(format!("start-{id}")).spawn(launch);
         if let Err(error) = started {
-            self.cells.table.say(port, &json!({"phase": "error", "error": error.to_string()}));
+            self.cells.table.say(id, &json!({"phase": "error", "error": error.to_string()}));
         }
     }
 }

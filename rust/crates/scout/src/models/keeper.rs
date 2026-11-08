@@ -25,10 +25,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub trait CellsInUse: Send + Sync {
     /// The model files the running cells hold.
     fn held_files(&self) -> Vec<String>;
-    /// The ports whose cell is starting or running.
-    fn live_ports(&self) -> BTreeSet<i64>;
-    /// The ports whose start is still bringing its files.
-    fn loading_ports(&self) -> BTreeSet<i64>;
+    /// The cells that are starting or running, by their names.
+    fn live_cells(&self) -> BTreeSet<String>;
+    /// The cells whose start is still bringing its files.
+    fn loading_cells(&self) -> BTreeSet<String>;
+    /// How a refusal names these cells to the operator, one word each.
+    fn called(&self, cells: &BTreeSet<String>) -> Vec<String>;
 }
 
 /// Figures measured: when, after how many moves of a folder, and what they are.
@@ -82,9 +84,9 @@ impl CacheKeeper {
         }
     }
 
-    /// The start ran: records it, and deletes what is beyond the setting now that the new model is in.
-    pub fn commit(&self, port: i64) -> Value {
-        self.uses.commit(port);
+    /// The start of `cell` ran: records it, and deletes what is beyond the setting now that the new model is in.
+    pub fn commit(&self, cell: &str) -> Value {
+        self.uses.commit(cell);
         self.trim()
     }
 
@@ -123,11 +125,11 @@ impl CacheKeeper {
 
     /// The files of every cell that is starting or running and of every running process.
     pub(super) fn in_use(&self, uses: &[Value]) -> BTreeSet<PathBuf> {
-        let live = self.cells.live_ports();
+        let live = self.cells.live_cells();
         let mut out: BTreeSet<PathBuf> =
             self.cells.held_files().iter().filter(|path| !path.is_empty()).map(|path| Resolved::of(Path::new(path))).collect();
         for entry in uses {
-            if entry.get("port").and_then(Value::as_i64).is_some_and(|port| live.contains(&port)) {
+            if ModelUses::cell_of(entry).is_some_and(|cell| live.contains(cell)) {
                 out.extend(self.files_of_entry(entry));
             }
         }

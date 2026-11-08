@@ -5,12 +5,13 @@
  * The page records the microphone into a wav itself (WavRecorder → WavFile): the cells read wav, and a recording in
  * the browser's own format (webm, ogg) is what two of the fleet's recognisers cannot read. The controller asks the
  * cell (POST /api/cell-talk, rust/crates/admin/src/fleet/cell_talk.rs): the board is https and a cell is plain http, which a page
- * may not ask — and a browser gives the microphone to a secure page only.
+ * may not ask — and a browser gives the microphone to a secure page only. The page names the cell by its id alone: a
+ * cell holds a port only while it runs, and the controller knows the one its run leased.
  *
  * What a cell can do here is its runner's to say (state.runners[].talk) and its modes' (state.talkModes): this module
  * keeps no list of runners and no paths. A cell that keeps voices (Qwen3-TTS) is asked its list through the controller
  * too, and reads a text in the voice of a sample recorded here — on the operator's word that the voice is theirs, or
- * that its owner agreed — or keeps that voice under a name, for any client of its port to ask.
+ * that its owner agreed — or keeps that voice under a name, for any client of the cell to ask.
  */
 import { t } from "./i18n.js";
 import { runnerRegistry } from "./llama-edit.js";
@@ -148,12 +149,11 @@ export class WavRecorder {
   }
 }
 
-/** A cell as the window talks to it: the machine and port, the name the card shows, its runner, and whether its
- *  running server said it hears (true / false; null when it did not say). */
+/** A cell as the window talks to it: its id (what the controller is asked by), the name the card shows, its runner, and
+ *  whether its running server said it hears (true / false; null when it did not say). */
 export class TalkCell {
-  constructor({ hostId, port, name = "", runner = "", hears = null } = {}) {
-    this.hostId = String(hostId || "");
-    this.port = String(port || "");
+  constructor({ cellId, name = "", runner = "", hears = null } = {}) {
+    this.cellId = String(cellId || "");
     this.name = String(name || "");
     this.runner = String(runner || "");
     this.hears = hears === true ? true : hears === false ? false : null;
@@ -161,6 +161,9 @@ export class TalkCell {
 
   /** How the runner talks (its registry row's `talk`), or null when it does not. */
   get spec() { return runnerRegistry().find((r) => r.id === this.runner)?.talk || null; }
+
+  /** What the window calls the cell: the card's name, or its id when the card gives none — never a port. */
+  get title() { return this.name || this.cellId; }
 
   /** True for a mode with a voice in it — a recording asked or a voice answered: this window's. A typed question answered
    *  in words (text-chat) is the cell window's Talk tab (cell-chat.js); offered here it would put 🎙 on every chat cell. */
@@ -179,10 +182,10 @@ export class TalkCell {
       .filter((m) => TalkCell.voiced(m) && (!m.needsHearing || this.hears === true));
   }
 
-  /** The cell a card's 🎙 button names. */
+  /** The cell a card's 🎙 button names: its id is the button's `data-cell-talk`. */
   static fromButton(b) {
     const d = b?.dataset || {};
-    return new TalkCell({ hostId: d.cellTalk, port: d.nodeCellPort, name: d.cellTalkName, runner: d.cellTalkRunner,
+    return new TalkCell({ cellId: d.cellTalk, name: d.cellTalkName, runner: d.cellTalkRunner,
                           hears: d.cellTalkHears === "true" ? true : d.cellTalkHears === "false" ? false : null });
   }
 
@@ -197,15 +200,14 @@ export class TalkCell {
    *  talks, none at all otherwise. `running` is the card's own word. */
   buttonHtml(running) {
     if (!this.spec) return "";
-    const id = `${this.hostId}:${this.port}`;
+    const id = escapeHtml(this.cellId);
     const label = `🎙<span class="nab-lbl">${escapeHtml(t("talkOpen"))}</span>`;
     if (!running) {
       return this.talksAlways
         ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("talkOpenStopped"))}">${label}</button>` : "";
     }
     if (!this.modes().length) return "";
-    return `<button class="node-action-btn ok talk" type="button" data-t="cell-talk" data-t-id="${escapeHtml(id)}"`
-      + ` data-cell-talk="${escapeHtml(this.hostId)}" data-node-cell-port="${escapeHtml(this.port)}"`
+    return `<button class="node-action-btn ok talk" type="button" data-t="cell-talk" data-t-id="${id}" data-cell-talk="${id}"`
       + ` data-cell-talk-runner="${escapeHtml(this.runner)}" data-cell-talk-name="${escapeHtml(this.name)}"`
       + ` data-cell-talk-hears="${this.hears === null ? "" : String(this.hears)}" title="${escapeHtml(t("talkOpenTitle"))}">${label}</button>`;
   }
@@ -327,10 +329,9 @@ export class TalkWindow {
 
   html() {
     const row = this.modeRow;
-    const id = `${this.cell.hostId}:${this.cell.port}`;
+    const id = this.cell.cellId;
     const close = escapeHtml(t("close"));
-    const head = `<div class="talk-head"><strong class="talk-name">🎙 ${escapeHtml(t("talkTitle", { name: this.cell.name || id }))}</strong>`
-      + `<span class="talk-port">:${escapeHtml(this.cell.port)}</span>`
+    const head = `<div class="talk-head"><strong class="talk-name">🎙 ${escapeHtml(t("talkTitle", { name: this.cell.title }))}</strong>`
       + `<button type="button" class="talk-close" data-talk-close="1" data-t="talk-close" title="${close}" aria-label="${close}">✕</button></div>`;
     const tabs = this.modes.length > 1
       ? `<div class="talk-modes" role="group">${this.modes.map((m) => `<button type="button" class="talk-mode" data-talk-mode="${escapeHtml(m.id)}"`
@@ -338,7 +339,7 @@ export class TalkWindow {
         + `${escapeHtml(t(m.labelKey))}</button>`).join("")}</div>`
       : `<div class="talk-modes"><span class="talk-mode-one" data-t="talk-mode" data-t-id="${escapeHtml(this.mode)}">${escapeHtml(row ? t(row.labelKey) : "")}</span></div>`;
     return `<div class="talk-backdrop" data-talk-close="1" aria-hidden="true"></div>`
-      + `<div class="talk-window" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("talkTitle", { name: this.cell.name || id }))}"`
+      + `<div class="talk-window" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("talkTitle", { name: this.cell.title }))}"`
       + ` data-t="talk-window" data-t-id="${escapeHtml(id)}" data-t-state="${this.state}">`
       + `${head}${tabs}${this.settingsHtml(row)}${this.sampleHtml()}<div class="talk-turns" data-t="talk-turns">${this.turnsHtml()}</div>`
       + `${this.notice ? `<p class="talk-notice" role="alert" data-t="talk-notice">${escapeHtml(this.notice)}</p>` : ""}`
@@ -468,7 +469,7 @@ export class TalkWindow {
     this.redraw();
     let got;
     try {
-      got = await this.call(`/api/cell-talk/voices?hostId=${encodeURIComponent(this.cell.hostId)}&port=${encodeURIComponent(this.cell.port)}`);
+      got = await this.call(`/api/cell-talk/voices?cell=${encodeURIComponent(this.cell.cellId)}`);
     } catch (err) {
       got = { error: String(err?.message || err) };
     }
@@ -624,7 +625,7 @@ export class TalkWindow {
   }
 
   /** Keep the sample on the cell under the name typed: one of the cell's voices from then on, for this window and for
-   *  any client of the cell's port (Open WebUI names it as its voice). The list is asked again, the new voice picked. */
+   *  any client of the cell (Open WebUI names it as its voice). The list is asked again, the new voice picked. */
   async keepVoice() {
     if (!this.canKeep) return null;
     const name = this.keepName;
@@ -634,7 +635,7 @@ export class TalkWindow {
     let got;
     try {
       got = await this.call("/api/cell-talk/voice", { method: "POST", body: JSON.stringify({
-        hostId: this.cell.hostId, port: Number(this.cell.port), name, sample: this.sample.audio, sampleText: this.sampleText.trim(), consent: true }) });
+        cellId: this.cell.cellId, name, sample: this.sample.audio, sampleText: this.sampleText.trim(), consent: true }) });
     } catch (err) {
       got = { error: String(err?.message || err) };
     }
@@ -665,7 +666,7 @@ export class TalkWindow {
     this.notice = "";
     this.redraw();
     const asked = this.clock();
-    const body = { hostId: this.cell.hostId, port: Number(this.cell.port), mode: this.mode, ...what, history,
+    const body = { cellId: this.cell.cellId, mode: this.mode, ...what, history,
                    ...(row?.conversation ? { system: this.system } : {}), ...(this.voice ? { voice: this.voice } : {}) };
     let answer;
     try {

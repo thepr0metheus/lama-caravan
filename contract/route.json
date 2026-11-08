@@ -2,11 +2,11 @@
  "normalize": [
   {
    "raw": {
-    "port": 23001
+    "id": "client-1"
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -14,7 +14,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -23,12 +22,11 @@
   },
   {
    "raw": {
-    "port": "23001",
+    "id": " client-1 ",
     "label": "  hermes  ",
     "kind": " Consumer ",
     "apiKey": " k ",
     "mode": "PAUSED",
-    "portClosed": 1,
     "priority": "2",
     "clientTimeoutSeconds": "90",
     "upstreamHost": " 10.0.0.1 ",
@@ -44,8 +42,8 @@
     ]
    },
    "route": {
+    "id": "client-1",
     "label": "hermes",
-    "port": 23001,
     "kind": "consumer",
     "deny": [
      "host:h",
@@ -57,7 +55,6 @@
     "enabled": true,
     "mode": "paused",
     "apiKey": "k",
-    "portClosed": true,
     "priority": 2,
     "clientTimeoutSeconds": 90,
     "contextLength": null,
@@ -66,12 +63,12 @@
   },
   {
    "raw": {
-    "port": 23001.9,
+    "id": "client-1",
     "enabled": null
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -79,7 +76,6 @@
     "enabled": false,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -89,14 +85,14 @@
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "deny": [
      "pool:a"
     ]
    },
    "route": {
-    "label": "port-1",
-    "port": 1,
+    "id": "c1",
+    "label": "c1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -104,7 +100,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -114,14 +109,14 @@
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "clientTimeoutSeconds": -5,
     "upstreamHost": "   ",
     "label": "   "
    },
    "route": {
-    "label": "port-1",
-    "port": 1,
+    "id": "c1",
+    "label": "c1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -129,7 +124,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -138,12 +132,12 @@
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "label": "01234567890123456789012345678901234567890123456789012345678901234567890123456789EXTRA"
    },
    "route": {
+    "id": "c1",
     "label": "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
-    "port": 1,
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -151,7 +145,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -160,25 +153,35 @@
   },
   {
    "raw": {
-    "label": "no port"
+    "label": "no id"
    },
    "route": null
   },
   {
    "raw": {
-    "port": "abc"
+    "port": 23001,
+    "label": "old kind",
+    "kind": "consumer",
+    "apiKey": "k"
+   },
+   "route": null,
+   "as_is": "a record known by its old port number and no id: the controller gives every record its id at start (2026-11-07)"
+  },
+  {
+   "raw": {
+    "id": ""
    },
    "route": null
   },
   {
    "raw": {
-    "port": null
+    "id": null
    },
    "route": null
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "kind": "service"
    },
    "route": null,
@@ -186,26 +189,26 @@
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "upstreamPort": "x"
    },
    "route": null
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "priority": "x"
    },
    "route": null
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "clientTimeoutSeconds": []
    },
    "route": {
-    "label": "port-1",
-    "port": 1,
+    "id": "c1",
+    "label": "c1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -213,7 +216,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -223,19 +225,19 @@
   },
   {
    "raw": {
-    "port": 1,
+    "id": "c1",
     "queueAbortPct": "x"
    },
    "route": null
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": 16000
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -243,7 +245,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": 16000,
@@ -252,12 +253,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": "16000"
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -265,7 +266,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": 16000,
@@ -274,12 +274,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": " 16000 "
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -287,7 +287,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": 16000,
@@ -296,12 +295,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": 0
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -309,7 +308,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -318,12 +316,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": "0"
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -331,7 +329,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -340,12 +337,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": -5
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -353,7 +350,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -362,12 +358,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": "-5"
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -375,7 +371,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -384,12 +379,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": 12.5
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -397,7 +392,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -406,12 +400,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": true
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -419,7 +413,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -428,12 +421,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": "many"
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -441,7 +434,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -450,12 +442,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": null
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -463,7 +455,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -472,12 +463,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextAuto": true
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -485,7 +476,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -494,12 +484,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextAuto": 1
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -507,7 +497,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -516,12 +505,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextAuto": false
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -529,7 +518,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -538,12 +526,12 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextAuto": ""
    },
    "route": {
-    "label": "port-23001",
-    "port": 23001,
+    "id": "client-1",
+    "label": "client-1",
     "kind": "",
     "deny": [],
     "upstreamHost": "127.0.0.1",
@@ -551,7 +539,6 @@
     "enabled": true,
     "mode": "open",
     "apiKey": "",
-    "portClosed": false,
     "priority": 0,
     "clientTimeoutSeconds": 0,
     "contextLength": null,
@@ -560,7 +547,7 @@
   },
   {
    "raw": {
-    "port": 23001,
+    "id": "client-1",
     "contextLength": "--5"
    },
    "route": null

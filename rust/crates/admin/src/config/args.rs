@@ -2,7 +2,7 @@
 
 use super::draft_file::DraftFileWord;
 use super::shell::ShellSplit;
-use rules::{AskedWindow, Coerce, CudaCards, Flag, PythonJson};
+use rules::{AskedWindow, CellDoor, Coerce, CudaCards, Flag, PythonJson};
 use serde_json::{Map, Value, json};
 
 mod switches;
@@ -28,6 +28,9 @@ pub struct ArgPaths<'paths> {
     pub over_network: bool,
     /// Where the header can be read, when `model` is a placeholder.
     pub header_path: &'paths str,
+    /// The port, or its placeholder: a cell holds no port of its own, the scout leases one at the start and fills `{{PORT}}`
+    /// (Papyrus `caravan-scout-port-lease`). Empty: the config's own `PORT` when it has one, else the placeholder.
+    pub port: &'paths str,
 }
 
 /// The builder.
@@ -38,6 +41,11 @@ pub struct LlamaArgs<'config> {
 }
 
 impl<'config> LlamaArgs<'config> {
+    /// What a start's port is called before the scout leases one: the scout fills it, as it fills `{{MODEL_PATH}}`.
+    pub const LEASED_PORT: &'static str = "{{PORT}}";
+    /// The flags the caravan writes itself, which an operator's EXTRA_ARGS does not say again: where a cell listens.
+    const CARAVANS_OWN: [&'static str; 2] = ["--host", "--port"];
+
     /// Flags with a value, each of a field.
     pub const PAIRS: [(&'static str, &'static str); 65] = [
         ("--ctx-size", "CTX_SIZE"),
@@ -152,9 +160,16 @@ impl<'config> LlamaArgs<'config> {
     /// The list.
     pub fn build(config: &'config Map<String, Value>, paths: &ArgPaths<'_>, headers: &'config dyn ModelHeaders) -> Vec<String> {
         let mut this = Self { config, headers, args: Vec::new() };
-        let host = if Coerce::truthy(config.get("HOST")) { Coerce::text(config.get("HOST")) } else { "0.0.0.0".to_string() };
-        let port = if Coerce::truthy(config.get("PORT")) { Coerce::text(config.get("PORT")) } else { "8080".to_string() };
-        this.push(&["--host", &host, "--port", &port, "--model", paths.model]);
+        // The address is the caravan's, not the cell's: on its machine's loopback, behind the scout (`rules::CellDoor`).
+        let host = CellDoor::LISTEN;
+        let port = if !paths.port.is_empty() {
+            paths.port.to_string()
+        } else if Coerce::truthy(config.get("PORT")) {
+            Coerce::text(config.get("PORT"))
+        } else {
+            Self::LEASED_PORT.to_string()
+        };
+        this.push(&["--host", host, "--port", &port, "--model", paths.model]);
         let header_at = if paths.header_path.is_empty() { paths.model } else { paths.header_path };
         this.value_flags(header_at);
         this.chat_kwargs();
@@ -285,8 +300,15 @@ mod tests {
 
     fn args(config: Value, headers: &dyn ModelHeaders, over_network: bool) -> Vec<String> {
         let config = config.as_object().unwrap().clone();
-        let paths =
-            ArgPaths { model: "/m.gguf", mmproj: "/p.gguf", spec: "/d.gguf", local_paths: true, over_network, header_path: "" };
+        let paths = ArgPaths {
+            model: "/m.gguf",
+            mmproj: "/p.gguf",
+            spec: "/d.gguf",
+            local_paths: true,
+            over_network,
+            header_path: "",
+            port: "",
+        };
         LlamaArgs::build(&config, &paths, headers)
     }
 
@@ -294,7 +316,7 @@ mod tests {
     fn an_empty_config_says_what_it_must() {
         assert_eq!(
             args(json!({}), &NoHeaders, false),
-            ["--host", "0.0.0.0", "--port", "8080", "--model", "/m.gguf", "--metrics", "--no-jinja", "--no-webui"]
+            ["--host", "127.0.0.1", "--port", "{{PORT}}", "--model", "/m.gguf", "--metrics", "--no-jinja", "--no-webui"]
         );
     }
 

@@ -12,6 +12,8 @@ pub mod peer;
 pub mod percent;
 pub mod reply;
 pub mod request;
+#[cfg(test)]
+mod stutter;
 
 pub use answer::{AnswerBody, AnswerHead, AnswerHeadReader};
 pub use body::{BodyError, RequestBody};

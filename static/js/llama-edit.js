@@ -8,6 +8,7 @@ import {
 } from "./command-preview.js";
 import { dirtyOptionalToggles, modelFields, numericFields, optionalToggleFields, toggleFields } from "./constants.js";
 import { AskedWindow } from "./asked-window.js";
+import { CellDraft, CellFields } from "./cell-plan.js";
 import {
   mcUpdateTrigger,
   modelWindowFor,
@@ -15,14 +16,13 @@ import {
   renderModelInsight,
   renderModelSelects,
   syncAllToggleLabels,
-  syncPortChipsEl,
   syncToggleLabel,
   toggleChecked,
 } from "./form.js";
 import { fieldHelp, t } from "./i18n.js";
 import { currentComputeMode, refreshAsidePanels, refreshComputeTarget } from "./memory.js";
 import { CardPin } from "./placement.js";
-import { _trCellPort, _trHostId, formOnControllerMachine } from "./remote-cells.js";
+import { formCell, formOnControllerMachine } from "./remote-cells.js";
 import { state, topology, ui } from "./state.js";
 import { $, api, escapeHtml } from "./utils.js";
 
@@ -167,17 +167,12 @@ export function applyConfigToForm(config, pfx = "") {
     else dirtyOptionalToggles.delete(field);
   });
   syncAllToggleLabels(pfx);
-  // Sync synthetic SPEC_ENABLED checkbox from SPEC_TYPE value
+  // The speculation switch says whether the start speculates, by the builder's rule (cell-plan.js CellDraft): a draft file named
+  // with no type IS loaded, by the file's own type — the switch read the type alone and showed such a cell off (2026-11-07).
   const specEnabledEl = $(pfx + "SPEC_ENABLED");
   if (specEnabledEl) {
-    specEnabledEl.checked = !!(config.SPEC_TYPE && config.SPEC_TYPE !== "none");
+    specEnabledEl.checked = CellDraft.start(CellFields.ofConfig(config)).spec !== null;
     syncToggleLabel(specEnabledEl);
-  }
-  // Sync port chips after value is set
-  const portInput = $(pfx + "PORT");
-  if (portInput) {
-    const chips = portInput.closest(".port-picker")?.querySelectorAll(".port-chip");
-    if (chips?.length) syncPortChipsEl(chips, portInput.value);
   }
   renderModelInsight(pfx);
   renderCommandPreview(pfx);
@@ -351,10 +346,11 @@ export function artifactKind(model) {
 }
 
 // The kind of a GGUF by its own header: a speech recognizer (stt.* keys), a
-// model only one runner's engine reads (its architecture is one that runner
-// claims — Strata's qwen4exp, which llama.cpp does not know), or an LLM for
-// llama.cpp. One rule for the runner tabs and the picker's rows; the claims
-// come from the server's runner classes (ggufArchs), not from a list here.
+// model llama.cpp does not read (its architecture is one a runner claims —
+// Strata's qwen4exp; DeepSeek-V4.1's deepseek41, which Strata and InferSSD both
+// claim under one kind named after the model), or an LLM for llama.cpp. One rule
+// for the runner tabs and the picker's rows; the claims come from the server's
+// runner classes (ggufArchs), not from a list here.
 export function ggufKind(meta) {
   const m = meta || {};
   if (m.sttVariant) return "asr-gguf";
@@ -379,17 +375,21 @@ export function stKind(arch) {
   return (owner && (owner.artifacts || [])[0]) || "safetensors";
 }
 
-// Can this runner launch the currently selected artifact? "*" accepts anything —
-// vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
-// what sits in that field cannot disqualify them. The runner tabs and the new-cell
-// wizard (add-model.js) ask the same question here.
-export function runnerAvailability(runner, pfx) {
+// Can this runner launch this artifact? "*" accepts anything — vLLM and custom
+// read their artifact from somewhere other than MODEL_FILE, so what sits in that
+// field cannot disqualify them. The runner tabs, the new-cell wizard (add-model.js)
+// and the launch builder of a machine's page (machine-build.js, told it by
+// topology-nodes.js) ask the same question here, so a file cannot be said good for
+// a runner on one page and refused on another. `model` is the file asked about; the
+// form's field when none is given — the builder has no form, it has a file picked.
+export function runnerAvailability(runner, pfx, model = null) {
   // A directory checkpoint (seamless) was offered only on the controller's own
   // machine: a scout could not download a folder. It can since scout 2.30 and
   // lama-caravan 1.3.509 (GET /api/models/folder), and with the controller on
   // the NAS no form is on its machine — the tab stayed grey on every machine
   // while the scout ran the cell (2026-10-13).
-  if (runner.id === "llama-server" && /PQ2_0|PTQ1_0/i.test($(pfx + "MODEL_FILE")?.value || "")) {
+  const path = model ?? ($(pfx + "MODEL_FILE")?.value || "");
+  if (runner.id === "llama-server" && /PQ2_0|PTQ1_0/i.test(path)) {
     return { ok: false, reasonKey: "llamaErrUnsupportedQuantHint" };
   }
   // `artifacts` is the current field; `formats` is what older registries carry.
@@ -397,13 +397,12 @@ export function runnerAvailability(runner, pfx) {
   if (!accepts) {
     const formats = runner.formats || [];
     if (formats.includes("*")) return { ok: true };
-    const model = $(pfx + "MODEL_FILE")?.value || "";
-    if (!model) return { ok: true };
-    const fmt = model.toLowerCase().endsWith(".gguf") ? "gguf" : "other";
+    if (!path) return { ok: true };
+    const fmt = path.toLowerCase().endsWith(".gguf") ? "gguf" : "other";
     return formats.includes(fmt) ? { ok: true } : { ok: false, reasonKey: "runnerNeedsGguf" };
   }
   if (accepts.includes("*")) return { ok: true };
-  const kind = artifactKind($(pfx + "MODEL_FILE")?.value || "");
+  const kind = artifactKind(path);
   if (!kind || accepts.includes(kind)) return { ok: true };
   // Why it is grey is the runner's own word (needsKey, runner.py): a table of kinds here was one more place to
   // remember when a runner arrived.
@@ -482,7 +481,7 @@ const _STATIC_TIP_FIELDS = ["MODEL_NAME", "COMMAND", "ENV", "WORKDIR", "HEALTH_P
   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
   "DTYPE", "TENSOR_PARALLEL", "MAX_NUM_SEQS", "KV_CACHE_DTYPE", "REASONING_PARSER", "CPU_OFFLOAD_GB", "TRUST_REMOTE_CODE", "WHISPER_MODEL", "MOONSHINE_MODEL",
   "SEAMLESS_TGT_LANG", "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
-  "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB",
+  "STRATA_CONTEXT", "STRATA_KV", "STRATA_DRAFT_VOCAB", "STRATA_VRAM_RESERVE_MIB", "STRATA_ENGRAM_FILE", "STRATA_META_FILE",
   "GR00T_BACKBONE", "GR00T_EMBODIMENT", "GR00T_DENOISING_STEPS", "TTS_ENGINE", "PAGE_URL"];
 function injectStaticFieldTips(pfx) {
   _STATIC_TIP_FIELDS.forEach((f) => {
@@ -577,6 +576,9 @@ export function applyCellKindUI(pfx) {
   // Strata reads the shared picker like transcribe (its model is a GGUF), and
   // its own settings sit in its panel: the llama flags mean nothing to it.
   const isStrata = runner === "strata";
+  // DeepSeek-V4.1-Flash on Strata shares its panel: the window, and the files its set reads beside its own parts in place of
+  // the Qwen engine's settings (StrataDeepSeekRunner).
+  const isStrataDs = runner === "strata-ds";
   // GR00T reads the shared picker too (its checkpoint is a library folder) and
   // its robot and backbone sit in its panel.
   const isGr00t = runner === "gr00t";
@@ -607,7 +609,13 @@ export function applyCellKindUI(pfx) {
   const seamlessFields = $(pfx + "seamlessFields");
   if (seamlessFields) seamlessFields.style.display = isSeamless ? "" : "none";
   const strataFields = $(pfx + "strataFields");
-  if (strataFields) strataFields.style.display = isStrata ? "" : "none";
+  if (strataFields) strataFields.style.display = isStrata || isStrataDs ? "" : "none";
+  const strataQwenOnly = $(pfx + "strataQwenOnly");
+  if (strataQwenOnly) strataQwenOnly.style.display = isStrataDs ? "none" : "";
+  const strataDsFiles = $(pfx + "strataDsFiles");
+  if (strataDsFiles) strataDsFiles.style.display = isStrataDs ? "" : "none";
+  const strataDraft = $(pfx + "strataDraft");
+  if (strataDraft) strataDraft.style.display = isStrataDs ? "none" : "";
   // A runner that keeps its models in a folder of its own (the registry's workFolder: Strata) keeps them by that folder's limit,
   // whatever the cell's switch says: the switch is not shown, and the words say where they are (the owner, 2026-11-03).
   const keepsByFolder = !!_rmeta.workFolder;
@@ -846,13 +854,17 @@ export function syncCmdExtras(pfx) {
 }
 
 
+// The board's row of the kept cell the form holds (remote-cells.js formCell, by the cell's id): its phase, its saved
+// command and history. A face, kept for its callers here and in memory.js.
 export function _commandCellSlot(pfx) {
-  const port = pfx === "tr-" ? _trCellPort : "";
-  if (!port) return null;
-  return (topology?.nodes || [])
-    .flatMap((n) => n.servers || [])
-    .find((s) => s.isSlot && String(s.port) === String(port) && String(s.clientId || "") === String(_trHostId)) || null;
+  return formCell(pfx);
 }
+
+// What a start's port is called before the scout leases one: its scout fills it at the start, as it fills {{MODEL_PATH}}.
+// The controller's own word for it is LlamaArgs::LEASED_PORT (rust/crates/admin/src/config/args.rs), and the server's line of
+// a command cell exports it the same way (fleet/launch.rs command_cell_shell_line); test_js_llama_edit.py holds the two equal.
+// A cell has a port only while it runs, so a preview drawn before the start can only name it.
+export const LEASED_PORT = "{{PORT}}";
 
 // As the command of rust/crates/admin/src/domain/runner/vllm.rs — the backend
 // renders the real script; this only feeds the NEW COMMAND preview pane.
@@ -897,6 +909,23 @@ export function buildStrataCommandPreview(pfx) {
   if (/^\d+$/.test(v("STRATA_VRAM_RESERVE_MIB")) && Number(v("STRATA_VRAM_RESERVE_MIB")) > 0) {
     parts.push("--vram-reserve-mib", String(Number(v("STRATA_VRAM_RESERVE_MIB"))));
   }
+  const name = v("MODEL_NAME") || v("ALIAS");
+  if (name) parts.push("--name", name);
+  return parts.join(" ");
+}
+
+// The run_strata.sh line of a DeepSeek set as StrataDeepSeekRunner.command builds it
+// (rust/crates/admin/src/domain/runner/strata_ds.rs) — a mirror, pinned against the server's by
+// test_js_llama_edit.py's golden case: the server's line is the one that runs.
+export function buildStrataDsCommandPreview(pfx) {
+  const v = (k) => ($(pfx + k)?.value || "").trim();
+  const path = (rel) => (rel.startsWith("/") || rel.startsWith("$"))
+    ? rel : `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${rel}`;
+  const parts = ["bash", "$HOME/run_strata.sh", '"$PORT"', path(v("MODEL_FILE") || "…"), "--family", "deepseek41"];
+  [["STRATA_ENGRAM_FILE", "--engram"], ["STRATA_META_FILE", "--meta"], ["SPEC_DRAFT_MODEL_FILE", "--dspark"], ["MMPROJ_FILE", "--mmproj"]]
+    .forEach(([field, flag]) => { if (v(field)) parts.push(flag, path(v(field))); });
+  const window = AskedWindow.of(v("STRATA_CONTEXT"), modelWindowFor(pfx));
+  if (window) parts.push("--context", String(window));
   const name = v("MODEL_NAME") || v("ALIAS");
   if (name) parts.push("--name", name);
   return parts.join(" ");
@@ -994,7 +1023,8 @@ export function syncStrataDraftNote(pfx) {
 }
 
 export function _buildCommandExecPreview(pfx) {
-  const port = $(pfx + "PORT")?.value || _trCellPort || "PORT";
+  // The port the start will be given, said as the placeholder its scout fills (LEASED_PORT): no form carries a port.
+  const port = LEASED_PORT;
   const runner = effectiveRunnerId(pfx);
   if (runner === "vllm") {
     return [`export PORT=${port}`,
@@ -1049,6 +1079,11 @@ export function _buildCommandExecPreview(pfx) {
     return [`export PORT=${port}`,
             "# the scout brings both parts and the draft layer; Strata's pack is made from them at the start",
             `exec ${buildStrataCommandPreview(pfx)}`].join("\n");
+  }
+  if (runner === "strata-ds") {
+    return [`export PORT=${port}`,
+            "# the scout brings the set's five parts, the Engram, the drafter and the metadata part; Strata's pack is made from them at the start",
+            `exec ${buildStrataDsCommandPreview(pfx)}`].join("\n");
   }
   if (runner === "gr00t") {
     return [`export PORT=${port}`,

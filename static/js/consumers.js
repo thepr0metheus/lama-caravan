@@ -28,7 +28,7 @@ export class ConsumerCards {
     this.copy = copy;
     this._access = access;
     this.apply = apply;
-    // The rows that show how their program is connected, by port: closed unless asked (it took 315 px of a client nobody connected),
+    // The rows that show how their program is connected, by the client's id: closed unless asked (it took 315 px of a client nobody connected),
     // open by itself on a client just made.
     this.howto = new Set();
     // The clients made here since the page opened: their key was shown when they were made, and a second "give a key" would replace
@@ -44,11 +44,11 @@ export class ConsumerCards {
 
   // The consumers in the topology — the routes of kind "consumer" — in the operator's order (1.3.503:
   // carried by the grip in Routing, kept by the controller — rust/crates/admin/src/board_layout.rs,
-  // ClientOrder): the ones the order names first, in its order, then the rest by name, as before
-  // there was an order.
+  // ClientOrder, by the clients' ids since 2026-11-07): the ones the order names first, in its order, then the rest by name, as
+  // before there was an order.
   static of(top) {
-    const order = (top?.layout?.clientOrder || []).map(Number);
-    const rank = (p) => { const at = order.indexOf(Number(p.port)); return at < 0 ? Infinity : at; };
+    const order = (top?.layout?.clientOrder || []).map(String);
+    const rank = (p) => { const at = order.indexOf(String(p.id)); return at < 0 ? Infinity : at; };
     // The built-in clients stand first, in their kinds' order, whatever the order (the owner, 2026-10-27: "at the top of the
     // clients"). Two clients that are no built-in one rank equal there (Infinity - Infinity is NaN, which goes on to the next).
     const own = (a, b) => EntryClients.rank(a) - EntryClients.rank(b);
@@ -56,8 +56,9 @@ export class ConsumerCards {
       .sort((a, b) => own(a, b) || (rank(a) - rank(b)) || String(a.label || "").localeCompare(String(b.label || "")));
   }
 
-  consumer(port) {
-    return ConsumerCards.of(topology).find((p) => Number(p.port) === Number(port)) || null;
+  // A client by its record's id: what it is known by since 2026-11-07, when the number it had went (it had no port of its own).
+  consumer(id) {
+    return ConsumerCards.of(topology).find((p) => String(p.id) === String(id)) || null;
   }
 
   // The card lights while the client's request runs, as an agent's row does, and its cable leaves
@@ -67,23 +68,22 @@ export class ConsumerCards {
   // holds the focus (the owner, 2026-10-12: as clean as Routing's card, with nothing lost); under
   // it, its requests.
   cardHtml(p) {
-    const port = escapeHtml(String(p.port));
     const name = escapeHtml(String(p.label || ""));
     const tail = String(p.keyTail || "");
     const paused = ["paused", "drain"].includes(String(p.mode || "open"));
     const id = escapeHtml(String(p.id || ""));
     const lit = topologyStateHealthClasses(topologyProxyActivity(p));
-    return `<article class="topology-card consumer-card${paused ? " paused" : ""}${lit ? ` ${lit}` : ""}" data-t="board-consumer-card" data-t-id="${port}"
+    return `<article class="topology-card consumer-card${paused ? " paused" : ""}${lit ? ` ${lit}` : ""}" data-t="board-consumer-card" data-t-id="${id}"
       data-topology-proxy="1" data-proxy-id="${id}">
       <span class="topology-handle output consumer-out" data-topology-proxy-output="1" data-proxy-id="${id}" aria-hidden="true"></span>
       <div class="consumer-head">
         <strong class="consumer-name">${name}</strong>
         <span class="consumer-key" data-t="consumer-key" title="${escapeHtml(t("consumerKeyTitle"))}">🔑 …${escapeHtml(tail)}</span>${this.access.seenHtml(p.lastRequestAt)}
         <span class="consumer-acts">
-          <button class="consumer-act quiet" type="button" data-consumer-key="${port}" data-t="consumer-new-key">${escapeHtml(t("consumerNewKey"))}</button>
-          <button class="consumer-act quiet" type="button" data-consumer-rename="${port}" data-t="consumer-rename"
+          <button class="consumer-act quiet" type="button" data-consumer-key="${id}" data-t="consumer-new-key">${escapeHtml(t("consumerNewKey"))}</button>
+          <button class="consumer-act quiet" type="button" data-consumer-rename="${id}" data-t="consumer-rename"
             title="${escapeHtml(t("consumerRename"))}" aria-label="${escapeHtml(t("consumerRename"))}">✎</button>
-          <button class="consumer-act quiet consumer-del" type="button" data-consumer-delete="${port}" data-t="consumer-delete"
+          <button class="consumer-act quiet consumer-del" type="button" data-consumer-delete="${id}" data-t="consumer-delete"
             title="${escapeHtml(t("consumerDelete"))}" aria-label="${escapeHtml(t("consumerDelete"))}">✕</button>
         </span>
       </div>
@@ -97,7 +97,7 @@ export class ConsumerCards {
   // every client's, ⤢ (topology-dnd.js binds [data-open-route-activity]).
   activityHtml(p) {
     return `<canvas class="consumer-activity" data-consumer-activity="${escapeHtml(String(p.label || ""))}" data-open-route-activity`
-      + ` data-t="consumer-activity" data-t-id="${escapeHtml(String(p.port))}" width="320" height="16"`
+      + ` data-t="consumer-activity" data-t-id="${escapeHtml(String(p.id || ""))}" width="320" height="16"`
       + ` title="${escapeHtml(t("consumerActivityTitle"))}"></canvas>`;
   }
 
@@ -134,7 +134,6 @@ export class ConsumerCards {
   // its first one, how its program is connected to it, and the way to move an older client of that program in.
   builtinHtml(p, top, { live = true, file = true } = {}) {
     const entry = top?.entry;
-    const port = escapeHtml(String(p.port));
     const id = escapeHtml(String(p.id || ""));
     const lit = topologyStateHealthClasses(topologyProxyActivity(p));
     const fresh = !Number(p.lastRequestAt);
@@ -142,21 +141,21 @@ export class ConsumerCards {
     // The last of its kind stays: the caravan would make it again at its next start (BuiltinClient.audit).
     const sole = ConsumerCards.of(top).filter((c) => EntryClients.kind(c) === kind).length < 2;
     const sees = EntryClients.sees(p, top?.entryModels);
-    const open = this.howto.has(String(p.port));
+    const open = this.howto.has(String(p.id));
     const connect = kind === "opencode" ? this.opencodeHtml(p, entry) : this.connectHtml(p, entry);
-    const howto = `<button class="consumer-act consumer-howto" type="button" data-consumer-howto="${port}" data-t="consumer-howto" aria-expanded="${open}">`
+    const howto = `<button class="consumer-act consumer-howto" type="button" data-consumer-howto="${id}" data-t="consumer-howto" aria-expanded="${open}">`
       + `${escapeHtml(t(open ? "consumerHowToHide" : "consumerHowTo"))}</button>`;
-    return `<article class="topology-card consumer-card builtin${lit ? ` ${lit}` : ""}" data-t="board-consumer-card" data-t-id="${port}" data-t-state="builtin"
+    return `<article class="topology-card consumer-card builtin${lit ? ` ${lit}` : ""}" data-t="board-consumer-card" data-t-id="${id}" data-t-state="builtin"
       data-builtin="${escapeHtml(kind)}" data-topology-proxy="1" data-proxy-id="${id}">
       <span class="topology-handle output consumer-out" data-topology-proxy-output="1" data-proxy-id="${id}" aria-hidden="true"></span>
       <div class="consumer-head">
         <strong class="consumer-name">${escapeHtml(String(p.label || ""))}</strong>
         <span class="consumer-key" data-t="consumer-key" title="${escapeHtml(t("consumerKeyTitle"))}">🔑 …${escapeHtml(String(p.keyTail || ""))}</span>${this.access.seenHtml(p.lastRequestAt)}
         <span class="consumer-acts">
-          <button class="consumer-act quiet" type="button" data-consumer-key="${port}" data-t="consumer-new-key">${escapeHtml(t("consumerNewKey"))}</button>
-          <button class="consumer-act quiet" type="button" data-consumer-rename="${port}" data-t="consumer-rename"
+          <button class="consumer-act quiet" type="button" data-consumer-key="${id}" data-t="consumer-new-key">${escapeHtml(t("consumerNewKey"))}</button>
+          <button class="consumer-act quiet" type="button" data-consumer-rename="${id}" data-t="consumer-rename"
             title="${escapeHtml(t("consumerRename"))}" aria-label="${escapeHtml(t("consumerRename"))}">✎</button>${sole ? "" : `
-          <button class="consumer-act quiet consumer-del" type="button" data-consumer-delete="${port}" data-t="consumer-delete"
+          <button class="consumer-act quiet consumer-del" type="button" data-consumer-delete="${id}" data-t="consumer-delete"
             title="${escapeHtml(t("consumerDelete"))}" aria-label="${escapeHtml(t("consumerDelete"))}">✕</button>`}
         </span>
       </div>
@@ -197,7 +196,7 @@ export class ConsumerCards {
     const p = clients[0];
     if (lists.size > 1 || !String(entry?.url || "") || !Array.isArray(p.offer)) return { html: "", rows: true };
     const words = `${t("consumerOcConfigCopy")} · ${t("consumerOcConfigModels", { n: String(p.offer.length) })} · ${t("consumerOcConfigWhere")}`;
-    return { rows: false, html: `<button class="consumer-act" type="button" data-consumer-oc-config="${escapeHtml(String(p.port))}" data-t="consumer-oc-config"`
+    return { rows: false, html: `<button class="consumer-act" type="button" data-consumer-oc-config="${escapeHtml(String(p.id || ""))}" data-t="consumer-oc-config"`
       + ` title="${escapeHtml(words)}">⧉ opencode.json</button>` };
   }
 
@@ -230,7 +229,7 @@ export class ConsumerCards {
         + `<button class="consumer-act" type="button" data-cv-entry-copy data-t="consumer-connect-copy">${escapeHtml(t("consumerCopyEntry"))}</button>`
       : `<span class="consumer-step-label">${escapeHtml(t("consumerConnectAddress"))}</span><span class="consumer-live none">${escapeHtml(t("consumerConnectNoEntry"))}</span>`;
     const key = `<span class="consumer-step-label">${escapeHtml(t("consumerConnectKey"))}</span>`
-      + `<button class="consumer-act give" type="button" data-consumer-first-key="${escapeHtml(String(p.port))}" data-t="consumer-give-key">${escapeHtml(t("consumerConnectGiveKey"))}</button>`
+      + `<button class="consumer-act give" type="button" data-consumer-first-key="${escapeHtml(String(p.id || ""))}" data-t="consumer-give-key">${escapeHtml(t("consumerConnectGiveKey"))}</button>`
       + `<span class="consumer-step-note">${escapeHtml(t("consumerConnectOnce"))}</span>`;
     return `<div class="consumer-connect" data-t="consumer-connect">
       <b>${escapeHtml(t("consumerConnectTitle"))}</b>
@@ -244,12 +243,12 @@ export class ConsumerCards {
   // controller offers it (`offer`, rust/crates/rules/src/entry_models.rs EntryModels.offer). Its key is given once, here, and typed into
   // opencode by /connect: the file carries no key.
   opencodeHtml(p, entry) {
-    const port = escapeHtml(String(p.port));
+    const id = escapeHtml(String(p.id || ""));
     const step = (n, html) => `<li><span class="consumer-step" aria-hidden="true">${n}</span><span class="consumer-step-body">${html}</span></li>`;
     const key = `<span class="consumer-step-label">${escapeHtml(t("consumerConnectKey"))}</span>`
-      + (this.keyShown.has(String(p.port))
+      + (this.keyShown.has(String(p.id))
         ? `<span class="consumer-step-note">${escapeHtml(t("consumerKeyWasShown"))} · ${escapeHtml(t("consumerOcKeyWhere"))}</span>`
-        : `<button class="consumer-act give" type="button" data-consumer-first-key="${port}" data-t="consumer-give-key">${escapeHtml(t("consumerConnectGiveKey"))}</button>`
+        : `<button class="consumer-act give" type="button" data-consumer-first-key="${id}" data-t="consumer-give-key">${escapeHtml(t("consumerConnectGiveKey"))}</button>`
           + `<span class="consumer-step-note">${escapeHtml(t("consumerConnectOnce"))} · ${escapeHtml(t("consumerOcKeyWhere"))}</span>`);
     return `<div class="consumer-connect" data-t="consumer-connect">
       <b>${escapeHtml(t("consumerOcTitle"))}</b>
@@ -266,7 +265,7 @@ export class ConsumerCards {
     const label = `<span class="consumer-step-label">${escapeHtml(t("consumerOcConfig"))}</span>`;
     if (!url) return `${label}<span class="consumer-live none">${escapeHtml(t("consumerConnectNoEntry"))}</span>`;
     if (!offer) return `${label}<span class="consumer-live unknown">${escapeHtml(t("consumerOcConfigUnknown"))}</span>`;
-    return label + `<button class="consumer-act" type="button" data-consumer-oc-config="${escapeHtml(String(p.port))}" data-t="consumer-oc-config">${escapeHtml(t("consumerOcConfigCopy"))}</button>`
+    return label + `<button class="consumer-act" type="button" data-consumer-oc-config="${escapeHtml(String(p.id || ""))}" data-t="consumer-oc-config">${escapeHtml(t("consumerOcConfigCopy"))}</button>`
       + `<span class="consumer-step-note">${escapeHtml(t("consumerOcConfigModels", { n: String(offer.length) }))} · ${escapeHtml(t("consumerOcConfigWhere"))}</span>`;
   }
 
@@ -283,8 +282,8 @@ export class ConsumerCards {
     };
   }
 
-  async copyOpencodeConfig(port) {
-    const p = this.consumer(port);
+  async copyOpencodeConfig(id) {
+    const p = this.consumer(id);
     const config = ConsumerCards.opencodeConfig(p, topology?.entry?.url);
     if (!config) return false;
     const text = JSON.stringify(config, null, 2);
@@ -311,9 +310,9 @@ export class ConsumerCards {
     const raw = await this.ask(t("consumerNameAsk"), { text: t("consumerKindNameText"), placeholder: `${EntryClients.KINDS[kind]?.name || ""} m2` });
     if (raw === null || raw === undefined) return null;
     const res = await this.made({ kind, name: String(raw).trim() });
-    if (res?.port) {
-      this.howto.add(String(res.port));
-      this.keyShown.add(String(res.port));
+    if (res?.routeId) {
+      this.howto.add(String(res.routeId));
+      this.keyShown.add(String(res.routeId));
       this.apply(topology);
     }
     return res;
@@ -343,7 +342,7 @@ export class ConsumerCards {
   // models its key calls — or that none runs yet. "Copy the key" copies it; closing the window
   // loses it for good.
   async showKey(res) {
-    const mine = this.consumer(res?.port);
+    const mine = this.consumer(res?.routeId);
     const model = (mine?.models || []).length ? mine.models.join(", ") : t("consumerNoModels");
     const copy = await this.confirm(t("consumerKeyShownText", { name: String(res?.name || ""), key: String(res?.key || ""),
       address: String(res?.entryUrl || topology?.entry?.url || ""), model }),
@@ -354,40 +353,40 @@ export class ConsumerCards {
 
   // The built-in client's first key, from its card's steps: the one it was made with was shown to nobody, so there is nothing
   // to lose and no window to ask first.
-  async firstKey(port) {
-    const res = await this.send("/api/consumers/key", { port: Number(port) }, "");
+  async firstKey(id) {
+    const res = await this.send("/api/consumers/key", { routeId: String(id) }, "");
     if (res) await this.showKey(res);
     return res;
   }
 
   // A new key: the old one stops working in the same write, so the window says it first.
-  async newKey(port) {
-    const p = this.consumer(port);
+  async newKey(id) {
+    const p = this.consumer(id);
     if (!p) return null;
     const sure = await this.confirm(t("consumerNewKeyText", { name: p.label }),
       { title: t("consumerNewKeyTitle", { name: p.label }), danger: true, confirmLabel: t("consumerNewKey") });
     if (!sure) return null;
-    const res = await this.send("/api/consumers/key", { port: Number(port) }, "");
+    const res = await this.send("/api/consumers/key", { routeId: String(id) }, "");
     if (res) await this.showKey(res);
     return res;
   }
 
-  async rename(port) {
-    const p = this.consumer(port);
+  async rename(id) {
+    const p = this.consumer(id);
     if (!p) return null;
     const raw = await this.ask(t("consumerRename"), { value: String(p.label || "") });
     const name = String(raw ?? "").trim();
     if (!name || name === p.label) return null;
-    return this.send("/api/agent-proxies/route-policy", { port: Number(port), label: name }, t("consumerRenamed", { name }), true);
+    return this.send("/api/agent-proxies/route-policy", { routeId: String(id), label: name }, t("consumerRenamed", { name }), true);
   }
 
-  async remove(port) {
-    const p = this.consumer(port);
+  async remove(id) {
+    const p = this.consumer(id);
     if (!p) return null;
     const sure = await this.confirm(t("consumerDeleteText", { name: p.label }),
       { title: t("consumerDeleteTitle", { name: p.label }), danger: true, confirmLabel: t("deleteAction") });
     if (!sure) return null;
-    return this.send("/api/agent-proxies/route-delete", { port: Number(port) }, t("consumerDeleted", { name: p.label }));
+    return this.send("/api/agent-proxies/route-delete", { routeId: String(id) }, t("consumerDeleted", { name: p.label }));
   }
 
   // One request and the board that follows it: the answer's topology, or a fresh read for a
@@ -408,8 +407,8 @@ export class ConsumerCards {
 
   // The lane's buttons, bound once on the lane: its cards are drawn anew on every render.
   // How a row's program is connected, shown or put away.
-  toggleHowto(port) {
-    const key = String(port);
+  toggleHowto(id) {
+    const key = String(id);
     if (!this.howto.delete(key)) this.howto.add(key);
     this.apply(topology);
   }

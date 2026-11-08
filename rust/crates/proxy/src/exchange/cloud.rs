@@ -1,11 +1,12 @@
 //! A row of a provider: the request said in its words, its limits and its refusals.
 
-use super::{Exchange, Next, Walk};
+use super::{Asked, Exchange, Next, Walk};
 use crate::pool_steps::CloudRow;
 use crate::provider_call::{AnswerWindows, Miss, ProviderCall};
 use crate::provider_request::ProviderRequest;
 use crate::record::LegNow;
 use crate::stop::{Ending, UpstreamEnd};
+use files::Settings;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ impl Exchange<'_> {
         self.update(self.record.cloud_patch(&row));
         self.leg = LegNow::Cloud(row.clone());
         let settings = Arc::clone(&self.settings);
-        let request = ProviderRequest::build(self.proxy, &settings, &row, &self.asked, &self.record.path)?;
+        let request = self.provider_request(&row, &settings)?;
         if let Some(swap) = &request.swap {
             self.update(json!({"effort": swap.as_json()}));
         }
@@ -63,6 +64,18 @@ impl Exchange<'_> {
         self.relay_cloud(&request, &mut answer)?;
         self.keep_connection(request.target.clone(), answer);
         Ok(Next::Done)
+    }
+
+    /// The request said in the provider's words: the request as it came, or — for a row that cannot read its pictures — with
+    /// the reader's captions in their place.
+    fn provider_request(&mut self, row: &CloudRow, settings: &Settings) -> Result<ProviderRequest, Ending> {
+        if !row.read_first {
+            return ProviderRequest::build(self.proxy, settings, row, &self.asked, &self.record.path);
+        }
+        let body = self.body_for(true)?;
+        let asked = &self.asked;
+        let read_for = Asked { headers: asked.headers.clone(), target: asked.target.clone(), body, streaming: asked.streaming };
+        ProviderRequest::build(self.proxy, settings, row, &read_for, &self.record.path)
     }
 
     fn provider_failed(

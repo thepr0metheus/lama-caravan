@@ -8,9 +8,13 @@ import { CellRow } from "./card-rows.js";
 
 /**
  * The window of one cell, drawn inside its slot with the lane and opened by a class (card-fold.js). The lane binds the
- * buttons the window carries — start, stop, autostart, delete, the port, the settings — where it binds the card's, by
- * the same data attributes (remote-cells.js bindServerSlotControls): the window only puts them where the operator looks.
- * What has to outlive a repaint of the lane — the tab chosen — is the fold state's (CardFold.windowTab), not the DOM's.
+ * buttons the window carries — start, stop, autostart, delete, the settings — where it binds the card's, by the same data
+ * attributes (remote-cells.js bindServerSlotControls): the window only puts them where the operator looks. What has to
+ * outlive a repaint of the lane — the tab chosen — is the fold state's (CardFold.windowTab), not the DOM's.
+ *
+ * The cell is known by its id alone (cellId: `c<port>` for a cell made before 2026-11-07, `c` and 8 hex digits since): a
+ * cell holds a port only while it runs — its scout leases one at the start — so no part of the window names or keys one,
+ * and the log, the chat and the settings in it ask the controller by the id.
  *
  * Everything is drawn here from facts the board gathered; the window decides nothing about the cell. A part with nothing
  * to say says that, in words — a tab of a runner that cannot talk is not drawn at all.
@@ -44,20 +48,23 @@ export class CellWindow {
   static STOPPABLE = ["running", "starting", "warming", "downloading", "broken"];
 
   /**
-   * @param key, name, port, address, via, viaTitle, engine — who the cell is and where its requests go (an engine's cell)
+   * @param key — the cell's id (cellId): the window's data-t-id, and every part's before its own ":<id>"
+   * @param name, address, via, viaTitle, engine — who the cell is and where its requests go (an engine's cell); a cell the
+   *   board gives no name is titled by its id (`title`)
    * @param facts — the words under the name: what it does, what runs it, the file's own facts
    * @param place — where it computes: the split, the cards, the autostart
    * @param tab — the tab chosen in this visit (CardFold.windowTab), "" for the first
    * @param state — one of STATES; `sub` — the band's second line, HTML (it may carry a live progress line)
    * @param actions — {start, stop, configure}: the attributes of the card's ▶, ⏹ and ⚙ when they may be pressed, "" when not;
    *   {why}: why the line's switch is shut now — the tip of a main button that may not be pressed
-   * @param menu — {boot: {attrs, on, supported, title}, port, detail, del, delTitle}: the "⋯" items, attributes or ""
+   * @param menu — {boot: {attrs, on, supported, title}, detail, del, delTitle}: the "⋯" items, attributes or ""
    * @param overview — {notice, tiles: [{id, label, value, sub, live, liveSub}], alerts, notes, links, slots, extra, empty}: `live` and
    *   `liveSub` mark the figure and its line for the live patch; `links` — {models, hf}: the addresses of the model in the caravan's
    *   own pages (LibraryPath), "" for one it has not; `empty` is said when there is nothing else to show
-   * @param memory — {badges, cards: [{name, figure, sub}], rows: [{k, v}], configure, place}: `place` is where the placement
-   *   map is drawn from the form (cell-settings.js), HTML; with it the summary of the saved placement is not drawn
-   * @param settings — {rows: [{k, v}], configure, port, detail, editor}: `editor` is the settings edited in the tab
+   * @param memory — {badges, cards: [{name, figure, live, sub}], rows: [{k, v}], configure, place}: a card's `live` marks its figure
+   *   for the live patch, as a tile's does; `place` is where the placement map is drawn from the form (cell-settings.js), HTML; with
+   *   it the summary of the saved placement is not drawn
+   * @param settings — {rows: [{k, v}], configure, detail, editor}: `editor` is the settings edited in the tab
    *   (cell-settings.js), HTML; with it the summary of the main fields gives way
    * @param foot — what is not applied of the settings edited in the window, with Discard and Apply (cell-settings.js), HTML;
    *   `footSlot` says the window has a foot at all (a cell whose settings are edited here), `running` whether it runs
@@ -66,12 +73,11 @@ export class CellWindow {
    * @param talk — the talk, live and page buttons of a runner that has them, HTML; "" for none
    * @param chat — the text chat of a chat cell (cell-chat.js), HTML; "" for none
    */
-  constructor({ key, name, port, address = "", via = "", viaTitle = "", engine = "", facts = [], place = [], tab = "",
+  constructor({ key, name, address = "", via = "", viaTitle = "", engine = "", facts = [], place = [], tab = "",
                 state = "stopped", sub = "", actions = {}, menu = {}, overview = {}, memory = {}, settings = {}, log = [],
                 logTail = "", talk = "", chat = "", foot = "", footSlot = false, running = false } = {}) {
     this.key = String(key || "");
     this.name = String(name || "");
-    this.port = String(port || "");
     this.address = String(address || "");
     this.via = String(via || "");
     this.viaTitle = String(viaTitle || "");
@@ -116,12 +122,18 @@ export class CellWindow {
     return speed.speed > 0 ? "" : t("cwSpeedNone");
   }
 
-  /** The machine and the port of a cell's key ("host:port", the window's data-t-id): by the last ":", "" for both without one.
-   *  The log and the chat of the window ask the controller by them. */
-  static place(key) {
-    const k = String(key);
-    const at = k.lastIndexOf(":");
-    return at > 0 ? { hostId: k.slice(0, at), port: k.slice(at + 1) } : { hostId: "", port: "" };
+  /** What the window is titled: the board's name for the cell, or its id when the board gives none — never a port, which a
+   *  cell has only while it runs. */
+  get title() {
+    return this.name || this.key;
+  }
+
+  /** The title the window of cell `key` carries in `doc` (its head's name), "" when no window of it is drawn there: what a
+   *  question about the cell asked outside the window names it by (cell-settings.js), as the window does. */
+  static titleIn(doc, key) {
+    const k = globalThis.CSS?.escape ? globalThis.CSS.escape(String(key)) : String(key).replace(/["\\]/g, "\\$&");
+    const name = doc?.querySelector?.(`[data-t="${CellWindow.HOOKS.window}"][data-t-id="${k}"] .cwh-name`);
+    return String(name?.textContent || "").trim();
   }
 
   /** The tabs this cell has: every one but the talk, which only a cell that can be talked to gets — a chat, or a runner
@@ -132,13 +144,14 @@ export class CellWindow {
 
   html() {
     const k = escapeHtml(this.key);
-    const label = escapeHtml(`${t("a11yCell")} :${this.port} ${this.name}`.trim());
+    const label = escapeHtml(`${t("a11yCell")} ${this.title}`.trim());
     return `<div class="cell-window-backdrop" data-cell-window-close="1" aria-hidden="true"></div>`
       + `<div class="cell-window cw${this.engine ? ` engine-${this.engine}` : ""}" role="dialog" aria-modal="true" aria-label="${label}"`
       + ` data-t="${CellWindow.HOOKS.window}" data-t-id="${k}">${this.head()}`
-      // The live patch finds the numbers of the band and the panels here (topology-render.js syncTopologyLive). Its own mark:
-      // `data-cell-live` is the 📞 button's, and the lane binds a live call to every element that wears it (remote-cells.js).
-      + `<div class="cw-live" data-cell-window-live="1" data-llama-port="${escapeHtml(this.port)}">${this.band()}${this.tabsHtml()}`
+      // The live patch finds the numbers of the band and the panels here, by the cell's id (topology-render.js syncTopologyLive).
+      // Its own mark: `data-cell-live` is the 📞 button's, and the lane binds a live call to every element that wears it
+      // (remote-cells.js).
+      + `<div class="cw-live" data-cell-window-live="1" data-cell-id="${k}">${this.band()}${this.tabsHtml()}`
       + `<div class="cw-panels">${this.tabs().map((id) => this.panel(id)).join("")}</div>${this.footHtml()}</div></div>`;
   }
 
@@ -158,8 +171,8 @@ export class CellWindow {
       ? `<span class="cwh-via" data-t="${CellWindow.HOOKS.via}" title="${escapeHtml(this.viaTitle)}">→ ${escapeHtml(this.via)}</span>` : "";
     const place = this.place.length ? `<span class="cwh-place">${escapeHtml(this.place.join(" · "))}</span>` : "";
     const where = address || via || place ? `<div class="cwh-where">${address}${via}${place}</div>` : "";
-    return `<div class="cell-window-head"><div class="cwh-id"><div class="cwh-title"><strong class="cwh-name">${escapeHtml(this.name)}</strong>`
-      + `<span class="cwh-port">:${escapeHtml(this.port)}</span>${facts}</div>${where}</div>`
+    return `<div class="cell-window-head"><div class="cwh-id"><div class="cwh-title"><strong class="cwh-name">${escapeHtml(this.title)}</strong>`
+      + `${facts}</div>${where}</div>`
       + `<button type="button" class="cwh-icon cwh-more" data-cell-window-more="${k}" aria-haspopup="menu" aria-expanded="false"`
       + ` data-t="${CellWindow.HOOKS.more}" data-t-id="${k}" title="${more}" aria-label="${more}">`
       + `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true">`
@@ -168,8 +181,9 @@ export class CellWindow {
       + ` data-t-id="${k}" title="${close}" aria-label="${close}">✕</button>${this.menuHtml()}</div>`;
   }
 
-  /** The "⋯": what is done to a cell now and then — its autostart, its address, its port, its command, its removal. An item
-   *  that may not be pressed now stays, shut, with the reason as its tip: a menu whose items come and go is learnt twice. */
+  /** The "⋯": what is done to a cell now and then — its autostart, its address, its command, its removal. An item that may
+   *  not be pressed now stays, shut, with the reason as its tip: a menu whose items come and go is learnt twice. No item
+   *  moves the cell to another port: it has one only while it runs, the one its scout leased for that run. */
   menuHtml() {
     const k = escapeHtml(this.key);
     const item = (id, attrs, words, { cls = "", tip = "", extra = "", role = 'role="menuitem"' } = {}) =>
@@ -182,7 +196,6 @@ export class CellWindow {
       item("boot", String(boot.attrs || ""), t("cwAutostart"),
         { cls: " cwm-check", tip: boot.title || "", extra: knob, role: `role="menuitemcheckbox" aria-checked="${on}"` }),
       this.address ? item("copy", `data-cell-window-copy="${escapeHtml(this.address)}"`, t("cwCopyAddress")) : "",
-      item("port", String(this.menu.port || ""), t("cwChangePort"), { tip: this.menu.port ? "" : t("cwPortOnlyParked") }),
       item("detail", String(this.menu.detail || ""), t("cwDetails")),
       `<div class="cwm-sep" role="separator"></div>`,
       item("delete", String(this.menu.del || ""), t("cwDelete"), { cls: " cwm-danger", tip: this.menu.delTitle || "" }),
@@ -204,7 +217,7 @@ export class CellWindow {
   }
 
   /** The one main button: Stop for a cell whose process is up or on its way, Start for one that is parked or failed, the
-   *  settings for a port with no model yet. A cell being stopped or deleted gets it shut and spinning, as the card's own
+   *  settings for a cell with no model yet. A cell being stopped or deleted gets it shut and spinning, as the card's own
    *  does. A button that may not be pressed now — Start of a cell that may not start, Stop of one whose start was only just
    *  asked for — stays, shut, with the line's reason as its tip (`actions.why`): its words say what it would do, not what
    *  the cell is doing. */
@@ -291,7 +304,7 @@ export class CellWindow {
   memoryHtml() {
     const m = this.memory;
     const cards = (Array.isArray(m.cards) ? m.cards : []).map((c) => `<div class="cw-mem-card"><span class="cw-mem-name">${escapeHtml(c.name)}</span>`
-      + `<span class="cw-mem-figure">${escapeHtml(c.figure || "—")}</span><span class="cw-mem-sub">${escapeHtml(c.sub || "")}</span></div>`).join("");
+      + `<span class="cw-mem-figure"${c.live ? ` ${c.live}` : ""}>${escapeHtml(c.figure || "—")}</span><span class="cw-mem-sub">${escapeHtml(c.sub || "")}</span></div>`).join("");
     const held = `${m.badges ? `<div class="cw-chips">${m.badges}</div>` : ""}${cards ? `<div class="cw-mem-cards">${cards}</div>` : ""}`;
     const heldSec = CellWindow.section(t("cwHeld"), held || `<p class="cw-empty">${escapeHtml(t("cwHeldNothing"))}</p>`);
     // The placement map, drawn from the form, stands here when the window edits the cell's settings: a summary of the saved
@@ -312,12 +325,12 @@ export class CellWindow {
     // The settings edited here: the editor, and the dialog with every runner's field and the command for what it has not.
     if (s.editor) {
       return `${s.editor}<div class="cw-buttons cw-set-more">${this.button("configure", s.configure, t("cwSettingsOpen"))}`
-        + `${this.button("port", s.port, t("cwChangePort"))}${this.button("detail", s.detail, t("cwDetails"))}</div>`;
+        + `${this.button("detail", s.detail, t("cwDetails"))}</div>`;
     }
     const rows = CellWindow.rows(s.rows);
     return CellWindow.section(t("cwSettingsMain"), rows || `<p class="cw-empty">${escapeHtml(t("cwSettingsNone"))}</p>`)
       + `<p class="cw-lead">${escapeHtml(t(s.configure ? "cwSettingsLead" : "cwSettingsShut"))}</p>`
-      + `<div class="cw-buttons">${this.button("configure", s.configure, t("cwSettingsOpen"), " primary")}${this.button("port", s.port, t("cwChangePort"))}`
+      + `<div class="cw-buttons">${this.button("configure", s.configure, t("cwSettingsOpen"), " primary")}`
       + `${this.button("detail", s.detail, t("cwDetails"))}</div>`;
   }
 

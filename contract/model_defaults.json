@@ -1,0 +1,69 @@
+{
+  "note": "Что производитель модели назвал один раз. `modelParams` — проза для человека: 28 карточек из 59 называют значение дважды (с рассуждениями и без, или как родной контекст и как пример), и значение, выбранное из прозы, — это уже мой выбор, а не факт. Здесь только то, что карточка сказала однажды и без слова про режим, и каждая строка хранит предложение, откуда значение взято: охрана `scripts/check_model_defaults.py` читает число обратно из своего предложения. Слово про применение — это слово про режим: «для текста» сказывает значения для текста, а не для модели вообще; такое слово читается с начала слова, поэтому «Контекст» — не «текст». Значения держит программа (`rust/crates/admin/src/models/defaults.rs`), этот файл — вторая половина того же факта для тестов браузера.",
+  "fields": ["TEMPERATURE", "TOP_P", "TOP_K", "MIN_P", "CTX_SIZE", "N_PREDICT"],
+  "fieldsNote": "Поля, которые строка имеет право держать: они у программы есть и она пишет для них флаг (`ConfigFields::ALL`, `config/args.rs`). Штрафов нет: карточки называют presence_penalty и repetition_penalty, но караван не пишет для штрафа флаг, и строка про штраф была бы выбором, а не фактом. Сегодня строки держат TEMPERATURE, TOP_P, TOP_K, MIN_P; CTX_SIZE и N_PREDICT — разрешение на будущее, ни одна карточка не называет их однажды.",
+  "modeWords": ["рассужден", "размышл", "thinking", "instruct", "задач", "сценар", "текст", "картинк", "разговор", "диалог", "озвуч", "расшифров", "распознав", "перевод", "вызов инструмент", "пример", "kobold", "transformers", "vllm", "sglang", "whisper", "режим", "effort", "квант", "гайд", "замер", "VL"],
+  "forAll": ["для всех", "для любых"],
+  "rows": [
+    {
+      "model": "DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF",
+      "said": "Сэмплинг: temperature 1.0, top_p 1.0. Контекст 1M токенов, max_tokens ≥ 256K.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "1.0" }
+    },
+    {
+      "model": "Hermes-4-70B-GGUF",
+      "said": "Сэмплинг: temperature=0.6, top_p=0.95, top_k=20.",
+      "values": { "TEMPERATURE": "0.6", "TOP_P": "0.95", "TOP_K": "20" }
+    },
+    {
+      "model": "Hermes-4-70B-heretic-i1-GGUF",
+      "said": "Сэмплинг: temperature=0.6, top_p=0.95, top_k=20.",
+      "values": { "TEMPERATURE": "0.6", "TOP_P": "0.95", "TOP_K": "20" }
+    },
+    {
+      "model": "North-Mini-Code-1.0-GGUF",
+      "said": "Сэмплинг: temperature 1.0, top_p 0.95.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95" }
+    },
+    {
+      "model": "PhoneLLM-alpha-1-Q4_K_M",
+      "said": "Сэмплинг: temperature 0 (--temp 0) — обязательно, так модель обучалась; не менять.",
+      "values": { "TEMPERATURE": "0" }
+    },
+    {
+      "model": "Muse-Glimmer-30B-GGUF",
+      "said": "Сэмплинг: temperature 1.0, top_p 0.95, top_k 64.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "64" }
+    },
+    {
+      "model": "Qwen3-Coder-Next-GGUF",
+      "said": "Сэмплинг: temperature 1.0, top_p 0.95, top_k 40, min_p 0.01 (по умолчанию в llama.cpp 0.05), repeat penalty отключить или 1.0.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "40", "MIN_P": "0.01" }
+    },
+    {
+      "model": "Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+      "said": "Запуск (карточка): llama-server -m Swift-Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf --jinja -fa on -ngl 99 -c 262144 --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0 --repeat-penalty 1.0 --port 8000",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "20", "MIN_P": "0.0" }
+    },
+    {
+      "model": "gemma-4-12B-it-GGUF",
+      "said": "Сэмплинг: temperature=1.0, top_p=0.95, top_k=64 для всех сценариев.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "64" }
+    },
+    {
+      "model": "gemma-4-31B-it-GGUF",
+      "said": "Сэмплинг: temperature=1.0, top_p=0.95, top_k=64 — для всех задач.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "64" }
+    },
+    {
+      "model": "gemma-4-E4B-it-GGUF",
+      "said": "Сэмплинг (для всех задач): temperature 1.0, top_p 0.95, top_k 64.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "64" }
+    },
+    {
+      "model": "google_gemma-4-31B-it-GGUF",
+      "said": "Сэмплинг: temperature 1.0, top_p 0.95, top_k 64 — для любых задач.",
+      "values": { "TEMPERATURE": "1.0", "TOP_P": "0.95", "TOP_K": "64" }
+    }
+  ]
+}

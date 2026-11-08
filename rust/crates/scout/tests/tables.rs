@@ -103,7 +103,7 @@ fn rows(table: &Value, name: &str) -> Vec<Value> {
 fn a_models_name_reads_as_it_did() {
     for row in rows(&table("rules"), "names") {
         let asked = row.get("in").unwrap();
-        let said = ModelName::of(asked.get(0), &Coerce::text(asked.get(1)), asked.get(2).and_then(Value::as_i64).unwrap());
+        let said = ModelName::of(asked.get(0), &Coerce::text(asked.get(1)), &Coerce::text(asked.get(2)));
         assert_eq!(Some(&json!(said)), row.get("out"), "{asked}");
     }
 }
@@ -116,7 +116,7 @@ fn what_a_controller_keeps_reads_as_it_did() {
             Value::Object(
                 cells
                     .iter()
-                    .map(|(port, cell)| (port.to_string(), json!({"config": cell.config, "modelPath": cell.model_path})))
+                    .map(|(id, cell)| (id.clone(), json!({"config": cell.config, "modelPath": cell.model_path})))
                     .collect(),
             )
         });

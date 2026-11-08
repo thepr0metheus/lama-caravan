@@ -1,6 +1,8 @@
 //! What the journal keeps of a request and an answer.
 
+use crate::anthropic_stream::MessagesWords;
 use crate::coerce::Coerce;
+use crate::media_parts::{Carried, MediaParts};
 use crate::request_json::RequestJson;
 use serde_json::{Map, Value, json};
 
@@ -55,8 +57,9 @@ impl RequestSummary {
     }
 
     /// The messages, or a Responses-API `input` read the same way: a list of items of the same shape, or a bare string
-    /// standing for one user turn.
-    fn messages(payload: &Value) -> Vec<Value> {
+    /// standing for one user turn. Public because the parts inside them are read by `media_parts::Carried`, which is where
+    /// the fact of what a request carries lives; this only says which list to read.
+    pub fn messages(payload: &Value) -> Vec<Value> {
         let listed = payload.get("messages").and_then(Value::as_array).filter(|items| !items.is_empty());
         if let Some(items) = listed {
             return items.clone();
@@ -72,6 +75,7 @@ impl RequestSummary {
 
     fn read_payload(payload: &Value, summary: &mut Map<String, Value>) {
         let messages = Self::messages(payload);
+        let carried = Carried::of(&messages);
         let mut fold = ContentFold::default();
         for message in messages.iter().filter(|message| message.is_object()) {
             fold.add_message(message);
@@ -88,19 +92,21 @@ impl RequestSummary {
         summary.insert("messages".into(), json!(messages.len()));
         summary.insert("roles".into(), json!(fold.roles));
         summary.insert("promptTextChars".into(), json!(fold.text_chars));
-        summary.insert("imageParts".into(), json!(fold.image_parts));
+        // The parts are counted where the fact of what a request carries lives, so the journal and the entry's refusal cannot
+        // name different parts of the same request.
+        summary.insert("imageParts".into(), json!(carried.count("image")));
         // absent-ok: `len(x) if isinstance(x, list) else 0`: no list of tools is no tool.
         summary.insert("tools".into(), json!(payload.get("tools").and_then(Value::as_array).map_or(0, Vec::len)));
         summary.insert("lastTextPreview".into(), json!(Self::compact(&fold.last_text)));
     }
 }
 
-/// What a request's messages add up to.
+/// What a request's messages add up to: the roles, the letters of its text parts. What it carries is not counted here —
+/// `Carried` counts it, in `media_parts.rs`, so the journal and the entry cannot name different parts of the same request.
 #[derive(Default)]
 struct ContentFold {
     roles: Vec<String>,
     text_chars: usize,
-    image_parts: usize,
     last_text: String,
 }
 
@@ -123,11 +129,8 @@ impl ContentFold {
     }
 
     fn add_part(&mut self, part: &Value) {
-        let kind = Coerce::text(part.get("type"));
-        if kind == "text" || kind == "input_text" {
+        if MediaParts::carries_text(part) {
             self.add_text(&Coerce::text(part.get("text")));
-        } else if kind.contains("image") || Coerce::truthy(part.get("image_url")) {
-            self.image_parts += 1;
         }
     }
 }
@@ -194,6 +197,8 @@ impl ResponseSummary {
 pub struct StreamFold {
     /// `data:` lines seen.
     pub events: u64,
+    /// Bytes of a line that was longer than `wire::Lines` allows, so it came as pieces and was not read as an event. Counted, not read.
+    pub lines_past_cap: u64,
     /// Letters of generated text.
     pub delta_text_chars: u64,
     /// The latest chunk's finish reasons.
@@ -204,7 +209,7 @@ pub struct StreamFold {
     pub timings: Option<Value>,
     /// The model the stream names.
     pub model: Option<Value>,
-    /// Whether `[DONE]` came.
+    /// Whether the stream said it was complete: the provider's own word, never the `[DONE]` the caravan writes for its own client.
     pub done: bool,
 }
 
@@ -214,28 +219,69 @@ impl StreamFold {
         let Some(rest) = line.strip_prefix(b"data:") else {
             return;
         };
+        self.fold_data(rest, true);
+    }
+
+    /// What of a line past the cap has come: not an event, and saying nothing about it would say the stream was read whole.
+    pub fn line_past_cap(&mut self) {
+        self.lines_past_cap += 1;
+    }
+
+    /// One chunk a translation made: its own chunk's model and timings are no provider's word, and neither is the `[DONE]` the caravan
+    /// writes to end its client's stream — that end is what the translator says the provider said.
+    pub fn add_translated(&mut self, chunk: &[u8]) {
+        if let Some(data) = chunk.strip_prefix(b"data:") {
+            self.fold_data(data, false);
+            self.model = None;
+            self.timings = None;
+        }
+    }
+
+    fn fold_data(&mut self, data: &[u8], said_the_end: bool) {
         self.events += 1;
-        let data = rest.trim_ascii();
+        let data = data.trim_ascii();
         if data.is_empty() {
             return;
         }
         if data == b"[DONE]" {
-            self.done = true;
+            if said_the_end {
+                self.done = true;
+            }
             return;
         }
         if let Ok(payload) = serde_json::from_slice::<Value>(data)
             && payload.is_object()
         {
-            self.add_payload(&payload);
+            self.add_payload(&payload, said_the_end);
         }
     }
 
-    /// One chunk a translation made: its own chunk's model and timings are no provider's word.
-    pub fn add_translated(&mut self, chunk: &[u8]) {
-        if chunk.starts_with(b"data:") {
-            self.add_line(chunk);
-            self.model = None;
-            self.timings = None;
+    /// What a relayed stream said, in either of the two shapes a relay can carry: the chat chunk, and the Messages event a client
+    /// that speaks Messages gets as it came. The words of an event are read where `AnthropicToChat` reads them, so where they live is said once.
+    fn add_payload(&mut self, payload: &Value, said_the_end: bool) {
+        let mut reasons = Vec::new();
+        for choice in payload.get("choices").and_then(Value::as_array).into_iter().flatten().filter(|choice| choice.is_object()) {
+            self.delta_text_chars += Self::text_letters(choice);
+            if let Some(reason) = choice.get("finish_reason").filter(|reason| Coerce::truthy(Some(*reason))) {
+                reasons.push(reason.clone());
+            }
+        }
+        if let Some(text) = MessagesWords::text_of(payload) {
+            self.delta_text_chars += Coerce::text(Some(text)).chars().count() as u64;
+        }
+        if let Some(reason) = MessagesWords::stop_reason_of(payload).filter(|reason| Coerce::truthy(Some(reason))) {
+            reasons.push(reason.clone());
+        }
+        if said_the_end && MessagesWords::says_the_end(payload) {
+            self.done = true;
+        }
+        if !reasons.is_empty() {
+            self.finish_reasons = reasons;
+        }
+        Self::keep_filled(&mut self.usage, MessagesWords::usage_of(payload));
+        Self::keep_filled(&mut self.timings, payload.get("timings"));
+        if let Some(model) = MessagesWords::model_of(payload).filter(|model| Coerce::truthy(Some(model))) {
+            self.model = Some(model.clone());
         }
     }
 
@@ -252,24 +298,6 @@ impl StreamFold {
         self.done = self.done || tally.done;
     }
 
-    fn add_payload(&mut self, payload: &Value) {
-        let mut reasons = Vec::new();
-        for choice in payload.get("choices").and_then(Value::as_array).into_iter().flatten().filter(|choice| choice.is_object()) {
-            self.delta_text_chars += Self::text_letters(choice);
-            if let Some(reason) = choice.get("finish_reason").filter(|reason| Coerce::truthy(Some(*reason))) {
-                reasons.push(reason.clone());
-            }
-        }
-        if !reasons.is_empty() {
-            self.finish_reasons = reasons;
-        }
-        Self::keep_filled(&mut self.usage, payload.get("usage"));
-        Self::keep_filled(&mut self.timings, payload.get("timings"));
-        if let Some(model) = payload.get("model").filter(|model| Coerce::truthy(Some(*model))) {
-            self.model = Some(model.clone());
-        }
-    }
-
     /// `len(str(delta.content or choice.text or ""))`.
     fn text_letters(choice: &Value) -> u64 {
         let delta = choice.get("delta").filter(|delta| delta.is_object());
@@ -283,9 +311,9 @@ impl StreamFold {
         }
     }
 
-    /// The fold as the record's `stream`; `{}` when no event came, as the finished record says it.
+    /// The fold as the record's `stream`; `{}` when nothing of the stream came, as the finished record says it.
     pub fn as_json(&self) -> Value {
-        if self.events == 0 {
+        if self.events == 0 && self.lines_past_cap == 0 {
             return json!({});
         }
         self.live_json()
@@ -301,6 +329,10 @@ impl StreamFold {
             "done": self.done,
         });
         if let Some(fields) = out.as_object_mut() {
+            // A count nobody added to is not there, so a stream read whole says nothing about the cap.
+            if self.lines_past_cap > 0 {
+                fields.insert("linesPastCap".into(), json!(self.lines_past_cap));
+            }
             if let Some(timings) = &self.timings {
                 fields.insert("timings".into(), timings.clone());
             }

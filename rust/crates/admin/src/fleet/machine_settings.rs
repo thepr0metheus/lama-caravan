@@ -27,8 +27,8 @@ pub enum SettingBack {
     Off(String),
     /// An engine that starts with the machine: whether it runs now.
     Engine(String, bool),
-    /// A cell that starts with the machine.
-    Cell(i64),
+    /// A cell that starts with the machine, by its id.
+    Cell(String),
 }
 
 /// The settings of the machines.
@@ -68,11 +68,18 @@ impl<'app> MachineSettings<'app> {
         self.app.admin.change(|doc| Topology::of(doc).named(Self::SECTION).get(host_id).cloned())
     }
 
-    /// Keeps what `record` says: a report's part, on the document it is saved with.
-    pub fn remember(topology: &mut Topology<'_>, host_id: &str, record: &Value) {
-        if let Some(settings) = Self::read(record) {
-            topology.named(Self::SECTION).insert(host_id.to_string(), settings);
+    /// Keeps what `record` says: a report's part, on the document it is saved with. Whether that changed what was kept: a change of the
+    /// machine's settings goes to the file at once, as the rest of a report need not.
+    pub fn remember(topology: &mut Topology<'_>, host_id: &str, record: &Value) -> bool {
+        let Some(settings) = Self::read(record) else {
+            return false;
+        };
+        let kept = topology.named(Self::SECTION);
+        if kept.get(host_id) == Some(&settings) {
+            return false;
         }
+        kept.insert(host_id.to_string(), settings);
+        true
     }
 
     /// What to give back of `kept` to a scout whose record is `now`, in the order it is to go: the folder before anything lands in it, the cache's rules, then what starts. What the scout already has is not asked of it.
@@ -116,8 +123,11 @@ impl<'app> MachineSettings<'app> {
             let row = rows.iter().find(|row| Coerce::text(row.get("kind")) == kind);
             steps.push(SettingBack::Engine(kind, row.is_some_and(|row| row.get("state") == Some(&json!("ok")))));
         }
-        for port in listed(kept, "autostart").iter().filter(|port| !listed(&said, "autostart").contains(port)) {
-            steps.extend(port.as_i64().map(SettingBack::Cell));
+        // A list names cells by id, or — a scout of before — by port, the cell `c<port>`: both are read as the cell's id.
+        let ids = |doc: &Value| listed(doc, "autostart").iter().filter_map(rules::CellId::read).collect::<Vec<String>>();
+        let now_ids = ids(&said);
+        for id in ids(kept).into_iter().filter(|id| !now_ids.contains(id)) {
+            steps.push(SettingBack::Cell(id));
         }
         steps
     }
@@ -141,8 +151,8 @@ impl<'app> MachineSettings<'app> {
             SettingBack::Engine(kind, false) => {
                 EngineActions::of(self.app).serve(Some(&host), "start", Some(&json!(kind))).map(drop).map_err(words)
             }
-            SettingBack::Cell(port) => {
-                let said = CellAutostart::of(self.app).set(host_id, *port, true);
+            SettingBack::Cell(id) => {
+                let said = CellAutostart::of(self.app).set(id, true);
                 if said.get("ok") == Some(&json!(true)) { Ok(()) } else { Err(Coerce::text(said.get("error"))) }
             }
         }
@@ -158,7 +168,7 @@ impl<'app> MachineSettings<'app> {
             SettingBack::Budget(_) => "cacheLimit".to_string(),
             SettingBack::Off(_) => "cacheOff".to_string(),
             SettingBack::Engine(kind, _) => format!("engine:{kind}"),
-            SettingBack::Cell(port) => format!("cell:{port}"),
+            SettingBack::Cell(id) => format!("cell:{id}"),
         }
     }
 
@@ -216,7 +226,7 @@ mod tests {
                 SettingBack::Keep(3),
                 SettingBack::Budget(1024),
                 SettingBack::Engine("ollama".to_string(), true),
-                SettingBack::Cell(22013),
+                SettingBack::Cell("c22013".to_string()),
             ]
         );
         assert_eq!(

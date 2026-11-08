@@ -3,7 +3,8 @@
 Strata runs one model, Qwen3.8-Flash-Next (177 billion weights, 512 experts in each of 48 layers, 10 experts
 a token), in the packs people have made of it. The engine keeps the experts in the machine's RAM and the card
 holds the ones a token needs most; the pack decides how many bits an expert takes, and so how much RAM, how
-much disk and how fast. The list below is Strata's own table (its `setup.py`, the same in v0.1.42 and v0.2.9): the cell's launcher
+much disk and how fast. The list below is Strata's own table (its `setup.py`, the same in
+v0.1.42, v0.2.9 and v0.2.11, checked 2026-11-05): the cell's launcher
 reads the family and the size of a pack from the file's NAME (`gguf_choice`), so a file with another name is
 refused, and a new pack of Strata's is a Strata update, not a caravan change.
 
@@ -25,7 +26,7 @@ pack tool cannot prepare yet.)
 
 - **What the start promises** (`StrataRunner.ram_reservation`; the cell form draws it on its RAM scale): for a pack with
   all its experts in RAM, the larger of the first part's size and what Strata's own table says the pack's experts are
-  (`arena_gb` in its `setup.py`, v0.2.9: `Q2_0` 34.0, `IQ2_XS` 35.5, `IQ3_XXS` 42.9, `IQ3_S` 50.3, the Coder's `IQ1_M`
+  (`arena_gb` in its `setup.py`, the table above: `Q2_0` 34.0, `IQ2_XS` 35.5, `IQ3_XXS` 42.9, `IQ3_S` 50.3, the Coder's `IQ1_M`
   23.4 GiB), plus a GiB for the engine's own tables. The first part is not enough where the file split does not put
   every expert in it: Swift 1.5's `IQ3_S` has 41.8 GiB in its first part and the rest of its 50.3 GiB in the second.
   The scout refuses the start when that is more than the memory available less 2 GiB for the system.
@@ -45,7 +46,10 @@ pack tool cannot prepare yet.)
   the budget (32 GiB at 262144 on a machine of 60.5 GiB). At 262144 with int8 KV and the draft layer, measured on such a
   machine on 2026-10-26: `UD-IQ4_XS` 101–108 tokens a second on an RTX 5090, `IQ2_XS` 128 on an RTX 3090, Swift's
   `IQ3_XXS` 152–163 on an RTX 5090 (Strata v0.1.42). On Strata v0.2.9, 2026-10-31: `IQ2_XS` 222–245 on an RTX 5090, four
-  answers of 600 tokens, the first token in 0.03 to 0.2 s.
+  answers of 600 tokens, the first token in 0.03 to 0.2 s. The same cell on Strata v0.2.11 with engine 0.1.57, 2026-11-05:
+  252–267 tokens a second on three answers of 467–600 tokens, and 147 ms to the first token of a fresh 46-token prompt.
+  The engine's own line says `STRATA_ROUTE_TAIL_SKIP=7` is on by default and gives +10–20 % decode on cards that miss
+  experts, with answers slightly different from 0.1.41, so the new number is not the same measurement as 2026-10-31's.
 - **The memory of the start.** A pack whose experts take more than 70 % of the RAM (`IQ3_XXS` promises 43.9 GiB on a
   machine of 60.5 GiB) needs caravan-scout 2.38.2: before it, the cell's scope throttled it from 42.3 GiB, and on an
   idle machine those sleeps were the whole user session's memory pressure — systemd-oomd killed the cell, and on the
@@ -105,9 +109,29 @@ cell runs while it changes. It needs no sudo and no model.
     ln -sfn Strata-<tag> ~/Strata
 
 The compile takes about 5 minutes and 8 of the machine's 16 threads. Check the launcher against it by running it, not by reading: the names
-it needs were all still in v0.2.9's `setup.py`, and it would still have refused every start, because that file had begun to import a
-package of its own. `StrataLaunch(args).config()` makes the pack and the config from the real files without starting the engine, and
-`serve/server.py --lazy` answers `/health` without touching the card. What counts is a start from the board and a measured answer.
+it needs were all still in v0.2.9's and v0.2.11's `setup.py` (the 0.2.11 check, 2026-11-05), and it would still have refused every start,
+because that file had begun to import a package of its own. `StrataLaunch(args).config()` makes the pack and the config from the real files
+without starting the engine, and `serve/server.py --lazy` answers `/health` without touching the card. What counts is a start from the board
+and a measured answer.
 
 The launcher follows Strata's rules by reading them, so what a new version changes for a pack it picks up by itself; what a new version
 adds to its setup's step 7 needs a line in `engine_args` or `config` of `cells/strata_launch.py`.
+
+A new version can also add a choice the server reads from the config rather than a flag, and that needs a line too. Strata v0.2.10 added
+`drafting` (`strata_control/drafting.py`): `serve/server.py` puts the chosen drafter on the engine arguments at every start, and its default
+is Auto, which is DFlash2 for the models DFlash2 was made for. So `cells/strata_launch.py` writes the choice the cell was given — `mtp` for a
+cell that names an MTP draft layer, `off` for a cell that names none — because a key left out is not "no drafter": it is the server's default,
+and that default can be a drafter the cell never asked for, with its memory. For DeepSeek the key is not written: its drafter is the DSpark, and
+`drafting.apply` leaves a model it was not made for with its own flags. The version the launcher was settled against is named once, as `KNOWS`,
+and the refusal that says which version the launcher knows reads it, so the words and the pinned rules cannot name two versions.
+
+Those words are only the words of the refusal: nothing in the launcher branches on a version number, because it reads the machine's own
+`setup.py`. So a machine on an older Strata is refused by a name the launcher reads that its `setup.py` does not have, not by its age, and a
+newer one is not refused for being newer. `KNOWS` names the version the pins were read from; the machine was moved to it on 2026-11-05, and the
+cell that the pins describe was started from the board and answered on it.
+
+A Strata update does not carry DeepSeek's engine: it is its own package, fetched from the signed feed and unpacked beside the engine
+(`engine-dsv41/<version>-<platform>-<backend>`), so each version in use keeps its own copy and an older folder keeps the older one. Checked on the
+machine 2026-11-05: `~/Strata-v0.2.11` had none, `~/Strata-v0.2.9` still held the 0.1.56 package, and `setup.get_dsv41_engine` — the same function
+the launcher calls — fetched 445 MB, checked the package signature and every file hash against its pins, and unpacked
+`0.1.57-linux-x86_64-cuda-cuda13`. The launcher reads that place through `~/Strata`, so a DeepSeek cell finds the package of the version it runs.

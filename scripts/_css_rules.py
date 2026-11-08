@@ -3,6 +3,8 @@
 A browser is not in CI, so what a stylesheet says about a box is read from the text: each rule's selectors with its
 declarations, comments left out. The reading is deliberately plain: a rule inside @media is read like any other (a
 guard that sees a margin there errs on the safe side), and a value it cannot read as pixels is None, never a guess.
+A claim about one width and not another (test_pages_fit_phone_css.py, test_routing_cards_css.py) sets the @media blocks
+apart first (`split`), and a claim about one width of a container (the machine page's rack) its @container blocks.
 """
 import re
 
@@ -10,6 +12,15 @@ import re
 class CssRules:
     RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
     PX = re.compile(r"(-?[\d.]+)(?:px)?")
+
+    @classmethod
+    def split(cls, css, at="media"):
+        """(the stylesheet at rest, without its blocks of `at`, @media or @container; [(query, the block's text)]), comments
+        left out, each query on one line: a rule read inside a block must not pass for the rule at rest."""
+        block = re.compile(r"@" + re.escape(at) + r"\s*([^{]*)\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}")
+        text = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+        blocks = [(" ".join(m.group(1).split()), m.group(2)) for m in block.finditer(text)]
+        return block.sub("", text), blocks
 
     @classmethod
     def rules(cls, css):

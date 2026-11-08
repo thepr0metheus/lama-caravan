@@ -8,8 +8,9 @@ import { syncFavoriteMirrors } from "./favorites.js";
 import { _applyDeviceToEnv, _commandCellSlot, _envDeviceState, runnerFixedVramGb, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
 import { modelChoiceOf, modelsByPath, readConfigForm, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
-import { BatchBuffers, CellFields, KvCache } from "./cell-plan.js";
+import { BatchBuffers, CellFields, CellModel, KvCache } from "./cell-plan.js";
 import { CardPin, CardRoom, ComputeFields, FreeVramStart, PlacementPanel, PlacementPlan } from "./placement.js";
+import { DecodeSpeed } from "./decode-speed.js";
 import { RamPlanAsk } from "./ram-plan.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
 import { SplitMode } from "./split-mode.js";
@@ -60,24 +61,36 @@ export function selectedModelRows(pfx = "") {
   // "won't fit" and its projector hint with nothing chosen (live check,
   // 2026-09-27).
   const choice = modelChoiceOf(pfx);
-  return { selected: byPath.get(choice.model), selectedMmprojRow: byPath.get(choice.mmproj) };
+  return { selected: byPath.get(choice.model), selectedMmprojRow: byPath.get(choice.mmproj), draftFile: choice.draft,
+           draftRow: byPath.get(choice.draft) || null };
 }
 
+/** What the form's cell takes, as the machine page weighs a stored cell (cell-plan.js CellModel): its model and projector, its
+ *  draft, its KV cache and buffers under the form's fields — null with no model chosen. The estimate, the placement map and the
+ *  line above the tabs all read this one sum; the draft was in none of them until 2026-11-07. */
+export function cellModelOf(pfx = "") {
+  const { selected, selectedMmprojRow, draftFile, draftRow } = selectedModelRows(pfx);
+  return CellModel.of({ row: selected, mmprojRow: selectedMmprojRow, draftFile, draftRow, fields: formFields(pfx) });
+}
+
+/** The figures of the form's estimate: the files one by one (the draft's size null when the library has not its file — said, not
+ *  0), what they weigh together, the KV cache and the buffers, and the whole (CellModel.totalGb). `draft` is the CellDraft the start
+ *  loads, or null. */
 export function estimateRuntimeMemoryGb(pfx = "") {
   const { selected, selectedMmprojRow } = selectedModelRows(pfx);
-  if (!selected) return { modelSize: 0, mmprojSize: 0, fileTotalSize: 0, kvSize: 0, batchSize: 0, runtimeSize: 0 };
-  const modelSize = Number(selected.sizeGb || 0);
-  const mmprojSize = Number(selectedMmprojRow?.sizeGb || 0);
-  const fileTotalSize = modelSize + mmprojSize;
-  const kvSize = estimateKvCacheGb(selected, pfx);
-  const batchSize = estimateBatchBuffersGb(selected, pfx);
+  const model = cellModelOf(pfx);
+  if (!model) {
+    return { modelSize: 0, mmprojSize: 0, draft: null, draftSize: 0, fileTotalSize: 0, kvSize: 0, batchSize: 0, runtimeSize: 0 };
+  }
   return {
-    modelSize,
-    mmprojSize,
-    fileTotalSize,
-    kvSize,
-    batchSize,
-    runtimeSize: fileTotalSize + kvSize + batchSize,
+    modelSize: Number(selected.sizeGb || 0),
+    mmprojSize: Number(selectedMmprojRow?.sizeGb || 0),
+    draft: model.draft,
+    draftSize: model.draft ? model.draft.gb : 0,
+    fileTotalSize: model.filesGb,
+    kvSize: model.kvGb,
+    batchSize: model.batchGb,
+    runtimeSize: model.totalGb,
   };
 }
 
@@ -125,20 +138,17 @@ export function offloadSplit(pfx = "") {
   return out;
 }
 
-/** What the placement map knows of the model and the machine — the facts the map and offloadSplit both read: the files, the
- *  KV cache and the buffers as this module estimates them, the layer and expert counts of the model's header and what its
- *  experts weigh (the bytes of its expert tensors, summed over a split model's parts by models.py), the picked
- *  cards with the room each has for this cell, the machine's RAM and cores, and the split mode. */
+/** What the placement map knows of the model and the machine — the facts the map and offloadSplit both read: the model as the
+ *  estimate weighs it (cellModelOf: its files, its KV cache and buffers, the layer and expert counts of its header and what its
+ *  experts weigh — the bytes of its expert tensors, summed over a split model's parts by the controller — and its draft's part on
+ *  the cards and in RAM), the picked cards with the room each has for this cell, the machine's RAM and cores, and the split mode. */
 export function placementFacts(pfx = "") {
-  const { selected } = selectedModelRows(pfx);
-  const est = estimateRuntimeMemoryGb(pfx);
   const cpu = computeTargetCpu(pfx);
   const ramTotalGb = pfx === "tr-" ? Number(cpu?.ram?.totalGb || 0) : Number(state.memory?.totalMiB || 0) / 1024;
   const ramFreeGb = computeTargetRamGb(pfx);
   return {
-    model: { weightsGb: est.fileTotalSize, kvGb: est.kvSize, batchGb: est.batchSize,
-             layers: Number(selected?.ggufMeta?.blockCount || 0), experts: Number(selected?.ggufMeta?.expertCount || 0),
-             expertsGb: Number(selected?.ggufMeta?.expertBytes || 0) / (1024 ** 3) },
+    // No model chosen: nothing to place, and the map draws nothing.
+    model: cellModelOf(pfx) || {},
     cards: computeSelectedGpus(pfx).map((g) => ({ index: Number(g.index), name: shortGpuName(g.name),
                                                   freeGb: cellFreeMiB(pfx, g) / 1024, totalGb: Number(g.memoryTotalMiB || 0) / 1024 })),
     // 0 is a machine that has not reported its RAM: not known, and no shortage is claimed of it.
@@ -651,6 +661,8 @@ export class VllmPlacement {
     const offload = Number(config?.CPU_OFFLOAD_GB);
     const place = new VllmPlacement(tp, util, cards, sorted.length, Number(weightsGb) || 0, offload > 0 ? offload : 0);
     place.kvGb = VllmPlacement.kvGbOf(config, model, tp);
+    // The checkpoint's config.json says how many experts a layer routes among (0: none); a row that does not say leaves it unknown.
+    place.experts = Number.isInteger(model?.expertCount) ? model.expertCount : null;
     return place;
   }
 
@@ -665,6 +677,7 @@ export class VllmPlacement {
 
   constructor(tp, util, cards, machineCards, weightsGb, offloadGb = 0) {
     this.kvGb = 0;   // what the start's longest request takes on each card (VllmPlacement.kvGbOf)
+    this.experts = null;   // the experts a layer of its model routes among: 0 none, null not known
     this.tp = tp;
     this.util = util;
     this.cards = cards;
@@ -718,6 +731,11 @@ export class VllmPlacement {
     return this.perCardGb.some((budget) => this.weightsOnCardGb + VllmPlacement.MARGIN_GB + this.kvGb > budget);
   }
 
+  /** How fast it can answer at best as laid out, and with every weight on its cards (DecodeSpeed); null when a figure is not known. */
+  get speed() {
+    return DecodeSpeed.of({ cards: this.cards, weightsGiB: this.weightsGb, ridesGiB: this.offloadGb, experts: this.experts });
+  }
+
   /** The line under the estimate bar, when there is something to say. */
   note() {
     if (this.weightsOver) return t("vllmWeightsOver", { weights: formatSizeGb(this.weightsOnCardGb * this.tp), budget: formatSizeGb(Math.min(...this.perCardGb)) });
@@ -725,7 +743,12 @@ export class VllmPlacement {
       const left = Math.max(0, Math.min(...this.perCardGb) - this.weightsOnCardGb - VllmPlacement.MARGIN_GB);
       return t("vllmKvOver", { kv: formatSizeGb(this.kvGb), left: formatSizeGb(left) });
     }
-    return this.ridesGb > 0 ? t("vllmRides", { gb: formatSizeGb(this.ridesGb) }) : "";
+    if (!(this.ridesGb > 0)) return "";
+    // What the trips cost, where the cards, their buses and the model say enough to count it; the old words where they do not.
+    const speed = this.speed;
+    return speed
+      ? t("vllmRidesSpeed", { gb: formatSizeGb(this.ridesGb), now: DecodeSpeed.said(speed.now), slower: String(Math.round(speed.slower)), full: DecodeSpeed.said(speed.full) })
+      : t("vllmRides", { gb: formatSizeGb(this.ridesGb) });
   }
 }
 
@@ -763,7 +786,12 @@ export function refreshAsidePanels(pfx = "", llamaGb = null) {
     ? FreeVramStart.of(plan, { env: $(pfx + "ENV")?.value, reserve: $(pfx + plan.reserveField)?.value,
                                gpus: computeTargetGpus(pfx) })
     : null;
-  if (start) { renderAsideVramBar(pfx, start.addGb, true, withPlan(start.bar())); return; }
+  if (start) {
+    // An unreported card is not a card with zero free memory: do not draw a partial estimate as the whole start.
+    if (!start.known) renderAsideVramBar(pfx, 0, true, withPlan({}));
+    else renderAsideVramBar(pfx, start.addGb, true, withPlan(start.bar()));
+    return;
+  }
   // A fixed figure on a one-card runner (GR00T, the voice servers) lands on the card its pin names and the scout
   // refuses it at the first MiB short (starts.py: free >= reserved) — so the bar draws it on that card alone, exactly.
   const card = row?.oneCard ? computeTargetGpus(pfx).find((g) => String(g.index) === CardPin.card($(pfx + "ENV")?.value || "")) : null;

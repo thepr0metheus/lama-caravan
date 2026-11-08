@@ -120,16 +120,15 @@ impl<'app> MetricsText<'app> {
         let state = stats.sample();
         out.metric("caravan_route_active_requests", "Requests currently streaming on the route", "gauge");
         out.metric("caravan_route_queue_depth", "Requests waiting in the route's queue", "gauge");
-        for (port, row) in state.get("agents").and_then(Value::as_object).into_iter().flatten().filter(|(_, row)| row.is_object())
-        {
+        for (id, row) in state.get("agents").and_then(Value::as_object).into_iter().flatten().filter(|(_, row)| row.is_object()) {
             let route = {
                 let said = row
                     .get("route")
                     .filter(|said| Coerce::truthy(Some(*said)))
                     .or_else(|| row.get("name").filter(|said| Coerce::truthy(Some(*said))));
-                said.map_or_else(|| port.clone(), |said| Coerce::str_of(Some(said)))
+                said.map_or_else(|| id.clone(), |said| Coerce::str_of(Some(said)))
             };
-            let labels = [("port", port.clone()), ("route", route)];
+            let labels = [("id", id.clone()), ("route", route)];
             let active = row.get("active").filter(|said| Coerce::truthy(Some(*said))).cloned().unwrap_or_else(|| json!(0));
             out.sample_of("caravan_route_active_requests", Some(&active), &labels);
             let depth = match row.get("queue") {

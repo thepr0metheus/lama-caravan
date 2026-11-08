@@ -127,27 +127,21 @@ impl CellSchedule {
             .find(|left| *left >= 0)
     }
 
-    /// A slot's schedule from now on.
+    /// A cell's schedule from now on, of the cell `cellId` names.
     pub fn set(app: &App, body: &Value) -> Result<Value, AppError> {
-        let host_id = Coerce::stripped(body.get("hostId"));
-        // absent-ok: `int(body.get("port") or 0)`: a port not said is refused below.
-        let port = Coerce::whole(body.get("port"));
-        if host_id.is_empty() || port == 0 {
-            return Err(AppError::new("hostId and port are required"));
-        }
-        let key = ServerCells::slot_key(&host_id, port);
-        if !app.admin.change(|doc| Topology::of(doc).has_slot(&host_id, port)) {
-            return Err(AppError::with_status(format!("no such cell: {key}"), 404));
+        let id = ServerCells::asked_id(body)?;
+        if !app.admin.change(|doc| Topology::of(doc).has_slot(&id)) {
+            return Err(AppError::with_status(format!("no such cell: {id}"), 404));
         }
         let empty = json!({});
         let schedule = Self::normalize(body.get("schedule").filter(|said| Coerce::truthy(Some(*said))).unwrap_or(&empty))?;
         app.admin.saving(|doc| {
-            if let Some(slot) = Topology::of(doc).find_slot(&host_id, port) {
+            if let Some(slot) = Topology::of(doc).find_slot(&id) {
                 Coerce::put(slot, "schedule", schedule.clone());
                 Coerce::take(slot, "schedState");
             }
         });
-        Ok(json!({"ok": true, "hostId": host_id, "port": port, "schedule": schedule}))
+        Ok(json!({"ok": true, "cellId": id, "schedule": schedule}))
     }
 
     /// A model brought home before the window opens, so that a scheduled cell starts from this disk instead of reading over the network.
@@ -165,9 +159,9 @@ impl CellSchedule {
         let job = CellOps::of(app).bring_home(&config, &ModelList::locations(app, true));
         if job.is_some() {
             Log::line(&format!(
-                "[cell-schedule] {}:{}: bringing the model home for {opens}",
-                Coerce::text(slot.get("hostId")),
-                Coerce::str_of(slot.get("port"))
+                "[cell-schedule] {} on {}: bringing the model home for {opens}",
+                Coerce::text(slot.get("id")),
+                Coerce::text(slot.get("hostId"))
             ));
         }
         true
@@ -199,7 +193,7 @@ impl CellSchedule {
             }
             let action = if want == "on" { "start" } else { "stop" };
             Log::line(&format!("[cell-schedule] {key}: window -> {action}"));
-            let asked = json!({"hostId": slot.get("hostId"), "port": slot.get("port"), "action": action});
+            let asked = json!({"cellId": key, "action": action});
             if let Err(error) = CellOps::of(app).action(&asked) {
                 Log::line(&format!("[cell-schedule] {key}: {action} failed: {}", error.message));
             }

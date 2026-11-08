@@ -43,20 +43,15 @@ pub struct MachineCells;
 impl MachineCells {
     const NAME_FIELDS: [&'static str; 6] = ["MODEL_NAME", "ALIAS", "RUNNER", "WHISPER_MODEL", "MOONSHINE_MODEL", "MODEL_FILE"];
 
-    /// The cells of `host_id` among `slots`, by port.
+    /// The cells of `host_id` among `slots`, by id: what each serves, and no port — the scout leases one at a start.
     pub fn of(app: &App, slots: &Map<String, Value>, host_id: &str) -> Vec<Value> {
         let host = HostIds::canonical(host_id);
         if host.is_empty() {
             return Vec::new();
         }
         let mut cells = Vec::new();
-        for slot in slots.values().filter(|slot| slot.is_object()) {
-            if HostIds::canonical(&Coerce::text(slot.get("hostId"))) != host {
-                continue;
-            }
-            // absent-ok: `int(slot.get("port") or 0)`: a slot with no port is no cell.
-            let port = Coerce::whole(slot.get("port"));
-            if port <= 0 || !SlotModel::configured(app, slot) {
+        for (id, slot) in slots.iter().filter(|(_, slot)| slot.is_object()) {
+            if HostIds::canonical(&Coerce::text(slot.get("hostId"))) != host || !SlotModel::configured(app, slot) {
                 continue;
             }
             let config = SlotModel::config_of(slot);
@@ -67,9 +62,9 @@ impl MachineCells {
                 }
             }
             named.insert("RUNNER".to_string(), json!(RunnerRegistry::runner_id(&config)));
-            cells.push((port, json!({"port": port, "modelPath": SlotModel::path(app, slot), "config": named})));
+            cells.push((id.clone(), json!({"id": id, "modelPath": SlotModel::path(app, slot), "config": named})));
         }
-        cells.sort_by_key(|row| row.0);
+        cells.sort_by(|a, b| a.0.cmp(&b.0));
         cells.into_iter().map(|row| row.1).collect()
     }
 }

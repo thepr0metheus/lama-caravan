@@ -289,17 +289,17 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 868 values. Regenerate with
+Generated from the source, not from memory — 881 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
-source disagree. A hundred and nineteen of them are composed at runtime (`…-picker`,
-`…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
+source disagree. A hundred and twenty-five of them are composed at runtime (`…-picker`,
+`…-runner-tab`, `cell-source-stale`, `pb-reader`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
-**agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
+**agent** — `agent-no-route`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
 **board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-consumer-card`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-routing-card`, `board-routing-counts`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-machine-cards`, `board-nodes-lane`, `board-processes-list`, `board-provider-cards`, `board-router-lane`, `board-scout-add`, `board-system-open`
 **boot** (the inline guard's banner, shown when the page did not boot, and taken away when it did after all) — `boot-error`
-**cell** — `cell-broken-error`, `cell-card`, `cell-chat`, `cell-chat-clear`, `cell-chat-draft`, `cell-chat-send`, `cell-chat-turn`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-gpu`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-robot-policy`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-job-voice-chat`, `cell-log`, `cell-log-lines`, `cell-log-refresh`, `cell-log-run`, `cell-log-show`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-note`, `cell-model-note-full`, `cell-model-stale`, `cell-ram`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-name`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-placement`, `cell-remote-placement-all`, `cell-remote-placement-card`, `cell-remote-placement-fit`, `cell-remote-placement-held`, `cell-remote-placement-kv`, `cell-remote-placement-limit`, `cell-remote-placement-none`, `cell-remote-placement-ram`, `cell-remote-placement-threads`, `cell-remote-placement-verdict`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-split-about`, `cell-remote-split-compare`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-ctx`, `cell-row-failed`, `cell-row-start`, `cell-row-stop`, `cell-row-strip`, `cell-settings`, `cell-settings-field`, `cell-settings-group`, `cell-settings-only`, `cell-settings-open`, `cell-settings-query`, `cell-settings-star`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-action`, `cell-window-apply`, `cell-window-band`, `cell-window-button`, `cell-window-close`, `cell-window-copy`, `cell-window-dirty`, `cell-window-discard`, `cell-window-item`, `cell-window-menu`, `cell-window-more`, `cell-window-panel`, `cell-window-place`, `cell-window-tab`, `cell-window-tile`, `cell-window-via`, `cell-remote-cache`, `cell-remote-cache-folder`, `cell-remote-strata-context`, `cell-remote-strata-draft`, `cell-remote-strata-fields`, `cell-remote-strata-kv`, `cell-remote-strata-reserve`, `cell-remote-strata-vocab`, `cell-remote-gr00t-backbone`, `cell-remote-gr00t-embodiment`, `cell-remote-gr00t-fields`, `cell-remote-gr00t-steps`, `cell-remote-trust-remote-code`, `cell-remote-max-num-seqs`, `cell-remote-kv-cache-dtype`, `cell-remote-reasoning-parser`, `cell-remote-card`, `cell-remote-cpu-offload-gb`, `cell-remote-voice-clone-fields`, `cell-remote-tts-engine`, `cell-talk`, `cell-live`, `cell-page`, `cell-remote-page-fields`, `cell-remote-page-url`
+**cell** — `cell-broken-error`, `cell-card`, `cell-chat`, `cell-chat-clear`, `cell-chat-draft`, `cell-chat-send`, `cell-chat-turn`, `cell-config-search`, `cell-config-search-hit`, `cell-config-search-results`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-gpu`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-robot-policy`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-job-voice-chat`, `cell-live`, `cell-log`, `cell-log-lines`, `cell-log-refresh`, `cell-log-run`, `cell-log-show`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-note`, `cell-model-note-full`, `cell-model-stale`, `cell-page`, `cell-ram`, `cell-remote-apply`, `cell-remote-cache`, `cell-remote-cache-folder`, `cell-remote-cancel`, `cell-remote-card`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-compute`, `cell-remote-cpu-offload-gb`, `cell-remote-draft`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-gr00t-backbone`, `cell-remote-gr00t-embodiment`, `cell-remote-gr00t-fields`, `cell-remote-gr00t-steps`, `cell-remote-health-path`, `cell-remote-kv-cache-dtype`, `cell-remote-max-model-len`, `cell-remote-max-num-seqs`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-model-name`, `cell-remote-model-picker`, `cell-remote-moonshine-model`, `cell-remote-moonshine-model-picker`, `cell-remote-page-fields`, `cell-remote-page-url`, `cell-remote-placement`, `cell-remote-placement-all`, `cell-remote-placement-card`, `cell-remote-placement-fit`, `cell-remote-placement-held`, `cell-remote-placement-kv`, `cell-remote-placement-limit`, `cell-remote-placement-none`, `cell-remote-placement-ram`, `cell-remote-placement-threads`, `cell-remote-placement-verdict`, `cell-remote-reasoning-parser`, `cell-remote-runner`, `cell-remote-runner-tab`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-split-about`, `cell-remote-split-compare`, `cell-remote-strata-context`, `cell-remote-strata-draft`, `cell-remote-strata-ds-files`, `cell-remote-strata-engram`, `cell-remote-strata-fields`, `cell-remote-strata-kv`, `cell-remote-strata-meta`, `cell-remote-strata-qwen-only`, `cell-remote-strata-reserve`, `cell-remote-strata-vocab`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-trust-remote-code`, `cell-remote-tts-engine`, `cell-remote-vllm-model`, `cell-remote-vllm-model-picker`, `cell-remote-voice-clone-fields`, `cell-remote-whisper-model`, `cell-remote-whisper-model-picker`, `cell-remote-workdir`, `cell-row`, `cell-row-ctx`, `cell-row-failed`, `cell-row-start`, `cell-row-stop`, `cell-row-strip`, `cell-settings`, `cell-settings-field`, `cell-settings-group`, `cell-settings-only`, `cell-settings-open`, `cell-settings-query`, `cell-settings-star`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-talk`, `cell-window`, `cell-window-action`, `cell-window-apply`, `cell-window-band`, `cell-window-button`, `cell-window-close`, `cell-window-copy`, `cell-window-dirty`, `cell-window-discard`, `cell-window-item`, `cell-window-menu`, `cell-window-more`, `cell-window-panel`, `cell-window-place`, `cell-window-tab`, `cell-window-tile`, `cell-window-via`
 
 **talk** (the voice window over a running cell, voice-talk.js: the window carries the cell as its id and its state ready, recording or waiting; each turn its index and user, assistant or failed; the cell's own list of voices its state asking, failed or none; the sample of a voice its state none, recording or recorded, and the line under it used or consent) — `talk-clear`, `talk-close`, `talk-consent`, `talk-keep`, `talk-keep-name`, `talk-memory`, `talk-mode`, `talk-notice`, `talk-record`, `talk-sample`, `talk-sample-forget`, `talk-sample-record`, `talk-sample-text`, `talk-sample-use`, `talk-say`, `talk-system`, `talk-text`, `talk-timing`, `talk-turn`, `talk-turns`, `talk-voice`, `talk-voices`, `talk-window`
 
@@ -315,7 +315,7 @@ that is why there is a script and not a one-liner.
 
 **pool** — `pool-add-step`, `pool-card`, `pool-delete`, `pool-empty`, `pool-levels-legend`, `pool-loose`, `pool-loose-account`, `pool-name`, `pool-new-first`, `pool-none`, `pool-settings`, `pool-step`, `pool-step-account`, `pool-step-cancel`, `pool-step-check`, `pool-step-connect`, `pool-step-custom`, `pool-step-list-state`, `pool-step-model`, `pool-step-name`, `pool-step-query`, `pool-step-remove`, `pool-step-submit`, `pool-step-window`, `pool-stop`, `pool-switch`
 
-**route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-latency`, `route-latency-row`, `route-model`, `route-model-card-link`, `route-model-lock`, `route-state`, `route-wait`
+**route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-tab`, `route-latency`, `route-latency-row`, `route-model`, `route-model-card-link`, `route-model-lock`, `route-state`, `route-wait`
 
 **sub-usage** — `sub-usage-banner`, `sub-usage-loading`
 **sub-meter** (the account card's limits drawn small in Routing, usage-stats.js) — `sub-meter`, `sub-meter-stop`, `sub-meters`
@@ -323,7 +323,7 @@ that is why there is a script and not a one-liner.
 **header** — `header`, `header-app-title`, `header-back`, `header-hf`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-machine`, `header-machines`, `header-machines-menu`, `header-machines-note`, `header-machines-open`, `header-models`, `header-page-subtitle`, `header-page-title`, `header-pages`, `header-routing`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
 **hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-checkpoint-verified`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-discard`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-open-page`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
 **Routing** — `routing-cable`, `routing-cables`, `routing-canvas`, `routing-consumer-key`, `routing-entry`, `routing-entry-copy`, `routing-entry-off`, `routing-entry-port`, `routing-entry-setup`, `routing-entry-why`, `routing-fit`, `routing-input-wait`, `routing-model-queue`, `routing-model-queue-toggle`, `routing-node`, `routing-onerror-same`, `routing-out-state`, `routing-palette-add`, `routing-queue-setting`, `routing-queue-settings`, `routing-queue-settings-toggle`, `routing-quiet-cells`, `routing-save-status`, `routing-unassigned`, `routing-unclaimed`
-**pb** (Routing's pools board, pool-board.js) — `pb-account`, `pb-account-issues`, `pb-account-state`, `pb-add-model`, `pb-add-pool`, `pb-add-row`, `pb-arrange`, `pb-cables`, `pb-choice`, `pb-choose-close`, `pb-choose-note`, `pb-choose-query`, `pb-chooser`, `pb-client`, `pb-client-ask`, `pb-client-builtin`, `pb-client-copy`, `pb-client-count`, `pb-client-deny`, `pb-client-links`, `pb-client-miss`, `pb-client-misses`, `pb-client-misses-badge`, `pb-client-name`, `pb-client-name-open`, `pb-client-name-panel`, `pb-client-probe`, `pb-client-probe-model`, `pb-client-tests`, `pb-clients`, `pb-deny`, `pb-deny-by-source`, `pb-deny-chip`, `pb-deny-close`, `pb-deny-done`, `pb-deny-group`, `pb-deny-item`, `pb-deny-more`, `pb-deny-none`, `pb-deny-open`, `pb-deny-query`, `pb-deny-still`, `pb-deny-unread`, `pb-direct`, `pb-direct-count`, `pb-direct-row`, `pb-dock`, `pb-dock-body`, `pb-dock-cell`, `pb-dock-client`, `pb-dock-foot`, `pb-dock-id`, `pb-dock-levels`, `pb-dock-pool`, `pb-dock-step`, `pb-dock-work`, `pb-entry`, `pb-history`, `pb-history-toggle`, `pb-kind`, `pb-limits`, `pb-machine`, `pb-machine-cells`, `pb-model`, `pb-model-closed`, `pb-model-grab`, `pb-model-level`, `pb-model-remove`, `pb-model-switch`, `pb-model-unused`, `pb-model-work`, `pb-models`, `pb-models-none`, `pb-move`, `pb-move-client`, `pb-move-delete`, `pb-move-done`, `pb-move-keep`, `pb-move-sets`, `pb-move-twin`, `pb-no-clients`, `pb-no-models`, `pb-no-pools`, `pb-pick-close`, `pb-pick-model`, `pb-pick-note`, `pb-pick-query`, `pb-pick-typed`, `pb-picker`, `pb-pool`, `pb-pool-copy`, `pb-pool-delete`, `pb-pool-name`, `pb-pool-turns`, `pb-pool-window`, `pb-pool-window-auto`, `pb-pool-window-stated`, `pb-pools`, `pb-probe`, `pb-probe-close`, `pb-probe-status`, `pb-pull-model`, `pb-queue`, `pb-queue-chip`, `pb-queue-edit`, `pb-queue-field`, `pb-queue-panel`, `pb-queue-settings`, `pb-queue-side`, `pb-queue-slot`, `pb-queue-wait`, `pb-route`, `pb-row`, `pb-row-remove`, `pb-row-wait`, `pb-settings`, `pb-settings-panel`, `pb-turn`, `pool-board`
+**pb** (Routing's pools board, pool-board.js) — `pb-account`, `pb-account-issues`, `pb-account-state`, `pb-add-model`, `pb-add-pool`, `pb-add-row`, `pb-arrange`, `pb-cables`, `pb-choice`, `pb-choose-close`, `pb-choose-note`, `pb-choose-query`, `pb-chooser`, `pb-client`, `pb-client-ask`, `pb-client-builtin`, `pb-client-copy`, `pb-client-count`, `pb-client-deny`, `pb-client-links`, `pb-client-miss`, `pb-client-misses`, `pb-client-misses-badge`, `pb-client-name`, `pb-client-name-open`, `pb-client-name-panel`, `pb-client-probe`, `pb-client-probe-model`, `pb-client-tests`, `pb-clients`, `pb-deny`, `pb-deny-by-source`, `pb-deny-chip`, `pb-deny-close`, `pb-deny-done`, `pb-deny-group`, `pb-deny-item`, `pb-deny-more`, `pb-deny-none`, `pb-deny-open`, `pb-deny-query`, `pb-deny-still`, `pb-deny-unread`, `pb-direct`, `pb-direct-count`, `pb-direct-row`, `pb-dock`, `pb-dock-body`, `pb-dock-cell`, `pb-dock-client`, `pb-dock-foot`, `pb-dock-id`, `pb-dock-levels`, `pb-dock-pool`, `pb-dock-step`, `pb-dock-work`, `pb-entry`, `pb-history`, `pb-history-toggle`, `pb-kind`, `pb-limits`, `pb-machine`, `pb-machine-cells`, `pb-model`, `pb-model-closed`, `pb-model-grab`, `pb-model-level`, `pb-model-remove`, `pb-model-switch`, `pb-model-unused`, `pb-model-work`, `pb-models`, `pb-models-none`, `pb-move`, `pb-move-client`, `pb-move-delete`, `pb-move-done`, `pb-move-keep`, `pb-move-sets`, `pb-move-twin`, `pb-no-clients`, `pb-no-models`, `pb-no-pools`, `pb-pick-close`, `pb-pick-model`, `pb-pick-note`, `pb-pick-query`, `pb-pick-typed`, `pb-picker`, `pb-pool`, `pb-pool-copy`, `pb-pool-delete`, `pb-pool-name`, `pb-pool-turns`, `pb-pool-window`, `pb-pool-window-auto`, `pb-pool-window-stated`, `pb-pools`, `pb-probe`, `pb-probe-close`, `pb-probe-status`, `pb-pull-model`, `pb-queue`, `pb-queue-chip`, `pb-queue-edit`, `pb-queue-field`, `pb-queue-panel`, `pb-queue-settings`, `pb-queue-side`, `pb-queue-slot`, `pb-queue-wait`, `pb-reader`, `pb-reader-block`, `pb-route`, `pb-row`, `pb-row-remove`, `pb-row-wait`, `pb-settings`, `pb-settings-panel`, `pb-turn`, `pool-board`
 **pb-schedule** (when a model is open: its ⏱ in Routing and the window that sets it, model-schedule.js) — `pb-model-schedule`, `pb-schedule`, `pb-schedule-add`, `pb-schedule-cell-note`, `pb-schedule-close`, `pb-schedule-enabled`, `pb-schedule-grid`, `pb-schedule-needs-window`, `pb-schedule-no-windows`, `pb-schedule-now`, `pb-schedule-save`, `pb-schedule-window`, `pb-schedule-zone`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
 **model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-robot-policy`, `model-job-speech-translate`, `model-job-translate`, `model-job-voice-chat`, `model-job-tts`
@@ -332,7 +332,7 @@ that is why there is a script and not a one-liner.
 **engine** — `engine-model`, `engine-model-reserve`, `engine-shelf`
 **node** — `node-cache`, `node-cache-budget`, `node-cache-clear`, `node-cache-delete`, `node-cache-dir`, `node-cache-dir-change`, `node-cache-dir-remove`, `node-cache-figures`, `node-cache-foreign`, `node-cache-keep`, `node-cache-library`, `node-cache-library-set`, `node-cache-move-error`, `node-cache-moving`, `node-cache-off`, `node-cache-on`, `node-cache-through`, `node-cache-work`, `node-cache-work-apart`, `node-cache-work-budget`, `node-cache-work-fast`, `node-cache-work-hdd`, `node-cache-work-remove`, `node-cache-work-set`, `node-cache-work-short`, `node-cache-work-wear`, `node-caravan`, `node-caravan-add`, `node-cell-filter`, `node-disconnect`, `node-disk-low`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-gpu-card`, `node-gpu-cards`, `node-hide-idle`, `node-power-schedule`, `node-poweroff`, `node-reboot`, `node-scout-old`, `node-scout-silent`, `node-scout-update`, `node-strata`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
-**machine** — `machine-add`, `machine-band`, `machine-glance`, `machine-head`, `machine-incidents-count`, `machine-incidents-open`, `machine-map`, `machine-map-block`, `machine-map-coming`, `machine-map-coming-cell`, `machine-map-grip`, `machine-map-lane`, `machine-map-legend`, `machine-map-legend-other`, `machine-map-metric`, `machine-map-total`, `machine-map-unplaced`, `machine-map-unplaced-cell`, `machine-menu`, `machine-missing`, `machine-missing-back`, `machine-model`, `machine-model-cell`, `machine-model-context`, `machine-model-ctx`, `machine-model-launch`, `machine-model-more`, `machine-model-new`, `machine-model-note`, `machine-model-note-add`, `machine-model-open`, `machine-model-rate`, `machine-model-repo`, `machine-model-said`, `machine-model-start`, `machine-model-stop`, `machine-model-window`, `machine-models`, `machine-models-filter`, `machine-models-find`, `machine-models-job`, `machine-models-none`, `machine-models-outside`, `machine-open`, `machine-pick`, `machine-place`, `machine-plan-cancel`, `machine-plan-start`, `machine-side`, `machine-side-activity`, `machine-side-disk`, `machine-side-engines`, `machine-side-incidents`
+**machine** — `machine-add`, `machine-band`, `machine-build`, `machine-build-card`, `machine-build-empty`, `machine-build-none`, `machine-build-port`, `machine-build-shelf`, `machine-build-slot`, `machine-build-slots`, `machine-build-step`, `machine-build-strip`, `machine-chosen`, `machine-chosen-cells`, `machine-chosen-line`, `machine-chosen-none`, `machine-glance`, `machine-head`, `machine-incidents-count`, `machine-incidents-open`, `machine-map`, `machine-map-block`, `machine-map-grip`, `machine-map-lane`, `machine-map-legend`, `machine-map-legend-other`, `machine-map-metric`, `machine-map-total`, `machine-menu`, `machine-missing`, `machine-missing-back`, `machine-model`, `machine-model-cell`, `machine-model-choose`, `machine-model-context`, `machine-model-ctx`, `machine-model-launch`, `machine-model-new`, `machine-model-note`, `machine-model-note-add`, `machine-model-rate`, `machine-model-repo`, `machine-model-said`, `machine-model-start`, `machine-model-stated`, `machine-model-stop`, `machine-model-window`, `machine-models`, `machine-models-filter`, `machine-models-find`, `machine-models-job`, `machine-models-none`, `machine-models-outside`, `machine-open`, `machine-pick`, `machine-place`, `machine-plan-cancel`, `machine-plan-start`, `machine-side`, `machine-side-activity`, `machine-side-disk`, `machine-side-engines`, `machine-side-incidents`
 **add-model** (the new-cell wizard, add-model.js) — `add-model`, `add-model-ability`, `add-model-all`, `add-model-back`, `add-model-cache`, `add-model-close`, `add-model-create`, `add-model-create-start`, `add-model-ctx`, `add-model-ctx-own`, `add-model-draft`, `add-model-empty`, `add-model-flash`, `add-model-full`, `add-model-hf`, `add-model-job`, `add-model-keep`, `add-model-keep-folder`, `add-model-mmproj`, `add-model-name`, `add-model-next`, `add-model-parallel`, `add-model-place`, `add-model-row`, `add-model-runner`, `add-model-search`, `add-model-starred`, `add-model-starred-none`, `add-model-step`, `add-model-temp`, `add-model-thinking`, `add-model-tip`, `add-model-where`
 **provider** (the cloud providers on the main board, provider-glances.js) — `provider-add`, `provider-edit`, `provider-glance`, `provider-group`, `provider-group-add`, `provider-group-empty`, `provider-group-remove`, `provider-none`, `provider-resets`, `provider-state`
 **credit** (a key account's credit left, on the main board's card and in the account's window, credit-left.js) — `credit-left`, `credit-since`, `credit-warn`
@@ -342,7 +342,8 @@ that is why there is a script and not a one-liner.
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`, `system-vllm-machine`
 
 Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
-use `host:port` (the `slotKey` the board already computes), `routing-node` uses
+use the cell's id (`cellId`: `c<port>` for a cell made before 2026-11-08, `c` and eight hex digits for a new one; `host:port`
+until then), `routing-node` uses
 the node id (`rule:…`) — or, for the two side panels, `inputs:block` and
 `outputs:block` — `routing-input-wait` uses the input
 port's id (`skynet:proxy:<port>` — `skynet` is the controller's internal id in
@@ -356,13 +357,19 @@ and buttons (`-card`, `-limit`, `-all`, `-none`) carry the card's index in `data
 `ramShort`, `over` or `unknown`. `cell-remote-placement-threads` is the RAM lane's «Use N», drawn while the cell computes
 its part in RAM with fewer threads than the machine has cores.
 
+The speculative draft a llama.cpp cell loads (2026-11-07) is its own part of the form's estimate line, `cell-remote-draft`,
+drawn only while the start loads a draft file (none for `SPEC_TYPE` none, ngram-*, an embeddings cell or no file). Its
+`data-t-state` says where its weights live: `cards`, `ram` (`SPEC_DRAFT_N_GPU_LAYERS` 0), `split` (its experts in RAM by
+`CPU_MOE_DRAFT`), `unknown` (its place cannot be said here, and it is counted on the cards) or `unsized` (the library has not its
+file: its figure is "—", and it is in no sum).
+
 A cell's line says the window it is set to and the most its model was trained for: `cell-row-ctx`, with `data-t-state`
 `both`, `over` (set past the training — stretched), `set` or `max` (only one is known); with neither it is not drawn.
 
 A model's comment on /models (one for all its quants, 2026-10-19) hangs on the model's own first-level row: `models-note-chip` (a 💬 on the folded row, the comment in
 its tooltip) and, once the model is opened, `models-note` (the description, with `models-note-edit`) or `models-note-add` (a model with none); `models-params` and `models-comment` (the developer's recommended parameters and the owner's own comment, 1.3.688) have the same parts, and `models-rate` (`data-t-id` `<model>:like` or `:dislike`) sets its mark, which `model-rating` shows on its row, in the pickers and on /hf. The box is
 `models-note-input` with `models-note-save` and `models-note-cancel`; all of them carry the model's folder in `data-t-id`, and a page that could not read the comments
-draws none of them but says `models-notes-unknown` under the list. On a cell's card the comment on its model is `cell-model-note` (`data-t-id` = `host:port`) under
+draws none of them but says `models-notes-unknown` under the list. On a cell's card the comment on its model is `cell-model-note` (`data-t-id` = the cell's id) under
 the cell's own note, and the cell's window shows it whole as `cell-model-note-full`.
 
 In Routing, a model's queue is a lane under the model's row: `routing-model-queue`
@@ -459,7 +466,7 @@ list of machines, `header-machines`: `header-machines-open` opens `header-machin
 its own page a link carries `aria-current="page"` (the strip's `node-caravan-models` and
 `node-caravan-hf`, the board's `board-pages` with `board-models-open` and `board-hf-open`,
 and /hf's `hf-on-disk` are gone). Under the strip, `node-caravan-add` (`data-t-id` the node) is
-«＋ Add model»: it opens the cell editor on the next free port with the model
+«＋ Add model»: it opens the cell editor for a new cell (its id comes with the first Apply) with the model
 list open (`data-caravan-add` the node; absent, and the button disabled, while a
 reserve on the machine is under way) and makes nothing until Apply.
 
@@ -488,7 +495,7 @@ Right under an engine's strip, over the chips and whichever of them is pressed,
 the models it holds that no cell serves stand on a shelf, `engine-shelf`
 (`<node>:<kind>`), one line each, `engine-model` with
 `data-t-id` `<node>:<kind>:<model>`. A line's `engine-model-reserve` ("+", the
-same id) reserves a cell with that model on the next free port, with no dialog;
+same id) reserves a new cell with that model, with no dialog;
 when the pressed chip would hide the new cell, the engine's chip is pressed
 instead (`node-cell-filter` `<node>:<kind>`, `aria-pressed="true"`). "+" is
 `disabled` while a cell is being reserved on the machine or an act runs on
@@ -547,7 +554,7 @@ stays in the DOM behind the line, so its hooks (`cell-start`, `cell-configure`,
 hover; a cell's opens as a window on a click on its line (`cell-window`, with
 the same `data-t-id` as the line), closed by `cell-window-close`, a click on
 the dimmed board or Escape. The window (variant Г, 1.3.621) is a header, a band
-and tabs; every hook in it carries the cell's `host:port` as `data-t-id`, and a
+and tabs; every hook in it carries the cell's id as `data-t-id`, and a
 part that repeats adds `:<its id>`. The band `cell-window-band` says the cell's
 state in `data-t-state` (`running`, `starting`, `warming`, `downloading`,
 `stopping`, `deleting`, `stopped`, `reserved`, `failed`,
@@ -632,7 +639,7 @@ chosen one, the choice sticks in `localStorage`): the cells another launcher
 runs are marked `data-cell-hidden-by="launcher"` —
 a cell in trouble or in motion, one just reserved and one whose window is open
 are never hidden. A cell whose model runs inside an engine (Ollama, LM Studio)
-names its model in `cell-engine-model` (`data-t-id` = `host:port`), and its
+names its model in `cell-engine-model` (`data-t-id` = the cell's id), and its
 window says where its requests go in `cell-window-via` (the engine's
 `127.0.0.1:<port>`). A card in trouble (crash, start in progress, an agent with no
 route — that one also carries `agent-no-route`) never folds; a cell that failed is the
@@ -645,7 +652,7 @@ and sparkline in `data-node-metric-val` / `data-node-metric-spark` under the sam
 ## Repeated elements carry their own name
 
 `cell-card` and `cell-configure` each expose the identity their `data-t-id`
-carries — `Cell controller:22001`, `Configure: controller:22001`. Before this
+carries, by the cell's name or else its id — `Cell Qwen3-Embedding-0.6B`, `Configure: c3f9a02b1`. Before this
 they were announced identically 22 and 22 times over. (`board-cell-add`, the
 Reserve-cell stub, did the same until it left in 1.3.393.)
 
@@ -693,38 +700,66 @@ is no expander to click; switching the runner is what changes the field set, and
 A machine's page (variant В «Карта памяти», 1.3.632) leads with `machine-head`; in its line stand `machine-band`
 (`data-t-state` = `good`, `busy`, `idle` or `bad`), `machine-menu` and `machine-add`. Under it is `machine-map`: a
 `machine-map-lane` per card (`data-t-id` = `gpu-<index>`) and one for the RAM (`ram`). Each cell that holds memory is a
-`machine-map-block` (`data-t-id` = its port) on every lane it holds, `aria-pressed` saying whether it is the chosen one, and
-beside the lanes it has one `machine-map-legend` (the same `data-t-id`, the same `aria-pressed`): its name, how much it holds in all, where. What is to
-come stands first, then the cells the largest first, then other processes of 1 GB or more (`machine-map-legend-other`, no button). A pointer on a block or a row
-lights that holder's pieces on every lane (`.machine-rack` says `is-lighting`, its blocks and row `is-lit`). The rack stands across the whole page, and at the end of each lane's row are its `machine-map-metric`s (`data-t-id` = `gpu-<index>:load`, `:memory`, `:power`, or `ram:load`, `ram:memory`): the value and little chart the monitor's tick writes under `data-node-metric-val` and `data-node-metric-spark` (`<machine>:gpu:<index>`, `mem`, `power`; `<machine>:cpu`, `ram`). `machine-map-total` (`data-t-id` = `gpu`, `vram`, `power`) is all the cards together, in the map's head; a press on either opens the machine's chart of it; which part of the cell a piece is, its layers and its
+`machine-map-block` (`data-t-id` = its cell's id) on every lane it holds, `aria-pressed` saying whether it is the chosen one, and
+beside the lanes it has one list, `machine-map-legend` (the same `data-t-id`, the same `aria-pressed`): a row for every cell the
+machine has — the ones that hold memory and the ones on their way — with its name, how much it holds in all, where it lies, and
+what it is doing. The last column is words, not a figure: a cell on its way has no speed to show, and a cell whose memory nobody
+measured has nothing measured to show, so the absence is said in words. The cells on their way stand first, then the cells the
+largest first, then other processes of 1 GB or more (`machine-map-legend-other`, no button). The row over the columns is words over
+them, not a row of data: it has no `data-t`, and the patch that keeps the list current writes only the rows that have one. A row of
+the list is the only place a cell is picked on this page, and the block under its legend shows the model that pick names. A pointer on a block or a row
+lights that holder's pieces on every lane (`.machine-rack` says `is-lighting`, its blocks and row `is-lit`). The rack stands across the whole page, and at the end of each lane's row are its `machine-map-metric`s (`data-t-id` = `gpu-<index>:load`, `:memory`, `:power`, or `ram:load`, `ram:memory`): the value and little chart the monitor's tick writes under `data-node-metric-val` and `data-node-metric-spark` (`<machine>:gpu:<index>`, `mem`, `power`; `<machine>:cpu`, `ram`). `machine-map-total` (`data-t-id` = `gpu`, `vram`, `power`) is all the cards together, in the page's head after the map's legend; a press on either opens the machine's chart of it; which part of the cell a piece is, its layers and its
 runner are in the hovers of its block and its row. A cell's `machine-model-launch`, a block or a row of the list can be dragged onto a lane: that lays a plan, and the lane under the
 pointer says `data-machine-drop` = `ok` or `no`. With a plan in hand the cell's `machine-pick`, the last line of its `machine-model-launch`, has `data-t-state` = `planned`, its buttons are
 `machine-plan-start` and `machine-plan-cancel`, and a chosen llama.cpp cell has a `machine-map-grip` on each lane (`data-t-id` = the card's index, or
 `ram`), `is-on` where it holds a piece: `data-machine-grip-holds` says how much, in GB. That line's `machine-place` buttons (`data-t-id` = the card's
-index, or `ram`) lay the same plan without a pointer. Nothing changes on the machine before `machine-plan-start`; a
-running cell nobody measured is a `machine-map-unplaced-cell` in `machine-map-unplaced`, and a cell on its way (copying its
-model, starting, loading, stopping) a `machine-map-coming-cell` in `machine-map-coming`, choosable the same way. Under the
-map is the list of models (2026-11-02; the bench of cards went on the same day, and `machine-bench`, `machine-bench-cell`, `machine-bench-ctx`,
-`machine-bench-job`, `machine-bench-repo` and `machine-bench-rate` with it), `machine-models` (`data-t-state` = `models`, or `empty` when neither the library nor a cell
-names one): a `machine-model` per model's folder (`data-t-id` = the folder, `data-t-state` = `cells` or `none`), those with a cell here first, then by name. Its
-`data-machine-model-works` says whether a cell of it works or is on its way. `machine-model-open` opens or closes its row in place (`aria-expanded`): with no press a row with
-a cell working or on its way stands open by itself, and so does the chosen cell's; several may stand open, and a press closes one even then. Under the name, `machine-model-repo`
+index, or `ram`) lay the same plan without a pointer. Nothing changes on the machine before `machine-plan-start`. While a cell is carried every lane
+says `data-machine-target` = `ok` or `no`, whether it may lie there.
+
+Under the map is the launch builder, `machine-build` (`data-t-id` = the model it builds for; `data-t-state` = `building`, `whole`, or `none` when no
+model is picked — said by `machine-build-none` with `data-t-id` = `model`). It is two rows (the owner's choice Б, 2026-11-08): the rail of three
+places on top, and under it the shelf. The places are the steps: each `machine-build-slot` (`data-t-id` = `engine`, `quant` or `params`,
+`data-t-state` = `full` or `empty`) holds its `machine-build-step` (a tab of its own, `data-t-id` = the step; the one shown has `aria-selected="true"`),
+which shows its cards on the one `machine-build-shelf` (`data-t-id` = the step shown): `machine-build-card`s (`data-t-id` = `engine:<runner>`, `quant:<file>` or `params:maker` / `params:set:<name>` / `params:cell:<cell id>` —
+`params:maker` is what the model's maker stated once, first on its step; `data-t-state` =
+`ok`, `on` or `dim`, a dim one's reason in its hover); a step with none says why by `machine-build-none` (`data-t-id` = the step). A card is put by a
+press or carried up onto the rail, and the shelf goes on to the next step. While the launch is not whole the rail is `machine-build-slots`, and its
+end names the builder and holds the model's `machine-model-new`; a full place has its `machine-build-empty` (✕, `data-t-id` = the step). Whole, the
+rail is one `machine-build-strip` (`data-t-id` = `new`: the cell is not made until its Start, which makes it and
+answers its id) with its `machine-build-port` (the "new cell" chip; the hook keeps its name), carried onto a lane as a cell's
+row is, and the map's last line for that launch — its `machine-place` buttons, and with a plan
+its `machine-plan-start`, which makes the cell and starts it.
+
+Inside «What lies where», under its legend and on the map's whole width, is the block of the model picked (the owner's choice, 2026-11-05; its place
+— variant А of the mockups, the owner's choice of 2026-11-06, so the map keeps its block and the pane that scrolls is the list): `machine-chosen`
+(`data-t-id` = the model it shows, `data-t-state` = `chosen`, or `none` when nothing is picked) — and the absence is said in words by `machine-chosen-none`,
+not drawn as an empty block. It holds the model's parts (`machine-chosen-line`), a `machine-model-launch` row per cell of that
+model (`machine-chosen-cells`), the cells whose model has no row here to pick, and the button that makes a new cell from it. The texts its makers
+recommend are not in it: they are read on the row of the list that is picked. The block is drawn for one model, so a pick that moves it draws the page
+again; the list is shown in place.
+The list the page puts under the map (2026-11-02; the bench of cards went on the same day, and `machine-bench`, `machine-bench-cell`, `machine-bench-ctx`,
+`machine-bench-job`, `machine-bench-repo` and `machine-bench-rate` with it) is `machine-models` (`data-t-state` = `models`, or `empty` when neither the library nor a cell
+names one): a `machine-model` per model's folder (`data-t-id` = the folder, `data-t-state` = `cells` or `none`), those with a cell here first, then by name,
+and `machine-model-choose` (`aria-pressed`) is the press that picks which model the block shows — `machine-model-open`, `aria-expanded`, is gone with the row that used to
+open. A row of the list is a press and nothing else: its buttons are in the block, and a cell whose model is not picked has no row on the page until its model is picked; what its makers said stands under the row that is picked, and a row that is not picked says nothing but its parts. Under the name, `machine-model-repo`
 (`data-t-id` = the folder) is the repository on Hugging Face its first cell's path names (`author/repo`, the cell window's /hf link reads the same path); a model whose cells name
 none has no such line. Its count of cells is a `[role="img"]` `.machine-model-cells`, its `aria-label` the words. `machine-model-rate` (`data-t-id` = `<model>:like` or `<model>:dislike`,
 1.3.688) is the owner's mark on that model: `aria-pressed` says which stands; a press keeps it (`POST /api/model-rating`), shows at once and chooses nothing, and it works for a
 model with no cell. `machine-models-filter` (`data-t-id` = `all`, `cells`, `like`), the `machine-models-job` pills (`data-t-id` = the work) and `machine-models-find` narrow the list
-in place, together, and `machine-models-none` says nothing stayed. An opened row's `machine-model-more` holds each cell of the model as a `machine-model-launch` (`data-t-id` = the
-port), `hidden` while it does not do the work chosen and is not the chosen cell: a click anywhere on it chooses the cell, as `machine-model-cell` does (its port, a button, with `aria-pressed`). Its size is the
-span `[data-machine-bench-size="<port>"]` (what a working cell holds, what another weighs), and its verdict the span `[data-machine-bench-fit="<port>"]`: a working cell's
-`data-t-state` is `running`, `warming` or `broken`, `crashed` once its scout's watchdog had to bring it back, `unreachable` when the controller does not reach its port, one on its way says its phase (`downloading`, `starting`, `loading`, `resolving`, `stopping`), and a standing one where it would go
+in place, together, and `machine-models-none` says nothing stayed. The block holds each cell of the model it shows as a `machine-model-launch` (`data-t-id` = the
+cell's id), `hidden` while it does not do the work chosen and is not the chosen cell: a click anywhere on it chooses the cell, as `machine-model-cell` does (its name chip, a button, with `aria-pressed`).
+The cells stand in the order this machine gave them; no row says where its values came from (a model's default cell is the launch builder's maker's set since 2026-11-07). Its size is the
+span `[data-machine-bench-size="<cell id>"]` (what a working cell holds, what another weighs), and its verdict the span `[data-machine-bench-fit="<cell id>"]`: a working cell's
+`data-t-state` is `running`, `warming` or `broken`, `crashed` once its scout's watchdog had to bring it back (`unreachable`, when the controller did not reach its port, went 2026-11-08: it reaches every cell through the scout), one on its way says its phase (`downloading`, `starting`, `loading`, `resolving`, `stopping`), and a standing one where it would go
 now: `cards`, `card`, `free`, `spill`, `kvRam` (its layers on the cards, its cache in RAM), `ram`, `none`, `unknown` — or `failed` and `reserved`, which no estimate overwrites; a failed
 cell's reason is in its `title`, and whole on its `machine-pick` line. A llama.cpp cell whose model the library knows is laid by the cell window's own plan (1.3.635), its size "with the cache"; any other by what its runner
-takes, or by its files "without the cache". A token cell's row says its context with the line's own chip (1.3.648): `machine-model-ctx` (`data-t-id` = the port), `data-t-state` `both`,
+takes, or by its files "without the cache". A token cell's row says its context with the line's own chip (1.3.648): `machine-model-ctx` (`data-t-id` = the cell's id), `data-t-state` `both`,
 `set`, `max` or `over` as the line's `cell-row-ctx`; a cell whose context nobody said has none. `machine-model-window`, `machine-model-start` and `machine-model-stop` carry the attributes of the card's own buttons: the same question, the same stop or start, and press them only on a cell the test made itself. They
-do and choose nothing. `machine-models-outside` names by port the cells that have no model's row; each of them, and a port with no model, has a `machine-model-launch` of its own, in
-`[data-machine-models-rest]`, gone while the list is searched by words or 👍. `machine-model-said` (`data-t-state` = `said`, or `unread` when the texts could not be read) is what its
-makers recommend; `machine-model-new` opens the new-cell wizard on the model; `machine-model-context` (`data-t-id` = the model, `data-t-state` `known`, `unknown` or `none`) is the longest context it was trained for. A choice shows that
-cell's `machine-pick` line (`data-t-id` = the port; the others are `hidden`), and with nothing chosen — or a port the
+do and choose nothing. `machine-models-outside` names by their ids the cells that have no model's row; each of them, and a cell with no model, has a `machine-model-launch` of its own, in
+`[data-machine-models-rest]` inside `machine-chosen-cells`, gone while the list is searched by words or 👍. `machine-model-said` (`data-t-state` = `said`, or `unread` when the texts could not be read) is what its
+makers recommend; `machine-model-stated` (`data-t-state` = `stated`, `data-t-id` = the folder) is what a maker stated once — the numbers the launch builder offers
+as the model's own set, each naming the field it belongs to; both stand on the row that is picked, never in the block, and a model the table does not name draws neither line, and that is not the same as a text that could not be read; `machine-model-new` opens the new-cell wizard on the model; `machine-model-context` (`data-t-id` = the model, `data-t-state` `known`, `unknown` or `none`) is the longest context it was trained for. A choice shows that
+cell's `machine-pick` line (`data-t-id` = the cell's id; the others are `hidden`), and with nothing chosen — or a cell the
 machine does not have — none; the chosen cell's row stands whatever the list is narrowed to; a chosen cell that stands is drawn dashed on the lanes where it would go
 (`ui-lane-blk--estimate`, and its cache and buffers in `ui-lane-blk--estimate-cache` where the plan tells them apart). The
 machine's page draws no cell lines of its own: they stay in the page, hidden, so the windows open from there.
@@ -735,7 +770,7 @@ words that its scout does not report it), `machine-side-incidents` and `machine-
 card's figures stand on its row of the rack). `machine-incidents-count` is the board's own incident counter (`data-t-state` = `some`, `none`, or `unknown` with a dash
 while the monitor has not answered), and `machine-incidents-open` opens the incidents as the bar's "⚠" does.
 
-The new-cell wizard (1.3.638, `add-model.js`) is `add-model`, its data-t-id the cell it makes (`<machine>:<port>`) and its data-t-state the step: `pick`, `runner` or `place`. Its parts: `add-model-close`; `add-model-step` (data-t-id 0–2, `disabled` until a model is picked); the first step's `add-model-job` (data-t-id the job, `aria-pressed`), `add-model-ability` (`projector`, `long`, `cell`), `add-model-search`, `add-model-hf`, `add-model-row` (data-t-id the model's value, `aria-pressed` on the one picked) and `add-model-empty`; the runner's `add-model-runner` (data-t-id a runner that can run the model), `add-model-mmproj`, `add-model-draft` and `add-model-full` (the full form); the third step's `add-model-ctx` (data-t-id a window), `add-model-ctx-own`, `add-model-parallel`, `add-model-cache`, `add-model-where` (`all`, a card's index, `cpu`), `add-model-flash`, `add-model-thinking`, `add-model-temp`, `add-model-name`, `add-model-starred` (data-t-id the field) or `add-model-starred-none`, `add-model-place`, `add-model-tip`, `add-model-all` and `add-model-keep`; the foot's `add-model-back`, `add-model-next`, `add-model-create` and `add-model-create-start`. The cell window's editor of the settings draws a `cell-settings-star` on each row (`aria-pressed`; data-t-id `<cell>:<FIELD>`).
+The new-cell wizard (1.3.638, `add-model.js`) is `add-model`, its data-t-id the cell it makes (`new:<machine>` until the first Apply names it) and its data-t-state the step: `pick`, `runner` or `place`. Its parts: `add-model-close`; `add-model-step` (data-t-id 0–2, `disabled` until a model is picked); the first step's `add-model-job` (data-t-id the job, `aria-pressed`), `add-model-ability` (`projector`, `long`, `cell`), `add-model-search`, `add-model-hf`, `add-model-row` (data-t-id the model's value, `aria-pressed` on the one picked) and `add-model-empty`; the runner's `add-model-runner` (data-t-id a runner that can run the model), `add-model-mmproj`, `add-model-draft` and `add-model-full` (the full form); the third step's `add-model-ctx` (data-t-id a window), `add-model-ctx-own`, `add-model-parallel`, `add-model-cache`, `add-model-where` (`all`, a card's index, `cpu`), `add-model-flash`, `add-model-thinking`, `add-model-temp`, `add-model-name`, `add-model-starred` (data-t-id the field) or `add-model-starred-none`, `add-model-place`, `add-model-tip`, `add-model-all` and `add-model-keep`; the foot's `add-model-back`, `add-model-next`, `add-model-create` and `add-model-create-start`. The cell window's editor of the settings draws a `cell-settings-star` on each row (`aria-pressed`; data-t-id `<cell>:<FIELD>`).
 
 ## `node-poweroff` is the one control that cannot be undone
 
@@ -836,8 +871,8 @@ name, not its host id. See below.
 ## A cell has three lifecycle states, not two
 
 A card offers `cell-start` **or** `cell-stop` — never both, and sometimes
-neither. The third state is `reserved`: the port is held, nothing is configured
-to run on it, so there is nothing to start. Such a card offers only
+neither. The third state is `reserved`: the cell is kept, nothing is configured
+to run in it, so there is nothing to start. Such a card offers only
 `cell-configure` and `cell-delete`.
 
 ```
@@ -847,8 +882,7 @@ reserved  → neither; configure it first
 ```
 
 A caravan cell begins at `node-caravan-add` («＋ Add model», one per machine,
-`data-t-id` = host id): the editor opens on the next free port, named in the
-button's `title`, and Apply makes a configured cell — there is no reserved step
+`data-t-id` = host id): the editor opens on a new cell, and Apply makes a configured cell, its id the controller's answer — there is no reserved step
 in between any more (the Reserve-cell stub, `board-cell-add`, left in 1.3.393,
 the operator's call). A cell can still be reserved: an engine shelf's
 `engine-model-reserve` holds a port for a model in an engine. So "a card offers

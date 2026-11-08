@@ -7,7 +7,7 @@
 use crate::http_client::{HttpClient, HttpError};
 use crate::machine::Rounded;
 use os::clock::Clock;
-use rules::Coerce;
+use rules::{CellDoor, Coerce};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -148,7 +148,7 @@ impl HttpServerAsk {
 impl ServerAsk for HttpServerAsk {
     /// A reader that asks for text/plain is what Prometheus is: `llama.cpp` and vLLM answer it anyway, Strata only then.
     fn metrics(&self, port: i64) -> Result<(String, String), HttpError> {
-        let url = format!("http://127.0.0.1:{port}/metrics");
+        let url = format!("http://{}:{port}/metrics", CellDoor::LISTEN);
         let fields = [("Accept", "text/plain".to_string())];
         let answer = self.http.ask("GET", &url, &fields, &[], Self::TIMEOUT)?;
         // absent-ok: a server that names no start of its process has one identity for all it says.
@@ -158,7 +158,7 @@ impl ServerAsk for HttpServerAsk {
     }
 
     fn props(&self, port: i64) -> Option<Value> {
-        self.http.json("GET", &format!("http://127.0.0.1:{port}/props"), &[], &[], Self::TIMEOUT).ok()
+        self.http.json("GET", &format!("http://{}:{port}/props", CellDoor::LISTEN), &[], &[], Self::TIMEOUT).ok()
     }
 }
 
@@ -180,6 +180,16 @@ impl ServerProbe {
 
     fn memory(&self) -> MutexGuard<'_, Memory> {
         self.memory.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// What was read of the server at `port` goes: its cell stopped, and the port is free for another cell, whose server is another
+    /// (Papyrus `caravan-scout-port-lease`): a figure kept for half a minute would be the old cell's under the new one's name.
+    pub fn forget(&self, port: i64) {
+        let mut memory = self.memory();
+        memory.metrics.remove(&port);
+        memory.props.remove(&port);
+        memory.counted.remove(&port);
+        memory.timed.remove(&port);
     }
 
     /// The cell's live token rates and its queue: each only when the server says it, or `noMetrics` when it answers that it keeps none.

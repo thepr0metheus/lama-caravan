@@ -41,7 +41,9 @@ below are what the layout stands on, and each is easy to bend without a word:
     cloud providers' — is a `board-sub-title`, not a column's, and scrolls with its section;
   - the layer of cables is cut at the board's edge and at the head's height, so a cable to a card scrolled up does not run across a title;
   - every one of these rules is for a board that is not a machine's own window (`html:not([data-board-view="machine"])`): that window
-    is one column of cards and scrolls as a page, as before.
+    is one column of cards and scrolls as a page, as before;
+  - they are the board's rules at rest, read outside the @media blocks: on a phone (720 px and down) the board folds into one column
+    and scrolls as a page too (2026-11-07; test_pages_fit_phone_css.py holds that).
 
 Each claim has a positive and a negative pin.
 
@@ -184,14 +186,17 @@ class BoardColumns:
     @classmethod
     def problems(cls, css, markup, reach=12.0):
         g = cls.GUARD
-        page = declared(css, f"{g}:has(.topology-view)")
-        body = declared(css, f"{g} body:has(.topology-view)")
-        main = declared(css, f"{g} body:has(.topology-view) > .topology-view")
-        grid = declared(css, f"{g} .topology-view > .topology-board")
-        board = declared(css, f"{g} .topology-board")
-        col = declared(css, f"{g} .topology-board .board-col")
-        scroller = declared(css, f"{g} .topology-board .board-scroll")
-        cables = declared(css, f"{g} .topology-cables")
+        # The window is the board's at rest: on a phone the board folds into one column and is a page again, in an @media block of
+        # its own (test_pages_fit_phone_css.py holds that one), and a rule of that block must not pass for the rule at rest.
+        rest = CssRules.split(css)[0]
+        page = declared(rest, f"{g}:has(.topology-view)")
+        body = declared(rest, f"{g} body:has(.topology-view)")
+        main = declared(rest, f"{g} body:has(.topology-view) > .topology-view")
+        grid = declared(rest, f"{g} .topology-view > .topology-board")
+        board = declared(rest, f"{g} .topology-board")
+        col = declared(rest, f"{g} .topology-board .board-col")
+        scroller = declared(rest, f"{g} .topology-board .board-scroll")
+        cables = declared(rest, f"{g} .topology-cables")
         bad = []
         if page.get("overflow-y") != "hidden":
             bad.append("the page scrolls down as a whole: the document has no overflow-y: hidden")
@@ -219,7 +224,7 @@ class BoardColumns:
             bad.append("the first row stands against the title: .board-scroll has no padding-top, and the 12px from a title to its first row are short")
         if scroller.get("align-content") != "start":
             bad.append("a body that is a grid stretches its rows to its height: .board-scroll needs align-content: start")
-        clients_body = declared(css, f"{g} .topology-column > .board-scroll")
+        clients_body = declared(rest, f"{g} .topology-column > .board-scroll")
         if clients_body.get("display") != "grid" or CssRules.px(clients_body.get("gap", "")) != 12:
             bad.append("the clients' tools and cards are not 12px apart: the clients' body is not a grid with gap: 12px, as the column's grid kept them before it was a head and a body")
         # a machine's own window hides the titles and what is not the machine's, in the lane's body now

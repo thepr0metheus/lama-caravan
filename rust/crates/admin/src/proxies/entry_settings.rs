@@ -7,7 +7,6 @@ use crate::common::misc::ProxyHeartbeat;
 use crate::domain::client_proxy::ProxyRoute;
 use rules::{AppError, Coerce, PyRepr};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
 
 /// Whether other machines reach the caravan's ports, on the proxy's own word.
 pub struct PortDoor;
@@ -33,14 +32,13 @@ impl PortDoor {
     }
 }
 
-/// Where a consumer calls the caravan: one rule for the board's proxy rows, the agents' cards and Routing's clients panel.
+/// Where a consumer calls the caravan: one rule for the board's client rows, the agents' cards and Routing's clients panel.
 pub struct ConsumerAddress {
     host: String,
     door: Option<bool>,
     entry_port: i64,
     public: String,
     entry_url: String,
-    closed: BTreeSet<i64>,
 }
 
 impl ConsumerAddress {
@@ -63,22 +61,16 @@ impl ConsumerAddress {
         } else {
             public.clone()
         };
-        let closed = config
-            .get("routes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|route| route.is_object() && Coerce::truthy(route.get("portClosed")))
-            .map(|route| Self::port_of(route.get("port")))
-            .collect();
-        Self { host: host.to_string(), door, entry_port, public, entry_url, closed }
+        Self { host: host.to_string(), door, entry_port, public, entry_url }
     }
 
-    /// The address of `port`: the entry for a closed one, nothing when no machine reaches the ports.
+    /// Where every client calls: the entry; "" while it is off.
+    pub fn client(&self) -> String {
+        self.entry_url.clone()
+    }
+
+    /// The address of an agent's port of the older kind, as its record was bound: nothing when no machine reaches the ports.
     pub fn of(&self, port: i64) -> String {
-        if self.closed.contains(&port) && !self.entry_url.is_empty() {
-            return self.entry_url.clone();
-        }
         if self.door == Some(false) {
             return String::new();
         }
@@ -120,16 +112,6 @@ impl<'app> EntrySettings<'app> {
         host_good && port_good && path_good
     }
 
-    fn ports_of(routes: &[Value]) -> Vec<i64> {
-        let mut closed: Vec<i64> = routes
-            .iter()
-            .filter(|route| Coerce::truthy(route.get("portClosed")))
-            .map(|route| ConsumerAddress::port_of(route.get("port")))
-            .collect();
-        closed.sort_unstable();
-        closed
-    }
-
     /// The settings as the board reads them.
     pub fn read(&self) -> Result<Value, AppError> {
         let config = ProxiesConfig::of(self.app).load()?;
@@ -142,7 +124,6 @@ impl<'app> EntrySettings<'app> {
             "publicUrl": entry.and_then(|entry| entry.get("publicUrl")).filter(|said| Coerce::truthy(Some(*said))).cloned().unwrap_or_else(|| json!("")),
             "listening": port != 0 && ProxiesConfig::port_is_listening(port),
             "keyedRoutes": routes.iter().filter(|route| !Coerce::stripped(route.get("apiKey")).is_empty()).count(),
-            "closedPorts": Self::ports_of(&routes),
         }))
     }
 
@@ -176,22 +157,7 @@ impl<'app> EntrySettings<'app> {
                 409,
             ));
         }
-        let closed = Self::ports_of(routes);
-        let named: Vec<String> = closed.iter().map(ToString::to_string).collect();
-        let named = named.join(", ");
-        match closed.len() {
-            0 => Ok(()),
-            1 => Err(AppError::with_status(
-                format!("port {named} is closed — its agent comes in only through the entry; open it before closing the entry"),
-                409,
-            )),
-            _ => Err(AppError::with_status(
-                format!(
-                    "ports {named} are closed — their agents come in only through the entry; open them before closing the entry"
-                ),
-                409,
-            )),
-        }
+        Ok(())
     }
 
     /// The settings from now on.
@@ -224,11 +190,11 @@ impl<'app> EntrySettings<'app> {
             if !(Self::PORT_MIN..=Self::PORT_MAX).contains(&port) {
                 return Err(AppError::new(format!("the entry's port must be {}..{}", Self::PORT_MIN, Self::PORT_MAX)));
             }
-            let mut taken = config.all_taken_ports(&routes);
+            let mut taken = config.all_taken_ports();
             taken.remove(&current);
             if taken.contains(&port) {
                 return Err(AppError::with_status(
-                    format!("port {port} is already the fleet's (a route, a cell or an excluded port)"),
+                    format!("port {port} is already the fleet's (a cell or an excluded port)"),
                     409,
                 ));
             }
@@ -258,17 +224,15 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_port_is_reached_through_the_entry() {
-        let config =
-            json!({"entry": {"port": 9, "publicUrl": "https://pub"}, "routes": [{"port": 1, "portClosed": true}, {"port": 2}]});
+    fn every_client_is_reached_through_the_entry() {
+        let config = json!({"entry": {"port": 9, "publicUrl": "https://pub"}, "routes": [{"id": "c1"}]});
         let address = ConsumerAddress::new(&config, "h", Some(true));
-        assert_eq!(address.of(1), "https://pub");
-        assert!(address.of(2).contains('2'));
+        assert_eq!(address.client(), "https://pub");
         assert_eq!(address.entry()["url"], "https://pub");
-        let shut =
-            ConsumerAddress::new(&json!({"entry": {"port": 9}, "routes": [{"port": 1, "portClosed": true}]}), "h", Some(false));
-        assert_eq!(shut.of(1), "");
-        assert_eq!(shut.of(2), "");
+        assert_eq!(ConsumerAddress::new(&json!({"entry": {"port": 9}}), "h", Some(true)).client(), "http://h:9/v1");
+        let shut = ConsumerAddress::new(&json!({"entry": {"port": 9}}), "h", Some(false));
+        assert_eq!((shut.client(), shut.of(2)), (String::new(), String::new()));
+        assert_eq!(ConsumerAddress::new(&json!({}), "h", Some(true)).client(), "");
     }
 
     #[test]
@@ -294,6 +258,5 @@ mod tests {
                 .unwrap_err()
                 .starts_with("clients a, b call")
         );
-        assert!(status(json!([{"port": 1, "portClosed": true}])).unwrap_err().starts_with("port 1 is closed"));
     }
 }

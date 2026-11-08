@@ -1,8 +1,9 @@
 /**
  * The live window: talk with a running cell that talks live — a stream both ways at once over the cell's own
  * WebSocket (MiniCPM-o) — from its card. The page sends the microphone as it records, and plays the cell's voice and
- * shows its words as they come. The controller passes the WebSocket on (GET /api/cell-live,
- * rust/crates/admin/src/fleet/cell_live.rs): the board is https and the cell plain http, which a secure page may not open.
+ * shows its words as they come. The controller passes the WebSocket on (GET /api/cell-live?cell=<cellId>,
+ * rust/crates/admin/src/fleet/cell_live.rs): the board is https and the cell plain http, which a secure page may not open;
+ * the page names the cell by its id alone, and the controller dials the port its run leased.
  *
  * What a cell speaks there is its runner's to say (state.runners[].live.protocol); this module knows the protocols, not
  * the runners. The voice window (voice-talk.js) asks one thing at a time; this one keeps a line open.
@@ -170,11 +171,10 @@ export class VoiceQueue {
   }
 }
 
-/** A cell as the live window talks to it: the machine and port, the name the card shows, its runner. */
+/** A cell as the live window talks to it: its id (what the controller is asked by), the name the card shows, its runner. */
 export class LiveCell {
-  constructor({ hostId, port, name = "", runner = "" } = {}) {
-    this.hostId = String(hostId || "");
-    this.port = String(port || "");
+  constructor({ cellId, name = "", runner = "" } = {}) {
+    this.cellId = String(cellId || "");
     this.name = String(name || "");
     this.runner = String(runner || "");
   }
@@ -182,15 +182,23 @@ export class LiveCell {
   /** How the runner talks live (its registry row's `live`), or null when it does not. */
   get spec() { return runnerRegistry().find((r) => r.id === this.runner)?.live || null; }
 
+  /** What the window calls the cell: the card's name, or its id when the card gives none — never a port. */
+  get title() { return this.name || this.cellId; }
+
+  /** The controller's path of the cell's talk: asked as a plain GET it says whether the cell answers, opened as a
+   *  WebSocket it is the talk. One path for both, so the two cannot name two cells. */
+  get path() { return `/api/cell-live?cell=${encodeURIComponent(this.cellId)}`; }
+
   /** The address the window opens: the board's own, as a WebSocket — the controller passes it on. */
   url(location = globalThis.location) {
     const scheme = location?.protocol === "https:" ? "wss" : "ws";
-    return `${scheme}://${location?.host}/api/cell-live?hostId=${encodeURIComponent(this.hostId)}&port=${encodeURIComponent(this.port)}`;
+    return `${scheme}://${location?.host}${this.path}`;
   }
 
+  /** The cell a card's 📞 button names: its id is the button's `data-cell-live`. */
   static fromButton(b) {
     const d = b?.dataset || {};
-    return new LiveCell({ hostId: d.cellLive, port: d.nodeCellPort, name: d.cellLiveName, runner: d.cellLiveRunner });
+    return new LiveCell({ cellId: d.cellLive, name: d.cellLiveName, runner: d.cellLiveRunner });
   }
 
   /** The card's live button: open on a running cell whose runner talks live, shut (saying why) on a stopped one, none
@@ -201,9 +209,8 @@ export class LiveCell {
     if (!running) {
       return `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("liveOpenStopped"))}">${label}</button>`;
     }
-    const id = `${this.hostId}:${this.port}`;
-    return `<button class="node-action-btn ok live" type="button" data-t="cell-live" data-t-id="${escapeHtml(id)}"`
-      + ` data-cell-live="${escapeHtml(this.hostId)}" data-node-cell-port="${escapeHtml(this.port)}"`
+    const id = escapeHtml(this.cellId);
+    return `<button class="node-action-btn ok live" type="button" data-t="cell-live" data-t-id="${id}" data-cell-live="${id}"`
       + ` data-cell-live-runner="${escapeHtml(this.runner)}" data-cell-live-name="${escapeHtml(this.name)}"`
       + ` title="${escapeHtml(t("liveOpenTitle"))}">${label}</button>`;
   }
@@ -357,7 +364,7 @@ export class LiveWindow {
     this.redraw();
     let got;
     try {
-      got = await this.call(`/api/cell-live?hostId=${encodeURIComponent(this.cell.hostId)}&port=${encodeURIComponent(this.cell.port)}`);
+      got = await this.call(this.cell.path);
     } catch (err) {
       got = { health: { status: 0, error: String(err?.message || err) } };
     }
@@ -542,12 +549,11 @@ export class LiveWindow {
   }
 
   html() {
-    const id = `${this.cell.hostId}:${this.cell.port}`;
-    const name = this.cell.name || id;
+    const id = this.cell.cellId;
+    const name = this.cell.title;
     const close = escapeHtml(t("close"));
     const active = ["checking", "connecting", "loading", "live"].includes(this.phase);
     const head = `<div class="talk-head"><strong class="talk-name">📞 ${escapeHtml(t("liveTitle", { name }))}</strong>`
-      + `<span class="talk-port">:${escapeHtml(this.cell.port)}</span>`
       + `<button type="button" class="talk-close" data-live-close="1" data-t="live-close" title="${close}" aria-label="${close}">✕</button></div>`;
     const modeKey = { full_duplex: "liveModeDuplex", turn_based: "liveModeTurns" };
     const modes = `<div class="talk-modes" role="group">${this.modes.map((m) => `<button type="button" class="talk-mode" data-live-mode="${escapeHtml(m)}"`

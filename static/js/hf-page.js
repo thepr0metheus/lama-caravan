@@ -171,6 +171,9 @@ export class HfPage {
   // Words the markup ships in English, set in the page's language once.
   staticText() {
     const e = this.el;
+    // The page says its language; a language is a translation only, and every page keeps its left-to-right layout (the owner,
+    // 2026-11-07: Arabic mirrored read as a broken interface). A language change reloads the page, so this is said once.
+    this.doc.documentElement.lang = hfText.lang;
     e.searchInput.placeholder = hfT("searchPlaceholder");
     e.searchInput.setAttribute("aria-label", hfT("a11ySearchModels"));
     e.limit.setAttribute("aria-label", hfT("a11yResultsCount"));

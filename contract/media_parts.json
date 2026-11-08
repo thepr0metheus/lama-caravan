@@ -1,0 +1,36 @@
+{
+  "modality": [
+    {"part": {"type": "text", "text": "hi"}, "word": "text", "why": "the name that means text, read as itself"},
+    {"part": {"type": "input_text", "text": "hi"}, "word": "text", "why": "the second name for the same thing, read as itself"},
+    {"part": {"type": "image_text", "text": "hi"}, "word": "image", "why": "a name that only holds the word `text` inside it is not a text part: `image_text` carries a picture, and the journal has counted it as one since its first case"},
+    {"part": {"type": "image_url", "image_url": {"url": "x"}}, "word": "image", "why": "a name that holds the word `image`"},
+    {"part": {"image_url": "y"}, "word": "image", "why": "a part named by its field and not by a `type`: the picture is still the picture"},
+    {"part": {"type": "input_audio", "input_audio": {"audio": "x"}}, "word": "audio", "why": "a name that holds the word `audio`"},
+    {"part": {"input_audio": {"audio": "x"}}, "word": "audio", "why": "named by its field, as the picture above"},
+    {"part": {"type": "text", "image_url": {"url": "x"}}, "word": "text", "why": "the exact name is read before the fields, as the journal has read it since its first case"},
+    {"part": {"type": "other", "text": "hi"}, "word": null, "why": "the absence: a part that says nothing of itself is named as nothing, not drawn as the part the reader expected"}
+  ],
+  "carried": [
+    {"messages": [{"role": "user", "content": "hi"}], "parts": [{"message": 1, "index": 1, "word": "text"}], "why": "a plain content is one part, the text the client wrote"},
+    {"messages": [{"role": "user", "content": [{"type": "text", "text": "a"}, {"type": "image_url", "image_url": {"url": "x"}}]}], "parts": [{"message": 1, "index": 1, "word": "text"}, {"message": 1, "index": 2, "word": "image"}], "why": "the order is part of the fact: it is what says which reading belongs to which"},
+    {"messages": ["not an object", {"role": "user", "content": [{"type": "other"}]}], "parts": [{"message": 2, "index": 1, "word": null}], "why": "the numbers count as the client sent them, and a part that names nothing is kept as nothing"},
+    {"messages": [{"role": "user", "content": 5}], "parts": [], "why": "the absence: a content that is neither text nor a list of parts carries nothing, and is not counted as a part"},
+    {"messages": [{"role": "user", "content": [{"type": "text", "text": "a"}, 7, {"type": "image_url", "image_url": {"url": "x"}}]}], "parts": [{"message": 1, "index": 1, "word": "text"}, {"message": 1, "index": 3, "word": "image"}], "why": "a part that is no object is not a part: the numbers are the client's own, so a piece of the list that is not a part does not take one"}
+  ],
+  "verdict": [
+    {"messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}], "kind": {"jobs": ["llm"], "inputs": ["text"]}, "reader": null, "answer": "goes", "why": "text is what every chat model reads, and the path rule already says who does which job"},
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}], "kind": {"jobs": ["llm"], "inputs": ["text", "image"]}, "reader": null, "answer": "goes", "why": "the negative case: the promise names `image`, so the picture goes to the model as it came and no reader is asked"},
+    {"messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "x"}}]}], "kind": {"jobs": ["llm"], "inputs": ["text"]}, "reader": null, "answer": {"reading": {"message": 1, "index": 2, "word": "image"}, "reader": "nothing"}, "why": "the defect this file exists for: the path said chat, the promise said text, and the answer read as if the model had looked at the picture"},
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}], "kind": {"jobs": ["llm"], "inputs": []}, "reader": null, "answer": {"reading": {"message": 1, "index": 1, "word": "image"}, "reader": "nothing"}, "why": "the promise is what the row named plus what a chat takes because it is a chat: a row that named no inputs promises text, and the refusal says what the model was never given"},
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}], "kind": {"jobs": ["llm"], "inputs": ["text"]}, "reader": {"name": "qwen-vl", "known": true, "takes": ["text", "image"]}, "answer": {"reading": {"message": 1, "index": 1, "word": "image"}, "reader": "reads"}, "why": "the cable is the operator's decision, so the part goes to that model and comes back as text, signed by who read it — and only the row that serves is asked"},
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}], "kind": null, "reader": null, "answer": "not said", "why": "the absence of a promise, kept apart from the absence of a decision: a row that says nothing of itself is the operator's to name on the board, and a reader guessed from a name is the defect this rule must not ship"},
+    {"messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"audio": "x"}}]}], "kind": {"jobs": ["llm"], "inputs": ["text"]}, "reader": null, "answer": {"not decided": {"message": 1, "index": 1, "word": "audio"}}, "why": "said as what it is: this rule decides `image` only. Refusing `audio` would change what the speech pools accept today, so it stands here as not decided, not as a refusal"},
+    {"messages": [{"role": "user", "content": [{"type": "input_audio", "input_audio": {"audio": "x"}}]}], "kind": {"jobs": ["llm"], "inputs": ["text", "audio"]}, "reader": null, "answer": "goes", "why": "the negative case for the word above: the promise names `audio` too"},
+    {"messages": [{"role": "user", "content": [{"type": "other", "text": "hi"}]}], "kind": {"jobs": ["llm"], "inputs": ["text"]}, "reader": null, "answer": "goes", "why": "the absence is not refused: a part that says nothing of itself is not carried, and refusing it would refuse a request that says nothing"},
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}, {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "y"}}]}], "kind": {"jobs": ["llm"], "inputs": ["text"]}, "reader": null, "answer": {"reading": {"message": 1, "index": 1, "word": "image"}, "reader": "nothing"}, "why": "the first part that cannot be answered is the one named, in the order it came: three pictures in a row are three parts, and the refusal points at the first"}
+  ],
+  "says": [
+    {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "x"}}]}], "says": "image", "why": "the word it named"},
+    {"messages": [{"role": "user", "content": [{"type": "other", "text": "hi"}]}], "says": "nothing it carries", "why": "the absence, said as an absence: a part that names nothing is never called a picture in the words a client reads"}
+  ]
+}

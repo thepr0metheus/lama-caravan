@@ -41,18 +41,13 @@ export class ConsumerAccess {
     return `<span class="cv-in-seen" title="${escapeHtml(t("consumerSeenTitle"))}">· ${escapeHtml(text)}</span>`;
   }
 
-  // One route's line in a consumer's row: its key and when it called. `p` is a board proxy
-  // (topology.proxies): keyTail, port.
+  // One client's line in a consumer's row: its key and when it called. `p` is a board proxy
+  // (topology.proxies): keyTail. A client has no number of its own (2026-11-07): without a key it has no way in at all.
   lineHtml(p) {
     const seen = this.seenHtml(p.lastRequestAt);
     const tail = String(p.keyTail || "");
     if (!tail) {
-      // In the alarm colour only where the ports have no door: the consumer then cannot get in
-      // at all. Elsewhere an open port without a key is how consumers have always called, and
-      // red read as a fault that was none.
-      const stuck = topology?.portsReachable === false;
-      return `<span class="cv-in-key none${stuck ? "" : " quiet"}" data-t="routing-consumer-key" data-t-state="none">${escapeHtml(t("consumerNoKey"))}</span>`
-        + `<span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>${seen}`;
+      return `<span class="cv-in-key none" data-t="routing-consumer-key" data-t-state="none">${escapeHtml(t("consumerNoKey"))}</span>${seen}`;
     }
     const key = `<span class="cv-in-key" data-t="routing-consumer-key" data-t-state="entry"`
       + ` title="${escapeHtml(t("consumerKeyTitle"))}">🔑 …${escapeHtml(tail)}</span>`;

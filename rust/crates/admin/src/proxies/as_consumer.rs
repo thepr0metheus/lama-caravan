@@ -1,5 +1,6 @@
 //! What a client of the entry gets for a question of its own, asked with its key on the operator's behalf: the rest.
 
+use super::client_ids::ClientIds;
 use super::config::ProxiesConfig;
 use crate::app::App;
 use crate::cloud::data::CloudData;
@@ -142,10 +143,10 @@ impl<'app> ProbeVoice<'app> {
         json!({"name": Self::REFERENCE, "cell": ""})
     }
 
-    /// `{name, cell}`: the voice the test names, and the cell (`machine:port`) whose voice it is, "" for the reference voice.
+    /// `{name, cell}`: the voice the test names, and the cell (its id) whose voice it is, "" for the reference voice.
     fn of_route(&self, route: &Value, model: &str) -> Result<Value, AppError> {
         let cloud = CloudData::of(self.app);
-        let models = cloud.pool_names(&cloud.load());
+        let models = cloud.board_names(&cloud.load());
         let deny = ClientDeny::clean(route.get(ClientDeny::FIELD));
         // absent-ok: a model no pool answers to has no rows.
         let rows = models.pick(&deny, model).map(|pool| pool.rows.clone()).unwrap_or_default();
@@ -166,22 +167,17 @@ impl<'app> ProbeVoice<'app> {
         Ok(Self::reference())
     }
 
-    /// The voice of the cell an output names; `None` when no machine runs it.
+    /// The voice of the cell a row of before names by its port (`srv:<port>`); `None` when no machine runs a cell there.
     fn of_cell(&self, output: &str) -> Result<Option<Value>, AppError> {
         let Some(port) = output.split_once(':').and_then(|(_, port)| port.parse::<i64>().ok()) else {
             return Ok(None);
         };
         let talk = CellTalk::with_timeout(self.app, 10);
-        let Some((host_id, true)) = talk.place(port) else {
+        let Some(cell) = talk.running_at(port) else {
             return Ok(None);
         };
-        let cell = format!("{host_id}:{port}");
         let config = self.app.admin.change(|doc| {
-            Topology::of(doc)
-                .find_slot(&host_id, port)
-                .filter(|slot| slot.is_object())
-                .and_then(|slot| slot.get("config"))
-                .cloned()
+            Topology::of(doc).find_slot(&cell).filter(|slot| slot.is_object()).and_then(|slot| slot.get("config")).cloned()
         });
         let Some(config) = config else {
             return Ok(Some(Self::reference()));
@@ -197,13 +193,10 @@ impl<'app> ProbeVoice<'app> {
         if spec.voices_path.is_empty() {
             return Ok(Some(Self::reference()));
         }
-        let listed = talk.voices(&host_id, Some(&json!(port)))?;
+        let listed = talk.voices(&cell)?;
         if Coerce::truthy(listed.get("error")) {
-            let words = format!(
-                "the {} cell on {cell} did not list its voices: {}",
-                runner.row().id,
-                Coerce::str_of(listed.get("error"))
-            );
+            let words =
+                format!("the {} cell {cell} did not list its voices: {}", runner.row().id, Coerce::str_of(listed.get("error")));
             return Err(AppError::with_status(words, 502));
         }
         let voices = listed.get("voices").and_then(Value::as_array).into_iter().flatten().cloned();
@@ -211,7 +204,7 @@ impl<'app> ProbeVoice<'app> {
             listed.get("stored").and_then(Value::as_array).into_iter().flatten().filter_map(|kept| kept.get("name").cloned());
         let Some(name) = voices.chain(stored).next() else {
             let words = format!(
-                "the {} cell on {cell}, the one that serves the pool, has no voice: keep one in its 🎙 window — a client is refused there whatever voice it names",
+                "the {} cell {cell}, the one that serves the pool, has no voice: keep one in its 🎙 window — a client is refused there whatever voice it names",
                 runner.row().id
             );
             return Err(AppError::with_status(words, 409));
@@ -266,19 +259,18 @@ impl<'app> AsConsumer<'app> {
         }
     }
 
-    fn client(&self, port: Option<&Value>) -> Result<EntryClient, AppError> {
-        let port = Coerce::strip(&Coerce::str_of(port)).parse::<i64>().map_err(|_| AppError::new("port must be a number"))?;
+    fn client(&self, route_id: &str) -> Result<EntryClient, AppError> {
         let config = ProxiesConfig::of(self.app).load()?;
         let routes = config.get("routes").and_then(Value::as_array).into_iter().flatten();
         let route = routes
             .filter(|route| route.is_object() && Coerce::text(route.get("kind")) == "consumer")
-            .find(|route| Coerce::int_or_zero(route.get("port")) == Some(port))
+            .find(|route| ClientIds::of(route) == route_id)
             .cloned()
-            .ok_or_else(|| AppError::with_status(format!("no client of the entry on port {port}"), 404))?;
+            .ok_or_else(|| AppError::with_status(format!("no client has the id {route_id}"), 404))?;
         let key = Coerce::text(route.get("apiKey"));
         if key.is_empty() {
             let said = Coerce::text(route.get("label"));
-            let name = if said.is_empty() { port.to_string() } else { said };
+            let name = if said.is_empty() { route_id.to_string() } else { said };
             return Err(AppError::with_status(format!("client {name} has no key: the entry would refuse it"), 409));
         }
         // absent-ok: `int(... or 0)`: an entry with no port is off, refused just below.
@@ -309,13 +301,13 @@ impl<'app> AsConsumer<'app> {
         Ok((status, kind, raw))
     }
 
-    /// `(status, content type, body)` the entry answers the client on `port` for `path`.
-    pub fn ask(&self, port: Option<&Value>, path: &str) -> Result<(u16, String, Vec<u8>), AppError> {
+    /// `(status, content type, body)` the entry answers the client `route_id` for `path`.
+    pub fn ask(&self, route_id: &str, path: &str) -> Result<(u16, String, Vec<u8>), AppError> {
         let asked = Self::path_of(path);
         if asked.is_empty() {
             return Err(AppError::new(format!("a client asks by GET only {0} and {0}/<model>", Self::MODELS)));
         }
-        let client = self.client(port)?;
+        let client = self.client(route_id)?;
         let fields = [
             ("Authorization", format!("Bearer {}", client.key)),
             ("Accept", "application/json".to_string()),
@@ -325,14 +317,14 @@ impl<'app> AsConsumer<'app> {
         self.send("GET", &url, &fields, b"", client.entry_port, Self::TIMEOUT)
     }
 
-    /// What the entry answers the client on `port` for a POST of `path`, sent as the shortest standard request of its kind naming `model`: the name the client calls its pool by.
-    pub fn probe(&self, port: Option<&Value>, path: Option<&Value>, model: Option<&Value>) -> Result<Value, AppError> {
+    /// What the entry answers the client `route_id` for a POST of `path`, sent as the shortest standard request of its kind naming `model`: the name the client calls its pool by.
+    pub fn probe(&self, route_id: &str, path: Option<&Value>, model: Option<&Value>) -> Result<Value, AppError> {
         let wanted = Coerce::text(path);
         let Some(probe) = ClientProbe::ALL.iter().find(|probe| probe.path == wanted) else {
             let listed: Vec<&str> = ClientProbe::ALL.iter().map(|probe| probe.path).collect();
             return Err(AppError::new(format!("a client asks by POST only {}", listed.join(", "))));
         };
-        let client = self.client(port)?;
+        let client = self.client(route_id)?;
         let model = Coerce::text(model);
         let voice = if probe.voiced { Some(ProbeVoice::of(self.app).of_route(&client.route, &model)?) } else { None };
         let name = voice.as_ref().map_or_else(String::new, |voice| Coerce::text(voice.get("name")));

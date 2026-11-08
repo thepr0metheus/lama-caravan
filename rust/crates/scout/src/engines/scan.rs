@@ -25,7 +25,8 @@ impl ForeignEngines {
         let heard = self.machine.listeners();
         // None: the OS would not say what listens: each kind's usual port is asked blind then, and where it listens stays unknown.
         let rows = heard.get("ports").and_then(Value::as_array).filter(|_| Coerce::truthy(heard.get("ok")));
-        let own: BTreeSet<i64> = self.cells.table.all().iter().map(|(port, _)| *port).collect();
+        // The ports this scout's own cells hold now: not an engine's, whatever answers there.
+        let own: BTreeSet<i64> = self.cells.table.ports();
         let processes = self.machine.processes();
         let mut found = Vec::new();
         for kind in &self.kinds {

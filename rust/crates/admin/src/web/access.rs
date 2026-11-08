@@ -77,5 +77,13 @@ mod tests {
         assert!(!RouteAccess::viewer_may("GET", "/api/agent-proxies/raw"));
         assert!(!RouteAccess::viewer_may("POST", "/api/x"));
         assert!(RouteAccess::viewer_may("POST", "/api/auth/logout"));
+        for path in ["/api/runner-presets", "/api/runner-presets/fields"] {
+            assert_eq!(RouteAccess::kind("GET", path), Access::Session);
+            assert!(RouteAccess::viewer_may("GET", path));
+        }
+        for path in ["/api/runner-presets/put", "/api/runner-presets/remove", "/api/model-runner-warning"] {
+            assert_eq!(RouteAccess::kind("POST", path), Access::Session);
+            assert!(!RouteAccess::viewer_may("POST", path));
+        }
     }
 }

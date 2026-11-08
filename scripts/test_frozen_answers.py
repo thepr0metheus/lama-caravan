@@ -84,7 +84,11 @@ def section_own_words():
     check(own.words("34567") == "<other>", "a port opened on the way can be named")
     check(own.words(time.strftime("%Y-%m-%d", time.gmtime(now))) == "<today>", "today")
     check(own.words(time.strftime("%Y-%m-%d", time.gmtime(now - 86400))) == "<yesterday>", "yesterday")
-    check(own.words("2020-01-02") == "2020-01-02", "negative: another day stays")
+    check(own.words("2020-01-02") == "2020-01-02", "negative: a day the program quoted stays as it is written, so a promise reads the same next day")
+    today = time.strftime("%Y-%m-%d", time.gmtime(now))
+    check(own.clean({"date": today}) == {"date": "<today>"}, "a day the program computed is a word of the run")
+    check(own.clean({"description": f"(today) {today}"}) == {"description": f"(today) {today}"},
+          "negative: a day inside the program's own words is not a word of the run: it stays the day it names")
     check(own.words("since 1780000000.25") == "since <moment>", "a moment in a text, with its fraction")
     check(own.words("1700000000") == "1700000000", "negative: a number before 2025 is no moment of this run")
     check(own.words("x-20261102-153000.json") == "x-<stamp>.json", "a file named by when it was saved")
@@ -100,6 +104,10 @@ def section_own_words():
     if own.address:
         check(own.words(f"{own.address}:80") == "<this machine's address>:80", "this machine's address")
         check(own.words(f"1{own.address}") == f"1{own.address}", "negative: an address that only holds it stays")
+    met = own.words("client-0a1b2c3d then client-ffffffff then client-0a1b2c3d")
+    check(met == "<client 1> then <client 2> then <client 1>", "a client's random id is said by the order the run met it")
+    check(own.words("client-hermes0 client-0a1b2c3dx") == "client-hermes0 client-0a1b2c3dx",
+          "negative: an id a scenario named, and one that only starts like a drawn id, stay as written")
 
 
 def section_values():

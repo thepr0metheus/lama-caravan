@@ -10,6 +10,7 @@ use crate::models::fetcher::{ModelFetcher, Progress};
 use crate::models::files::SplitGguf;
 use crate::models::folders::{ChosenFolder, Folders};
 use crate::models::relocate::Relocation;
+use crate::models::space::FreeSpace;
 use crate::models::view::LibraryView;
 use crate::models::view::reader::ControllerFiles;
 use crate::state::ScoutState;
@@ -98,7 +99,7 @@ impl Shelf {
 }
 
 /// What the two shelves of a machine share: its settings, where a download's progress goes, the folders the board chose, the cache's switch, the view of the library (one mount), the one move at
-/// a time, the clocks, HTTP and the rule of split files.
+/// a time, the clocks, HTTP, the rule of split files and what the disks have free.
 pub struct ShelfParts {
     /// The settings.
     pub config: Arc<ScoutConfig>,
@@ -118,6 +119,8 @@ pub struct ShelfParts {
     pub http: Arc<HttpClient>,
     /// The rule of split files.
     pub splits: Arc<SplitGguf>,
+    /// What a disk has free, where a copy or a move must fit: the machine's disks in the program, a test's figure in a test.
+    pub disks: Arc<dyn FreeSpace>,
 }
 
 impl ShelfParts {
@@ -129,6 +132,7 @@ impl ShelfParts {
         clock: Arc<dyn Clock>,
         http: Arc<HttpClient>,
         splits: Arc<SplitGguf>,
+        disks: Arc<dyn FreeSpace>,
     ) -> Self {
         let off = Arc::new(CacheOff::new(Arc::clone(state)));
         let files = ControllerFiles::new(Arc::clone(&config), Arc::clone(&http));
@@ -142,6 +146,7 @@ impl ShelfParts {
             clock,
             http,
             splits,
+            disks,
         }
     }
 

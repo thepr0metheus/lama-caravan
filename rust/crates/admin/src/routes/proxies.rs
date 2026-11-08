@@ -5,6 +5,7 @@ use crate::app::App;
 use crate::cloud::consumers::ConsumerDesk;
 use crate::fleet::model_card::ModelCard;
 use crate::proxies::as_consumer::AsConsumer;
+use crate::proxies::client_ids::ClientIds;
 use crate::proxies::config::{ProxiesConfig, StaleCopy};
 use crate::proxies::entry_settings::{ConsumerAddress, EntrySettings, PortDoor};
 use crate::proxies::latency::ProxyLatencyDigest;
@@ -52,6 +53,24 @@ impl ProxyRoutes {
         delete: &[],
     };
 
+    /// The client a query names by its record's id; a query that still names a port is refused.
+    fn route_asked(h: &Exchange<'_>) -> Result<String, AppError> {
+        ClientIds::asked(Some(&json!(Asked::word(h, "routeId"))), h.parsed.param("port").is_some())
+    }
+
+    /// The client a query may name, as a filter: `None` for every client.
+    fn route_filter(h: &Exchange<'_>) -> Result<Option<String>, AppError> {
+        if Asked::word(h, "routeId").is_empty() && h.parsed.param("port").is_none() {
+            return Ok(None);
+        }
+        Self::route_asked(h).map(Some)
+    }
+
+    /// The client a body names by its record's id; a body that still names a port is refused.
+    fn route_in(body: &Value) -> Result<String, AppError> {
+        ClientIds::asked(body.get("routeId"), body.get("port").is_some())
+    }
+
     fn thresholds(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
         h.ok(&json!({"ok": true, "thresholds": QueueThresholds::of(app).latest()}));
         Ok(())
@@ -73,15 +92,15 @@ impl ProxyRoutes {
 
     fn token_history(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
         let range = Coerce::strip(&h.parsed.param_or("range", "all")).to_string();
-        let samples = TokenHistory::of(app).query(&Asked::word(h, "client"), &range, &Asked::word(h, "port"));
+        let samples = TokenHistory::of(app).query(&Asked::word(h, "client"), &range, Self::route_filter(h)?.as_deref());
         h.ok(&json!({"samples": samples}));
         Ok(())
     }
 
     fn latency(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        let port = Asked::word(h, "port").parse::<i64>().map_err(|_| AppError::new("invalid port"))?;
+        let route_id = Self::route_asked(h)?;
         let range = Coerce::strip(&h.parsed.param_or("range", "all")).to_string();
-        h.ok(&json!({"latency": ProxyLatencyDigest::of(app).summary(port, &range)}));
+        h.ok(&json!({"latency": ProxyLatencyDigest::of(app).summary(&route_id, &range)}));
         Ok(())
     }
 
@@ -91,7 +110,7 @@ impl ProxyRoutes {
     }
 
     fn model_card(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        h.ok(&ModelCard::of(app).card(&h.parsed.param_or("port", ""))?);
+        h.ok(&ModelCard::of(app).card(&Self::route_asked(h)?)?);
         Ok(())
     }
 
@@ -100,7 +119,7 @@ impl ProxyRoutes {
             date: h.parsed.param_or("date", ""),
             limit: h.parsed.param_or("limit", "200"),
             event: h.parsed.param_or("event", ""),
-            port: h.parsed.param_or("port", ""),
+            route_id: Self::route_filter(h)?,
             route: h.parsed.param_or("route", ""),
             client: h.parsed.param_or("client", ""),
             errors: h.parsed.flag("errors", false),
@@ -118,8 +137,8 @@ impl ProxyRoutes {
     }
 
     fn consumer_ask(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        let port = json!(h.parsed.param_or("port", ""));
-        let (status, kind, body) = AsConsumer::of(app).ask(Some(&port), &h.parsed.param_or("path", ""))?;
+        let route_id = Self::route_asked(h)?;
+        let (status, kind, body) = AsConsumer::of(app).ask(&route_id, &h.parsed.param_or("path", ""))?;
         h.send_passed_on(status, AsConsumer::shown_as(&kind), &body);
         Ok(())
     }
@@ -180,13 +199,13 @@ impl ProxyRoutes {
     }
 
     fn route_policy(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let config = ProxiesConfig::of(app).set_route_policy(body.get("port"), &body)?;
+        let config = ProxiesConfig::of(app).set_route_policy(&Self::route_in(&body)?, &body)?;
         Asked::send_with_monitor(app, h, json!({"ok": true, "config": config}));
         Ok(())
     }
 
     fn route_delete(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let result = ProxiesConfig::of(app).delete_route(body.get("port"), Coerce::truthy(body.get("force")))?;
+        let result = ProxiesConfig::of(app).delete_route(&Self::route_in(&body)?)?;
         Asked::send_with_fresh_board(app, h, json!({"ok": true, "result": result}))
     }
 
@@ -204,13 +223,9 @@ impl ProxyRoutes {
     }
 
     fn stop(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let port = match body.get("port").filter(|port| !port.is_null()) {
-            Some(said) => {
-                Some(Coerce::int_or_zero(Some(said)).ok_or_else(|| AppError::with_status("port is not a number", 500))?)
-            }
-            None => None,
-        };
-        let result = ProxyStops::of(app).stop(port, &Coerce::text(body.get("requestId")))?;
+        let route_id =
+            if body.get("routeId").is_none() && body.get("port").is_none() { None } else { Some(Self::route_in(&body)?) };
+        let result = ProxyStops::of(app).stop(route_id.as_deref(), &Coerce::text(body.get("requestId")))?;
         Asked::send_with_monitor(app, h, json!({"ok": true, "result": result}));
         Ok(())
     }
@@ -227,7 +242,7 @@ impl ProxyRoutes {
     }
 
     fn consumer_probe(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        h.ok(&Asked::ok_with(AsConsumer::of(app).probe(body.get("port"), body.get("path"), body.get("model"))?));
+        h.ok(&Asked::ok_with(AsConsumer::of(app).probe(&Self::route_in(&body)?, body.get("path"), body.get("model"))?));
         Ok(())
     }
 
@@ -237,12 +252,12 @@ impl ProxyRoutes {
     }
 
     fn consumer_deny(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let done = ConsumerDesk::of(app).set_deny(body.get("port"), body.get("deny"))?;
+        let done = ConsumerDesk::of(app).set_deny(&Self::route_in(&body)?, body.get("deny"))?;
         Asked::send_with_board(app, h, Asked::ok_with(done))
     }
 
     fn consumer_key(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let done = ConsumerDesk::of(app).new_key(body.get("port"))?;
+        let done = ConsumerDesk::of(app).new_key(&Self::route_in(&body)?)?;
         Self::send_with_entry(app, h, done)
     }
 }

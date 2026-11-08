@@ -4,7 +4,8 @@ A pool is what a client's requests go to (the owner, 2026-10-12): built in Routi
 list of **rows**. Each row is an output, cabled to a model in Routing's right column — a
 subscription's or a key's model (an account and one model), a model of a machine — "machine + model"
 by name, `mm:<id>` (1.3.506; every row of a machine's cells since 1.3.655) — or an engine's model
-(`eng:<id>`); a cell by its port (`srv:<port>`) only on a machine whose scout lists no models. A row
+(`eng:<id>`). A cell is no row of its own since 2026-11-07: it holds a port only while it runs, and its machine's model
+reaches it (Papyrus `caravan-scout-port-lease`); a row of before that named `srv:<port>` is cabled to that cell's model. A row
 with no cable yet is open. The proxy tries the rows
 from the top. One pool may mix a cell and a subscription. A pool's name is the model id its clients
 see in `/v1/models`, so two pools cannot share a name, compared without case: the board refuses a
@@ -129,9 +130,12 @@ translation, 🔊 speech, 🧬 embeddings — the languages in the hint — and 
 work. It is what `GET /v1/models` tells the
 pool's clients: OpenRouter's `architecture` (`modality`, `input_modalities`, `output_modalities`) and
 the caravan's `caravan` (`jobs`, an ear's `languages`, its longest recording `max_audio_ms`). A pool
-promises only what every row that may serve does; a row that says nothing of itself makes the kind
-unknown, and a mixed pool tells its clients nothing. A request for work the model does not do — a
-chat to an ear, a recording to a chat model — is refused 400 before it is sent.
+advertises only what every row that may serve does; a row that says nothing of itself makes the kind
+unknown, and a mixed pool tells its clients nothing. That is the advertised promise, not the served
+one: a request is answered by one row, so an image goes to a row that reads images even when the pool's
+advertised kind is text alone. A request for work no row does — a chat to an ear, a recording to a chat
+model — is refused 400 before it is sent.
+Image parts have a separate content-based refusal when no row that may serve takes them; an unknown promise is not a refusal. Routing has one reader setting for the whole board, below Direct, even with no pools. Drag its output to a model to name it; click its cable to clear it. The board checks the model's image-input promise, but requests do not call the reader yet. The rule and future describe-node design are in [Images for text-only models](vision-describe.md).
 
 **Subscriptions with a key** (1.3.687; the owner, 2026-10-31: "popular variants with subscriptions, the Chinese ones too"). Beside the ChatGPT subscription, which signs
 in, the provider picker has a group of plans that sell a flat month and give a key: Kimi Code, GLM Coding Plan, MiniMax M Plan, Qwen Token Plan and OpenCode Go
@@ -221,7 +225,7 @@ says until when, and so does every pool's row of it. A schedule switched off kee
 the model is open at any time; a model with no schedule is open at any time, as before 1.3.498.
 
 A schedule is the model's, the same in every pool whose row names it — a model of an account
-(`acc:<account>/<model>`), a machine's model (`out:mm:<id>`) or a cell (`out:srv:<port>`). A pool needs no schedule of its
+(`acc:<account>/<model>`) or a machine's model (`out:mm:<id>`). A pool needs no schedule of its
 own: it passes over the row of a model closed now and takes its next row (below). A pool whose every
 row is closed answers 503 with the time the first of them opens. Step 1 of the scheme: a cell's
 server is not started or stopped by its schedule yet — the pools keep to it, and the window says so
@@ -262,7 +266,7 @@ the rests; the next request reads the limits and chooses again.
 
 ## The file
 
-`cloud-providers.json` keeps `accounts`, `pools`, `levels` and `schedules` — every key beside the
+`cloud-providers.json` keeps `accounts`, `pools`, `levels`, `schedules` and the board-wide `reader` (a model name or null) — every key beside the
 accounts and pools named in one table for its readers and writers (`CloudFileKeys`, `rust/crates/admin/src/common/misc.rs`:
 until 1.3.498 three lists named them, and a key one list lacked was dropped by the next save). A pool is `id`, `name`, `steps` (the
 rows, kept under their old name: each `id` and `enabled`, and `accountId` with `model`, or `output`,
@@ -283,7 +287,7 @@ pool goes on to its next row; a busy one gives way like a cell, by the places it
 (docs/backend-proxy.md). A model none of whose copies runs or starts is marked as standing still on its
 output, and a pool passes its row by without asking (1.3.655, as a stopped cell's since 1.3.645). In
 Routing a machine's card lists its models, by name — no port — with the state its scout says and how
-many copies serve it (×2); its cells by port only where a row still names one. A model's name there is
+many copies serve it (×2); a cell has no row of its own since 2026-11-07. A model's name there is
 its cell's `MODEL_NAME` — the cell editor's row under the runner, for every runner (1.3.507) — else the
 cell's `ALIAS`, else one made of its model; two cells with one name on one runner are one model's copies,
 and one name on two runners is two models, `<name>@<runner>` each (scout 2.39). A new name applies at the
@@ -301,18 +305,18 @@ renamed model is followed: a model the entry no longer lists whose every port no
 is the same cells under another name — its rows and schedule move to it. A model gone with its cells, or
 split between two names, is followed nowhere, and its row says its model is gone.
 
-The spare way (the owner's decision 3 of 2026-10-12): a machine's model goes through its machine's entry,
-and when the entry does not answer — the scout restarting, its update — the proxy sends the request
-straight to a running copy on its own port, each copy once, before the pool's next row (`UpstreamCall::next_spare`,
-the proxy's event `machine_entry_spare`). A refusal of the entry (404, 503) is its answer: no spare way then.
+A machine's model goes through its machine's entry, and when the entry does not take the request — the
+scout restarting, its update — the proxy waits for it, 15 s at the most, before the pool's next row
+(`EntryWait`, the proxy's event `machine_entry_wait`). A refusal of the entry (404, 503) is its answer. Until
+2026-11-08 the request went straight to a running copy on its own port instead (the owner's decision 3 of
+2026-10-12, `machine_entry_spare`): the cells listen on their machine's loopback now, and the machine shows the
+network one port, its scout's.
 
-A row that names a cell by its port (`srv:<port>`) follows the cell when it moves to another port, swaps
-ports with another cell or starts on another port, with its schedule and the routers' cables
-(`rust/crates/admin/src/fleet/cell_outputs.rs`) — until 1.3.499 only the routers did, and after a swap a pool sent its
-requests to the other model. A deleted cell's rows lose their cable and stay in their place, open: a new
-cell on that port is another model, and the row waits for a cable of its own. A deleted cell that was its
-model's only copy takes the rows of the model with it the same way; a cell of two copies leaves the rows to
-the other (1.3.655).
+Until 2026-11-07 a row could name a cell by its port (`srv:<port>`) and followed it when it moved to another port or swapped
+ports with another cell (`rust/crates/admin/src/fleet/cell_outputs.rs`, 1.3.499). A cell holds a port only while it runs now, a
+row names its machine's model, and a cell that starts again on another port changes nothing for the row: the model's running
+copies come with their ports (`copyPorts`), which say that a copy runs. A deleted cell that was its model's only copy takes the rows of the model: they lose
+their cable and stay in their place, open; a cell of two copies leaves the rows to the other (1.3.655).
 
 Until 1.3.486 a step kept its own levels, and a client kept the pools it might call (`models`). The
 controller moves them once at start: the steps' levels onto their models (`PoolDesk.migrate_rows`,
@@ -334,7 +338,7 @@ the file's one writer (`scripts/check_oauth_owner.py`).
 
 Admin APIs: `POST /api/pools/create`, `/api/pools/add-row`, `/api/pools/connect-row`,
 `/api/pools/remove-step`, `/api/pools/save`, `/api/pools/level`, `/api/models/schedule`, `/api/pools/delete`,
-`/api/consumers/deny`, `/api/entry-move/seen`, `GET /api/pools/refs` and `GET /api/cloud-accounts/catalogue`; see
+`/api/board/reader`, `/api/consumers/deny`, `/api/entry-move/seen`, `GET /api/pools/refs` and `GET /api/cloud-accounts/catalogue`; see
 [HTTP API](http-api.md) for fields and errors. A pool has no port of its own since 1.3.487: every
 client comes in through the entry with its own key, and a file that still had such a port loses it
 at the controller's start (`rust/crates/admin/src/cloud/pool_ports.rs`).

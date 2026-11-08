@@ -6,11 +6,13 @@
 
 pub mod admission;
 pub mod board;
+pub mod captions;
 pub mod client;
 pub mod clock;
 pub mod config;
 pub mod connection;
 pub mod drain;
+pub mod entry_wait;
 pub mod exchange;
 pub mod front;
 pub mod listener;

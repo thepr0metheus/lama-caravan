@@ -2,6 +2,44 @@
 
 use super::*;
 
+/// What an interrupted job still has to fetch, as the manifest beside its partial says: the file the partial is of, then the files of the job after it
+/// (`rest`, written since 2026-11-03: before, a restart forgot them, and the resume of a five-file set brought one file) that are neither on the disk nor
+/// written by a running job. A manifest of an older controller names none: its job is its one file.
+pub(super) struct InterruptedJob {
+    current: DownloadFile,
+    rest: Vec<DownloadFile>,
+}
+
+impl InterruptedJob {
+    /// The job of the partial's manifest `said`, under the models folder `root`, `live` being where running jobs write. A list of the other files that cannot
+    /// be read is refused, not guessed: a guess leaves a file of the job out unsaid.
+    pub(super) fn read(said: &Value, current: DownloadFile, root: &Path, live: &[String]) -> Result<Self, String> {
+        let named = match said.get("rest") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(entries)) => entries.iter().map(Self::entry).collect::<Result<Vec<_>, _>>()?,
+            Some(other) => return Err(format!("the manifest's list of the job's other files is not a list: {other}")),
+        };
+        let rest = named
+            .into_iter()
+            .filter(|file| !live.contains(&file.dest_path()) && !root.join(file.dest_path()).is_file())
+            .collect();
+        Ok(Self { current, rest })
+    }
+
+    fn entry(raw: &Value) -> Result<DownloadFile, String> {
+        let file = DownloadFile::of(raw);
+        if file.path.is_empty() || !file.lands_inside() {
+            return Err(format!("the manifest names a file of the job it cannot fetch into the models folder: {raw}"));
+        }
+        Ok(file)
+    }
+
+    /// Every file a resume fetches, the partial's first.
+    pub(super) fn files(&self) -> Vec<DownloadFile> {
+        std::iter::once(&self.current).chain(&self.rest).cloned().collect()
+    }
+}
+
 impl<'app> Downloads<'app> {
     pub(super) fn live_paths(&self) -> Vec<String> {
         let jobs = self.jobs();
@@ -38,6 +76,8 @@ impl<'app> Downloads<'app> {
         rows
     }
 
+    /// The row of one partial: the job it stands for, its files the partial's and those after it still to fetch. A manifest whose other files cannot be read
+    /// is a source this controller cannot tell, like a manifest it cannot read: the row is not resumable.
     pub(super) fn interrupted_row(partial: &Path, root: &Path, live: &[String]) -> Option<Value> {
         let full = partial.file_name()?.to_string_lossy().into_owned();
         let name = full.strip_suffix(".part")?.to_string();
@@ -59,14 +99,28 @@ impl<'app> Downloads<'app> {
             .filter(|said| Coerce::truthy(Some(*said)))
             .cloned()
             .unwrap_or_else(|| json!(meta.mtime() as f64));
+        let current = DownloadFile { path: Coerce::text(manifest.get("path")), name: name.clone(), dest_dir, size };
+        let job = InterruptedJob::read(&manifest, current.clone(), root, live);
+        let files = job.as_ref().map_or_else(|_| vec![current.clone()], InterruptedJob::files);
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+        let paths: Vec<String> = std::iter::once(shown_path.clone()).chain(files.iter().skip(1).map(Self::shown)).collect();
+        // A size one file does not say leaves the whole unknown: a sum without it would be drawn as the whole.
+        let total: i64 = if files.iter().all(|file| file.size > 0) { files.iter().map(|file| file.size).sum() } else { 0 };
+        let resumable = !repo.is_empty() && !current.path.is_empty() && job.is_ok();
         Some(
-            json!({"jobId": format!("part:{label}/{name}"), "status": "interrupted", "done": false, "error": null, "repo": repo, "title": if repo.is_empty() { label.clone() } else { repo.clone() }, "created_at": started, "finished_at": null, "total_files": 1, "fileNames": [name], "filePaths": [shown_path], "total_bytes": size, "total_bytes_done": done, "current_idx": 0, "current_file": name, "current_path": shown_path, "file_bytes_done": done, "file_bytes_total": size, "resumable": !repo.is_empty() && Coerce::truthy(manifest.get("path")), "destDir": label}),
+            json!({"jobId": format!("part:{label}/{name}"), "status": "interrupted", "done": false, "error": null, "repo": repo, "title": if repo.is_empty() { label.clone() } else { repo.clone() }, "created_at": started, "finished_at": null, "total_files": files.len(), "fileNames": names, "filePaths": paths, "total_bytes": total, "total_bytes_done": done, "current_idx": 0, "current_file": name, "current_path": shown_path, "file_bytes_done": done, "file_bytes_total": size, "resumable": resumable, "destDir": label}),
         )
+    }
+
+    /// Where a file of a job lands, as a row shows it: `./name` at the top of the models folder.
+    fn shown(file: &DownloadFile) -> String {
+        let path = file.dest_path();
+        if path.contains('/') { path } else { format!("./{path}") }
     }
 
     /// Deletes one orphaned partial; what it freed.
     pub fn discard_interrupted(&self, models_dir: &str, dest_dir: &str, name: &str) -> Result<i64, String> {
-        if !DownloadFile::is_plain_name(name) || dest_dir.starts_with('/') || dest_dir.split('/').any(|part| part == "..") {
+        if !DownloadFile::is_plain_name(name) || !DownloadFile::folder_stays_inside(dest_dir) {
             return Err("invalid destDir or name".to_string());
         }
         let owner =
@@ -86,9 +140,9 @@ impl<'app> Downloads<'app> {
         Ok(freed)
     }
 
-    /// Re-issues the job for one orphaned partial.
+    /// Re-issues an interrupted job: the partial's file and the files of its job after it that are still to fetch.
     pub fn resume_interrupted(&self, models_dir: &str, token: &str, dest_dir: &str, name: &str) -> Result<String, AppError> {
-        if dest_dir.contains("..") || dest_dir.starts_with('/') {
+        if !DownloadFile::folder_stays_inside(dest_dir) {
             return Err(AppError::new("invalid destDir"));
         }
         if !DownloadFile::is_plain_name(name) {
@@ -106,11 +160,8 @@ impl<'app> Downloads<'app> {
         }
         // absent-ok: a manifest that says no size promises none.
         let size = Coerce::whole(manifest.get("size"));
-        Ok(self.start(
-            &repo,
-            vec![DownloadFile { path, name: name.to_string(), dest_dir: dest_dir.to_string(), size }],
-            models_dir,
-            token,
-        ))
+        let current = DownloadFile { path, name: name.to_string(), dest_dir: dest_dir.to_string(), size };
+        let job = InterruptedJob::read(&manifest, current, Path::new(models_dir), &self.live_paths()).map_err(AppError::new)?;
+        Ok(self.start(&repo, job.files(), models_dir, token))
     }
 }

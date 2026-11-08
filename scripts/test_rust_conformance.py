@@ -49,6 +49,16 @@ OFF_LIST_KEY = "conformance-off-list-key"
 SHARED_KEY = "conformance-shared-key"
 
 
+def entry_patience():
+    """How long the proxy waits for a machine's entry that refuses: read where the program keeps it, `EntryWait::PATIENCE` of
+    proxy/src/entry_wait.rs, so that the number is one."""
+    said = re.search(r"pub const PATIENCE: f64 = ([0-9.]+);", (ROOT / "rust/crates/proxy/src/entry_wait.rs").read_text(encoding="utf-8"))
+    return float(said.group(1))
+
+
+ENTRY_PATIENCE = entry_patience()
+
+
 class Binary:
     """Where the program's program is, or the fact that it is not there."""
 
@@ -170,6 +180,8 @@ class FakeMachine:
                                           "path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()},
                                           "forwarded": len(self.headers.get_all("X-Forwarded-For") or []), "body": payload, "raw": body})
                 self.close_connection = True
+                # An answer that depends on what it was asked reads it here: the board's reader describes the picture it got.
+                self.payload = payload
                 getattr(machine, "answer_" + str(model).replace("-", "_"), machine.answer_unknown)(self, call)
 
         self.server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
@@ -398,6 +410,23 @@ class FakeMachine:
     def answer_whole_ok(self, handler, call):
         self.json_answer(handler, 200, self.WHOLE, extra=[("Cache-Control", "no-store")])
 
+    #: A row that reads text alone, as every model of this world does unless it says otherwise: its answer is the plain one.
+    answer_text_reads = answer_whole_ok
+
+    #: What the board's reader says of a picture. A picture whose bytes begin `RkFJT` ("FAI…" in base64) is one it cannot read.
+    CAPTION = "A red bicycle beside a tree."
+
+    def answer_eyes(self, handler, call):
+        """The board's reader: it describes the picture it was asked about, or refuses the picture that asks it to — with a
+        400, as a model refuses a picture it cannot decode, which says nothing of the model's health: each scenario that
+        fails a reading meets the reader's own refusal, not what an earlier failure taught the proxy."""
+        if "base64,RkFJT" in json.dumps(handler.payload):
+            self.json_answer(handler, 400, b'{"error":{"message":"the picture cannot be decoded."}}')
+            return
+        answer = {"id": "c3", "object": "chat.completion", "model": "eyes", "usage": {"prompt_tokens": 300, "completion_tokens": 8},
+                  "choices": [{"message": {"role": "assistant", "content": self.CAPTION}, "finish_reason": "stop"}]}
+        self.json_answer(handler, 200, json.dumps(answer).encode())
+
     def answer_whole_close(self, handler, call):
         """No length and no chunks: the answer ends when the connection closes."""
         handler.send_response(200)
@@ -437,7 +466,7 @@ class FakeMachine:
         self.answer_stream_ok(handler, call)
     answer_fail_twice = answer_fail_500
 
-    def answer_spare_served(self, handler, call):
+    def answer_entry_late(self, handler, call):
         self.answer_stream_ok(handler, call)
 
     def answer_both_ways(self, handler, call):
@@ -587,7 +616,7 @@ class Differences:
     #: choice of a row, which a pool of one row makes once per process.
     QUIET_EVENTS = ("queue_keepalive", "pool_switch")
     #: The running record's fields the board draws a request by, as they stand when it goes to its model.
-    RUNNING = ("method", "path", "client", "route", "port", "upstream", "upstreamType", "providerId", "routedOutputId", "routedOutputName",
+    RUNNING = ("method", "path", "client", "route", "routeId", "upstream", "upstreamType", "providerId", "routedOutputId", "routedOutputName",
                "phase", "cloudPoolId", "poolStepId", "priority", "bytes", "chunks")
     #: A wait this long in milliseconds is a wait; below it is the scheduler's noise, and the two sides differ by nature.
     WAITED_MS = 100
@@ -615,7 +644,11 @@ class Differences:
         elif isinstance(said, str):
             # A pool's refusal says when its rows were read and when they reset, by each side's own clock.
             out["upstreamErrorBody"] = re.sub(r'"(readAt|resetAt|resets_at)": [0-9.]+', r'"\1": "a moment"', said)
-        if row["event"] == "machine_entry_spare":
+        if row["event"] == "machine_entry_wait":
+            # How long and how many knocks move with the scheduler, and a refusal is worded by each system its own way: that it
+            # waited, and whether the entry took the request in the end, is what the row says.
+            out["waitedSec"] = float(out.get("waitedSec") or 0) > 0
+            out.pop("knocks", None)
             out["error"] = bool(out.get("error"))
         out.pop("elapsedSec", None)
         if "queuedMs" in out:
@@ -637,6 +670,10 @@ class Differences:
             out["bytes"] = int(item.get("bytes") or 0) > 0
         if item.get("errorKind") in cls.FREE_WORDS:
             out["error"] = bool(item.get("error"))
+        # The reader's own request names the request it read for by its id, which differs by nature: that it names one is kept,
+        # and which one is the scenario's check (`read_then_served`).
+        if "readerFor" in out:
+            out["readerFor"] = bool(out["readerFor"])
         # An answer the caravan wrote out of a provider's: its id is random.
         if str((item.get("response") or {}).get("id") or "").startswith("chatcmpl-"):
             out["response"] = {key: value for key, value in item["response"].items() if key != "id"}
@@ -646,14 +683,14 @@ class Differences:
 class Data:
     """The temporary data folder: the settings both proxies read, and the journal both write."""
 
-    def __init__(self, machine, entry_port, spare_machine, tls_origins):
+    def __init__(self, machine, entry_port, late_port, tls_origins):
         self.folder = Path(tempfile.mkdtemp(prefix="caravan-conformance-")).resolve()
         self.closed_ports = []
         for name in ("config", "state", "secrets", "logs/proxy-events"):
             (self.folder / name).mkdir(parents=True)
         self.machine = machine
         self.entry_port = entry_port
-        self.spare = spare_machine
+        self.late_port = late_port
         self.policy = {"maxSlots": 1, "queueLimitSec": 0, "queueYieldSec": 0, "loadingModelWaitSec": 30, "stickySlotSec": 0}
         self.stops = []
         #: The routes of one check beside the fixed ones, as the model list's questions need them.
@@ -667,7 +704,7 @@ class Data:
 
     MODELS = ("stream-ok", "stream-split", "stream-nodone", "stream-cut", "whole-ok", "whole-close", "refuse-400", "refuse-400-s", "fail-500",
               "fail-500-s", "auth-401", "busy-429", "loading", "hold", "hold-stream", "hold-limit", "hold-limit-s", "hold-left", "hold-stopped", "both-ways",
-              "silent-a-while", "fail-twice", "hold-gone", "text-model", "row-500", "row-500-s", "slow-500", "hold-busy")
+              "silent-a-while", "fail-twice", "hold-gone", "text-model", "row-500", "row-500-s", "slow-500", "hold-busy", "text-reads")
 
     def closed_port(self):
         """A port nothing listens on, and nothing will: drawn, and never bound."""
@@ -681,15 +718,15 @@ class Data:
 
     def outputs(self):
         return [self.output(name) for name in self.MODELS] + [
-            # The machine's entry is down; a running copy on its own port serves.
-            self.output("spare-served", upstreamPort=self.closed_port(), copyPorts=[self.spare.port]),
-            # The machine's entry is down, and so are its copies.
-            self.output("nobody-home", upstreamPort=self.closed_port(), copyPorts=[self.closed_port()]),
-            self.output("nobody-home-s", upstreamPort=self.closed_port(), copyPorts=[self.closed_port()]),
+            # The machine's entry refuses, as while its scout restarts, and takes connections a moment later (LateEntry).
+            self.output("entry-late", upstreamPort=self.late_port),
+            # The machine's entry is down for good: waited for as long as the patience, then given up.
+            self.output("nobody-home", upstreamPort=self.closed_port()),
+            self.output("nobody-home-s", upstreamPort=self.closed_port()),
             # A pool's row that goes the same way: rows of their own, a row that failed is doubted for minutes.
-            self.output("row-down", upstreamPort=self.closed_port(), copyPorts=[self.closed_port()]),
-            self.output("row-down-s", upstreamPort=self.closed_port(), copyPorts=[self.closed_port()]),
-            self.output("row-down-last", upstreamPort=self.closed_port(), copyPorts=[self.closed_port()]),
+            self.output("row-down", upstreamPort=self.closed_port()),
+            self.output("row-down-s", upstreamPort=self.closed_port()),
+            self.output("row-down-last", upstreamPort=self.closed_port()),
             # What no client can have.
             self.output("stopped-now", copyPorts=[]),
             self.output("stopped-held", stopped=True),
@@ -698,19 +735,21 @@ class Data:
             self.output("embed-model", jobs=["embed"]),
             self.output("a-voice", jobs=["tts"]),
             self.output("closed-one"),
+            # The board's reader: the one model of this world that says it reads pictures.
+            self.output("eyes", inputs=["text", "image"]),
         ]
 
     def settings(self):
         routes = [
-            {"label": "client", "port": 23201, "kind": "consumer", "apiKey": KEY, "portClosed": True, "enabled": True, "upstreamType": "cloud"},
-            {"label": "denied", "port": 23202, "kind": "consumer", "apiKey": DENIED_KEY, "portClosed": True, "enabled": True,
+            {"label": "client", "id": "c-client", "kind": "consumer", "apiKey": KEY, "enabled": True, "upstreamType": "cloud"},
+            {"label": "denied", "id": "c-denied", "kind": "consumer", "apiKey": DENIED_KEY, "enabled": True,
              "upstreamType": "cloud", "deny": ["model:mm:closed-one"]},
-            {"label": "held", "port": 23203, "kind": "consumer", "apiKey": PAUSED_KEY, "portClosed": True, "enabled": True,
+            {"label": "held", "id": "c-held", "kind": "consumer", "apiKey": PAUSED_KEY, "enabled": True,
              "upstreamType": "cloud", "mode": "paused"},
-            {"label": "off the list", "port": 23204, "kind": "consumer", "apiKey": OFF_LIST_KEY, "portClosed": True, "enabled": True,
+            {"label": "off the list", "id": "c-off-list", "kind": "consumer", "apiKey": OFF_LIST_KEY, "enabled": True,
              "upstreamType": "cloud"},
-            {"label": "one of two", "port": 23205, "kind": "consumer", "apiKey": SHARED_KEY, "portClosed": True, "enabled": True, "upstreamType": "cloud"},
-            {"label": "the other of two", "port": 23206, "kind": "consumer", "apiKey": SHARED_KEY, "portClosed": True, "enabled": True, "upstreamType": "cloud"},
+            {"label": "one of two", "id": "c-one-of-two", "kind": "consumer", "apiKey": SHARED_KEY, "enabled": True, "upstreamType": "cloud"},
+            {"label": "the other of two", "id": "c-other-of-two", "kind": "consumer", "apiKey": SHARED_KEY, "enabled": True, "upstreamType": "cloud"},
         ] + self.extra_routes
         routers = [{"id": "router:default", "name": "r", "outputs": self.fixed_outputs}]
         return {"routes": routes, "policy": self.policy, "routers": routers, "entry": {"port": self.entry_port}, "stopRequests": self.stops}
@@ -800,12 +839,17 @@ class Data:
             one("recording-to-a-subscription", account_row("r1", "sub-plenty", "sub-ok")),
             {"id": "the-pool-nobody-edited", "name": "nobody edits it", "steps": [on_machine("r1", "whole-ok")]},
             {"id": "watched", "name": "watched", "steps": [on_machine(name, "whole-ok") for name in self.pool_watched_rows]},
+            # A pool whose row reads text alone, and one whose row reads pictures: the board's reader reads for the first only.
+            one("pool-reads", on_machine("r1", "text-reads")),
+            one("pool-sees", on_machine("r1", "eyes")),
         ]
         pools += [one("over-tls", account_row("r1", "over-tls", "key-ok")), one("over-tls-streams", account_row("r1", "over-tls", "key-stream")),
                   one("over-tls-keeps", account_row("r1", "over-tls-kept", "key-keeps")), one("over-tls-a-stranger", account_row("r1", "tls-stranger", "key-ok")),
                   one("over-tls-another-name", account_row("r1", "tls-another-name", "key-ok")), one("plain-keeps", account_row("r1", "plain-kept", "key-keeps"))]
         cloud = {"accounts": accounts, "pools": pools, "schedules": {"acc:fake-provider/closed-model": {"enabled": True, "windows": []}},
-                 "levels": {"sub-giving-way": {"sub-giving-way": {"stopAt": {"18000": 5}, "switchAt": {"18000": 30}}}}}
+                 "levels": {"sub-giving-way": {"sub-giving-way": {"stopAt": {"18000": 5}, "switchAt": {"18000": 30}}}},
+                 # The board's reader (docs/vision-describe.md, "The reading"): it reads only for a request that carries a picture.
+                 "reader": "eyes"}
         (self.folder / "config" / "cloud-providers.json").write_text(json.dumps(cloud), encoding="utf-8")
         (self.folder / "state" / "model-catalog.json").write_text(json.dumps({"accounts": {"no-such-model": {"models": [{"id": "another-one"}]}}}), encoding="utf-8")
         self.write_secrets()
@@ -926,25 +970,56 @@ class Canon:
         return value
 
 
+class LateEntry:
+    """A machine's entry that takes connections only a moment after a request came, as while its scout restarts: its port is
+    drawn at the start and bound only by `open_soon`, so the request finds it refusing first (proxy/src/entry_wait.rs)."""
+
+    #: How long it refuses. The scout service's own gap is about 3.3 s (RestartSec=3); a second shows the wait as well.
+    DELAY = 1.0
+
+    def __init__(self):
+        self.port = free_port()
+        self.machine = None
+
+    def open_soon(self):
+        """Binds the port DELAY seconds from now, the one before let go first."""
+        self.close()
+
+        def bind():
+            time.sleep(self.DELAY)
+            self.machine = FakeMachine(port=self.port)
+
+        threading.Thread(target=bind, daemon=True).start()
+
+    def heard(self):
+        return [self.machine] if self.machine else []
+
+    def close(self):
+        if self.machine:
+            self.machine.server.shutdown()
+            self.machine.server.server_close()
+            self.machine = None
+
+
 class Harness:
     """The processes, and the walk of the scenarios."""
 
     def __init__(self, binary, writing=False):
         self.binary = binary
         self.machine = FakeMachine(slots={"hold": 1, "hold-gone": 1, "hold-limit": 1, "hold-limit-s": 1, "hold-busy": 1})
-        self.spare = FakeMachine()
+        self.late = LateEntry()
         self.certificates = Certificates()
         self.over_tls = FakeMachine(tls=self.certificates.server_side("trusted"))
         self.stranger = FakeMachine(tls=self.certificates.server_side("stranger"))
         self.entry_port = free_port()
         tls_origins = {"over-tls": f"https://localhost:{self.over_tls.port}", "over-tls-kept": f"https://localhost:{self.over_tls.port}",
                        "tls-stranger": f"https://localhost:{self.stranger.port}", "tls-another-name": f"https://127.0.0.1:{self.over_tls.port}"}
-        self.data = Data(self.machine, self.entry_port, self.spare, tls_origins)
+        self.data = Data(self.machine, self.entry_port, self.late.port, tls_origins)
         self.processes = []
         self.failures = []
         self.compared = 0
         self.frozen = FrozenAnswers("proxy", writing=writing)
-        self.own = OwnWords({self.data.folder: "<data>", ROOT: "<repo>"}, {self.machine.port: "<machine>", self.spare.port: "<spare>", self.over_tls.port: "<tls>", self.stranger.port: "<stranger>", self.entry_port: "<entry>"})
+        self.own = OwnWords({self.data.folder: "<data>", ROOT: "<repo>"}, {self.machine.port: "<machine>", self.late.port: "<late>", self.over_tls.port: "<tls>", self.stranger.port: "<stranger>", self.entry_port: "<entry>"})
 
     def env(self):
         env = {key: value for key, value in os.environ.items() if not key.startswith(("AGENT_PROXY_", "CARAVAN_", "CLOUD_"))}
@@ -973,6 +1048,7 @@ class Harness:
         raise RuntimeError(f"nothing listens on {port}: {(self.data.folder / 'processes.log').read_text(errors='replace')[-2000:]}")
 
     def stop(self):
+        self.late.close()
         for process in self.processes:
             process.send_signal(signal.SIGTERM)
         for process in self.processes:
@@ -1000,14 +1076,15 @@ class Harness:
         time.sleep(0.03)
 
     def run_through(self, scenario, door):
-        heard_by = (self.machine, self.spare, self.over_tls, self.stranger)
-        for machine in heard_by:
+        heard_by = (self.machine, self.over_tls, self.stranger)
+        for machine in (*heard_by, *self.late.heard()):
             machine.forget()
         seen = len(self.data.journal_rows())
         answer, ended = scenario.drive(self, door)
         rows = self.rows_since(seen, ended)
         asked = []
-        for machine in heard_by:
+        # An entry that opened late is a fresh machine, asked of nothing before this request.
+        for machine in (*heard_by, *self.late.heard()):
             with machine.lock:
                 asked += machine.asked
         self.settle()
@@ -1087,6 +1164,44 @@ class Scenario:
 
     def check(self, side):
         return self.checker(side) if self.checker else []
+
+
+class EntryComesBack(Scenario):
+    """The machine's entry refuses, as while its scout restarts, and takes connections a second later: the request waits for it and
+    is served there. Until 2026-11-08 it went to a running copy's own port instead, a way the cells' move to their machine's
+    loopback closed (Papyrus caravan-scout-port-lease, step 7)."""
+
+    def drive(self, harness, door):
+        harness.late.open_soon()
+        return super().drive(harness, door)
+
+
+def waited_for_the_entry(side):
+    """One wait in the journal, as long as the entry refused, and the entry took the request in the end."""
+    rows = [row for row in side.rows if row["event"] == "machine_entry_wait"]
+    if len(rows) != 1:
+        return [f"{len(rows)} rows of a wait for the entry, not one"]
+    problems = []
+    if rows[0].get("cameBack") is not True:
+        problems.append(f"the entry did not take the request in the end: {rows[0]!r}")
+    waited = float(rows[0].get("waitedSec") or 0)
+    if not LateEntry.DELAY * 0.8 <= waited < LateEntry.DELAY + 3:
+        problems.append(f"waited {waited} s for an entry that refused {LateEntry.DELAY} s")
+    if len(side.asked) != 1:
+        problems.append(f"the entry was asked {len(side.asked)} times, not once")
+    return problems
+
+
+def gave_up_on_the_entry(side):
+    """One wait in the journal, the whole patience long, and the entry never took the request."""
+    rows = [row for row in side.rows if row["event"] == "machine_entry_wait"]
+    if len(rows) != 1:
+        return [f"{len(rows)} rows of a wait for the entry, not one"]
+    waited = float(rows[0].get("waitedSec") or 0)
+    problems = [] if rows[0].get("cameBack") is False else [f"the row says the entry came back: {rows[0]!r}"]
+    if not ENTRY_PATIENCE <= waited < ENTRY_PATIENCE + 3:
+        problems.append(f"waited {waited} s, not the patience of {ENTRY_PATIENCE} s")
+    return problems
 
 
 class ClientLeaves(Scenario):
@@ -1283,7 +1398,7 @@ class Stopped(Scenario):
                 state = json.loads(state_file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            active = (state.get("agents") or {}).get("23201", {}).get("active") or []
+            active = (state.get("agents") or {}).get("c-client", {}).get("active") or []
             running = [item for item in active if item.get("phase") == "streaming"]
             request_id = running[0]["id"] if running else None
         harness.data.stops = [{"id": request_id or "none", "route": "client", "reason": "stopped by the test", "requestedAt": int(time.time())}]
@@ -1327,6 +1442,95 @@ class ExpectContinue(Scenario):
                 return Answer(0, {}, interim), None
             sock.sendall(body)
             return Answer.parse(interim + Client.read_all(sock)), None
+
+
+class Read(Scenario):
+    """A request whose pictures the board's reader reads: the reader's request is served beside it, so the scenario ends when
+    `finished` records are in — the reader's, then the request's; `twice` sends the same request again, read the second time
+    from what the first kept."""
+
+    def __init__(self, name, finished=2, twice=False, **kwargs):
+        super().__init__(name, **kwargs)
+        self.finished = finished + (1 if twice else 0)
+        self.twice = twice
+
+    def drive(self, harness, door):
+        if self.twice:
+            Client.ask(door.port, self.method, self.path, self.request_headers(), self.request_body())
+        answer = Client.ask(door.port, self.method, self.path, self.request_headers(), self.request_body())
+        return answer, lambda rows: sum(row["event"] in ("finished", "blocked") for row in rows) >= self.finished
+
+
+def a_picture(model, data, stream=False):
+    """A question and a picture: a PNG's bytes said by `data` in base64, or — with none — a link to a picture elsewhere."""
+    url = f"data:image/png;base64,{data}" if data else "https://pictures.example/a.png"
+    return json.dumps({"model": model, "stream": stream, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": "what is wrong here?"}, {"type": "image_url", "image_url": {"url": url}}]}]}).encode()
+
+
+def records_of(side):
+    """The finished records as the journal says them, ids and all: who read for whom is said by id."""
+    return [row.get("item") or {} for row in side.rows if row["event"] in ("finished", "blocked")]
+
+
+def read_then_served(kept):
+    """The reader was asked about the picture as it came, the row was sent the reader's words where the picture stood, and the
+    records say who read for whom; `kept` is how many pictures of the last request were taken from what a reading before said."""
+    def check(side):
+        problems = []
+        models = [one["body"].get("model") for one in side.asked]
+        want = ["eyes", "text-reads"] + (["text-reads"] if kept else [])
+        if models != want:
+            problems.append(f"the models asked were {models}, not {want}")
+        if side.asked and side.asked[0]["body"].get("model") == "eyes":
+            parts = side.asked[0]["body"]["messages"][0]["content"]
+            if not str(parts[1].get("image_url", {}).get("url", "")).startswith("data:image/png;base64,"):
+                problems.append(f"the reader was not asked about the picture as it came: {parts!r}")
+        caption = f'<caravan-caption by="eyes" prompt_version="v1">{FakeMachine.CAPTION}</caravan-caption>'
+        for one in side.asked[1:]:
+            part = one["body"]["messages"][0]["content"][1]
+            if part != {"type": "text", "text": caption}:
+                problems.append(f"the row was not sent the caption where the picture stood: {part!r}")
+            if "image_url" in json.dumps(one["body"]):
+                problems.append("the row that reads text alone was sent a picture")
+        records = records_of(side)
+        own = [record for record in records if record.get("readerFor")]
+        served = [record for record in records if not record.get("readerFor")]
+        if len(own) != 1 or not served or own[0].get("readerFor") != served[0].get("id"):
+            problems.append(f"the reader's record does not name the request it read for: {[(r.get('id'), r.get('readerFor')) for r in records]}")
+        said = [(record.get("readerName"), record.get("readerPictures"), record.get("readerKept")) for record in served]
+        if not served or said[-1] != ("eyes", 1, kept) or side.status != 200:
+            problems.append(f"the request's record does not say what was read: {said}, status {side.status}")
+        return problems
+    return check
+
+
+def seen_as_it_came(side):
+    """A row that reads pictures is sent the picture as it came, and nobody reads for it."""
+    problems = []
+    if [one["body"].get("model") for one in side.asked] != ["eyes"]:
+        problems.append(f"the models asked were {[one['body'].get('model') for one in side.asked]}")
+    elif "image_url" not in json.dumps(side.asked[0]["body"]):
+        problems.append("the row that reads pictures was not sent the picture")
+    if any(record.get("readerName") or record.get("readerFor") for record in records_of(side)):
+        problems.append("a reader is said to have read for a row that reads pictures itself")
+    return problems
+
+
+def refused_as(code, status):
+    """The request ends with the caravan's refusal in `code`'s words — a whole answer's status, or an error event in a stream already
+    open — and the row that reads text alone is never asked."""
+    def check(side):
+        problems = []
+        if side.status != status:
+            problems.append(f"status {side.status}, not {status}")
+        said = told_code(side) if isinstance(side.body, list) else ((side.body or {}).get("error") or {}).get("code") if isinstance(side.body, dict) else None
+        if said != code:
+            problems.append(f"the client was told {said!r}, not {code!r}: {str(side.body)[:300]}")
+        if any(one["body"].get("model") == "text-reads" for one in side.asked):
+            problems.append("the row that reads text alone was asked")
+        return problems
+    return check
 
 
 def no_provider_word(side):
@@ -1478,10 +1682,10 @@ def scenarios():
         Scenario("sign-in-refused-401", "auth-401", check=no_provider_word),
         Scenario("busy-429", "busy-429"),
         Scenario("still-loading", "loading"),
-        Scenario("entry-down-a-copy-serves", "spare-served", stream=True),
+        EntryComesBack("the-entry-comes-back", "entry-late", stream=True, check=waited_for_the_entry),
         Twice("a-model-that-failed-is-passed-over", "fail-twice"),
-        Scenario("nobody-home", "nobody-home"),
-        Scenario("nobody-home-in-a-stream", "nobody-home-s", stream=True),
+        Scenario("nobody-home", "nobody-home", check=gave_up_on_the_entry),
+        Scenario("nobody-home-in-a-stream", "nobody-home-s", stream=True, check=gave_up_on_the_entry),
         ClientLeaves("client-leaves-mid-stream", "hold-left", stream=True),
         Queued("two-for-one-place", "hold", differs=("running",), any_order=("events",)),
         LeavesTheLine("client-leaves-the-line", "hold-gone", stream=True, differs=("records", "running"), any_order=("events",), check=left_the_line),
@@ -1608,6 +1812,17 @@ def scenarios():
         Scenario("a-path-the-entry-has-not", "whole-ok", path="/v1/other"),
         Scenario("a-form-with-no-boundary", body=b"--x", headers={"Content-Type": "multipart/form-data"}),
         Options("options-of-a-path", path="/v1/chat/completions", method="OPTIONS"),
+        # The board's reader at work (docs/vision-describe.md, "The reading"): each picture a scenario of its own, so that what
+        # one read is not what another finds kept.
+        Read("a-picture-is-read-for-a-row-that-cannot", body=a_picture("pool reads", "UmVk"), check=read_then_served(kept=0)),
+        Read("a-picture-read-before-is-not-read-again", body=a_picture("pool reads", "WWVsbG93"), twice=True, check=read_then_served(kept=1)),
+        Read("a-picture-is-read-in-a-stream", body=a_picture("pool reads", "Qmx1ZQ==", stream=True), check=read_then_served(kept=0)),
+        Read("a-row-that-reads-gets-the-picture-as-it-came", body=a_picture("pool sees", "R3JlZW4="), finished=1, check=seen_as_it_came),
+        Read("a-picture-behind-a-link-is-refused-before-the-reader", body=a_picture("pool reads", None), finished=1,
+             check=refused_as("media_reader_link", 400)),
+        Read("a-reader-that-fails-ends-the-request", body=a_picture("pool reads", "RkFJTA=="), check=refused_as("media_reader_failed", 502)),
+        Read("a-reader-that-fails-in-a-stream-says-so-in-it", body=a_picture("pool reads", "RkFJTDI=", stream=True),
+             check=refused_as("media_reader_failed", 200)),
     ]
 
 
@@ -1648,7 +1863,7 @@ class ListQuestions:
 
     def set_up(self):
         data = self.harness.data
-        data.extra_routes = [{"label": f"list {name}", "port": 23300 + at, "kind": "consumer", "apiKey": self.key_of(name), "portClosed": True,
+        data.extra_routes = [{"label": f"list {name}", "id": f"c-list-{at}", "kind": "consumer", "apiKey": self.key_of(name),
                               "enabled": True, "upstreamType": "cloud", **raw} for at, (name, raw) in enumerate(self.ROUTES)]
         self.kept_outputs, data.fixed_outputs = data.fixed_outputs, self.table["outputs"]
         self.write(self.table["cloud"], self.table["secrets"], self.table["catalogue"])
@@ -1871,11 +2086,11 @@ def check_state_file(harness):
     # The file is written on a beat, not at each answer: what it says of the last request comes a moment later.
     while time.time() < deadline:
         state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-        if (state.get("counts") or {}).get("served") and not ((state.get("agents") or {}).get("23201") or {}).get("active"):
+        if (state.get("counts") or {}).get("served") and not ((state.get("agents") or {}).get("c-client") or {}).get("active"):
             break
         time.sleep(0.1)
     harness.compared += 1
-    agent = (state.get("agents") or {}).get("23201") or {}
+    agent = (state.get("agents") or {}).get("c-client") or {}
     problems = []
     if not agent.get("recent") or agent.get("label") != "client":
         problems.append(f"no recent request for the client: {str(agent)[:200]}")

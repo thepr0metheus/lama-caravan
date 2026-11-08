@@ -1,7 +1,7 @@
 //! A cell this scout started and no longer holds, found again: what `adopt_survivors` does once at a start, done again while the scout runs.
 //!
 //! A cell can leave this scout's hands without dying: the scout is killed while the cell loads (2026-10-14), a record is lost, a stop is half done. The process lives on, holding its port, its card and its
-//! memory, and the board can neither stop it nor start another. A process that carries this scout's mark for a port and that no cell of this scout holds is that cell, and it is held again; only once two
+//! memory, and the board can neither stop it nor start another. A process that carries this scout's mark for a cell and that no cell of this scout holds is that cell, and it is held again; only once two
 //! passes in a row have seen it: a start that has made its process and not yet put it in its cell would otherwise be taken from itself.
 
 use crate::cells::Cells;
@@ -12,8 +12,8 @@ use std::sync::Arc;
 /// The watch.
 pub struct Reconcile {
     cells: Arc<Cells>,
-    /// (port, pid), the passes in a row that have seen it.
-    seen: BTreeMap<(i64, i64), u32>,
+    /// (cell, pid), the passes in a row that have seen it.
+    seen: BTreeMap<(String, i64), u32>,
 }
 
 impl Reconcile {
@@ -27,23 +27,23 @@ impl Reconcile {
         Self { cells, seen: BTreeMap::new() }
     }
 
-    /// One pass: the (port, pid) pairs taken by it.
-    pub fn tick(&mut self) -> Vec<(i64, i64)> {
+    /// One pass: the (cell, pid) pairs taken by it.
+    pub fn tick(&mut self) -> Vec<(String, i64)> {
         let mut seen = BTreeMap::new();
         let mut taken = Vec::new();
-        for (port, roots) in self.cells.processes.tagged_cells() {
-            if self.cells.table.tracking(port) {
+        for (id, roots) in self.cells.processes.tagged_cells() {
+            if self.cells.table.tracking(&id) {
                 continue;
             }
             for pid in roots {
                 // absent-ok: a process not seen before has been seen by no pass.
-                let count = self.seen.get(&(port, pid)).copied().unwrap_or(0) + 1;
+                let count = self.seen.get(&(id.clone(), pid)).copied().unwrap_or(0) + 1;
                 if count >= Self::SIGHTINGS {
-                    Log::line(&format!("[reconcile] :{port} runs as pid {pid} outside this scout's cells — holding it again"));
-                    self.cells.adopt_found(port, pid);
-                    taken.push((port, pid));
+                    Log::line(&format!("[reconcile] {id} runs as pid {pid} outside this scout's cells — holding it again"));
+                    self.cells.adopt_found(&id, pid);
+                    taken.push((id.clone(), pid));
                 } else {
-                    seen.insert((port, pid), count);
+                    seen.insert((id.clone(), pid), count);
                 }
             }
         }

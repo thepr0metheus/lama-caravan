@@ -128,9 +128,9 @@ impl<'app> SettingsBundle<'app> {
         } else if name == Self::PROXIES {
             for route in out.get_mut("routes").and_then(Value::as_array_mut).into_iter().flatten() {
                 if route.is_object() && Coerce::truthy(route.get("apiKey")) {
-                    let port = route.get("port").map_or_else(|| "?".to_string(), |port| Coerce::str_of(Some(port)));
+                    let id = route.get("id").map_or_else(|| "?".to_string(), |id| Coerce::str_of(Some(id)));
                     Coerce::put(route, "apiKey", json!(Self::REDACTED));
-                    hit.push(format!("agent-proxies.routes[:{port}].apiKey"));
+                    hit.push(format!("agent-proxies.routes[{id}].apiKey"));
                 }
             }
         }
@@ -270,7 +270,32 @@ impl<'app> SettingsBundle<'app> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::runner_presets::RunnerPresets;
+    use crate::tests::{TestApp, TestFolder};
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn presets_and_warnings_survive_export_and_import() {
+        let folder = TestFolder::new("settings-runner-presets");
+        let app = TestApp::over(&folder.path, &[]);
+        app.admin.change(|doc| {
+            RunnerPresets::put(doc, &app.runners, "llama-server", "a", &json!({"CACHE_PROMPT": false})).unwrap();
+            RunnerPresets::mark(doc, &app.runners, "model", "vllm", true).unwrap();
+        });
+        app.admin.save().unwrap();
+        let bundle = SettingsBundle::of(&app).export(false).unwrap();
+        assert_eq!(bundle["files"]["admin-state"]["content"]["runnerPresets"]["llama-server"]["a"]["CACHE_PROMPT"], false);
+        assert_eq!(bundle["files"]["admin-state"]["content"]["modelRunnerWarnings"]["model"]["vllm"], true);
+        app.admin.change(|doc| {
+            RunnerPresets::remove(doc, "llama-server", "a").unwrap();
+            RunnerPresets::mark(doc, &app.runners, "model", "vllm", false).unwrap();
+        });
+        app.admin.save().unwrap();
+        SettingsBundle::of(&app).apply(&bundle, "").unwrap();
+        let restored = app.admin.read(|doc| RunnerPresets::list(doc, &app.runners));
+        assert_eq!(restored["presets"]["llama-server"]["a"]["CACHE_PROMPT"], false);
+        assert_eq!(restored["warnings"]["model"]["vllm"], true);
+    }
 
     #[test]
     fn the_copy_before_an_import_is_nobody_else_s() {

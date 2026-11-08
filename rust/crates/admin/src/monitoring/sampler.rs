@@ -63,6 +63,10 @@ impl<'app> MonitorSampler<'app> {
         "chain",
     ];
     const SLIM_SAMPLE_FIELDS: [&'static str; 7] = ["time", "cpuLoad", "cpu", "memory", "disk", "net", "gpu"];
+    /// Seconds between two writes of the history: the charts read the one in memory, and the file is only what a restart starts from. Every 10 s
+    /// it rewrote an hour of samples, 420 KB, on the NAS's disks (measured 2026-11-03; the owner: «write less»): a restart that is no release
+    /// now starts without the last minutes, and a release writes it as it ends (`persist_now`).
+    const PERSIST_EVERY: f64 = 600.0;
 
     /// The monitor of `app`.
     pub fn of(app: &'app App) -> Self {
@@ -106,7 +110,7 @@ impl<'app> MonitorSampler<'app> {
         let now = self.app.now();
         let samples: Vec<Value> = {
             let mut book = self.app.monitor.held.lock().unwrap_or_else(PoisonError::into_inner);
-            if !force && now - book.last_persist < 10.0 {
+            if !force && now - book.last_persist < Self::PERSIST_EVERY {
                 return;
             }
             book.last_persist = now;
@@ -119,6 +123,11 @@ impl<'app> MonitorSampler<'app> {
         }
         // A history that was not written is written on the next pass: the charts read the one in memory.
         drop(AtomicFile::write(path, text.as_bytes()));
+    }
+
+    /// The history to the file now, whenever it was last written: a process that is about to end.
+    pub fn persist_now(&self) {
+        self.persist(true);
     }
 
     fn load(&self) {
@@ -284,5 +293,33 @@ mod tests {
         assert_eq!(slim["correlatedActivity"]["activeRequests"], json!([{"id": "a"}]));
         assert_eq!(slim["correlatedActivity"]["gpu"], json!({"activeRoutes": ["L"], "cloudActiveRoutes": []}));
         assert_eq!(slim["correlatedActivity"]["ok"], true);
+    }
+
+    #[test]
+    fn the_history_goes_to_its_file_once_in_its_time_and_whenever_it_is_asked() {
+        let folder = crate::tests::TestFolder::new("monitor-persist");
+        let clock = crate::tests::HandClock::at(1_000);
+        let app = crate::tests::TestApp::with_clock(&folder.path, &[], clock.clone());
+        let sampler = MonitorSampler::of(&app);
+        let sample = |at: f64| app.monitor.held.lock().unwrap().history.push_back(json!({"time": at}));
+        let kept = || -> Vec<f64> {
+            let doc: Value = serde_json::from_slice(&std::fs::read(&app.paths.monitor_history_file).unwrap()).unwrap();
+            doc["samples"].as_array().unwrap().iter().map(MonitorSampler::time_of).collect()
+        };
+        sample(app.now());
+        sampler.persist(false);
+        assert_eq!(kept(), [1_000.0], "a process's first sample is written at once");
+        clock.pass(MonitorSampler::PERSIST_EVERY as u64 - 10);
+        sample(app.now());
+        sampler.persist(false);
+        assert_eq!(kept(), [1_000.0], "negative: the samples of its time wait for it in memory");
+        clock.pass(10);
+        sample(app.now());
+        sampler.persist(false);
+        assert_eq!(kept(), [1_000.0, 1_590.0, 1_600.0], "after it, they are all written");
+        clock.pass(10);
+        sample(app.now());
+        sampler.persist_now();
+        assert_eq!(kept(), [1_000.0, 1_590.0, 1_600.0, 1_610.0], "a process about to end writes them whenever it is");
     }
 }

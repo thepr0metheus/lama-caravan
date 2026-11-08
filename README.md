@@ -110,8 +110,9 @@ What that gives you in practice:
     there is none; whisper reads them all through faster-whisper
   - 🔄 **NLLB** — text translation (NLLB-200), the same card and lifecycle as
     every other cell
-  - 🛠️ **Custom command** — any process that listens on `$PORT` becomes a
-    managed cell: health-checked, logged, scheduled, restarted
+  - 🛠️ **Custom command** — any process that listens on `127.0.0.1:$PORT` becomes a
+    managed cell: health-checked, logged, scheduled, restarted (the scout reaches a cell on its machine's loopback; the
+    network sees one port of the machine, the scout's)
 - **🦜 Voice clone is a runner.** XTTS-v2, CosyVoice2 or F5-TTS, the engine picked on its tab: a text read out in
   a voice taken from a few seconds of a sample, through OpenAI's `POST /v1/audio/speech` — the board's 🎙 window
   and Open WebUI talk to it as to Qwen3-TTS — with a voice kept on the machine under a name, and the voice app's
@@ -167,18 +168,21 @@ one command; run it on the box (Linux on x86_64): `curl -fsSL
 installs what the machine needs, starts the scout and prints its address and
 port. Back on the board: that address, Connect — the controller pairs the scout
 itself and hands it the fleet token. From then on the box is a machine node, and
-its cells are launched from there; its ✕ lets go again. A new version comes the
-same way, from the machine's ⋯ menu: **Update the scout**. Cells that run keep
-running while it restarts. A controller whose release carries no scout has none
-to hand out and says so: [Install On the controller](#install-on-the-controller)
+its cells are launched from there; its ✕ lets go again. A new version comes by
+itself: once the controller runs a new release, it hands it to each machine whose
+scout in it is another program, at that machine's next report, and to a busy one a
+little later. The machine's ⋯ menu, **Update the scout**, does the same by hand.
+Cells that run keep running while it restarts, and it restarts only once the requests
+passing through it are answered, ten minutes at the most. A controller whose release carries
+no scout has none to hand out and says so: [Install On the controller](#install-on-the-controller)
 says how a release gets one.
 
 A machine that merely *runs agents* installs nothing. Each agent is a client
 of the entry, made **on the board**: ＋ in the Clients column asks a name,
 then shows its key once. The agent calls the entry's
-address with that key — that is the whole integration. An agent of the older kind
-keeps its record on the board, but its own port no longer listens and the entry
-refuses its key: make it a client. A machine that does both shows up
+address with that key — that is the whole integration. A client is known by its
+record's id and has no port number of its own; a route of the older kind, made with a
+port of its own, is retired at the controller's start: make it a client. A machine that does both shows up
 twice: as a machine with its hardware and as its agents' client cards.
 
 Why: fewer moving parts on machines that gain nothing from a sidecar, a
@@ -339,6 +343,12 @@ that fails leaves the old folder as it was) or they are deleted — and ✕ remo
 goes back to the folder it lies in by itself, and Strata waits for another. The controller keeps both folders and
 Strata's limit, and a scout installed again gets them back.
 
+An InferSSD cell, the other server of DeepSeek-V4.1-Flash beside Strata · DeepSeek, keeps its model in the same folder:
+it reads the model's experts from the disk while it answers, so it needs the same fast disk, and a DeepSeek-V4.1 GGUF opens
+both tabs. Its launcher (`cells/run_inferssd.sh`) builds wici-ai's engine on the machine at the first start, from the source
+of one pinned commit (tag v0.1.1), in 2–12 minutes; the build needs the CUDA toolkit and liburing's headers, which the
+machine's owner installs once (`sudo apt install liburing-dev`). It runs on the one card the form pins and takes it whole.
+
 ## Screenshots
 
 These are from 2.0.0 (2026-11-03), taken on [the stand](docs/stand.md): the machine (`stand-box`), its two
@@ -353,16 +363,19 @@ machines, each card with what runs on it and its history, and the cloud provider
 ![Main board](docs/screenshots/board.png)
 
 A machine's page: one rack across the page, a lane per card and one for the RAM, with what lies where
-and each card's load, memory and power at its end. Under it every model of the library with its work, the
-longest context it was trained for, its size and its cells. On the right the engines and the model disk:
-the cache with its limit and its folder, and the folder for Strata's files apart from it:
+and each card's load, memory and power at its end. Under the rack a launch is built for the model picked, a step at
+a time from one shelf — an engine, a quant and a set of settings, each dragged down into it — and carried up onto a card
+or the RAM as a cell is, then started. Under it
+every model of the library with its work, the longest context it was trained for, its size and its cells. On the
+right the engines and the model disk: the cache with its limit and its folder, and the folder for Strata's files
+apart from it:
 
 ![Machine page](docs/screenshots/machine.png)
 
 A cell's window: its state, and tabs for its memory, its settings, its log and a chat with it. The memory
 tab shows where the model lives — what each card holds, the handle that caps a card, and what a flag set
 by hand changes. The settings tab has every flag of the runner explained and searchable; «Open all
-settings…» opens the cell editor: the compute target, the runner row (llama.cpp / PrismML / vLLM / Strata / GR00T /
+settings…» opens the cell editor: the compute target, the runner row (llama.cpp / PrismML / vLLM / Strata / Strata · DeepSeek / InferSSD / GR00T /
 whisper / moonshine / transcribe.cpp / Seamless / NLLB / custom), the mmproj and the MTP draft of a
 multimodal GGUF, the schedule window and the exact command it will run:
 
@@ -411,7 +424,7 @@ repository by quantization, with their sizes:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-11-03**):
+whenever a component is upgraded (last verified: **2026-11-08**):
 
 | Component | Verified version |
 |---|---|
@@ -429,10 +442,10 @@ whenever a component is upgraded (last verified: **2026-11-03**):
 | vLLM | 0.30.0, pinned provisioning — on the controller's machine since 2026-10-05, installed through System (the scout's update job; 0.24.0 stays in its rollback history) because 0.24.0 carried 28 known vulnerabilities (osv.dev); a cell (`:22026`, model folder read from the NAS library) last verified on 0.24.0 2026-09-25 |
 | Ollama | 0.34.4, next to the cells on the controller's machine — installed in the user's home from the official release (no sudo), listening on 127.0.0.1, its server started and stopped from the board, a model downloaded and deleted from the board (verified 2026-09-25); its scout finds it, the board names the VRAM its runner holds and lists its models, verified 2026-09-25; two models loaded at once, and loading and unloading them from the board (a model loaded from the board stays until unloaded), verified 2026-09-25. Its runner is a bundled `llama-server` of its own (`lib/ollama/llama-server`): the scout never takes it for a cell — a different binary, without the scout's mark |
 | LM Studio | headless `llmster` 0.0.25 (LM Studio without its window; runtime `llama.cpp-linux-x86_64-nvidia-cuda12-avx2` 2.45.0), next to the cells on the controller's machine — installed in the user's home by the official installer without touching PATH, listening on 127.0.0.1:1234; its scout reads the v1 API (`/api/v1/models`), the board lists its models, their windows and the memory it holds, and loads and unloads them, verified 2026-09-25; a load with an idle limit goes through its `lms load --ttl`, and its own `--estimate-only` says what a load needs, verified 2026-09-25 |
-| caravan-scout | 2.43.0 on the GPU machine (2026-10-26: a loading cell says what its processes have read of its model, how fast, and what its files weigh — 2.43.0; a copy of a model says how fast it goes, `downloadBytesPerSec` over its last seconds — 2.42.0; a cell whose server keeps no metrics says so, `noMetrics` on a 404 or 501 — 2.41.0; a start no longer opens its cell's port to everyone in ufw — the cells' range is the owner's rule, the controller alone — and ufw is read as ufw decides, first match, ranges and denies counted — 2.40.0; a model's copies are cells of one runner, one name on two runners being two models `<name>@<runner>` — 2.39.0; a download leaves the page cache as it is written — 2.38.1 — and a cell's memory scope is no smaller than the memory it promised — 2.38.2; three Strata cells at a 262144-token window started from the board and answered, the largest — 44 GiB of experts in 60.5 GiB of RAM — on its first start at 47 % of systemd-oomd's 50 % pressure limit; the cache's limit in GB and its folder — 2.38.0; a stop lets go of the stopped cell's own models only — 2.37.1–2.37.3) — it runs every cell there (one trial start per runner); since 2.31 it brings every part of a split GGUF and a command cell's other model files through the controller, starts a command cell in the background, keeps a command cell's models as the cell's cache switch says, and names the processes a cell's server started (Strata's engine); in Rust since 2026-11-02, with the same version number; since 2026-11-03 it shows a cell the controller's model through a read-only FUSE folder when its cache is off, goes on with a copy cut short, and takes the machine's settings back from the controller when it is paired anew; installed with the command of Machines → ＋ Add scout and added from the board; knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed; for the controller it reads its machine's driver packages and installs the one the controller picks, lists the busiest processes and takes the nvidia-smi and btop snapshots (2.24.0, verified 2026-10-07), and says in nvidia-smi's words why it lists no card (2.25.0) |
+| caravan-scout | 2.48.0 on the GPU machine (2026-11-08: the cells listen on the machine's loopback alone, and the controller reaches one through the scout's door, `/api/cell/<cell><path>` — verified live: a cell restarted on 127.0.0.1 refused from the controller's machine while the controller read its health through the door and a request through the caravan's entry reached it; a new release waited for a request held through its entry both ways, 2.47.1 → 2.48.0 and back, and a request that came in the 3.2 s the service took to start the new scout waited for it in the proxy and was answered — 2.48.0; a move of its model folders under way refuses a new release, and one begun while a release waits holds it — pinned by tests, no live folder was moved — 2.47.1; a new release ends the scout only once nothing passes through it — no connection answered, a request through the machine's entry waited for ten minutes at the most; verified live with a request held in flight through the entry as the release came: the same process 8 s on, its stream whole, the end right after it and the new process 3 s later — 2.47.0; a cell is known by its own name and holds a port only while it runs — the scout leases a free one at the start and gives it back at the stop; it took the release by itself at its machine's next report, and kept the running cell on its port — 2.46.0; 2026-11-03: each card says its PCIe link, generation and lanes, for the board's estimate of the speed — 2.45.0; a start brings as many parts of a split GGUF as its file's hint says — 2.44.0; 2026-10-26: a loading cell says what its processes have read of its model, how fast, and what its files weigh — 2.43.0; a copy of a model says how fast it goes, `downloadBytesPerSec` over its last seconds — 2.42.0; a cell whose server keeps no metrics says so, `noMetrics` on a 404 or 501 — 2.41.0; a start no longer opens its cell's port to everyone in ufw — the cells' range is the owner's rule, the controller alone — and ufw is read as ufw decides, first match, ranges and denies counted — 2.40.0; a model's copies are cells of one runner, one name on two runners being two models `<name>@<runner>` — 2.39.0; a download leaves the page cache as it is written — 2.38.1 — and a cell's memory scope is no smaller than the memory it promised — 2.38.2; three Strata cells at a 262144-token window started from the board and answered, the largest — 44 GiB of experts in 60.5 GiB of RAM — on its first start at 47 % of systemd-oomd's 50 % pressure limit; the cache's limit in GB and its folder — 2.38.0; a stop lets go of the stopped cell's own models only — 2.37.1–2.37.3) — it runs every cell there (one trial start per runner); since 2.31 it brings every part of a split GGUF and a command cell's other model files through the controller, starts a command cell in the background, keeps a command cell's models as the cell's cache switch says, and names the processes a cell's server started (Strata's engine); in Rust since 2026-11-02, with the same version number; since 2026-11-03 it shows a cell the controller's model through a read-only FUSE folder when its cache is off, goes on with a copy cut short, and takes the machine's settings back from the controller when it is paired anew; installed with the command of Machines → ＋ Add scout and added from the board; knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed; for the controller it reads its machine's driver packages and installs the one the controller picks, lists the busiest processes and takes the nvidia-smi and btop snapshots (2.24.0, verified 2026-10-07), and says in nvidia-smi's words why it lists no card (2.25.0) |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | Isaac-GR00T | commit `d2b7e75` with torch 2.9.0+cu128, transformers 4.57.3 and flash-attn 2.8.3 (its own `uv.lock`, uv 0.13.0) — GR00T cells; GR00T N1.7 3B (revision `2fc962b`) with Cosmos-Reason2-2B (revision `9ce19a1`) on the RTX 5090: one prediction of 40 actions in about 61 ms, 7.0 GB of VRAM, the DROID sample answered through the cell's HTTP API, verified 2026-10-13 |
-| Strata | v0.2.9 (commit `c62d5e3a`, engine 0.1.55), engine built on the machine with nvcc 13.2.86 (CUDA 13.2.2 — nvcc 13.2.78 miscompiles `sm_120`, Strata issues #892, #968) — Strata cells; Qwen3.8-Flash-Next GSQ-RCO IQ2_XS on the RTX 5090 at the 262144-token window: 222–245 tokens/s with the MTP draft layer, verified 2026-10-31 (v0.1.42 at 131072: 159–192) |
+| Strata | v0.2.11 (commit `c3b3f503`, engine 0.1.57), engine built on the machine with nvcc 13.2.86 (CUDA 13.2.2 — nvcc 13.2.78 miscompiles `sm_120`, Strata issues #892, #968); DeepSeek's engine is its own package, fetched from Strata's signed feed, so a Strata update does not carry it (verified 2026-11-05: 445 MB, the package signature and every file hash checked) — Strata cells; Qwen3.8-Flash-Next GSQ-RCO IQ2_XS on the RTX 5090 at the 262144-token window: 252–267 tokens/s with the MTP draft layer, three answers of 467–600 tokens on the live cell, verified 2026-11-05 (the same cell on v0.2.9 / engine 0.1.55 measured 222–245 on 2026-10-31; v0.1.42 at 131072: 159–192) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | vLLM-Omni (the Step-Audio 2, Qwen3-Omni and Qwen3-TTS runners) | 0.30.0 with vLLM 0.30.0, one venv per model (`run_vllm_omni.sh`); the answers transcribed back by a speech recognizer, verified on the RTX 5090 2026-10-15. Step-Audio 2 mini: 25 GB, the first answer after a 73 s warm-up, then 1.5 s. Qwen3-Omni-30B-A3B AWQ 4-bit (cyankiwi): 31 GB, English and Russian answers, a 15 s story generated in 1.5 s; the checkpoint came from the NAS at 8 minutes. Qwen3-TTS-12Hz-1.7B (2026-10-22): Base on the RTX 3090 and CustomVoice on the RTX 5090, 7.9 and 8.3 GB with four requests at once, 12-16 s of speech in 1.6-2.9 s; the Russian of both read back word for word by GigaAM, and a clone keeps its sample's pitch (145 to 151 Hz, 222 to 200 Hz) |
 | PersonaPlex (runner) | NVIDIA/personaplex commit `3428dfd` with torch 2.13.0+cu130 in a venv of its own (the repository's own pins stop at torch 2.5, which has no `sm_120` kernels); the weights of `nvidia/personaplex-7b-v1` (bf16, about 20 GB), an answer spoken back to a spoken question, verified 2026-10-15 |
@@ -568,7 +581,9 @@ the link `current`, which `CARAVAN_ROOT` names, says which one runs. Moving the 
 the delivery. The controller sees it, ends once its proxy's state file shows no request
 running (ten minutes at the most), and whatever keeps it running starts the new one: in a
 container its restart policy, with no new image. `/healthz` then names the commit. A machine's scout takes that
-release from its ⋯ menu on the board, **Update the scout**.
+release by itself when the scout in it changed: the controller hands it at the machine's next report, and says so in
+its log (`[scout-release]`). Its ⋯ menu on the board, **Update the scout**, hands it by hand. The scout, too, ends only
+once no request passes through it, ten minutes at the most.
 
 ## Features
 
@@ -582,21 +597,23 @@ release from its ⋯ menu on the board, **Update the scout**.
   checklist beyond four), and llama.cpp gets the matching
   device/split/threads flags written for it.
 - Memory estimate against BOTH pools (RAM and VRAM) of the target host, each
-  engine by its own rule: llama.cpp sums its files, KV cache and batch, vLLM
+  engine by its own rule: llama.cpp sums its files (the model, its projector and
+  a speculative draft, whose own KV cache it says it does not count), KV cache and batch, vLLM
   reserves its share of the card, Strata takes the card's free VRAM and needs
   6 GB of it, GR00T holds the 7.5 GB its policy was measured at. A running cell shows its **measured** usage (per-process
   `nvidia-smi`) carved out of the used bar instead of a double-counted estimate.
 - Cells run on any scout host — the GPUs and CPUs of
   scout hosts are first-class; models are cached and shipped from the
   controller.
-- Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; clients of
-  the entry are numbered in their own block at `23001+` via CARAVAN_PROXY_BASE_PORT) — the
-  controller refuses to start with its own web port (`LLAMACPP_ADMIN_PORT`, default
+- Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; the entry's
+  port stands in its own block at `23001+` via CARAVAN_PROXY_BASE_PORT — its clients have no
+  numbers) — the controller refuses to start with its own web port (`LLAMACPP_ADMIN_PORT`, default
   `7990`) inside either block; cells are scout-managed processes on
   the machines with a scout, the controller's own machine included (they
   survive scout restarts).
-- Per-cell schedule windows (start/stop by time of day and weekday), autostart,
-  a port picker with a fleet-wide grid, and port swap between stopped cells.
+- Per-cell schedule windows (start/stop by time of day and weekday) and autostart.
+  A cell is known by its own name and holds a port only while it runs: its scout
+  leases a free one from the cells' range when it starts and frees it at the stop.
 - llama.cpp lifecycle: fleet-wide update button, build archive with informed
   one-click restore, a sticky crash watchdog with a server-dismissed banner,
   and a franken-build guard (stale CUDA build dirs are wiped automatically).
@@ -689,8 +706,8 @@ release from its ⋯ menu on the board, **Update the scout**.
   GPU/CPU/RAM bars per host, token-speed and power charts, incident badges.
 - Request History with per-request timings, stream stats, error kinds, rescue
   badges; request-log diagnostics API
-  (`/api/agent-proxy-logs?port=&errors=1&slim=1`) for debugging routes without
-  ssh.
+  (`/api/agent-proxy-logs?routeId=&errors=1&slim=1`, a client by its record's id) for
+  debugging routes without ssh.
 - Usage & spend statistics per agent and per backend; `/metrics` for
   Prometheus (clients, cells, GPU, routes).
 - System page: controller services, cells, git version, models-disk
@@ -704,6 +721,8 @@ release from its ⋯ menu on the board, **Update the scout**.
 **Platform**
 
 - Web UI in **6 languages** (English, Chinese, Spanish, German, Russian, Arabic) with a CI guard that keeps every key translated.
+- Every page fits a phone: the header folds where it does not fit on one line, and the main board stands in one column there;
+  a desktop window narrower than the board still scrolls the whole board sideways.
 - Sign-in: accounts + sessions in one file, a fleet token for the scouts. A fresh
   install asks for its first account at `/setup` before anything else
   (see [docs/security.md](docs/security.md)).
@@ -742,6 +761,11 @@ Set the type by hand for a file named otherwise. A model with an MTP head inside
 it gets `draft-mtp` and no file. The **Speculation** tab holds the rest: the
 type, the draft's GPU layers, its depth and its KV-cache types. The five
 `ngram-*` types draft from the prompt itself: no file, no extra VRAM.
+
+A Strata · DeepSeek cell takes its drafter otherwise: its set reads Unsloth's
+DSpark file by the name Strata gives it, and the controller finds that file in
+the library when the cell is saved, with the set's other companions. Picking the
+model does not change it, and the editor shows the file the cell names.
 
 A Gemma 4 cell with its MTP head, as in `scripts/start-server.sh`:
 
@@ -827,8 +851,8 @@ The full endpoint reference (the admin surface and the proxy surface) lives in
 - `GET /api/state` — the controller's own state: its config, models, services, hardware, llama.cpp.
 - `GET /api/topology` — the whole board: hosts, GPUs, cells, proxy routes,
   routers, clients, assignments.
-- `GET /api/agent-proxy-logs?port=&errors=1&slim=1` — per-request diagnostics
-  for a route (timings, error kinds) without touching ssh.
+- `GET /api/agent-proxy-logs?routeId=&errors=1&slim=1` — per-request diagnostics
+  for a client of the entry, by its record's id (timings, error kinds) without touching ssh.
 - `POST /api/agent-proxy-entry` — open, move or close the entry for keys.
 - `POST /api/consumers/create` — a client of the entry: a name; answers its
   key, this once. `POST /api/consumers/deny` sets what is blocked for it: pools,
@@ -1009,7 +1033,7 @@ says why; the `voice-chat` chip on a card and on the model's row says it talks.
 | Step-Audio 2 | `stepfun-ai/Step-Audio-2-mini` | `run_vllm_omni.sh` | English, Chinese | `/v1/chat/completions` with the recording in and `message.audio` out | 25 GB | Apache-2.0 |
 | Qwen3-Omni | `cyankiwi/Qwen3-Omni-30B-A3B-Instruct-AWQ-4bit` | `run_vllm_omni.sh` | 10 languages, Russian among them | the same; text, images and video go in too | 31 GB — the whole card | Apache-2.0 |
 | Qwen3-TTS | `Qwen/Qwen3-TTS-12Hz-1.7B-Base` or `-1.7B-CustomVoice` (the 0.6B ones and VoiceDesign too) | `run_vllm_omni.sh` | 10 languages, Russian among them | `POST /v1/audio/speech` (text to speech): CustomVoice in its nine voices; Base in the voice of a sample, sent with a request or kept on the cell (`POST /v1/audio/voices`) | about 8.5 GB | Apache-2.0 |
-| Voice clone | none from the library: the engine's own, fetched at the first start (XTTS-v2, CosyVoice2-0.5B, F5-TTS) | `run_tts.sh` | XTTS-v2: 17 languages, Russian among them; CosyVoice2: Chinese, English, Japanese, Korean; F5-TTS: English, Chinese | `POST /v1/audio/speech` in the voice of a sample sent with a request or kept on the machine (`POST /v1/audio/voices`); the voice app's `/v1/audio/speech-clone` | not measured yet; with nothing pinned it takes the CPU when the card is short | XTTS-v2 and F5-TTS weights non-commercial; CosyVoice2 Apache-2.0 |
+| Voice clone | none from the library: the engine's own, fetched at the first start (XTTS-v2, CosyVoice2-0.5B, F5-TTS) | `run_tts.sh` | XTTS-v2: 17 languages, Russian among them; CosyVoice2: Chinese, English, Japanese, Korean; F5-TTS: English, Chinese | `POST /v1/audio/speech` in the voice of a sample sent with a request or kept on the machine (`POST /v1/audio/voices`); the voice app's `/v1/audio/speech-clone` | XTTS-v2 2.4 GB, CosyVoice2 4.2 GB, F5-TTS 2.2 GB at most (an RTX 3090); left to choose, it takes the card only with a fifth more free, else the CPU | XTTS-v2 and F5-TTS weights non-commercial; CosyVoice2 Apache-2.0 |
 | llama.cpp-omni | `openbmb/MiniCPM-o-4_5-gguf` (any file of it) | `run_minicpm_omni.sh` | English, Chinese | a websocket, `ws://<host>:<port>/backend` (turn by turn, or full duplex), which the board's 📞 live window speaks through the controller; no OpenAI API, no page | 12 GB | Apache-2.0 |
 
 Step-Audio 2, Qwen3-Omni and Qwen3-TTS are one engine (vLLM-Omni) with a runner each: the family has its own recipe,
@@ -1031,7 +1055,8 @@ headphones in full duplex: through speakers the model hears itself. PersonaPlex 
 finds its WebSocket at the root of the name it is opened at — so not under a path of the board's: its card has 🌐 Page,
 which opens that page in the same tab at the https address the cell's settings name (`PAGE_URL`), a name of its own on
 the reverse proxy in front of the cell. The address is checked for its form at the save: https, a name, a port and a
-path or none.
+path or none. Since cells listen on their machine's loopback alone (2026-11-08), a reverse proxy elsewhere has no way to
+the cell's port: the page needs a way through the scout that the caravan does not have yet.
 
 What to know before the first start:
 
@@ -1061,6 +1086,10 @@ What to know before the first start:
   names no `language` is read in the language of its letters (Cyrillic — Russian, kana — Japanese, Latin — English:
   name a Spanish text's language). XTTS-v2 refuses a language it does not read, CosyVoice2 a sample longer than 30 s;
   the answer is a WAV (or `pcm`, 24 kHz), not mp3. The voice app's `/v1/audio/speech-clone` is answered as before.
+  Left to choose (its Device tile on auto), a cell goes on its card only when the card has its engine's measured peak
+  and a fifth more free — 2.9 GB for XTTS-v2, 5.1 for CosyVoice2, 2.6 for F5-TTS — and otherwise on the CPU, many
+  times slower, with the cards hidden from its engine; its `/health` says where and why (`device`, `deviceReason`).
+  F5-TTS given a sample without its words loads a Whisper of its own beside it, which that figure does not count.
 - **Any model name goes.** A vLLM-Omni cell calls its model by the recipe's name (`qwen3-omni`, `qwen3-tts`, …) and
   takes whatever name a request gives it — a pool's, for instance: one cell serves one model, and the caravan routes
   by the port.
@@ -1073,8 +1102,9 @@ What to know before the first start:
   start, 2 to 8 minutes by how busy the machine is, with `cmake`, `git` and the CUDA toolkit installed, for the
   architecture of every card of the machine (`sm_86` and `sm_120` for an RTX 3090 beside an RTX 5090; `CUDA_ARCH`
   overrules), and again when a card of another architecture is added; the ten GGUF files
-  of the library are linked into the folder layout it expects. Its models load at the first session (30 to 90 s from a NAS), and its
-  Russian is text only: the voice for a Russian sentence is not speech.
+  of the library are linked into the folder layout it expects. One line of its source is patched before the build: in full duplex
+  the step that ends a turn is voiced to its end (upstream stops it at about a second). Its models load at the first session
+  (30 to 90 s from a NAS), and its Russian is text only: the voice for a Russian sentence is not speech.
 - **One conversation at a time** for PersonaPlex and MiniCPM-o (one model stream each); the vLLM-Omni cells queue 1–2 requests.
 - **The cell's card says `unknown`, not ⇪, for the stale-server check** of these cells: PersonaPlex, vLLM-Omni
   and llama.cpp-omni are not our servers and report no stamp.

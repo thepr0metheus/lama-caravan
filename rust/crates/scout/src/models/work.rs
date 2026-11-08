@@ -35,9 +35,10 @@ impl CacheKeeper {
         let _one_at_a_time = self.busy.lock().unwrap_or_else(PoisonError::into_inner);
         self.models.relocation.refuse_while_moving()?;
         self.refuse_while_loading(&format!("{named} does not move"))?;
-        let live = self.cells.live_ports();
-        let mut busy: Vec<String> =
-            live.iter().filter(|port| self.models.scratch(**port).is_dir()).map(|port| format!(":{port}")).collect();
+        let live = self.cells.live_cells();
+        let keeping: std::collections::BTreeSet<String> =
+            live.iter().filter(|cell| !self.models.scratches_of(cell).is_empty()).cloned().collect();
+        let mut busy = self.cells.called(&keeping);
         if busy.is_empty() && self.cells.held_files().iter().any(|file| self.models.in_cache(Path::new(file))) {
             busy.push("a cell that reads its model there".to_string());
         }
@@ -53,7 +54,7 @@ impl CacheKeeper {
             let (models, target) = (Arc::clone(&self.models), new.clone());
             let switch = Box::new(move || models.folders.work.set(&target));
             let files = FileMove { from: old, to: new, names: self.own_names() };
-            return files.start(self.models.shelf, &self.models.relocation, ModelFetcher::LEFT_FREE, switch);
+            return self.models.start_move(files, switch);
         }
         let result = Self::with_made(&self.models.clear(), self.models.clear_scratches(&live));
         // The scout's own folders go when nothing else lies in them; the folder the operator named stays, with whatever else he keeps there.

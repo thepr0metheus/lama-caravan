@@ -1,6 +1,7 @@
 //! The names a running cell's server answers to: its own `GET /v1/models`, each model's `id` and the `aliases` `llama-server` lists, asked once per start of the cell. vLLM refuses a request for a name it does not serve; `llama-server` and the caravan's own cells take any.
 
 use crate::http_client::HttpClient;
+use rules::CellDoor;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -53,7 +54,8 @@ impl ServedNames {
         {
             return Some(names.clone());
         }
-        let answer = self.http.answer("GET", &format!("http://127.0.0.1:{port}/v1/models"), &[], &[], Self::TIMEOUT).ok()?;
+        let answer =
+            self.http.answer("GET", &format!("http://{}:{port}/v1/models", CellDoor::LISTEN), &[], &[], Self::TIMEOUT).ok()?;
         let status = answer.head.status;
         let raw = answer.text(64 << 20).ok()?;
         if status >= 500 {

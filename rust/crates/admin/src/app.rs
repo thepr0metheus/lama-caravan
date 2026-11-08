@@ -12,6 +12,7 @@ use crate::fleet::gpu_driver::DriverMemory;
 use crate::fleet::host_telemetry::TelemetryMemory;
 use crate::fleet::machine_scout::MachineScoutMemory;
 use crate::fleet::remote_cells::RemoteMemory;
+use crate::fleet::scout_follow::ScoutFollow;
 use crate::fleet::scout_poll::{Rerun, ScoutPoller};
 use crate::models::checkpoints::CheckpointConfigs;
 use crate::models::downloads::DownloadMemory;
@@ -125,6 +126,8 @@ pub struct App {
     pub cells_follow: Rerun,
     /// The background reads of the scouts.
     pub scout_poller: ScoutPoller,
+    /// The machines' scouts as they follow this controller's release.
+    pub scout_follow: ScoutFollow,
     /// The answers of the scout of the controller's machine.
     pub machine_scout: MachineScoutMemory,
     /// What the cells said of themselves.
@@ -156,8 +159,8 @@ impl App {
             home: env.home().to_string_lossy().into_owned(),
         };
         let runners = RunnerRegistry::new(&defaults)?;
-        let admin = AdminStore::open(paths.admin_state_file.clone(), paths.monitor_retention_default, &runners);
         let stamp = Unreadable::stamp(clock.epoch() as i64);
+        let admin = AdminStore::open(paths.admin_state_file.clone(), paths.monitor_retention_default, &runners, &stamp);
         let hub_memory = HubMemory::new()?;
         let chat_models = ChatModels::new()?;
         let bench = BenchMemory::new()?;
@@ -192,6 +195,7 @@ impl App {
             services: ServiceChildren::new(clock.epoch()),
             cells_follow: Rerun::default(),
             scout_poller: ScoutPoller::default(),
+            scout_follow: ScoutFollow::default(),
             machine_scout: MachineScoutMemory::default(),
             remote: RemoteMemory::default(),
             telemetry: TelemetryMemory::default(),
@@ -300,14 +304,14 @@ impl App {
         }
     }
 
-    /// The ports the fleet's cells hold.
+    /// The ports the fleet's cells hold: only a running cell holds one, the one its scout leased (Papyrus `caravan-scout-port-lease`).
     pub fn used_cell_ports(&self) -> std::collections::BTreeSet<i64> {
-        crate::fleet::server_cells::ServerCells::of(self).used_ports(None)
+        crate::fleet::server_cells::ServerCells::of(self).held_ports()
     }
 
     /// A client's name, refused when another has it.
-    pub fn clean_client_name(&self, name: &str, routes: &[serde_json::Value], own_port: Option<i64>) -> Result<String, AppError> {
-        crate::cloud::consumers::ConsumerDesk::clean_name(Some(&serde_json::json!(name)), routes, own_port)
+    pub fn clean_client_name(&self, name: &str, routes: &[serde_json::Value], own_id: Option<&str>) -> Result<String, AppError> {
+        crate::cloud::consumers::ConsumerDesk::clean_name(Some(&serde_json::json!(name)), routes, own_id)
     }
 
     /// This machine's name.

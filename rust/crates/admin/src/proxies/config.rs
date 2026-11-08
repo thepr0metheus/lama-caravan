@@ -1,13 +1,10 @@
 //! `agent-proxies.json`, read and changed. A write goes through one door: cloud fallback worked out again, routers re-derived from the routes, the graph protected.
 
+use super::client_ids::{ClientIds, FormerPorts};
 use super::dsl::RouterDsl;
-use super::output_refs::RouterOutputRefs;
 use super::service::{ListeningPorts, Services};
 use crate::app::App;
 use crate::common::entry::{BuiltinClient, ClientNameWord, EntryDoor};
-use crate::common::model_kinds::ModelFacts;
-use crate::paths::CONTROLLER_HOST_ID;
-use crate::store::topology::Topology;
 use net::{Randomness, Sha256};
 use rules::{AppError, ClientDeny, Coerce, PythonJson};
 use serde_json::{Map, Value, json};
@@ -36,22 +33,14 @@ pub struct ProxiesConfig<'app> {
 }
 
 impl<'app> ProxiesConfig<'app> {
-    /// The refusal of a route's own port: the proxy listens on the entry alone, so that a port opened here would read as working with nothing behind it. By the owner's word of 2026-11-02.
+    /// The refusal of a client's own port: the proxy listens on the entry alone (the owner, 2026-11-02), and a client has no number
+    /// since 2026-11-07, so nothing is left to open or close.
     pub fn own_ports_gone() -> AppError {
-        AppError::with_status("a client comes in through the entry with its key: a port of its own is not served any more", 410)
+        AppError::with_status("a client comes in through the entry with its key: it has no port of its own", 410)
     }
 
-    /// The phases of a cell that stands: a pool passes it over, and the board says stopped.
-    pub const STANDING_PHASES: [&'static str; 2] = ["stopped", "reserved"];
-    const OWNED_FIELDS: [&'static str; 7] = [
-        "portClosed",
-        "cloudFallbackPct",
-        "priorityPreemptPct",
-        "queueAbortPct",
-        "apiKey",
-        ClientDeny::FIELD,
-        BuiltinClient::FIELD,
-    ];
+    const OWNED_FIELDS: [&'static str; 6] =
+        ["cloudFallbackPct", "priorityPreemptPct", "queueAbortPct", "apiKey", ClientDeny::FIELD, BuiltinClient::FIELD];
 
     /// The view.
     pub fn of(app: &'app App) -> Self {
@@ -120,7 +109,7 @@ impl<'app> ProxiesConfig<'app> {
             let Ok(row) = RouterDsl::route(route) else {
                 continue;
             };
-            if seen.insert(Coerce::str_of(row.get("port"))) {
+            if seen.insert(ClientIds::of(&row)) {
                 cleaned.push(row);
             }
         }
@@ -129,9 +118,9 @@ impl<'app> ProxiesConfig<'app> {
             .get("stopRequests")
             .and_then(Value::as_array)
             .map_or_else(Vec::new, |rows| rows.iter().skip(rows.len().saturating_sub(100)).cloned().collect());
-        Ok(
-            json!({"routes": cleaned, "policy": RouterDsl::policy(payload.get("policy")), "routers": routers, "stopRequests": stops, "entry": EntryDoor::clean(payload.get("entry"))}),
-        )
+        let mut loaded = json!({"routes": cleaned, "policy": RouterDsl::policy(payload.get("policy")), "routers": routers, "stopRequests": stops, "entry": EntryDoor::clean(payload.get("entry"))});
+        Self::keep_former_ports(&mut loaded, payload);
+        Ok(loaded)
     }
 
     /// Saves the whole list of routes. `revision`: the version the page was shown.
@@ -145,12 +134,20 @@ impl<'app> ProxiesConfig<'app> {
         Ok(payload)
     }
 
+    /// The numbers the clients had, as the document keeps them, carried into a payload made anew: history the journal is read by.
+    fn keep_former_ports(payload: &mut Value, from: &Value) {
+        let former = FormerPorts::of(from);
+        if former != FormerPorts::default() {
+            Coerce::put(payload, FormerPorts::FIELD, former.json());
+        }
+    }
+
     /// The posted route with the stored values of the fields only their own doors set.
-    fn kept(route: &Value, by_port: &BTreeMap<i64, &Value>) -> Value {
+    fn kept(route: &Value, by_id: &BTreeMap<String, &Value>) -> Value {
         if !route.is_object() {
             return route.clone();
         }
-        let Some(stored) = Coerce::int_or_zero(route.get("port")).and_then(|port| by_port.get(&port)) else {
+        let Some(stored) = by_id.get(&ClientIds::of(route)) else {
             return route.clone();
         };
         let mut out = Coerce::fields(route);
@@ -162,30 +159,25 @@ impl<'app> ProxiesConfig<'app> {
         Value::Object(out)
     }
 
+    /// The list as the page sends it: the stored clients, changed or left out. A client is made by its own door, which gives it its id
+    /// and its key (`POST /api/consumers/create`): an id the list brings that no stored client has is refused.
     fn write_routes(&self, routes: &Value, routers: Option<Value>) -> Result<Value, AppError> {
         let current = self.load()?;
         let stored = current.get("routes").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-        let by_port: BTreeMap<i64, &Value> =
-            stored.iter().filter_map(|route| Some((Coerce::int_or_zero(route.get("port"))?, route))).collect();
+        let by_id: BTreeMap<String, &Value> = stored.iter().map(|route| (ClientIds::of(route), route)).collect();
         let (mut cleaned, mut seen) = (Vec::new(), BTreeSet::new());
-        let port_of = |row: &Value| row.get("port").and_then(Value::as_i64);
         for route in routes.as_array().map_or(&[][..], Vec::as_slice) {
-            let row = RouterDsl::route(&Self::kept(route, &by_port))?;
-            if !seen.insert(port_of(&row)) {
-                return Err(AppError::new(format!("duplicate proxy port {}", Coerce::str_of(row.get("port")))));
+            let row = RouterDsl::route(&Self::kept(route, &by_id))?;
+            let id = ClientIds::of(&row);
+            if !by_id.contains_key(&id) {
+                return Err(AppError::new(format!(
+                    "no client has the id {id}: a client is made with ＋ in the Clients column (POST /api/consumers/create)"
+                )));
+            }
+            if !seen.insert(id.clone()) {
+                return Err(AppError::new(format!("the list names the client {id} twice")));
             }
             cleaned.push(row);
-        }
-        let ports = self.app.paths.proxy_ports;
-        let mut outside: Vec<i64> =
-            cleaned.iter().filter_map(port_of).filter(|port| !by_port.contains_key(port) && !ports.holds(*port)).collect();
-        outside.sort_unstable();
-        if !outside.is_empty() {
-            let list: Vec<String> = outside.iter().map(ToString::to_string).collect();
-            return Err(AppError::new(format!(
-                "port {} is outside the proxy range {ports}, the one the firewall lets in — pick a port inside it",
-                list.join(", ")
-            )));
         }
         KeyAudit::enforce(&cleaned)?;
         let source = routers.or_else(|| current.get("routers").cloned());
@@ -195,7 +187,8 @@ impl<'app> ProxiesConfig<'app> {
             .filter(|policy| Coerce::truthy(Some(*policy)))
             .cloned()
             .unwrap_or_else(|| RouterDsl::policy(None));
-        let payload = json!({"routes": cleaned, "policy": policy, "routers": routers, "stopRequests": current.get("stopRequests"), "entry": current.get("entry")});
+        let mut payload = json!({"routes": cleaned, "policy": policy, "routers": routers, "stopRequests": current.get("stopRequests"), "entry": current.get("entry")});
+        Self::keep_former_ports(&mut payload, &current);
         self.write_payload(payload.clone())?;
         Ok(payload)
     }
@@ -216,23 +209,24 @@ mod tests {
 
     #[test]
     fn cables_of_a_port_nobody_has_go() {
-        let inputs = PortInputs::new(&[json!({"port": 1, "routerId": "r"})]);
-        let router = json!({"graph": {"edges": [{"from": "in:skynet:proxy:1", "to": "out:x"}, {"from": "in:skynet:proxy:2", "to": "out:x"}, {"from": "rule:a", "to": "out:x"}], "inputs": {"skynet:proxy:1": {}, "skynet:proxy:2": {}}}});
+        let inputs = PortInputs::new(&[json!({"id": "client-1", "routerId": "r"})]);
+        let router = json!({"graph": {"edges": [{"from": "in:client-1", "to": "out:x"}, {"from": "in:client-2", "to": "out:x"}, {"from": "rule:a", "to": "out:x"}], "inputs": {"client-1": {}, "client-2": {}}}});
         let cut = inputs.forget_absent(&router);
         assert_eq!(cut.get("graph").unwrap().get("edges").unwrap().as_array().unwrap().len(), 2);
-        assert_eq!(cut.get("graph").unwrap().get("inputs"), Some(&json!({"skynet:proxy:1": {}})));
-        assert_eq!(inputs.of_router("r"), ["skynet:proxy:1"]);
+        assert_eq!(cut.get("graph").unwrap().get("inputs"), Some(&json!({"client-1": {}})));
+        assert_eq!(inputs.of_router("r"), ["client-1"]);
     }
 
     #[test]
     fn keys_the_entry_cannot_tell_apart_are_refused() {
-        let words = KeyAudit::enforce(&[json!({"apiKey": "abcdef", "port": 1}), json!({"apiKey": "abcdef", "port": 2})])
+        let words = KeyAudit::enforce(&[json!({"apiKey": "abcdef", "label": "b"}), json!({"apiKey": "abcdef", "label": "a"})])
             .unwrap_err()
             .message;
-        assert_eq!(words, "ports 1, 2 share one key (…cdef) — the entry could not tell their agents apart; give each its own");
-        assert!(
-            KeyAudit::enforce(&[json!({"portClosed": true, "port": 3})]).unwrap_err().message.starts_with("port 3 is closed")
+        assert_eq!(words, "clients a, b share one key (…cdef) — the entry could not tell them apart; give each its own");
+        assert_eq!(
+            KeyAudit::enforce(&[json!({"label": "c"})]).unwrap_err().message,
+            "client c has no key — it would have no way in; give it a key first"
         );
-        assert!(KeyAudit::enforce(&[json!({"apiKey": "k", "port": 1})]).is_ok());
+        assert!(KeyAudit::enforce(&[json!({"apiKey": "k", "label": "a"})]).is_ok());
     }
 }

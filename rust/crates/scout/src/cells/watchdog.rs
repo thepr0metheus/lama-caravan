@@ -116,36 +116,36 @@ impl Watchdog {
     pub fn tick(&self) {
         let now = self.clock.epoch();
         let listening = self.cells.machine.listening_ports();
-        for (port, cell) in self.cells.table.all() {
+        for (id, cell) in self.cells.table.all() {
             let status = cell.process.status();
             let running = status.get("running") == Some(&Value::Bool(true));
             if running {
-                Self::watch(port, &cell, listening.as_ref());
+                Self::watch(&cell, listening.as_ref());
             }
             let note = cell.facts().crash.clone();
             if let Some(due) = note.as_ref().and_then(|note| note.due) {
                 if let Some(note) = note.filter(|_| !running && now >= due) {
-                    self.restart(port, &cell, note, now);
+                    self.restart(&id, &cell, note, now);
                 }
                 continue;
             }
             let gave_up = note.as_ref().is_some_and(|note| note.gave_up);
             if !running && Coerce::truthy(status.get("crashed")) && !gave_up {
                 // absent-ok: a first crash starts a note of none.
-                self.crashed(port, &cell, &status, note.unwrap_or_default(), now);
+                self.crashed(&id, &cell, &status, note.unwrap_or_default(), now);
             }
         }
     }
 
-    /// Notes that this run's port has listened: a run that did is a run that got ready. A machine that will not say what listens leaves it unknown.
-    fn watch(port: i64, cell: &Cell, listening: Option<&BTreeSet<i64>>) {
-        if let Some(listening) = listening {
+    /// Notes that this run's port has listened: a run that did is a run that got ready. A machine that will not say what listens leaves it unknown, and so does a run that holds no port it was leased.
+    fn watch(cell: &Cell, listening: Option<&BTreeSet<i64>>) {
+        if let (Some(listening), Some(port)) = (listening, cell.port()) {
             let mut facts = cell.facts();
             facts.listened = Some(facts.listened == Some(true) || listening.contains(&port));
         }
     }
 
-    fn crashed(&self, port: i64, cell: &Cell, status: &Map<String, Value>, mut note: CrashNote, now: f64) {
+    fn crashed(&self, id: &str, cell: &Cell, status: &Map<String, Value>, mut note: CrashNote, now: f64) {
         note.count += 1;
         // absent-ok: a system that cannot place the moment has no time to show.
         note.at = LocalTime::of(now as i64).map_or_else(String::new, |moment| moment.iso_with_zone());
@@ -159,7 +159,7 @@ impl Watchdog {
             None => {}
         }
         note.tail = cell.process.log().tail();
-        Self::schedule(port, &mut note, now);
+        Self::schedule(id, &mut note, now);
         let words = format!("{}\n{how}\n{}", note.reason, note.tail);
         cell.facts().crash = Some(note);
         if status.get("runner").and_then(Value::as_str) != Some("prism") {
@@ -167,7 +167,7 @@ impl Watchdog {
         }
     }
 
-    fn schedule(port: i64, note: &mut CrashNote, now: f64) {
+    fn schedule(id: &str, note: &mut CrashNote, now: f64) {
         note.restarts.retain(|at| now - *at < Self::WINDOW_SEC as f64);
         let recent = note.restarts.len();
         // A start that takes minutes to die never fills the window: Strata's load ends in a kill after 4 to 8 minutes, and the cell was restarted without end (2026-10-18). Starts that all died before the
@@ -179,12 +179,12 @@ impl Watchdog {
             note.due = None;
             if note.never_ready {
                 Log::line(&format!(
-                    "[watchdog] :{port} never got ready in {} starts — not restarting it: {}",
+                    "[watchdog] {id} never got ready in {} starts — not restarting it: {}",
                     note.count, note.reason
                 ));
             } else {
                 Log::line(&format!(
-                    "[watchdog] :{port} crashed {} times in {} minutes — not restarting it: {}",
+                    "[watchdog] {id} crashed {} times in {} minutes — not restarting it: {}",
                     recent + 1,
                     Self::WINDOW_SEC / 60,
                     note.reason
@@ -192,17 +192,17 @@ impl Watchdog {
             }
         } else {
             note.due = Some(now + Self::RESTART_SEC);
-            Log::line(&format!("[watchdog] :{port} crashed ({}) — restarting in {} s", note.reason, Self::RESTART_SEC));
+            Log::line(&format!("[watchdog] {id} crashed ({}) — restarting in {} s", note.reason, Self::RESTART_SEC));
         }
     }
 
     /// The cell once more: with the settings saved since its start, when they changed, for a cell that failed at its start is what an operator changes them for (2026-11-01: three tries with the old ones). Else its
     /// process as it ran: nothing new to bring, and a controller that does not answer stops nothing.
-    fn again(&self, port: i64, cell: &Cell) -> Value {
-        let saved = self.cells.saved.of(port);
+    fn again(&self, id: &str, cell: &Cell) -> Value {
+        let saved = self.cells.saved.of(id);
         match saved {
             SavedStart::Request(request) if cell.facts().request.as_ref() != Some(&request) => {
-                Log::line(&format!("[watchdog] :{port} comes back with the settings saved since its start"));
+                Log::line(&format!("[watchdog] {id} comes back with the settings saved since its start"));
                 match Cells::start(&self.cells, request) {
                     Ok(said) => said,
                     Err(error) => json!({"ok": false, "error": error.message}),
@@ -212,22 +212,22 @@ impl Watchdog {
         }
     }
 
-    fn restart(&self, port: i64, cell: &Cell, mut note: CrashNote, now: f64) {
+    fn restart(&self, id: &str, cell: &Cell, mut note: CrashNote, now: f64) {
         // Another process of this scout's still runs the port, the cell that was lost and is still loading, or running: the crash was a second copy's, started beside it. Launching a third would load the
         // model once more; the one that runs is held instead.
-        let lost = self.cells.survivor(port);
+        let lost = self.cells.survivor(id);
         if lost != 0 {
-            Log::line(&format!("[watchdog] :{port} not restarted: pid {lost} still runs it — holding that one"));
-            self.cells.adopt_found(port, lost);
+            Log::line(&format!("[watchdog] {id} not restarted: pid {lost} still runs it — holding that one"));
+            self.cells.adopt_found(id, lost);
             cell.facts().crash = None;
             return;
         }
-        let result = self.again(port, cell);
+        let result = self.again(id, cell);
         cell.facts().listened = None;
         note.restarts.push(now);
         note.due = None;
         if result.get("ok") == Some(&Value::Bool(true)) {
-            Log::line(&format!("[watchdog] :{port} restarted (pid {})", Coerce::text(result.get("pid"))));
+            Log::line(&format!("[watchdog] {id} restarted (pid {})", Coerce::text(result.get("pid"))));
         } else {
             let said = if Coerce::truthy(result.get("error")) {
                 Coerce::text(result.get("error"))
@@ -235,7 +235,7 @@ impl Watchdog {
                 "the restart failed".to_string()
             };
             note.reason = Coerce::first_letters(&said, ProcessEnd::REASON_LETTERS).to_string();
-            Self::schedule(port, &mut note, now);
+            Self::schedule(id, &mut note, now);
         }
         cell.facts().crash = Some(note);
     }
@@ -271,10 +271,10 @@ mod tests {
     #[test]
     fn the_fourth_crash_in_the_window_stays_down() {
         let mut note = CrashNote { count: 1, ..CrashNote::default() };
-        Watchdog::schedule(8000, &mut note, 100.0);
+        Watchdog::schedule("c8000", &mut note, 100.0);
         assert_eq!(note.due, Some(110.0));
         note.restarts = vec![1.0, 2.0, 3.0];
-        Watchdog::schedule(8000, &mut note, 100.0);
+        Watchdog::schedule("c8000", &mut note, 100.0);
         assert!(note.gave_up && !note.never_ready);
         assert_eq!(note.due, None);
     }
@@ -282,10 +282,10 @@ mod tests {
     #[test]
     fn starts_that_never_listen_stop_whatever_the_clock_says() {
         let mut note = CrashNote { count: 5, unready: 4, ..CrashNote::default() };
-        Watchdog::schedule(8000, &mut note, 100.0);
+        Watchdog::schedule("c8000", &mut note, 100.0);
         assert!(note.gave_up && note.never_ready);
         let mut old = CrashNote { restarts: vec![1.0, 2.0, 3.0], ..CrashNote::default() };
-        Watchdog::schedule(8000, &mut old, 1000.0);
+        Watchdog::schedule("c8000", &mut old, 1000.0);
         assert!(!old.gave_up, "restarts past the window do not count");
     }
 

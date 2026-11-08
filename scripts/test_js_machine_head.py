@@ -22,12 +22,13 @@ Pinned by value, each claim with its negative:
     margin and the rest to RAM, a split set by hand on the cards or not at all, a hand-set layer count not guessed; a one-card
     runner on the card its ENV pins, whole or not at all (to RAM when it picks its device itself); Strata on its card's free room
     by its floor and reserve; vLLM by its share of each card; a CPU cell in RAM; unknown — never a guess — when a size, a card or
-    the RAM is not said;
+    the RAM is not said; a speculative draft the cell loads weighed with it and laid on top of the model, its own cache said not
+    counted, a draft the library has not said not known (2026-11-07);
   * the cells in the list of models: every cell of the machine (1.3.659: the bench that stood there held the standing ones, and a cell
     started from it left it) — the rule's order the working ones first, then the ones on their way, then the standing ones, the largest
     first by what each would take, the unweighed last; a working one says what it holds and that it runs, loads its weights or is broken;
     one on its way what it does, the copy's figures included; a standing one what it weighs and by what, and where it would go; a failed
-    one says so with its reason, a port with no model says so; pills of the works with their counts narrow the list, and a work none of
+    one says so with its reason, a cell with no model says so; pills of the works with their counts narrow the list, and a work none of
     its cells does narrows nothing; a machine with no cells has no pills;
   * the pictures at the left of the lanes: a card at each card's, a stick at the RAM's, one box, no taller than a lane, also with six cards;
   * the dashed block of the chosen stopped cell on the lanes it would take; none for a running cell, none where it would not go;
@@ -41,10 +42,14 @@ Pinned by value, each claim with its negative:
   * the passport: the page's heading, the facts, the "⋯" items with the attributes the board's listeners bind by;
   * the choice (MachinePick): chosen again lets go; shown without a drawing — blocks ringed, one row's last line; the board drawn again when
     the choice puts a stopped cell's dashes on the lanes or takes them off, or when the chosen cell's window is not in the page,
-    and the keyboard given back to the same block, chip or port; a click anywhere on a cell's row chooses, a click on its Window, Start or
+    and the keyboard given back to the same block, chip or row; a click anywhere on a cell's row chooses, a click on its Window, Start or
     Stop does not; bound once;
   * the live patch: the lanes' figures moved in place while their blocks stay the same, written whole when they change; the sizes and
-    verdicts of the rows as the page draws them and the band's words in place; the band drawn whole when its tone changes.
+    verdicts of the rows as the page draws them and the band's words in place; the band drawn whole when its tone changes;
+  * every cell by its own name, its cellId (2026-11-08: a cell holds a port only while it runs): its blocks, rows, last line, choice, plan
+    and the live patch's finds are keyed by it; no port number on screen — a cell is named as the board's builder names it, else by its
+    cellId, and its row's chip says the cellId; the machine's cells stand in the order they were made (colours, rows of one size, the ones
+    on their way), and a row with a port but no name is no cell; the number a cell was known by chooses nothing.
 
 The module is loaded FOR REAL with ui-parts.js, cell-memory.js, placement.js, model-copy.js and utils.js; i18n (the English words)
 is a stand-in.
@@ -83,7 +88,10 @@ const rowsOf = (map) => map.bench().map((server) => new MM.MachineModels({ map }
 (await import("../static/js/state.js")).setState({ models: [] });
 const out = { en: { silent: en.nodeScoutSilent, busy: en.shelfReserveBusy } };
 const GIB = 2 ** 30;
-const cell = (port, phase, extra = {}) => ({ port, phase, ...extra });
+// A cell by its own name, its cellId: "c" and the number it was known by before 2026-11-07 (a cell made then keeps that name). It holds a
+// port only while its run holds one — its scout leases it at the start — and none while it stands.
+const STANDS = new Set(["stopped", "reserved", "error"]);
+const cell = (n, phase, extra = {}) => ({ cellId: `c${n}`, port: STANDS.has(phase) ? null : n, phase, ...extra });
 const NODE = {
   id: "box", name: "Box <A>", role: "host", online: true, platform: "linux", ip: "10.0.0.5", scoutVersion: "2.37.0",
   powerSchedule: { enabled: true, at: "23:30", daily: true },
@@ -92,54 +100,66 @@ const NODE = {
     { index: 0, name: "NVIDIA GeForce RTX 3090", memoryTotalMiB: "24576", memoryUsedMiB: "12288", utilizationGpuPct: "7", temperatureC: "52", powerDrawW: "30.77" },
     { index: 1, name: "NVIDIA GeForce RTX 5090", memoryTotalMiB: "32607", memoryUsedMiB: "8200", utilizationGpuPct: "0", temperatureC: "48", powerDrawW: "23.6" },
   ],
+  // In the order the cells were made: the order the topology lists them, and the one the map colours and ranks them by (a pin below
+  // shows a later cell with a smaller number taking no earlier colour).
   servers: [
-    cell(22020, "running", { gpuMem: { 0: 8192, 1: 4096 }, ramBytes: 41 * GIB }),
-    cell(22010, "warming", { gpuMem: { 0: 2048 }, ramBytes: 5 * GIB }),
     cell(22001, "running", { gpuMem: {}, ramBytes: 3 * GIB }),
     cell(22003, "running", { gpuMem: {}, ramBytes: null }),
+    cell(22010, "warming", { gpuMem: { 0: 2048 }, ramBytes: 5 * GIB }),
+    cell(22020, "running", { gpuMem: { 0: 8192, 1: 4096 }, ramBytes: 41 * GIB }),
     cell(22007, "stopped", { gpuMem: { 0: 9999 }, ramBytes: 9 * GIB }),
     cell(22014, "reserved"),
   ],
 };
+// The order a machine made its cells is the order the map keeps: a cell made later takes a later colour whatever its name or number, and a
+// row with a port but no name is no cell of the map.
+{
+  const made = { cpu: { ram: { totalGb: 60.5, usedGb: 8 } }, gpus: [], servers: [cell(22050, "running", { ramBytes: GIB }), { cellId: "c3f9a02b1", port: 22041, phase: "running", ramBytes: GIB },
+                                                                                 cell(22002, "running", { ramBytes: GIB }), { port: 22003, phase: "running", ramBytes: GIB }] };
+  const mm = new M.MachineMap(made);
+  out.madeOrder = { holders: mm.holders().map((h) => [h.server.cellId, h.series]), bench: mm.bench().map((s) => s.cellId), band: new M.MachineBand(made).counts().cells };
+}
 // What the board's builder says of each cell (topology-nodes.js, nodeServerCardHtml): its window's slot, its name, its stop.
-const stop = (port) => `data-node-cell-stop="box" data-node-cell-port="${port}"`;
+const stop = (id) => `data-node-cell-stop="box" data-cell-id="${id}"`;
 const CELLS = new Map([
-  ["22020", { key: "box:22020", name: "Hermes-4-70B", stop: stop(22020), stopTitle: "Stop server", window: true }],
-  ["22010", { key: "box:22010", name: "gemma-4-12B-it", stop: stop(22010), stopTitle: "Stop server", window: false }],
-  ["22001", { key: "box:22001", name: "Qwen3-Embedding-0.6B", stop: stop(22001), stopTitle: "Stop server", window: true }],
-  ["22003", { key: "box:22003", name: "gigaam <v3>", stop: "", stopTitle: "Not running", window: true }],
+  ["c22020", { key: "c22020", name: "Hermes-4-70B", stop: stop("c22020"), stopTitle: "Stop server", window: true }],
+  ["c22010", { key: "c22010", name: "gemma-4-12B-it", stop: stop("c22010"), stopTitle: "Stop server", window: false }],
+  ["c22001", { key: "c22001", name: "Qwen3-Embedding-0.6B", stop: stop("c22001"), stopTitle: "Stop server", window: true }],
+  ["c22003", { key: "c22003", name: "gigaam <v3>", stop: "", stopTitle: "Not running", window: true }],
 ]);
 // What holds a card that is no cell — topology-nodes.js's gpuOutsideOwners — as the board would say it for card 0.
 const owners = (g) => (g.index === 0 ? [{ name: "Xorg", engine: "", mib: 1024 }] : []);
-const map = new M.MachineMap(NODE, { owners, cells: CELLS, chosen: "22020" });
+const map = new M.MachineMap(NODE, { owners, cells: CELLS, chosen: "c22020" });
 const lanes = map.lanes();
 const strip = (lane) => ({ ...lane, blocks: lane.blocks.map(({ pick, ...rest }) => (pick ? { ...rest, pick: true } : rest)) });
-out.holders = map.holders().map((h) => [h.server.port, h.series]);
+// The list beside the lanes is read through the map it belongs to: the same object that lays the lanes names the rows.
+const lg = (m) => m.rack.legend(m.lanes());
+out.holders = map.holders().map((h) => [h.server.cellId, h.series]);
 out.card0 = strip(lanes[0]);
-out.card0Pick = lanes[0].blocks.find((b) => b.port === "22020")?.pick;
+out.card0Pick = lanes[0].blocks.find((b) => b.cellId === "c22020")?.pick;
 out.card1 = strip(lanes[1]);
 out.ram = strip(lanes[2]);
-out.unplaced = map.unplaced().map((h) => h.server.port);
+out.legend = lg(map).map((r) => [r.name, r.figure, r.where, r.doing, r.t, r.tId, r.kind || r.series, r.pick ?? null, !!r.on, r.title, r.owner]);
 out.html = map.html();
-out.words = ["22020", "22001", "22003", "22010"].map((p) => map.memoryWords(NODE.servers.find((s) => String(s.port) === p)));
+out.words = ["c22020", "c22001", "c22003", "c22010"].map((p) => map.memoryWords(NODE.servers.find((s) => s.cellId === p)));
 out.zeroRss = map.memoryWords(cell(1, "running", { ramBytes: 0 }));
 { const broken = cell(1, "broken", { gpuMem: { 0: 1024 } }); out.brokenSub = [map.benchVerdict(broken).words, map.benchSize(broken)]; }
 out.panels = rowsOf(map);
 // A cell in trouble that holds its memory: the machine's page draws it as its window only, so its row says the trouble.
 {
   const TROUBLE = new Map([
-    ["22041", { key: "box:22041", name: "Swift", stop: stop(22041), stopTitle: "Stop server", window: true, crashed: 2 }],
-    ["22042", { key: "box:22042", name: "Far", stop: stop(22042), stopTitle: "Stop server", window: true, unreachable: true, crashed: 1 }],
-    ["22043", { key: "box:22043", name: "Calm", stop: stop(22043), stopTitle: "Stop server", window: true, crashed: 0, unreachable: false }],
+    ["c22041", { key: "c22041", name: "Swift", stop: stop("c22041"), stopTitle: "Stop server", window: true, crashed: 2 }],
+    ["c22042", { key: "c22042", name: "Far", stop: stop("c22042"), stopTitle: "Stop server", window: true, unreachable: true, crashed: 1 }],
+    ["c22043", { key: "c22043", name: "Calm", stop: stop("c22043"), stopTitle: "Stop server", window: true, crashed: 0, unreachable: false }],
   ]);
-  const tnode = { ...NODE, servers: ["22041", "22042", "22043"].map((p) => cell(Number(p), "running", { gpuMem: { 0: 1024 } })) };
-  const tmap = new M.MachineMap(tnode, { cells: TROUBLE, chosen: "22041" });
+  const tnode = { ...NODE, servers: ["c22041", "c22042", "c22043"].map((p) => cell(Number(p.slice(1)), "running", { gpuMem: { 0: 1024 } })) };
+  const tmap = new M.MachineMap(tnode, { cells: TROUBLE, chosen: "c22041" });
   out.trouble = tnode.servers.map((s) => { const said = tmap.benchVerdict(s);
     return [said.tone, said.state, said.words, tmap.benchSize(s), tmap.actionsHtml(s).includes('data-t="machine-model-window"')]; });
 }
 out.noChoice = rowsOf(new M.MachineMap(NODE, { cells: CELLS }));
-out.staleChoice = rowsOf(new M.MachineMap(NODE, { cells: CELLS, chosen: "22999" }));
-out.stoppedChoice = rowsOf(new M.MachineMap(NODE, { cells: CELLS, chosen: "22007" }));
+out.staleChoice = rowsOf(new M.MachineMap(NODE, { cells: CELLS, chosen: "c22999" }));
+out.stoppedChoice = rowsOf(new M.MachineMap(NODE, { cells: CELLS, chosen: "c22007" }));
 out.unnamed = new M.MachineMap(NODE).lanes()[2].blocks.map((b) => b.name);
 const seven = { servers: [1, 2, 3, 4, 5, 6, 7].map((i) => cell(22000 + i, "running")) };
 out.seven = new M.MachineMap(seven).holders().map((h) => h.series);
@@ -147,7 +167,7 @@ const blind = new M.MachineMap({ gpus: [{ index: 2, name: "<b>", memoryUsedMiB: 
                                  servers: [cell(22002, "running", { gpuMem: { 2: 512 } })] });
 out.blind = blind.lanes().map(strip);
 out.blindHtml = blind.html();
-out.blindUnplaced = blind.unplaced().map((h) => h.server.port);
+out.blindLegend = lg(blind).map((r) => [r.name, r.figure, r.where, r.doing, r.t, r.tId]);
 const capped = new M.MachineMap({ cpu: { ram: { totalGb: 16, usedGb: 4 } }, servers: [cell(22001, "running", { ramBytes: 3 * GIB }), cell(22002, "running", { ramBytes: 3 * GIB })] });
 out.capped = capped.lanes()[0].blocks.map((b) => [b.value, b.figure, b.kind || b.series]);
 
@@ -169,8 +189,8 @@ out.band = {
   html: band(GOOD).html(),
 };
 
-const head = new M.MachineHead(GOOD, { owners, age: () => "7 min", addTitle: "on :22030", oldScout: '<span class="node-scout-old">⚠ old</span>',
-                                       cells: CELLS, chosen: "22020" });
+const head = new M.MachineHead(GOOD, { owners, age: () => "7 min", addTitle: "a new cell here", oldScout: '<span class="node-scout-old">⚠ old</span>',
+                                       cells: CELLS, chosen: "c22020" });
 out.head = { html: head.html(), facts: head.facts(), factsRelease: new M.MachineHead({ ...GOOD, scoutCommit: "33dbf22e" }).facts(),
              menu: head.menu(), add: head.addButton(),
              addBusy: new M.MachineHead(GOOD, { reserving: true }).addButton() };
@@ -178,46 +198,47 @@ out.noScoutMenu = new M.MachineHead({ ...NODE, role: "controller", powerSchedule
 
 // The choice, on a page of stand-ins: blocks and rows' last lines that say what was written to them.
 const pick = new M.MachinePick();
-out.choose = [pick.choose("22020"), pick.chosen(22020), pick.choose(22020), pick.chosen("22020"), pick.choose(22001), pick.chosen(""),
-              (pick.know("x"), pick.cells.size), (pick.know(CELLS), pick.cells.size)];
+// A cell is chosen by its name; the number it was known by, or the port of its run, chooses nothing.
+out.choose = [pick.choose("c22020"), pick.chosen("c22020"), pick.choose("c22020"), pick.chosen("c22020"), pick.choose("c22001"), pick.chosen(""),
+              pick.chosen(22001), pick.chosen("22001"), (pick.know("x"), pick.cells.size), (pick.know(CELLS), pick.cells.size)];
 const el = (dataset) => {
   const e = { dataset, on: new Set(), attrs: {}, hidden: false, setAttribute(k, v) { this.attrs[k] = v; } };
   e.classList = { toggle: (c, on) => (on ? e.on.add(c) : e.on.delete(c)) };
   return e;
 };
-const blocks = ["22020", "22001", "22001"].map((p) => el({ machinePick: p }));
-const panels = ["22020", "22001"].map((p) => el({ machinePanel: p }));
+const blocks = ["c22020", "c22001", "c22001"].map((p) => el({ machinePick: p }));
+const panels = ["c22020", "c22001"].map((p) => el({ machinePanel: p }));
 const page = { querySelectorAll: (sel) => (sel === "[data-machine-pick]" ? blocks : sel === "[data-machine-panel]" ? panels : []) };
 const seen = () => ({ on: blocks.map((b) => [b.on.has("is-on"), b.attrs["aria-pressed"]]), shown: panels.filter((p) => !p.hidden).map((p) => p.dataset.machinePanel) });
-pick.port = "";
-pick.choose("22001"); pick.show(page); out.show = { one: seen() };
-pick.choose("22001"); pick.show(page); out.show.letGo = seen();
-pick.choose("22007"); pick.show(page); out.show.stale = seen();
-// A cell's row is no button: it is ringed with its port, and only the port says it is pressed. The list of models hears of each choice shown.
+pick.cellId = "";
+pick.choose("c22001"); pick.show(page); out.show = { one: seen() };
+pick.choose("c22001"); pick.show(page); out.show.letGo = seen();
+pick.choose("c22007"); pick.show(page); out.show.stale = seen();
+// A cell's row is no button: it is ringed with the chip of its name, and only the chip says it is pressed. The list of models hears of each choice shown.
 {
-  const rowLike = { ...el({ machinePick: "22001", t: "machine-model-launch" }), hasAttribute: () => false };
+  const rowLike = { ...el({ machinePick: "c22001", t: "machine-model-launch" }), hasAttribute: () => false };
   rowLike.classList = { toggle: (c, on) => (on ? rowLike.on.add(c) : rowLike.on.delete(c)) };
   rowLike.setAttribute = (k, v) => { rowLike.attrs[k] = v; };
-  const portLike = { ...el({ machinePick: "22001", t: "machine-model-cell" }), hasAttribute: () => true };
+  const portLike = { ...el({ machinePick: "c22001", t: "machine-model-cell" }), hasAttribute: () => true };
   portLike.classList = { toggle: (c, on) => (on ? portLike.on.add(c) : portLike.on.delete(c)) };
   portLike.setAttribute = (k, v) => { portLike.attrs[k] = v; };
   const heard = [];
   const rp = new M.MachinePick();
   rp.listed = (root) => heard.push(root.name);
-  rp.port = "22001";
+  rp.cellId = "c22001";
   rp.show({ name: "the page", querySelectorAll: (sel) => (sel === "[data-machine-pick]" ? [rowLike, portLike] : []) });
-  out.show.row = { row: [rowLike.on.has("is-on"), rowLike.attrs["aria-pressed"] ?? null], port: [portLike.on.has("is-on"), portLike.attrs["aria-pressed"]], heard };
+  out.show.row = { row: [rowLike.on.has("is-on"), rowLike.attrs["aria-pressed"] ?? null], chip: [portLike.on.has("is-on"), portLike.attrs["aria-pressed"]], heard };
 }
 // Bound on a document: a click on a block chooses, and shows the choice — or draws the board when the cell's window is not in it.
 const listeners = [];
 let redraws = 0;
-const slots = new Set(["box:22020"]);
+const slots = new Set(["c22020"]);
 const focused = [];
 const doc = {
   addEventListener: (type, fn) => listeners.push([type, fn]),
   querySelector: (sel) => {
     if ([...slots].some((k) => sel === `.fold-slot[data-fold-key="${k}"]`)) return {};
-    const m = sel.match(/^\[data-t="([^"]+)"\]\[data-machine-pick="(\d+)"\]$/);
+    const m = sel.match(/^\[data-t="([^"]+)"\]\[data-machine-pick="([^"]+)"\]$/);
     return m ? { focus: () => focused.push(`${m[1]}:${m[2]}`) } : null;
   },
   querySelectorAll: () => [],
@@ -226,40 +247,40 @@ const bound = new M.MachinePick();
 bound.know(CELLS);
 bound.bind(doc, { redraw: () => { redraws += 1; } });
 bound.bind(doc, { redraw: () => { redraws += 100; } });
-const click = (port, hook = "machine-map-block") => listeners.forEach(([, fn]) => fn({ target: { closest: (sel) => (sel === "[data-machine-pick]" && port
-  ? { dataset: { machinePick: port, t: hook } } : null) }, preventDefault() {} }));
-click("22020"); const afterShown = [bound.port, redraws];
-click("22001"); const afterHidden = [bound.port, redraws, [...focused]];
-click("22010"); const afterFull = [bound.port, redraws];
-click(null); const afterMiss = [bound.port, redraws];
+const click = (cellId, hook = "machine-map-block") => listeners.forEach(([, fn]) => fn({ target: { closest: (sel) => (sel === "[data-machine-pick]" && cellId
+  ? { dataset: { machinePick: cellId, t: hook } } : null) }, preventDefault() {} }));
+click("c22020"); const afterShown = [bound.cellId, redraws];
+click("c22001"); const afterHidden = [bound.cellId, redraws, [...focused]];
+click("c22010"); const afterFull = [bound.cellId, redraws];
+click(null); const afterMiss = [bound.cellId, redraws];
 out.bind = { listeners: listeners.length, afterShown, afterHidden, afterFull, afterMiss };
 {
   const charts = [], chartListeners = [];
   const cp = new M.MachinePick();
   cp.bind({ addEventListener: (type, fn) => { if (type === "click") chartListeners.push(fn); }, querySelector: () => null, querySelectorAll: () => [] }, { openChart: (key) => charts.push(key) });
-  chartListeners[0]({ preventDefault() {}, target: { closest: (sel) => (sel === "[data-machine-chart]" || sel === "[data-machine-pick]" ? { dataset: { machineChart: "node:h:gpu", machinePick: "22020" } } : null) } });
-  out.chartClick = [charts, cp.port];
+  chartListeners[0]({ preventDefault() {}, target: { closest: (sel) => (sel === "[data-machine-chart]" || sel === "[data-machine-pick]" ? { dataset: { machineChart: "node:h:gpu", machinePick: "c22020" } } : null) } });
+  out.chartClick = [charts, cp.cellId];
 }
 // The pointer on a holder: its pieces lit on every lane, its line drawn, the rest stepped back.
 {
   const lightEl = (owner) => { const e = { dataset: { laneOwner: owner }, on: new Set() }; e.classList = { toggle: (c, on) => (on ? e.on.add(c) : e.on.delete(c)) }; return e; };
-  const owned = ["22020", "22001", "22020"].map(lightEl);
+  const owned = ["c22020", "c22001", "c22020"].map(lightEl);
   const rack = { dataset: {}, on: new Set(), querySelectorAll: () => owned };
   rack.classList = { toggle: (c, on) => (on ? rack.on.add(c) : rack.on.delete(c)) };
   const lightRoot = { querySelector: (sel) => (sel === ".machine-rack" ? rack : null) };
   const lp = new M.MachinePick();
   const state = () => [rack.dataset.laneLit, rack.on.has("is-lighting"), owned.map((e) => e.on.has("is-lit"))];
-  lp.light(lightRoot, "22020");
+  lp.light(lightRoot, "c22020");
   const lit = state();
   let touched = 0;
   rack.querySelectorAll = () => { touched += 1; return owned; };
-  lp.light(lightRoot, "22020");
+  lp.light(lightRoot, "c22020");
   const again = touched;
-  lp.light(lightRoot, "22001");
+  lp.light(lightRoot, "c22001");
   const other = state();
   lp.light(lightRoot, "");
   const off = state();
-  lp.light({ querySelector: () => null }, "22020");
+  lp.light({ querySelector: () => null }, "c22020");
   // The listeners: a pointer on a holder and off it, and none during a drag.
   const lightListeners = {};
   const bodyCls = new Set();
@@ -267,32 +288,32 @@ out.bind = { listeners: listeners.length, afterShown, afterHidden, afterFull, af
   const lb = new M.MachinePick();
   lb.bindLight(ldoc);
   const over = (owner) => lightListeners.mouseover({ target: { closest: () => (owner ? { dataset: { laneOwner: owner } } : null) } });
-  over("22001");
+  over("c22001");
   const onOwner = rack.dataset.laneLit;
   over("");
   const offOwner = rack.dataset.laneLit;
-  over("22001");
+  over("c22001");
   lightListeners.mouseout({ relatedTarget: {} });
   const stays = rack.dataset.laneLit;
   lightListeners.mouseout({ relatedTarget: null });
   const leftPage = rack.dataset.laneLit;
   bodyCls.add("machine-dragging");
-  over("22020");
+  over("c22020");
   out.light = { lit, again, other, off, onOwner, offOwner, stays, leftPage, dragging: rack.dataset.laneLit };
   // A chosen cell's line is drawn, without a drawing of the board.
-  const lines = ["22020", "22001"].map(lightEl);
+  const lines = ["c22020", "c22001"].map(lightEl);
   const sp = new M.MachinePick();
-  sp.port = "22001";
+  sp.cellId = "c22001";
   sp.show({ querySelectorAll: (sel) => (sel === "i[data-lane-owner]" ? lines : []) });
   out.light.shown = lines.map((e) => e.on.has("is-shown"));
 }
 // The chosen cell's row is brought into sight, by as little as it takes; letting the cell go brings nothing.
 {
   const asked = [];
-  const rowDoc = { querySelector: (sel) => (sel === '.machine-model-launch[data-machine-pick="22020"]' ? { scrollIntoView: (how) => asked.push(how) } : null) };
-  bound.bringRow(rowDoc, "22020");
+  const rowDoc = { querySelector: (sel) => (sel === '.machine-model-launch[data-machine-pick="c22020"]' ? { scrollIntoView: (how) => asked.push(how) } : null) };
+  bound.bringRow(rowDoc, "c22020");
   bound.bringRow(rowDoc, "");
-  bound.bringRow({}, "22020");
+  bound.bringRow({}, "c22020");
   out.bind.brought = asked;
 }
 
@@ -318,7 +339,7 @@ rowSize._text = "9.9 GB on the cards";
 const factsEl = new El();
 factsEl._text = "host · linux · 10.0.0.5 · scout an-old-release";
 const root = { querySelector: (sel) => ({ "[data-machine-map]": lanesEl, "[data-machine-band]": bandEl, ".ui-win-facts": factsEl,
-                                          '[data-machine-bench-size="22020"]': rowSize })[sel] || null };
+                                          '[data-machine-bench-size="c22020"]': rowSize })[sel] || null };
 live.patch(root, head);
 live.patch(root, head);
 // Copies, not the live arrays: the next patch writes to the same ones.
@@ -336,7 +357,7 @@ const drawn = (h) => {
   const writes = { map: 0, inner: 0 };
   const lanes = h.map.lanes().map((lane) => {
     const blocks = (UP.Meter.cut(lane.total, lane.blocks) || []).map(({ part, width }) => {
-      const b = { dataset: part.port ? { machinePick: part.port } : {}, cls: new Set([`ui-lane-blk--${part.kind || "s"}`]), attrs: {},
+      const b = { dataset: part.cellId ? { machinePick: part.cellId } : {}, cls: new Set([`ui-lane-blk--${part.kind || "s"}`]), attrs: {},
                   style: { width: `${width}%` }, title: String(part.title || ""), _inner: UP.Lane.inner(part, width, lane.rack ? lane.rack.bar : null) };
       if (part.on) b.cls.add("is-on");
       b.classList = { contains: (c) => b.cls.has(c), toggle: (c, on) => (on ? b.cls.add(c) : b.cls.delete(c)) };
@@ -350,27 +371,23 @@ const drawn = (h) => {
     return { blocks, leads, querySelector: (sel) => ({ ".ui-lane-bar": bar, ".ui-lane-free": free, ".ui-lane-side": side })[sel] || null,
              querySelectorAll: (sel) => (sel === ".ui-lane-blk" ? blocks : sel === ".ui-lane-lead" ? leads : []), free };
   });
-  // The list beside the lanes, as drawn: a row per holder.
-  const rows = M.MachineRack.legend(h.map.lanes()).map((r) => {
-    const figure = { textContent: r.figure }, where = { textContent: r.where }, speed = { textContent: r.speed };
-    const row = { dataset: r.owner ? { laneOwner: r.owner } : {}, title: r.title, attrs: {}, cls: new Set(r.on ? ["is-on"] : []), figure, where, speed,
-                  querySelector: (sel) => (sel === ".ui-legend-figure" ? figure : sel === ".ui-legend-where" ? where : sel === ".ui-legend-speed" ? speed : null), setAttribute: (k, v) => { row.attrs[k] = v; } };
+  // The list beside the lanes, as drawn: a row per cell and per other holder, its head row words over the columns, not a row of data.
+  const part = (value) => { const e = { writes: 0, _v: String(value) }; Object.defineProperty(e, "textContent", { get: () => e._v, set: (v) => { e._v = v; e.writes += 1; } }); return e; };
+  // The heads row is words over the columns, not a row of data: it has no data-t, so the patch must not write the first row's figure into it.
+  const heads = { dataset: {}, cls: new Set(), attrs: {}, title: "", figure: part(""), where: part(""), doing: part("") };
+  heads.querySelector = (sel) => (sel === ".ui-legend-figure" ? heads.figure : sel === ".ui-legend-where" ? heads.where : sel === ".ui-legend-doing" ? heads.doing : null);
+  const rows = [heads, ...lg(h.map).map((r) => {
+    const figure = part(r.figure), where = part(r.where), doing = part(r.doing);
+    const row = { dataset: { t: r.t, tId: r.tId, laneOwner: r.owner }, title: r.title, attrs: {}, cls: new Set(r.on ? ["is-on"] : []), figure, where, doing,
+                  querySelector: (sel) => (sel === ".ui-legend-figure" ? figure : sel === ".ui-legend-where" ? where : sel === ".ui-legend-doing" ? doing : null), setAttribute: (k, v) => { row.attrs[k] = v; } };
     row.classList = { toggle: (c, on) => (on ? row.cls.add(c) : row.cls.delete(c)) };
     return row;
-  });
-  const chip = (server, hook, words) => {
-    const c = { dataset: { machinePick: String(server.port), t: hook }, writes: 0, _text: `${h.map.cellName(server)}${words ? ` · ${words}` : ""}` };
-    Object.defineProperty(c, "textContent", { get: () => c._text, set: (v) => { c._text = v; c.writes += 1; } });
-    return c;
-  };
-  const chips = [...h.map.unplaced().map(({ server }) => chip(server, "machine-map-unplaced-cell", "")),
-                 ...h.map.coming().map((server) => chip(server, "machine-map-coming-cell", h.map.comingWords(server)))];
-  const map = { writes, lanes, chips, rows, querySelectorAll: (sel) => (sel === ".ui-lane" ? lanes : sel === ".ui-legend-row" ? rows : sel === M.MachineHeadLive.CHIPS ? chips
-    : sel === '[data-t="machine-map-coming-cell"]' ? chips.filter((c) => c.dataset.t === "machine-map-coming-cell") : []) };
+  })];
+  const map = { writes, lanes, rows, heads, querySelectorAll: (sel) => (sel === ".ui-lane" ? lanes : sel === ".ui-legend-row" ? rows : []) };
   Object.defineProperty(map, "innerHTML", { get: () => "", set: () => { writes.map += 1; } });
   return map;
 };
-const headOf = (node) => new M.MachineHead(node, { owners, cells: CELLS, chosen: "22020" });
+const headOf = (node) => new M.MachineHead(node, { owners, cells: CELLS, chosen: "c22020" });
 const page1 = drawn(head);
 const live2 = new M.MachineHeadLive();
 const at = { querySelector: (sel) => (sel === "[data-machine-map]" ? page1 : null) };
@@ -388,19 +405,19 @@ const live4 = new M.MachineHeadLive();
 const at4 = { querySelector: (sel) => (sel === "[data-machine-map]" ? page4 : null) };
 live4.patch(at4, head);
 live4.patch(at4, headOf({ ...GOOD, gpus: GOOD.gpus.map((g) => (g.index === 0 ? { ...g, memoryUsedMiB: "11264" } : g)),
-                          servers: GOOD.servers.map((s) => (s.port === 22020 ? { ...s, gpuMem: { 0: 7168, 1: 4096 } } : s)) }));
-live4.patch(at4, headOf({ ...GOOD, servers: GOOD.servers.map((s) => (s.port === 22020 ? { ...s, genTps: 41.2, requestsProcessing: 1 } : s)) }));
-out.inPlace.speed = page4.rows.find((n) => n.dataset.laneOwner === "22020")?.speed.textContent;
+                          servers: GOOD.servers.map((s) => (s.cellId === "c22020" ? { ...s, gpuMem: { 0: 7168, 1: 4096 } } : s)) }));
+live4.patch(at4, headOf({ ...GOOD, servers: GOOD.servers.map((s) => (s.cellId === "c22020" ? { ...s, genTps: 41.2, requestsProcessing: 1 } : s)) }));
+out.inPlace.doing = page4.rows.find((n) => n.dataset.laneOwner === "c22020")?.doing.textContent;
 live4.patch(at4, headOf({ ...GOOD, gpus: GOOD.gpus.map((g) => (g.index === 0 ? { ...g, memoryUsedMiB: "11264" } : g)),
-                          servers: GOOD.servers.map((s) => (s.port === 22020 ? { ...s, gpuMem: { 0: 7168, 1: 4096 } } : s)) }));
-out.inPlace.notes = { writes: page4.writes.map, figures: page4.rows.map((n) => n.figure.textContent), title: page4.rows.find((n) => n.dataset.laneOwner === "22020")?.title, lead: page4.lanes[0].leads[0]?.props["--lane-from"] };
+                          servers: GOOD.servers.map((s) => (s.cellId === "c22020" ? { ...s, gpuMem: { 0: 7168, 1: 4096 } } : s)) }));
+out.inPlace.notes = { writes: page4.writes.map, figures: page4.rows.map((n) => n.figure.textContent), title: page4.rows.find((n) => n.dataset.laneOwner === "c22020")?.title, lead: page4.lanes[0].leads[0]?.props["--lane-from"] };
 live2.patch(at, new M.MachineHead({ ...GOOD, cpu: { ...GOOD.cpu, ram: { totalGb: 60.5, usedGb: 9.0 } } }, { owners, cells: CELLS, chosen: "" }));
-out.inPlace.letGo = [ringed(), page1.lanes[0].blocks.find((b) => b.dataset.machinePick === "22020")?.attrs["aria-pressed"], page1.writes.map];
-out.inPlace.rowLetGo = page1.rows.filter((n) => n.dataset.laneOwner === "22020").map((n) => [n.cls.has("is-on"), n.attrs["aria-pressed"]]);
-const started = headOf({ ...GOOD, servers: GOOD.servers.map((s) => (s.port === 22007 ? { ...s, phase: "running" } : s)) });
+out.inPlace.letGo = [ringed(), page1.lanes[0].blocks.find((b) => b.dataset.machinePick === "c22020")?.attrs["aria-pressed"], page1.writes.map];
+out.inPlace.rowLetGo = page1.rows.filter((n) => n.dataset.laneOwner === "c22020").map((n) => [n.cls.has("is-on"), n.attrs["aria-pressed"]]);
+const started = headOf({ ...GOOD, servers: GOOD.servers.map((s) => (s.cellId === "c22007" ? { ...s, phase: "running" } : s)) });
 const page2 = drawn(head);
 live2.patch({ querySelector: (sel) => (sel === "[data-machine-map]" ? page2 : null) }, started);
-const measured = headOf({ ...GOOD, servers: GOOD.servers.map((s) => (s.port === 22003 ? { ...s, ramBytes: GIB } : s)) });
+const measured = headOf({ ...GOOD, servers: GOOD.servers.map((s) => (s.cellId === "c22003" ? { ...s, ramBytes: GIB } : s)) });
 const page3 = drawn(head);
 live2.patch({ querySelector: (sel) => (sel === "[data-machine-map]" ? page3 : null) }, measured);
 out.inPlace.reshaped = [page2.writes.map, page3.writes.map];
@@ -412,7 +429,7 @@ out.scale = { machine: scale([24, 31.8], 60.5), hugeRam: scale([24], 256), small
 out.rack = { card0: { rack: lanes[0].rack, notes: lanes[0].notes, links: lanes[0].links },
              card1: { rack: lanes[1].rack, notes: lanes[1].notes, links: lanes[1].links },
              ram: { rack: lanes[2].rack, notes: lanes[2].notes, links: lanes[2].links },
-             legend: M.MachineRack.legend(lanes),
+             legend: lg(map),
              freeWords: [M.MachineMap.freeWords(24, 0), M.MachineMap.freeWords(24, 20), M.MachineMap.freeWords(2, 20)],
              where: [[["0"]], [["1"], ["2"], ["3"], ["4"]], [["0"], ["2"], ["3"], ["5"]], [["1"], ["ram"]], [["ram"]], []].map((ids) => M.MachineRack.whereWords(ids.map(([id]) => (id === "ram" ? { ram: true } : { cardIndex: id })))) };
 {
@@ -427,10 +444,10 @@ out.rack = { card0: { rack: lanes[0].rack, notes: lanes[0].notes, links: lanes[0
     const planned = { cpu: { ram: { totalGb: 60.5, usedGb: 8 } },
                       servers: [cell(22020, "running", { gpuMem: { 0: 4096 } }), cell(22001, "running", { gpuMem: { 0: 8192 } }), cell(22007, "stopped", { slotConfig: {}, modelSizeBytes: 12 * GIB })],
                       gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 12288 }, { index: 1, memoryTotalMiB: 24576, memoryUsedMiB: 0 }] };
-    const fit = (facts) => new Map([...CELLS, ["22007", { ...(CELLS.get("22007") || {}), name: "gemma", fit: facts }]]);
-    const chosen = new M.MachineMap(planned, { cells: fit({ how: "spread", bytes: 30 * GIB, source: "files", family: "llama", fields: {} }), chosen: "22007" });
+    const fit = (facts) => new Map([...CELLS, ["c22007", { ...(CELLS.get("c22007") || {}), name: "gemma", fit: facts }]]);
+    const chosen = new M.MachineMap(planned, { cells: fit({ how: "spread", bytes: 30 * GIB, source: "files", family: "llama", fields: {} }), chosen: "c22007" });
     const pl = chosen.lanes();
-    out.rack.planned = { rows: M.MachineRack.legend(pl).map((row) => [row.name, row.figure, row.where, row.kind || row.series, !!row.pick, row.on]), html: chosen.lanesHtml(pl),
+    out.rack.planned = { rows: lg(chosen).map((row) => [row.name, row.figure, row.where, row.doing, row.kind || row.series, !!row.pick, row.on]), html: chosen.lanesHtml(pl),
                          lines: pl.map((l) => l.links.map((k) => [k.owner, k.slot, k.kind || "", k.shown])) };
     out.rack.emptyHtml = new M.MachineMap({ cpu: { ram: { totalGb: 8, usedGb: 1 } }, servers: [] }).lanesHtml();
     // A device's own figures on its row, as the monitor's tick will fill them; what nobody reported is a dash.
@@ -440,37 +457,38 @@ out.rack = { card0: { rack: lanes[0].rack, notes: lanes[0].notes, links: lanes[0
     out.rack.noTotals = new M.MachineMap({ id: "h1", gpus: [], servers: [] }).totalsHtml();
     // How fast a cell generates now: only while it answers a request; a held figure is no speed of now.
     out.rack.speed = [M.MachineRack.speedOf({ genTps: 38.4, requestsProcessing: 1 }), M.MachineRack.speedOf({ genTps: 38.4, requestsProcessing: 0 }), M.MachineRack.speedOf({ genTps: 0, requestsProcessing: 1 }), M.MachineRack.speedOf({})];
-    const speedLanes = new M.MachineMap({ cpu: { ram: { totalGb: 60.5, usedGb: 8 } }, servers: [cell(22020, "running", { gpuMem: { 0: 4096 }, genTps: 51.6, requestsProcessing: 2 })], gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 4096 }] }, { cells: CELLS }).lanes();
-    out.rack.speedRow = M.MachineRack.legend(speedLanes)[0].speed;
+    const speedMap = new M.MachineMap({ cpu: { ram: { totalGb: 60.5, usedGb: 8 } }, servers: [cell(22020, "running", { gpuMem: { 0: 4096 }, genTps: 51.6, requestsProcessing: 2 })], gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 4096 }] }, { cells: CELLS });
+    out.rack.speedRow = lg(speedMap)[0].doing;
     // What is to come is the smallest here, and a running cell lies on two cards too: it still stands first, its line in the first place.
     const small = { ...planned, servers: [cell(22020, "running", { gpuMem: { 0: 4096, 1: 4096 } }), cell(22007, "stopped", { slotConfig: {}, modelSizeBytes: 2 * GIB })] };
-    const smallLanes = new M.MachineMap(small, { cells: fit({ how: "spread", bytes: 2 * GIB, source: "files", family: "llama", fields: {} }), chosen: "22007" }).lanes();
-    out.rack.smallPlan = { rows: M.MachineRack.legend(smallLanes).map((row) => [row.owner, row.figure]), slots: smallLanes[0].links.map((k) => [k.owner, k.slot]) };
+    const smallMap = new M.MachineMap(small, { cells: fit({ how: "spread", bytes: 2 * GIB, source: "files", family: "llama", fields: {} }), chosen: "c22007" });
+    const smallLanes = smallMap.lanes();
+    out.rack.smallPlan = { rows: lg(smallMap).map((row) => [row.owner, row.figure]), slots: smallLanes[0].links.map((k) => [k.owner, k.slot]) };
     // A largest cell that changes: the rows change order, and the map is written whole.
     const swapA = { ...planned, servers: planned.servers.slice(0, 2) };
     const swapB = { ...swapA, servers: [cell(22020, "running", { gpuMem: { 0: 9216 } }), cell(22001, "running", { gpuMem: { 0: 4096 } })] };
-    out.rack.order = [M.MachineRack.legend(new M.MachineMap(swapA, { cells: CELLS }).lanes()).map((row) => row.owner).slice(0, 2),
-                      M.MachineRack.legend(new M.MachineMap(swapB, { cells: CELLS }).lanes()).map((row) => row.owner).slice(0, 2)];
+    out.rack.order = [lg(new M.MachineMap(swapA, { cells: CELLS })).map((row) => row.owner).slice(0, 2),
+                      lg(new M.MachineMap(swapB, { cells: CELLS })).map((row) => row.owner).slice(0, 2)];
     // The price of RAM, said by the cell's row now that the lane has no words: llama.cpp computes it on the processor.
-    const said = (family, ramGb, cards) => { const m = new M.MachineMap(planned, { cells: new Map([["22007", { fit: { family } }]]) }); m.fit = () => ({ verdict: ramGb ? "spill" : "cards", cards, ramGb }); return m.fitSaid({ port: 22007 }); };
+    const said = (family, ramGb, cards) => { const m = new M.MachineMap(planned, { cells: new Map([["c22007", { fit: { family } }]]) }); m.fit = () => ({ verdict: ramGb ? "spill" : "cards", cards, ramGb }); return m.fitSaid({ cellId: "c22007" }); };
     out.rack.price = [said("llama", 9, [{ index: "0" }]), said("llama", 0, [{ index: "0" }]), said("vllm", 9, [{ index: "0" }]), said("llama", 9, [])];
     // And its row says it, with where the cell would go.
-    { const m = new M.MachineMap(planned, { cells: new Map([["22007", { fit: { family: "llama" } }]]) }); m.fit = () => ({ verdict: "spill", cards: [{ index: "0" }], ramGb: 9 });
-      out.rack.priceInRow = m.benchVerdict({ port: 22007, phase: "stopped" }).words; }
+    { const m = new M.MachineMap(planned, { cells: new Map([["c22007", { fit: { family: "llama" } }]]) }); m.fit = () => ({ verdict: "spill", cards: [{ index: "0" }], ramGb: 9 });
+      out.rack.priceInRow = m.benchVerdict({ cellId: "c22007", phase: "stopped" }).words; }
   }
   // Unmeasured lane: no bar, so no note and no line on it, and a cell does not count it among its pieces.
   const blindLanes = new M.MachineMap({ cpu: {}, servers: [cell(22020, "running", { gpuMem: { 0: 1024, 1: 1024 } })],
                                        gpus: [{ index: 0, memoryTotalMiB: 8192, memoryUsedMiB: 2048 }, { index: 1, memoryTotalMiB: null }] }, { cells: CELLS }).lanes();
   out.rack.blind = blindLanes.map((l) => [l.rack, l.notes.length, l.links.length]);
-  out.rack.blindWords = blindLanes[0].notes.find((n) => n.name.startsWith(":22020"))?.words;
+  out.rack.blindWords = blindLanes[0].notes.find((n) => n.cellId === "c22020")?.words;
   out.rack.noCell = new M.MachineMap({ cpu: { ram: { totalGb: 8, usedGb: 1 } }, servers: [] }).lanes().map((l) => [l.rack, l.notes, l.links]);
   // Strata keeps its weights in RAM: its RSS is its own piece beside its card's, and neither is "a part" of the other.
   const keeps = (fit) => new M.MachineMap({ cpu: { ram: { totalGb: 60.5, usedGb: 50 } }, servers: [cell(22009, "running", { gpuMem: { 0: 30720 }, ramBytes: 39 * GIB })],
                                            gpus: [{ index: 0, memoryTotalMiB: 32768, memoryUsedMiB: 30720 }] },
-                                         { cells: new Map([["22009", { name: "Strata", runner: "Strata", fit }]]) }).lanes();
+                                         { cells: new Map([["c22009", { name: "Strata", runner: "Strata", fit }]]) }).lanes();
   const strataLanes = keeps({ how: "free", keepsRam: true });
-  out.rack.strata = strataLanes.map((l) => [l.notes.map((n) => n.words), l.blocks.filter((b) => b.port).map((b) => b.figure), l.links.length]);
-  out.rack.mapped = keeps({ how: "plan", keepsRam: false }).map((l) => [l.notes.map((n) => n.words), l.blocks.filter((b) => b.port).length]);
+  out.rack.strata = strataLanes.map((l) => [l.notes.map((n) => n.words), l.blocks.filter((b) => b.cellId).map((b) => b.figure), l.links.length]);
+  out.rack.mapped = keeps({ how: "plan", keepsRam: false }).map((l) => [l.notes.map((n) => n.words), l.blocks.filter((b) => b.cellId).length]);
 }
 // A plan in hand (machine-plan.js): the map draws the machine as the plan would leave it.
 {
@@ -481,20 +499,20 @@ out.rack = { card0: { rack: lanes[0].rack, notes: lanes[0].notes, links: lanes[0
   const empty = { ENV: "", DEVICE: "", FIT_TARGET: "", TENSOR_SPLIT: "", FIT: "", N_GPU_LAYERS: "", N_CPU_MOE: "", CPU_MOE: "", KV_OFFLOAD: "" };
   const model = { weightsGb: 13, kvGb: 6, batchGb: 1, layers: 20, experts: 0, expertsGb: 0 };
   const fit = { how: "plan", family: "llama", bytes: 20 * GIB, source: "plan", model, mode: "layer", fields: empty, split: { weightsGb: 13, cacheGb: 7 } };
-  const pcells = new Map([["22007", { name: "gemma", stop: "data-s", launch: "", group: "holds", runner: "llama.cpp", fit: { ...fit, bytes: 12 * GIB } }],
-                          ["22020", { name: "Hermes", stop: "", launch: "data-y", group: "bench", runner: "llama.cpp", fit }]]);
+  const pcells = new Map([["c22007", { name: "gemma", stop: "data-s", launch: "", group: "holds", runner: "llama.cpp", fit: { ...fit, bytes: 12 * GIB } }],
+                          ["c22020", { name: "Hermes", stop: "", launch: "data-y", group: "bench", runner: "llama.cpp", fit }]]);
   const plan = new PL.MachinePlan();
   const room = (leaving = []) => PL.MachineRoom.of(PL.MachineRoom.without(pnode, leaving));
-  const lay = (port, target, opts = {}) => plan.set(port, PL.CellMove.of(pcells.get(String(port)).fit).to(target, room(opts.leaving || [])), opts);
+  const lay = (cellId, target, opts = {}) => plan.set(cellId, PL.CellMove.of(pcells.get(String(cellId)).fit).to(target, room(opts.leaving || [])), opts);
   const drawn = () => {
     const m = new M.MachineMap(pnode, { cells: pcells, chosen: "", plan });
     const lanes = m.lanes();
-    return { chosen: m.chosen, lanes: lanes.map((l) => ({ free: l.free, blocks: l.blocks.map((b) => [b.port || b.ghostOf || b.kind || "", b.kind || ""]), attrs: l.attrs,
+    return { chosen: m.chosen, lanes: lanes.map((l) => ({ free: l.free, blocks: l.blocks.map((b) => [b.cellId || b.ghostOf || b.kind || "", b.kind || ""]), attrs: l.attrs,
                                                           grips: l.grips.map((g) => [g.on, g.at, g.title, g.attrs]), notes: l.notes.map((n) => n.words) })),
-             panels: rowsOf(m), choice: m.bench().map((s) => m.choiceHtml(s)).join(""), bench: m.bench().map((s) => s.port), holders: m.holders().map((h) => h.server.port) };
+             panels: rowsOf(m), choice: m.bench().map((s) => m.choiceHtml(s)).join(""), bench: m.bench().map((s) => s.cellId), holders: m.holders().map((h) => h.server.cellId) };
   };
   out.planMap = { off: drawn() };
-  lay(22020, "1");
+  lay("c22020", "1");
   out.planMap.on = drawn();
   plan.busy = true;
   out.planMap.busy = drawn().choice;
@@ -509,60 +527,60 @@ out.rack = { card0: { rack: lanes[0].rack, notes: lanes[0].notes, links: lanes[0
   // vLLM with weights left in RAM: its piece there is said to ride, its handle is the only one, and its row names the price.
   {
     const vfit = { how: "asks", family: "vllm", bytes: 28 * GIB, asks: [], over: false, ridesGb: 0, fields: { ...empty, CPU_OFFLOAD_GB: "" }, asksFor: () => ({ asks: [], over: false, ridesGb: 0, offloadNeededGb: 0, weightsGb: 40 }) };
-    const vcells = new Map([["22007", pcells.get("22007")], ["22020", { name: "V", stop: "", launch: "data-y", group: "bench", runner: "vLLM", fit: vfit }]]);
-    plan.set(22020, { how: "asks", fields: { ENV: "CUDA_VISIBLE_DEVICES=1", CPU_OFFLOAD_GB: "12" }, asks: [{ index: "1", mib: 28 * 1024, weightsMib: 20 * 1024 }], over: false, ridesGb: 12 });
+    const vcells = new Map([["c22007", pcells.get("c22007")], ["c22020", { name: "V", stop: "", launch: "data-y", group: "bench", runner: "vLLM", fit: vfit }]]);
+    plan.set("c22020", { how: "asks", fields: { ENV: "CUDA_VISIBLE_DEVICES=1", CPU_OFFLOAD_GB: "12" }, asks: [{ index: "1", mib: 28 * 1024, weightsMib: 20 * 1024 }], over: false, ridesGb: 12 });
     const vm = new M.MachineMap(pnode, { cells: vcells, chosen: "", plan });
     const vl = vm.lanes();
-    out.planMap.ridesSize = new M.MachineMap(pnode, { cells: new Map([["22020", { fit: { ...vfit, keepsRam: true, ridesGb: 5 } }]]) }).sizeWords(pnode.servers[1]);
-    out.planMap.rides = { lanes: vl.map((l) => ({ blocks: l.blocks.filter((b) => b.ghostOf).map((b) => [b.ghostOf, b.kind, Math.round(b.value)]), notes: l.notes.filter((n) => n.name.includes("22020")).map((n) => n.words), grips: l.grips.map((g) => [g.on, g.title]), links: l.links.length })),
+    out.planMap.ridesSize = new M.MachineMap(pnode, { cells: new Map([["c22020", { fit: { ...vfit, keepsRam: true, ridesGb: 5 } }]]) }).sizeWords(pnode.servers[1]);
+    out.planMap.rides = { lanes: vl.map((l) => ({ blocks: l.blocks.filter((b) => b.ghostOf).map((b) => [b.ghostOf, b.kind, Math.round(b.value)]), notes: l.notes.filter((n) => n.cellId === "c22020").map((n) => n.words), grips: l.grips.map((g) => [g.on, g.title]), links: l.links.length })),
                           panel: rowsOf(vm) };
     plan.clear();
     // Running, with its weights left in RAM: the RSS is its own piece there, and it rides all the same.
     const running = { ...pnode, cpu: { ...pnode.cpu, ram: { totalGb: 60, usedGb: 25 } }, servers: [cell(22020, "running", { gpuMem: { 1: 28 * 1024 }, ramBytes: 14 * GIB, slotConfig: {} })] };
-    const rm = new M.MachineMap(running, { cells: new Map([["22020", { name: "V", stop: "data-s", launch: "", group: "holds", runner: "vLLM", fit: { ...vfit, keepsRam: true } }]]), chosen: "", plan });
-    out.planMap.ridesRunning = rm.lanes().map((l) => l.notes.filter((n) => (n.name || "").includes("22020")).map((n) => n.words));
+    const rm = new M.MachineMap(running, { cells: new Map([["c22020", { name: "V", stop: "data-s", launch: "", group: "holds", runner: "vLLM", fit: { ...vfit, keepsRam: true } }]]), chosen: "", plan });
+    out.planMap.ridesRunning = rm.lanes().map((l) => l.notes.filter((n) => n.cellId === "c22020").map((n) => n.words));
   }
-  lay(22020, "1");
+  lay("c22020", "1");
   plan.dragging = true; plan.drop = "1"; plan.dropOk = true;
   out.planMap.dragging = drawn();
   plan.dropOk = false;
   out.planMap.draggingNo = drawn().lanes[1].attrs;
   plan.dragging = false; plan.drop = "";
-  lay(22020, "0", { evict: ["22007"], leaving: ["22007"] });
+  lay("c22020", "0", { evict: ["c22007"], leaving: ["c22007"] });
   out.planMap.evict = drawn();
-  lay(22007, "1", { moved: true, leaving: ["22007"] });
+  lay("c22007", "1", { moved: true, leaving: ["c22007"] });
   out.planMap.moved = drawn();
-  plan.set(22020, { how: "plan", fields: { ...empty, N_GPU_LAYERS: "99", FIT: "0", DEVICE: "CUDA0" } });
+  plan.set("c22020", { how: "plan", fields: { ...empty, N_GPU_LAYERS: "99", FIT: "0", DEVICE: "CUDA0" } });
   const small = new M.MachineMap({ ...pnode, gpus: [{ index: 0, memoryTotalMiB: 2048, memoryUsedMiB: 2048, memoryFreeMiB: 0 }] }, { cells: pcells, plan });
   out.planMap.noFit = rowsOf(small);
   plan.clear();
   // The buttons of where a cell can be laid, on its row.
-  const placesOf = (cells, port) => { const m = new M.MachineMap(pnode, { cells, chosen: port, plan }); return [...m.placesHtml(pnode.servers.find((s) => String(s.port) === port)).matchAll(/data-machine-place="([^"]+)"/g)].map((x) => x[1]); };
+  const placesOf = (cells, cellId) => { const m = new M.MachineMap(pnode, { cells, chosen: cellId, plan }); return [...m.placesHtml(pnode.servers.find((s) => s.cellId === cellId)).matchAll(/data-machine-place="([^"]+)"/g)].map((x) => x[1]); };
   out.planMap.places = {
-    llama: placesOf(pcells, "22020"),
-    html: new M.MachineMap(pnode, { cells: pcells, chosen: "22020", plan }).placesHtml(pnode.servers[1]).split("</button>")[0],
-    running: placesOf(pcells, "22007"),
-    cardOnly: placesOf(new Map([["22020", { launch: "data-y", group: "bench", fit: { family: "pinned", gpuOk: true, cpuOk: false, fields: empty } }]]), "22020"),
-    engine: placesOf(new Map([["22020", { launch: "data-y", group: "bench", fit: { family: "", fields: empty } }]]), "22020"),
-    noStart: placesOf(new Map([["22020", { launch: "", group: "bench", fit }]]), "22020"),
-    noStop: placesOf(new Map([["22007", { stop: "", group: "holds", fit }]]), "22007"),
+    llama: placesOf(pcells, "c22020"),
+    html: new M.MachineMap(pnode, { cells: pcells, chosen: "c22020", plan }).placesHtml(pnode.servers[1]).split("</button>")[0],
+    running: placesOf(pcells, "c22007"),
+    cardOnly: placesOf(new Map([["c22020", { launch: "data-y", group: "bench", fit: { family: "pinned", gpuOk: true, cpuOk: false, fields: empty } }]]), "c22020"),
+    engine: placesOf(new Map([["c22020", { launch: "data-y", group: "bench", fit: { family: "", fields: empty } }]]), "c22020"),
+    noStart: placesOf(new Map([["c22020", { launch: "", group: "bench", fit }]]), "c22020"),
+    noStop: placesOf(new Map([["c22007", { stop: "", group: "holds", fit }]]), "c22007"),
   };
   // A card with no room left offers no hollow handle.
   const fullCard = { ...pnode, gpus: [{ index: 0, name: "RTX 3090", memoryTotalMiB: 24576, memoryUsedMiB: 24300, memoryFreeMiB: 276 }, pnode.gpus[1]] };
-  out.planMap.fullCard = new M.MachineMap(fullCard, { cells: pcells, chosen: "22020", plan }).lanes().map((l) => l.grips.length);
+  out.planMap.fullCard = new M.MachineMap(fullCard, { cells: pcells, chosen: "c22020", plan }).lanes().map((l) => l.grips.length);
   // Grips for a chosen stopped llama.cpp cell with no plan yet; none for a one-card runner.
-  out.planMap.chosenNoPlan = new M.MachineMap(pnode, { cells: pcells, chosen: "22020", plan }).lanes().map((l) => l.grips.length);
-  const pinned = new Map([["22020", { name: "Step", launch: "data-y", group: "bench", fit: { how: "card", family: "pinned", bytes: 10 * GIB, fields: empty } }]]);
-  out.planMap.chosenPinned = new M.MachineMap(pnode, { cells: pinned, chosen: "22020", plan }).lanes().map((l) => l.grips.length);
+  out.planMap.chosenNoPlan = new M.MachineMap(pnode, { cells: pcells, chosen: "c22020", plan }).lanes().map((l) => l.grips.length);
+  const pinned = new Map([["c22020", { name: "Step", launch: "data-y", group: "bench", fit: { how: "card", family: "pinned", bytes: 10 * GIB, fields: empty } }]]);
+  out.planMap.chosenPinned = new M.MachineMap(pnode, { cells: pinned, chosen: "c22020", plan }).lanes().map((l) => l.grips.length);
   // A row's last line written whole when the plan changes, and only then.
   const picks = { writes: 0, _html: "", set outerHTML(v) { this._html = v; this.writes += 1; }, get outerHTML() { return this._html; } };
-  const models = { dataset: {} };
-  const at = { querySelector: (sel) => ({ '[data-t="machine-models"]': models, '[data-machine-panel="22020"]': picks })[sel] || null };
+  const block = { dataset: {} };
+  const at = { querySelector: (sel) => ({ '[data-t="machine-chosen"]': block, '[data-machine-panel="c22020"]': picks })[sel] || null };
   const planLive = new M.MachineHeadLive();
   const headNow = () => new M.MachineHead(pnode, { cells: pcells, plan });
   planLive.patch(at, headNow());
   const quiet = picks.writes;
-  lay(22020, "1");
+  lay("c22020", "1");
   planLive.patch(at, headNow());
   const laid = [picks.writes, picks._html.includes('data-t-state="planned"')];
   planLive.patch(at, headNow());
@@ -576,16 +594,65 @@ out.rack = { card0: { rack: lanes[0].rack, notes: lanes[0].notes, links: lanes[0
   const pp = new M.MachinePick();
   pp.know(pcells);
   pp.bind(pdoc, { redraw: () => {} });
-  const clickOn = (port) => docListeners.forEach((fn) => fn({ target: { closest: (sel) => (sel === "[data-machine-pick]" ? { dataset: { machinePick: port, t: "x" } } : null) }, preventDefault() {} }));
-  PL.MACHINE_PLAN.set(22020, { how: "plan", fields: { A: "1" } });
-  pp.port = "22020";
-  clickOn("22007");
-  out.planMap.otherCell = [PL.MACHINE_PLAN.on, pp.port];
-  PL.MACHINE_PLAN.set(22020, { how: "plan", fields: { A: "1" } });
-  pp.port = "";
-  clickOn("22020");
-  out.planMap.sameCell = [PL.MACHINE_PLAN.on, pp.port];
+  const clickOn = (cellId) => docListeners.forEach((fn) => fn({ target: { closest: (sel) => (sel === "[data-machine-pick]" ? { dataset: { machinePick: cellId, t: "x" } } : null) }, preventDefault() {} }));
+  PL.MACHINE_PLAN.set("c22020", { how: "plan", fields: { A: "1" } });
+  pp.cellId = "c22020";
+  clickOn("c22007");
+  out.planMap.otherCell = [PL.MACHINE_PLAN.on, pp.cellId];
+  PL.MACHINE_PLAN.set("c22020", { how: "plan", fields: { A: "1" } });
+  pp.cellId = "";
+  clickOn("c22020");
+  out.planMap.sameCell = [PL.MACHINE_PLAN.on, pp.cellId];
   PL.MACHINE_PLAN.clear();
+  // The launch being built under the map (machine-build.js): no cell of the machine yet, under the builder's key — its ghost while it is
+  // chosen or planned, its last line with its places, the lanes while a cell is carried, the builder's place on the page, the live patch.
+  {
+    const lcells = new Map([...pcells, ["new", { name: "Zeta · Q4", stop: "", launch: "1", group: "bench", runner: "llama.cpp", fit, virtual: true }]]);
+    const launch = { cellId: "new", phase: "stopped", virtual: true };
+    const ghostOf = (m) => { const g = m.ghost(); return g && [g.cellId, g.place.verdict, g.place.cards.map((c) => String(c.index))]; };
+    const chosenMap = new M.MachineMap(pnode, { cells: lcells, chosen: "new", launch });
+    out.launchMap = {
+      ghost: ghostOf(chosenMap), dashes: chosenMap.lanes().map((l) => l.blocks.filter((b) => b.ghostOf === "new").length),
+      untold: ghostOf(new M.MachineMap(pnode, { cells: lcells, chosen: "new" })),
+      notChosen: ghostOf(new M.MachineMap(pnode, { cells: lcells, chosen: "", launch })),
+      bench: chosenMap.bench().map((srv) => srv.cellId), choice: chosenMap.choiceHtml(chosenMap.launch),
+    };
+    plan.set("new", PL.CellMove.of(fit).to("1", room()));
+    const planned = new M.MachineMap(pnode, { cells: lcells, chosen: "", plan, launch });
+    out.launchMap.planned = { ghost: ghostOf(planned), chosen: planned.chosen, choice: planned.choiceHtml(planned.launch) };
+    out.launchMap.plannedUntold = ghostOf(new M.MachineMap(pnode, { cells: lcells, chosen: "", plan }));
+    plan.clear();
+    const attrsOf = (re) => new M.MachineMap(pnode, { cells: lcells, plan }).lanes().map((l) => l.attrs.match(re)?.[1] ?? null);
+    plan.dragging = true; plan.targets = { 0: false, 1: true, ram: true };
+    out.launchMap.targets = attrsOf(/data-machine-target="(\w+)"/);
+    plan.targets = null;
+    out.launchMap.noTargets = attrsOf(/data-machine-target="(\w+)"/);
+    plan.dragging = false; plan.targets = { 0: true, 1: true, ram: true };
+    out.launchMap.notDragging = attrsOf(/data-machine-target="(\w+)"/);
+    plan.targets = null;
+    // A refused drop with no plan in hand rings its lane all the same.
+    plan.dragging = true; plan.drop = "ram"; plan.dropOk = false;
+    out.launchMap.ringNoPlan = attrsOf(/data-machine-drop="(\w+)"/);
+    plan.dragging = false; plan.drop = ""; plan.dropOk = true;
+    const told = { rows: [{ id: "llama-server", labelKey: "runnerLlama", artifacts: ["gguf"] }], takes: () => ({ ok: true }) };
+    const page = new M.MachineHead(pnode, { cells: lcells, runners: told }).html();
+    out.launchMap.page = [page.indexOf('data-t="machine-map"') < page.indexOf('data-t="machine-build"'),
+                          page.indexOf('data-t="machine-build"') < page.indexOf('data-t="machine-models"'),
+                          new M.MachineHead(pnode, { cells: lcells }).html().includes('data-t="machine-build"')];
+    const line = { writes: 0, _html: "", set outerHTML(v) { this._html = v; this.writes += 1; }, get outerHTML() { return this._html; } };
+    const block2 = { dataset: {} };
+    const at2 = { querySelector: (sel) => ({ '[data-t="machine-chosen"]': block2, '[data-machine-panel="new"]': line })[sel] || null };
+    const live3 = new M.MachineHeadLive();
+    const headL = (told2 = true) => new M.MachineHead(pnode, { cells: lcells, plan, launch: told2 ? launch : null });
+    live3.patch(at2, headL());
+    const quiet3 = line.writes;
+    plan.set("new", PL.CellMove.of(fit).to("1", room()));
+    live3.patch(at2, headL());
+    out.launchMap.live = [quiet3, line.writes, line._html.includes('data-t-state="planned"'), line._html.includes('data-machine-plan-start="new"')];
+    plan.clear();
+    live3.patch(at2, headL(false));
+    out.launchMap.liveUntold = line.writes;
+  }
 }
 // Where a stopped cell would go (CellFit), a way per runner, on a machine with two empty cards and 51.8 GB of RAM free.
 const FN = { cpu: { ram: { totalGb: 60.5, usedGb: 8.7 } },
@@ -602,6 +669,8 @@ const one = (gb, env = "", row = {}) => F({ how: "card", bytes: gb === null ? nu
 // A server that runs on one card (whisper, seamless, the voice ones): the registry's oneCard.
 const ONE = { oneCard: true };
 const strata = (config, floorMiB = 6144) => F({ how: "free", config, row: { vramPlan: { takesFree: true, floorMiB, reserveField: "STRATA_VRAM_RESERVE_MIB" } } });
+// Strata's DeepSeek engine: the free memory of every card (strata_ds.rs vram_plan `everyCard`).
+const strataDs = (config) => F({ how: "free", config, row: { keepsRam: true, vramPlan: { takesFree: true, everyCard: true } } });
 const ridesCell = (ridesGb, extra = {}) => ({ how: "asks", family: "vllm", asks: [{ index: "1", mib: 28 * 1024, weightsMib: 20 * 1024 }], over: false, ridesGb, needGb: 28, bytes: 28 * GIB, fields: {}, ...extra });
 const asks = (cards, perCardGb, over = false) => F({ how: "asks", vllm: { cards: cards.map((index) => ({ index })), perCardGb,
                                                                        totalGb: perCardGb.reduce((a, b) => a + b, 0), weightsOver: over } });
@@ -625,6 +694,12 @@ out.fit = {
          placed(strata({ ENV: "CUDA_VISIBLE_DEVICES=1" }, 40000)), placed(strata({ ENV: "CUDA_VISIBLE_DEVICES=1", STRATA_VRAM_RESERVE_MIB: "abc" })),
          placed(strata({ ENV: "CUDA_VISIBLE_DEVICES=3" })), placed(strata({})),
          placed(strata({ ENV: "CUDA_VISIBLE_DEVICES=1" }), { gpus: [{ index: 1 }] })],
+  freeEvery: [placed(strataDs({})), placed(strataDs({ ENV: "CUDA_VISIBLE_DEVICES=1" })),
+              placed(strataDs({}), { cpu: FN.cpu, gpus: [FN.gpus[0], { index: 1 }] }), placed(strataDs({}), NOCARD),
+              placed(strataDs({}), { cpu: FN.cpu, gpus: [FN.gpus[1]] })],
+  freeEveryWords: [M.MachineMap.sizeOf(strataDs({})), M.MachineMap.fitWords(M.CellFit.of(strataDs({})).place(FN)),
+                   M.MachineMap.sizeOf(strata({})), M.MachineMap.fitWords(M.CellFit.of(strata({ ENV: "CUDA_VISIBLE_DEVICES=1" })).place(FN)),
+                   M.MachineMap.fitWords(M.CellFit.of(strataDs({})).place({ cpu: FN.cpu, gpus: [FN.gpus[1]] }))],
   asks: [placed(asks([0], [21.6])), placed(asks([0, 1], [21.6, 21.6])), placed(asks([1], [32.23])), placed(asks([0], [21.6], true)),
          placed(asks([], [])), placed(asks([0], [21.6]), { gpus: [{ index: 0 }] })],
   ram: [placed(F({ how: "ram", bytes: 2.8 * GIB })), placed(F({ how: "ram", bytes: 60 * GIB })),
@@ -670,10 +745,31 @@ out.exact = {
   noModels: told(F({ how: "spread", bytes: 39.6 * GIB, config: L70 })), projector: told(exact({ MMPROJ_FILE: "mm.gguf" })),
   asks: full(F({ how: "asks", vllm: { cards: [{ index: 0 }, { index: 1 }], perCardGb: [22.1, 22.1], totalGb: 44.2, weightsOver: false, weightsGb: 30, tp: 2, weightsOnCardGb: 15, ridesGb: 0 } })),
 };
+// A speculative draft (2026-11-07): the exact plan weighs its file with the model's, lays it on top of what the model takes (weights,
+// for the lanes' dashes), and the size says its own cache is not counted. The cell's own field names it — no controller default.
+{
+  const MD = new Map([...MODELS, ["mtp-70b.gguf", { path: "mtp-70b.gguf", kind: "draft", sizeGb: 1.28, ggufMeta: { blockCount: 80 } }]]);
+  const drafted = (config, how = "spread", defaults = {}) => F({ how, bytes: 39.6 * GIB, models: MD, defaults,
+    config: { ...L70, CTX_SIZE: "4096", SPEC_TYPE: "draft-mtp", SPEC_DRAFT_MODEL_FILE: "mtp-70b.gguf", ...config } });
+  const plain = exact({ CTX_SIZE: "4096" });
+  out.draft = {
+    told: told(drafted({})), plain: told(plain), placed: full(drafted({})), placedPlain: full(plain), ram: full(drafted({ SPEC_DRAFT_N_GPU_LAYERS: "0" })),
+    none: told(drafted({ SPEC_TYPE: "none" })), ngram: told(drafted({ SPEC_TYPE: "ngram-mod" })), unsized: told(drafted({ SPEC_DRAFT_MODEL_FILE: "nope-mtp.gguf" })),
+    byDefault: told(drafted({ SPEC_DRAFT_MODEL_FILE: "" }, "spread", { SPEC_DRAFT_MODEL_FILE: "mtp-70b.gguf" })),
+    cpu: full(drafted({}, "ram")), cpuPlain: full(exact({ CTX_SIZE: "4096" }, "ram")),
+    words: [M.MachineMap.sizeOf(drafted({})), M.MachineMap.sizeOf(drafted({ SPEC_DRAFT_MODEL_FILE: "nope-mtp.gguf" })), M.MachineMap.sizeOf(plain),
+            M.MachineMap.sizeOf(drafted({ SPEC_TYPE: "none" }))],
+  };
+}
 out.rides = {
   fits: full(ridesCell(12)), none: full(ridesCell(0)), short: full(ridesCell(200)), blind: full(ridesCell(200), { ...FN, cpu: { ram: { totalGb: 60, usedGb: null } } }),
   over: full(ridesCell(12, { over: true })),
   words: M.MachineMap.fitWords(M.CellFit.of(ridesCell(12)).place(FN)), tone: M.MachineMap.fitTone("rides"),
+  // What the trips cost (DecodeSpeed), where the start's placement could count it: said with the weights left in RAM, and only then.
+  speedWords: M.MachineMap.fitWords(M.CellFit.of(ridesCell(12, { speed: { now: 4.77, full: 192, slower: 40.3 } })).place(FN)),
+  speedNone: M.CellFit.of(ridesCell(0, { speed: { now: 192, full: 192, slower: 1 } })).place(FN).speed ?? null,
+  speedFacts: [F({ how: "asks", vllm: { cards: [], perCardGb: [], totalGb: 0, ridesGb: 3, speed: { now: 4.77, full: 192, slower: 40.3 } } }).speed,
+               F({ how: "asks", vllm: { cards: [], perCardGb: [], totalGb: 0, ridesGb: 3 } }).speed],
   keeps: [F({ how: "asks", row: { keepsRam: true }, vllm: { cards: [], perCardGb: [], totalGb: 0, ridesGb: 0 } }).keepsRam, F({ how: "asks", row: { keepsRam: true }, vllm: { cards: [], perCardGb: [], totalGb: 0, ridesGb: 5 } }).keepsRam,
           F({ how: "free", row: { keepsRam: true } }).keepsRam, F({ how: "asks", row: {}, vllm: { cards: [], perCardGb: [], totalGb: 0, ridesGb: 5 } }).keepsRam],
   said: F({ how: "asks", vllm: { cards: [], perCardGb: [], totalGb: 0, ridesGb: 7.5 } }).ridesGb,
@@ -681,10 +777,10 @@ out.rides = {
 };
 // The chosen stopped cell drawn on the lanes: its weights and, paler, its cache and buffers, where the plan lays each.
 const XN = { ...FN, servers: [cell(22020, "stopped")] };
-const xcell = (fit) => new Map([["22020", { key: "x:22020", name: "Hermes", group: "bench", fit, jobs: ["llm"], launch: "a" }]]);
-const dashes = (fit) => new M.MachineMap(XN, { cells: xcell(fit), chosen: "22020" }).lanes()
+const xcell = (fit) => new Map([["c22020", { key: "x:22020", name: "Hermes", group: "bench", fit, jobs: ["llm"], launch: "a" }]]);
+const dashes = (fit) => new M.MachineMap(XN, { cells: xcell(fit), chosen: "c22020" }).lanes()
   .map((lane) => lane.blocks.filter((b) => String(b.kind || "").startsWith("estimate")).map((b) => [b.kind, r2(b.value), b.name, b.figure, b.title]));
-const xmap = new M.MachineMap(XN, { cells: xcell(big), chosen: "22020" });
+const xmap = new M.MachineMap(XN, { cells: xcell(big), chosen: "c22020" });
 out.exactGhost = { spill: dashes(big), kvRam: dashes(exact({ KV_OFFLOAD: "0" })), byFiles: dashes(F({ how: "spread", bytes: 39.6 * GIB, config: L70 })),
                    words: [xmap.sizeWords(XN.servers[0]), M.MachineMap.fitWords(xmap.fit(XN.servers[0])), xmap.benchVerdict(XN.servers[0]).words],
                    kvRamWords: M.MachineMap.fitWords(new M.MachineMap(XN, { cells: xcell(exact({ KV_OFFLOAD: "0" })) }).fit(XN.servers[0])),
@@ -703,12 +799,12 @@ const BN = {
     cell(22018, "error"), cell(22030, "reserved"), cell(22005, "stopped"),
   ],
 };
-const start = (port) => `data-node-cell-play="bench" data-node-cell-port="${port}"`;
-const facts = (port, extra) => [String(port), { key: `bench:${port}`, name: "", window: true, group: "bench", stop: "", stopTitle: "Not running",
-                                                launch: start(port), playTitle: "Start server", reason: "", jobs: [], runner: "llama.cpp", fit: {}, ...extra }];
+const start = (id) => `data-node-cell-play="bench" data-cell-id="${id}"`;
+const facts = (n, extra) => [`c${n}`, { key: `c${n}`, name: "", window: true, group: "bench", stop: "", stopTitle: "Not running",
+                                                launch: start(`c${n}`), playTitle: "Start server", reason: "", jobs: [], runner: "llama.cpp", fit: {}, ...extra }];
 const BCELLS = new Map([
   // A cell that runs has a size of its own too: it is drawn by what it holds, never dashed.
-  facts(22001, { name: "Qwen3-Embedding-0.6B", group: "holds", stop: 'data-node-cell-stop="bench" data-node-cell-port="22001"', stopTitle: "Stop server",
+  facts(22001, { name: "Qwen3-Embedding-0.6B", group: "holds", stop: 'data-node-cell-stop="bench" data-cell-id="c22001"', stopTitle: "Stop server",
                  launch: "", jobs: ["embed"], fit: spread(0.6) }),
   facts(22017, { name: "voice-clone", group: "coming", launch: "", jobs: ["tts"] }),
   facts(22011, { name: "gemma", group: "coming", launch: "", jobs: ["llm"] }),
@@ -722,22 +818,26 @@ const BCELLS = new Map([
   facts(22009, { name: "Llama-3.3-70B", jobs: ["llm"], fit: spread(70.7), ctx: { set: 196608, max: 131072 } }),
   facts(22023, { name: "bge-m3", jobs: ["embed"], fit: F({ how: "ram", bytes: 0.3 * GIB }) }),
   facts(22018, { name: "whisper", jobs: ["asr"], runner: "whisper", reason: "exit 1: CUDA out of <memory>", fit: one(3) }),
-  facts(22030, { name: "Reserved port", jobs: [], launch: "", playTitle: "Choose a model first", fit: spread(null) }),
+  facts(22030, { name: "Reserved cell", jobs: [], launch: "", playTitle: "Choose a model first", fit: spread(null) }),
   facts(22005, { name: "ollama-qwen", jobs: ["llm", "nonsense"], runner: "Ollama", fit: F({ how: "" }) }),
 ]);
 const bmap = (chosen = "") => new M.MachineMap(BN, { cells: BCELLS, chosen });
 const bm = bmap();
-const listOf = (map, job = "") => {
+// The block shows what is picked, so a list read without a pick shows only the cells whose model has no row. To read a model's cells, pick it.
+const listOf = (map, job = "", picked = "") => {
   const choice = new MM.MachineModelsChoice();
   choice.job = job;
-  return new MM.MachineModels({ map, ratings: { "Hermes-4-70B-GGUF": "like" }, choice }).html();
+  if (picked) choice.pick(picked);
+  const m = new MM.MachineModels({ map, ratings: { "Hermes-4-70B-GGUF": "like" }, choice });
+  return m.blockHtml() + m.listHtml();
 };
-out.bench = { order: bm.bench().map((s) => s.port), standing: bm.standing().map((s) => s.port), coming: bm.coming().map((s) => s.port),
-              jobs: bm.benchJobs(), html: listOf(bm),
-              every: bm.everyCell().map((s) => s.port),
-              sizes: ["22020", "22014", "22026", "22005"].map((p) => bm.sizeWords(BN.servers.find((s) => String(s.port) === p))) };
-out.bench.tts = listOf(bm, "tts");
-out.bench.stale = listOf(bm, "voice-chat");
+out.bench = { order: bm.bench().map((s) => s.cellId), standing: bm.standing().map((s) => s.cellId), coming: bm.coming().map((s) => s.cellId),
+              jobs: bm.benchJobs(), html: listOf(bm, "", "Hermes-4-70B-GGUF"), noPick: listOf(bm),
+              every: bm.everyCell().map((s) => s.cellId),
+              sizes: ["c22020", "c22014", "c22026", "c22005"].map((p) => bm.sizeWords(BN.servers.find((s) => s.cellId === p))) };
+out.bench.tts = listOf(bm, "tts", "Hermes-4-70B-GGUF");
+out.bench.stale = listOf(bm, "voice-chat", "Hermes-4-70B-GGUF");
+out.bench.strata = listOf(bm, "", "Strata-Kimi");
 out.bench.shown = [bm.jobShown("tts"), bm.jobShown("voice-chat"), bm.jobShown("")];
 out.bench.empty = listOf(new M.MachineMap({ ...BN, servers: [] }, { cells: BCELLS }));
 // Every cell works or is on its way (1.3.659): the list shows them, with what they do — the bench said "nothing stands idle" and showed none.
@@ -753,14 +853,14 @@ const lbm = new M.MachineMap(LB, { cells: new Map() });
 out.bench.load = { warming: lbm.benchVerdict(LB.servers[0]).words, starting: lbm.comingWords(LB.servers[1]), still: lbm.comingWords(LB.servers[2]) };
 out.bench.groups = ["running", "warming", "broken", "downloading", "starting", "loading", "resolving", "stopping", "stopped", "error", "reserved", ""]
   .map((phase) => M.MachineMap.groupOf(phase));
-const ghostOf = (port) => bmap(port).lanes().map((lane) => lane.blocks.filter((b) => b.kind === "estimate")
+const ghostOf = (cellId) => bmap(cellId).lanes().map((lane) => lane.blocks.filter((b) => b.kind === "estimate")
   .map((b) => [r2(b.value), b.figure, b.name, b.title]));
-out.ghost = { hermes: ghostOf("22020"), spill: ghostOf("22009"), strata: ghostOf("22014"), none: ghostOf("22026"), running: ghostOf("22001"),
-              reserved: ghostOf("22030"), lanesHtml: bmap("22020").lanesHtml() };
-out.comingHtml = bm.comingHtml();
-out.bpanels = rowsOf(bmap("22020"));
-out.bsubs = Object.fromEntries(["22017", "22011", "22012", "22014", "22009", "22023", "22018", "22030", "22005"]
-  .map((p) => { const s = BN.servers.find((x) => String(x.port) === p); return [p, [bm.benchSize(s), bm.benchVerdict(s).words].filter(Boolean).join(" · ")]; }));
+out.ghost = { hermes: ghostOf("c22020"), spill: ghostOf("c22009"), strata: ghostOf("c22014"), none: ghostOf("c22026"), running: ghostOf("c22001"),
+              reserved: ghostOf("c22030"), lanesHtml: bmap("c22020").lanesHtml() };
+out.benchLegend = lg(bm).map((r) => [r.name, r.figure, r.where, r.doing, r.t, r.tId, r.title]);
+out.bpanels = rowsOf(bmap("c22020"));
+out.bsubs = Object.fromEntries(["c22017", "c22011", "c22012", "c22014", "c22009", "c22023", "c22018", "c22030", "c22005"]
+  .map((p) => { const s = BN.servers.find((x) => x.cellId === p); return [p, [bm.benchSize(s), bm.benchVerdict(s).words].filter(Boolean).join(" · ")]; }));
 
 // The choice, bound on a document: a stopped cell's choice draws the board again; a press on a cell's own button chooses nothing.
 const blisteners = [];
@@ -770,7 +870,7 @@ const bdoc = {
   addEventListener: (type, fn) => blisteners.push([type, fn]),
   querySelector: (sel) => {
     if (sel.startsWith(".fold-slot")) return {};
-    const m = sel.match(/^\[data-t="([^"]+)"\]\[data-machine-pick="(\d+)"\]$/);
+    const m = sel.match(/^\[data-t="([^"]+)"\]\[data-machine-pick="([^"]+)"\]$/);
     return m ? { focus: () => bfocused.push(`${m[1]}:${m[2]}`) } : null;
   },
   querySelectorAll: () => [],
@@ -783,39 +883,39 @@ let brefuse = false;
 bpick.bind(bdoc, { redraw: () => { bredraws += 1; }, notify: (words) => bnotes.push(words),
                    save: async (model, rating) => { bsaved.push([model, rating]); if (brefuse) throw new Error("refused"); } });
 const bclick = (target) => blisteners.forEach(([, fn]) => fn({ target: { closest: (sel) => target[sel] || null }, preventDefault() {} }));
-const onPick = (port, hook) => ({ "[data-machine-pick]": { dataset: { machinePick: port, t: hook } } });
-const onOwn = (port) => ({ "[data-machine-own]": {}, ...onPick(port, "machine-model-launch") });
-bclick(onPick("22020", "machine-model-cell"));
-const chosenStopped = { port: bpick.port, redraws: bredraws, focus: [...bfocused] };
-bclick(onPick("22001", "machine-map-block"));
-const leftStopped = { port: bpick.port, redraws: bredraws, focus: [...bfocused] };
-bclick(onPick("22011", "machine-map-coming-cell"));
-const runningToComing = { port: bpick.port, redraws: bredraws };
-// A click anywhere on a cell's row chooses it, as the port does; on its Window, Start or Stop it only does that.
+const onPick = (cellId, hook) => ({ "[data-machine-pick]": { dataset: { machinePick: cellId, t: hook } } });
+const onOwn = (cellId) => ({ "[data-machine-own]": {}, ...onPick(cellId, "machine-model-launch") });
+bclick(onPick("c22020", "machine-model-cell"));
+const chosenStopped = { cellId: bpick.cellId, redraws: bredraws, focus: [...bfocused] };
+bclick(onPick("c22001", "machine-map-block"));
+const leftStopped = { cellId: bpick.cellId, redraws: bredraws, focus: [...bfocused] };
+bclick(onPick("c22011", "machine-map-legend"));
+const runningToComing = { cellId: bpick.cellId, redraws: bredraws };
+// A click anywhere on a cell's row chooses it, as the chip of its name does; on its Window, Start or Stop it only does that.
 const beforeRow = bredraws;
-bclick(onPick("22026", "machine-model-launch"));
-const rowChosen = { port: bpick.port, redraws: bredraws - beforeRow };
-bclick(onOwn("22009"));
-const ownPressed = { port: bpick.port, redraws: bredraws - beforeRow };
-bclick(onPick("22026", "machine-model-launch"));
-const rowLetGo = { port: bpick.port, redraws: bredraws - beforeRow };
+bclick(onPick("c22026", "machine-model-launch"));
+const rowChosen = { cellId: bpick.cellId, redraws: bredraws - beforeRow };
+bclick(onOwn("c22009"));
+const ownPressed = { cellId: bpick.cellId, redraws: bredraws - beforeRow };
+bclick(onPick("c22026", "machine-model-launch"));
+const rowLetGo = { cellId: bpick.cellId, redraws: bredraws - beforeRow };
 out.bbind = { chosenStopped, leftStopped, runningToComing, rowChosen, ownPressed, rowLetGo,
-              standing: ["22020", "22001", "22011", "", "22999"].map((p) => bpick.standing(p)) };
+              standing: ["c22020", "c22001", "c22011", "", "c22999"].map((p) => bpick.standing(p)) };
 out.oldJob = [typeof bpick.narrow, typeof bpick.showJob, "job" in bpick];
 // A like or a dislike of a model: shown at once on every card of the model and kept by the controller; refused, it goes back and says why; it chooses nothing.
-BCELLS.get("22014").model = "strata"; BCELLS.get("22001").model = "strata";
+BCELLS.get("c22014").model = "strata"; BCELLS.get("c22001").model = "strata";
 const rateEl = (kind, model) => { const e = { dataset: { modelRate: kind, modelRateFor: model }, attrs: {}, cls: new Set() };
   e.classList = { toggle: (c, on) => (on ? e.cls.add(c) : e.cls.delete(c)) }; e.setAttribute = (k, v) => { e.attrs[k] = v; }; return e; };
 const rateLook = (e) => [e.attrs["aria-pressed"], e.cls.has("is-on")];
 const settled = async () => { for (let i = 0; i < 5; i += 1) await Promise.resolve(); };   // the harness holds the timers: microtasks only
 const likeIt = rateEl("like", "strata"), dislikeIt = rateEl("dislike", "strata"), hermesOn = rateEl("like", "Hermes-4-70B-GGUF");
 bdoc.querySelectorAll = ((was) => (sel) => (sel === "[data-model-rate-for]" ? [likeIt, dislikeIt, hermesOn] : was ? was(sel) : []))(bdoc.querySelectorAll?.bind(bdoc));
-const rateFacts = () => [BCELLS.get("22014").rating, BCELLS.get("22001").rating, BCELLS.get("22020").rating];
-const pickBefore = bpick.port;
+const rateFacts = () => [BCELLS.get("c22014").rating, BCELLS.get("c22001").rating, BCELLS.get("c22020").rating];
+const pickBefore = bpick.cellId;
 const redrawsBefore = bredraws;
 blisteners.forEach(([, fn]) => fn({ target: { closest: (sel) => (sel === "[data-model-rate]" ? likeIt : null) }, preventDefault() {} }));
 await settled();
-const pressed = { looks: [rateLook(likeIt), rateLook(dislikeIt)], other: hermesOn.attrs["aria-pressed"] ?? null, saved: [...bsaved], facts: rateFacts(), port: bpick.port === pickBefore, redraws: bredraws - redrawsBefore };
+const pressed = { looks: [rateLook(likeIt), rateLook(dislikeIt)], other: hermesOn.attrs["aria-pressed"] ?? null, saved: [...bsaved], facts: rateFacts(), cellId: bpick.cellId === pickBefore, redraws: bredraws - redrawsBefore };
 const saver = { save: async (model, rating) => { bsaved.push([model, rating]); }, root: bdoc };
 await bpick.rate(rateEl("like", "strata"), saver);
 const unpressed = { looks: [rateLook(likeIt), rateLook(dislikeIt)], saved: bsaved.slice(-1), facts: rateFacts() };
@@ -830,38 +930,42 @@ out.rate = { pressed, unpressed, changed, refused, unknown, sent: bsaved.length 
 
 // The rows' sizes and verdicts and the chips of the cells on their way, kept current in place. What the patch finds is what the page drew: a
 // span read off the head's own HTML, so that a row that stops writing the names the patch looks for has nothing to be found by.
-const bhead = (node) => new M.MachineHead(node, { cells: BCELLS, chosen: "" });
+// The block draws the cells of the model picked, so the page needs a pick to draw every cell once.
+const bchoice = new MM.MachineModelsChoice();
+bchoice.pick("Hermes-4-70B-GGUF");
+const bhead = (node) => new M.MachineHead(node, { cells: BCELLS, chosen: "", choice: bchoice });
 const span = (cls, state, words) => {
   const e = { dataset: { tState: state }, className: cls, writes: 0, _text: words.replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&") };
   Object.defineProperty(e, "textContent", { get: () => e._text, set: (v) => { e._text = v; e.writes += 1; } });
   return e;
 };
 const drawnHtml = bhead(BN).html();
-const spans = Object.fromEntries([...drawnHtml.matchAll(/<span class="(machine-bench-fit machine-bench-fit--\w+)" data-machine-bench-fit="(\d+)" data-t-state="(\w+)"[^>]*>([^<]*)<\/span>/g)]
-  .map(([, cls, port, state, words]) => [port, span(cls, state, words)]));
-const sizes = Object.fromEntries([...drawnHtml.matchAll(/<span class="machine-bench-size" data-machine-bench-size="(\d+)">([^<]*)<\/span>/g)]
-  .map(([, port, words]) => [port, span("", "", words)]));
+const spans = Object.fromEntries([...drawnHtml.matchAll(/<span class="(machine-bench-fit machine-bench-fit--\w+)" data-machine-bench-fit="([^"]+)" data-t-state="(\w+)"[^>]*>([^<]*)<\/span>/g)]
+  .map(([, cls, id, state, words]) => [id, span(cls, state, words)]));
+const sizes = Object.fromEntries([...drawnHtml.matchAll(/<span class="machine-bench-size" data-machine-bench-size="([^"]+)">([^<]*)<\/span>/g)]
+  .map(([, id, words]) => [id, span("", "", words)]));
 const bpage = drawn(bhead(BN));
 const broot = { querySelector: (sel) => {
   if (sel === "[data-machine-map]") return bpage;
-  const m = sel.match(/^\[data-machine-bench-fit="(\d+)"\]$/);
+  const m = sel.match(/^\[data-machine-bench-fit="([^"]+)"\]$/);
   if (m) return spans[m[1]] || null;
-  const z = sel.match(/^\[data-machine-bench-size="(\d+)"\]$/);
+  const z = sel.match(/^\[data-machine-bench-size="([^"]+)"\]$/);
   return z ? sizes[z[1]] || null : null;
 } };
 const blive = new M.MachineHeadLive();
 const verdicts = () => Object.fromEntries(Object.entries(spans).map(([p, e]) => [p, [e.textContent, e.dataset.tState, e.className]]));
 blive.patch(broot, bhead(BN));
-out.blive = { drawn: verdicts(), drawnWrites: bpage.writes.map, sizes: Object.fromEntries(["22001", "22017", "22020"].map((p) => [p, sizes[p]?.textContent ?? null])),
-              found: [Object.keys(spans).sort(), Object.keys(sizes).sort(), BN.servers.map((s) => String(s.port)).sort()] };
+out.blive = { drawn: verdicts(), drawnWrites: bpage.writes.map, sizes: Object.fromEntries(["c22001", "c22017", "c22020"].map((p) => [p, sizes[p]?.textContent ?? null])),
+              found: [Object.keys(spans).sort(), Object.keys(sizes).sort(), BN.servers.map((s) => s.cellId).sort()] };
 // The RAM fills up and the copy moves on: the blocks stay the same — the chips' words and the verdicts move in place.
 const RAMFULL = { ...BN, cpu: { ram: { totalGb: 60.5, usedGb: 45 } },
-                  servers: BN.servers.map((s) => (s.port === 22017 ? { ...s, downloadedBytes: 6 * GIB } : s)) };
+                  servers: BN.servers.map((s) => (s.cellId === "c22017" ? { ...s, downloadedBytes: 6 * GIB } : s)) };
 blive.patch(broot, bhead(RAMFULL));
-out.blive.ramFull = { verdicts: verdicts(), mapWrites: bpage.writes.map, chips: bpage.chips.map((c) => [c.textContent, c.writes]) };
+out.blive.ramFull = { verdicts: verdicts(), mapWrites: bpage.writes.map,
+               rows: bpage.rows.map((r) => [r.dataset.tId, r.where.textContent, r.doing.textContent, r.doing.writes, r.title]) };
 // The running cell's memory moved: its row says the new figure in place.
-blive.patch(broot, bhead({ ...RAMFULL, servers: RAMFULL.servers.map((s) => (s.port === 22001 ? { ...s, ramBytes: 0.9 * GIB } : s)) }));
-out.blive.moved = { size: sizes["22001"]?.textContent ?? null, writes: sizes["22001"]?.writes ?? null, still: sizes["22020"]?.writes ?? null };
+blive.patch(broot, bhead({ ...RAMFULL, servers: RAMFULL.servers.map((s) => (s.cellId === "c22001" ? { ...s, ramBytes: 0.9 * GIB } : s)) }));
+out.blive.moved = { size: sizes["c22001"]?.textContent ?? null, writes: sizes["c22001"]?.writes ?? null, still: sizes["c22020"]?.writes ?? null };
 // The second card fills with something else: a block more on its lane — the lanes are written whole, the verdicts still move.
 const CARDFULL = { ...BN, gpus: BN.gpus.map((g) => (g.index === 1 ? { ...g, memoryUsedMiB: 20000 } : g)) };
 blive.patch(broot, bhead(CARDFULL));
@@ -875,7 +979,13 @@ out.side = {
 };
 const withSide = new M.MachineHead(GOOD, { owners, cells: CELLS, side: '<aside class="machine-side">S</aside>' }).html();
 const withoutSide = new M.MachineHead(GOOD, { owners, cells: CELLS }).html();
-out.headSide = [withSide.includes('<div class="machine-grid"><div class="machine-main"><section class="machine-models"') && withSide.indexOf('<section class="machine-map"') < withSide.indexOf('<div class="machine-grid">'),
+const gridAt = withSide.indexOf('<div class="machine-grid">');
+const mapEnd = withSide.lastIndexOf('</section>', gridAt);   // the map's own end, not the block's
+out.headSide = [withSide.includes('<div class="machine-grid"><div class="machine-main"><section class="machine-models"')
+                && withSide.indexOf('<section class="machine-map"') < withSide.indexOf('data-t="machine-map-legend"')
+                && withSide.indexOf('data-t="machine-map-legend"') < withSide.indexOf('data-t="machine-chosen"')
+                && withSide.indexOf('data-t="machine-chosen"') < mapEnd && mapEnd < gridAt
+                && withSide.indexOf('data-t="machine-chosen"') < withSide.indexOf('data-t="machine-models"'),
                 withSide.includes('</section></div><aside class="machine-side">S</aside></div>'), withoutSide.includes("machine-grid"),
                 withoutSide.indexOf('<section class="machine-map"') >= 0 && withoutSide.includes('<div class="machine-main"><section class="machine-models"')];
 // The pictures at the left of the lanes, on a machine of six cards: one per lane, its own, by value.
@@ -904,28 +1014,29 @@ out.sideIncidents = [sl.length, opened, si.bound];
 // card 0 — and the lane of that card says it starts there; nothing is laid there as if its size were known (2026-10-27).
 const UNSIZED = { ...NODE, servers: [...NODE.servers, cell(22005, "stopped", { gpuMem: {} }), cell(22008, "stopped", { gpuMem: {} })] };
 const UCELLS = new Map([...CELLS,
-  ["22005", { key: "box:22005", name: "large-v3-turbo", stop: "", window: true,
+  ["c22005", { key: "c22005", name: "large-v3-turbo", stop: "", window: true,
               fit: M.CellFit.facts({ how: "card", bytes: null, config: { ENV: "" }, row: { oneCard: true } }) }],
-  ["22008", { key: "box:22008", name: "seamless", stop: "", window: true,
+  ["c22008", { key: "c22008", name: "seamless", stop: "", window: true,
               fit: M.CellFit.facts({ how: "card", bytes: null, config: { ENV: "CUDA_VISIBLE_DEVICES=1" }, row: { oneCard: true } }) }]]);
 const um = (chosen) => new M.MachineMap(UNSIZED, { owners, cells: UCELLS, chosen });
-const us = (port) => UNSIZED.servers.find((x) => x.port === port);
+const us = (cellId) => UNSIZED.servers.find((x) => x.cellId === cellId);
 const fill = (k, v) => String(en[k]).replace(/\{(\w+)\}/g, (_, n) => v[n]);
 out.unsized = {
-  panel: [um("").benchSize(us(22005)), um("").benchSize(us(22008))],
+  panel: [um("").benchSize(us("c22005")), um("").benchSize(us("c22008"))],
   panelWant: [en.machineSizeUnknown, en.machineSizeUnknown],
-  bench: [um("").benchVerdict(us(22005)), um("").benchVerdict(us(22008))],
+  bench: [um("").benchVerdict(us("c22005")), um("").benchVerdict(us("c22008"))],
   benchWant: [0, 1].map((i) => fill("machineFitUnsized", { index: String(i) })),
-  foot: um("22005").lanes().map((lane) => lane.foot), foot8: um("22008").lanes().map((lane) => lane.foot), footNone: um("").lanes().map((lane) => lane.foot),
-  footWant: [fill("machineGhostUnsized", { cell: ":22005" }), fill("machineGhostUnsized", { cell: ":22008" })],
-  dashed: um("22005").lanes().flatMap((lane) => lane.blocks).filter((b) => String(b.kind || "").startsWith("estimate")).length,
+  foot: um("c22005").lanes().map((lane) => lane.foot), foot8: um("c22008").lanes().map((lane) => lane.foot), footNone: um("").lanes().map((lane) => lane.foot),
+  footWant: [fill("machineGhostUnsized", { cell: "large-v3-turbo" }), fill("machineGhostUnsized", { cell: "seamless" })],
+  dashed: um("c22005").lanes().flatMap((lane) => lane.blocks).filter((b) => String(b.kind || "").startsWith("estimate")).length,
 };
 // The states a row's verdict says for a cell that works, is on its way, or failed: the row's tint and its dot read them (machine.css).
 out.benchStates =Object.fromEntries(["running", "warming", "broken", "error", ...M.MachineMap.COMING]
-  .map((phase) => [phase, um("").benchVerdict({ port: 22005, phase, gpuMem: {} }).state]));
+  .map((phase) => [phase, um("").benchVerdict({ cellId: "c22005", phase, gpuMem: {} }).state]));
 // The panes of a machine's page stay where they were when the board draws it anew: the drawing makes new elements, which start at 0.
+const PAGE_BODY = ".machine-page > .ui-win--page > .ui-win-body";
 const paneRoot = () => {
-  const made = { ".machine-main": { scrollTop: 640, written: 0 }, ".machine-side": { scrollTop: 0, written: 0 } };
+  const made = { ".machine-main": { scrollTop: 640, written: 0 }, ".machine-side": { scrollTop: 0, written: 0 }, [PAGE_BODY]: { scrollTop: 300, written: 0 } };
   const root = { drawn: "", querySelector: (sel) => made[sel] || null,
                  set innerHTML(html) { this.drawn = html;
                    for (const sel of Object.keys(made)) {
@@ -938,7 +1049,7 @@ const paneRoot = () => {
   const { root, made } = paneRoot();
   const tops = M.MachinePanes.read(root);
   M.MachinePanes.replace(root, "<new>");
-  out.panes = { tops, drawn: root.drawn, main: made[".machine-main"].scrollTop, side: made[".machine-side"].written,
+  out.panes = { tops, drawn: root.drawn, main: made[".machine-main"].scrollTop, side: made[".machine-side"].written, body: made[PAGE_BODY].scrollTop,
                 noPage: M.MachinePanes.read({ querySelector: () => null }),
                 noRoot: M.MachinePanes.read(null) };
   const bare = { drawn: "", querySelector: () => null, set innerHTML(html) { this.drawn = html; } };
@@ -949,9 +1060,9 @@ console.log(JSON.stringify(out));
 '''
 
 
-def launch_of(html, port):
-    """One cell's row out of the list's HTML: from its opening tag to the next cell's row, or to the end."""
-    mark = html.index(f'data-machine-pick="{port}"')
+def launch_of(html, cell_id):
+    """One cell's row out of the list's HTML, by the cell's name: from its opening tag to the next cell's row, or to the end."""
+    mark = html.index(f'data-machine-pick="{cell_id}"')
     start = html.rindex('<div class="machine-model-launch', 0, mark)
     following = html.find('<div class="machine-model-launch', mark)
     return html[start:following if following > 0 else len(html)]
@@ -976,37 +1087,44 @@ def section_rack(got):
           f"карта: своя длина на общей шкале и одна линия на всю стойку (получено {r['card0']['rack']})")
     check(r["ram"]["rack"] == {"bar": 100, "slots": 1}, "ОЗУ: брусок на всю строку той же шкалы")
     n0 = r["card0"]["notes"]
-    check([n["name"] for n in n0] == ["Xorg", "other processes", ":22010 gemma-4-12B-it", ":22020 Hermes-4-70B"],
-          f"подпись у каждой ячейки на карте в порядке блоков, и чужой процесс от 1 ГБ (получено {[n['name'] for n in n0]})")
-    check(n0[0] == {"port": "", "name": "Xorg", "shown": "Xorg", "gb": 1, "words": "1.0 GB", "title": "Xorg · 1.0 GB", "kind": "other"},
-          "чужой процесс — только имя и цифра")
-    check(n0[3]["words"] == "8.0 GB · part 1 of 2" and n0[3]["on"] is True and n0[3]["series"] == 4 and n0[3]["port"] == "22020" and n0[3]["shown"] == "Hermes-4-70B" and n0[3]["gb"] == 8
-          and [n["words"] for n in r["card1"]["notes"] if n["name"].startswith(":22020")] == ["4.0 GB · part 2 of 2"],
+    check([n["name"] for n in n0] == ["Xorg", "other processes", "gemma-4-12B-it", "Hermes-4-70B"],
+          f"подпись у каждой ячейки на карте в порядке блоков, названа, как её называет доска, без порта, и чужой процесс от 1 ГБ (получено {[n['name'] for n in n0]})")
+    check(n0[0] == {"cellId": "", "name": "Xorg", "gb": 1, "words": "1.0 GB", "title": "Xorg · 1.0 GB", "kind": "other"},
+          "чужой процесс — только имя и цифра; negative: имени ячейки у него нет")
+    check(n0[3]["words"] == "8.0 GB · part 1 of 2" and n0[3]["on"] is True and n0[3]["series"] == 4 and n0[3]["cellId"] == "c22020" and n0[3]["name"] == "Hermes-4-70B" and n0[3]["gb"] == 8
+          and [n["words"] for n in r["card1"]["notes"] if n["cellId"] == "c22020"] == ["4.0 GB · part 2 of 2"],
           "кусок ячейки на двух картах говорит, какая он часть, своим цветом; выбранная помечена")
     check(n0[2]["words"] == "2.0 GB · 8% of the card" and n0[2]["on"] is False and r["ram"]["notes"][0]["words"] == "3.0 GB · 5% of RAM",
           "ячейка целиком на одном устройстве — сколько его она занимает")
-    print("  список рядом со стойкой:", [(row["name"], row["figure"], row["where"]) for row in r["legend"]])
-    lg = r["legend"]
-    check([(row["name"], row["figure"], row["where"]) for row in lg][:1] == [("Hermes-4-70B", "12.0", "GPU 0–1")],
-          "список: ячейка один раз, сумма со всех карт и где она; самая большая первой")
-    check(lg[0]["pick"] == 'data-machine-pick="22020" data-t="machine-map-legend" data-t-id="22020"' and lg[0]["owner"] == "22020" and lg[0]["on"] is True and lg[0]["series"] == 4,
-          "строка списка выбирает ячейку, как её блок, и связана с её кусками")
-    check(lg[0]["title"] == ":22020 Hermes-4-70B · 12.0 GB\nGPU 0: 8.0 GB · part 1 of 2\nGPU 1: 4.0 GB · part 2 of 2", "в подсказке строки: порт и что лежит на каждой карте")
-    check([row["name"] for row in lg] == ["Hermes-4-70B", "Qwen3-Embedding-0.6B", "gemma-4-12B-it", "other processes", "Xorg"],
+    print("  список рядом со стойкой:", [(row[0], row[1], row[2], row[3]) for row in got["legend"]])
+    lg = got["legend"]
+    check([(row[0], row[1], row[2], row[3]) for row in lg][:1] == [("Hermes-4-70B", "12.0", "GPU 0–1", "running")],
+          "список один для всех: ячейка один раз, сумма со всех карт, где она и что делает; самая большая первой")
+    check(lg[0][4:6] == ["machine-map-legend", "c22020"] and lg[0][7] == 'data-machine-pick="c22020" data-t="machine-map-legend" data-t-id="c22020"' and lg[0][10] == "c22020"
+          and lg[0][8] is True and lg[0][6] == 4,
+          "строка списка выбирает ячейку, как её блок, и связана с её кусками; это единственный выбор, и по нему блок наверху показывает модель")
+    check(lg[0][9] == "Hermes-4-70B · 12.0 GB\nGPU 0: 8.0 GB · part 1 of 2\nGPU 1: 4.0 GB · part 2 of 2" and lg[0][10] == "c22020",
+          "в подсказке строки: имя ячейки и что лежит на каждой карте; negative: без порта; строка связана с её кусками на полосах")
+    check([row[0] for row in lg] == ["Hermes-4-70B", "Qwen3-Embedding-0.6B", "gemma-4-12B-it", "gigaam <v3>", "other processes", "Xorg"],
           "порядок: ячейки по размеру, чужие процессы после всех ячеек, даже если больше какой-то из них")
-    others = [row for row in lg if row.get("kind") == "other"]
-    check([row["name"] for row in others] == ["other processes", "Xorg"] and all("pick" not in row and row["attrs"] == 'data-t="machine-map-legend-other"' for row in others) and lg[-1] in others,
+    check([row[3] for row in lg[:3]] == ["running", "running", "loading its weights"],
+          "что делает: скорость только когда ячейка отвечает; работающая без запроса — своё состояние, прогревающаяся — что грузит")
+    check(lg[3][1] == "" and lg[3][2] == "no place yet" and lg[3][3] == "memory not measured",
+          "negative: ячейка без куска на полосе — всё равно строка; цифра не сказана — пусто, и слова говорят, что память не замерена и места нет")
+    others = [row for row in lg if row[6] == "other"]
+    check([row[0] for row in others] == ["other processes", "Xorg"] and all(row[7] is None and row[4] == "machine-map-legend-other" for row in others) and lg[-1] in others,
           "чужие процессы от 1 ГБ — в конце списка и не кнопки")
     check(r["freeWords"] == ["24.0 free", "≈4.0 free", "≈0.0 free"], "свободно: без плана замер как есть; с планом остаток и знак оценки; negative: план больше свободного — не меньше нуля")
     check(r["where"] == ["GPU 0", "GPU 1–4", "GPU 0, 2–3, 5", "GPU 1 + RAM", "RAM", ""], "где лежит: карты подряд одним отрезком, с пропуском через запятую, и RAM")
     pl = r["planned"]
     print("  план в списке:", pl["rows"], pl["lines"])
-    check(pl["rows"][0][:4] == ["gemma", "≈30.0", "GPU 0–1", "estimate"] and pl["rows"][0][4:] == [True, True], "то, что будет запущено, — первым, с «≈», пунктирным цветом; выбирается как все")
+    check(pl["rows"][0][:4] == ["gemma", "≈30.0", "GPU 0–1", "fits on the cards"] and pl["rows"][0][4:] == ["estimate", True, True],
+          "то, что будет запущено, — первым, с «≈», пунктирным цветом; выбирается как все, и в колонке «что делает» — куда бы оно легло")
     check([row[1] for row in pl["rows"][1:3]] == ["8.0", "4.0"], "дальше работающие, самая большая первой")
-    check(all(k[2] == "estimate" and k[1] == 0 and k[3] is True for lane in pl["lines"] for k in lane if k[0] == "22007") and sum(1 for lane in pl["lines"] for k in lane if k[0] == "22007") == 2,
+    check(all(k[2] == "estimate" and k[1] == 0 and k[3] is True for lane in pl["lines"] for k in lane if k[0] == "c22007") and sum(1 for lane in pl["lines"] for k in lane if k[0] == "c22007") == 2,
           "линия того, что будет запущено, занимает первое место и рисуется всегда")
     check(pl["html"].startswith('<div class="machine-rack"><div class="machine-rack-lanes"><div class="ui-lane-heads" style="--lane-slots: 1"><div class="ui-lane-metrics"><span class="ui-lane-metric">LOAD</span><span class="ui-lane-metric">MEMORY, GB</span><span class="ui-lane-metric">POWER</span></div></div><div class="ui-lane ui-lane--rack"')
-          and '</div></div><div class="ui-legend"><div class="ui-legend-row ui-legend-heads"><span></span><span></span><span class="ui-legend-figure">GB</span><span></span><span class="ui-legend-speed">t/s</span></div><button type="button" class="ui-legend-row ui-lane-c ui-lane-c--estimate is-on"' in pl["html"],
+          and '</div></div><div class="ui-legend"><div class="ui-legend-row ui-legend-heads"><span></span><span></span><span class="ui-legend-figure">GB</span><span></span><span class="ui-legend-doing">what it is doing</span></div><button type="button" class="ui-legend-row ui-lane-c ui-lane-c--estimate is-on"' in pl["html"],
           "стойка: заголовки столбцов, полосы, рядом список со своими единицами")
     m3, m4, mr = r["metrics"]
     check([x["word"] for x in m3] == ["34%", "6.2 / 24.0", "117.7 W"] and m3[0]["attrs"] == 'data-t="machine-map-metric" data-t-id="gpu-3:load" data-machine-chart="node:h1:gpu"'
@@ -1015,26 +1133,26 @@ def section_rack(got):
     check([x["word"] for x in m4] == ["—", "— / 24.0", "—"], "negative: что карта не сказала, то прочерк, а не ноль")
     check([x.get("word") for x in mr] == ["13%", "8.0 / 60.5", None] and mr[0]["valAttrs"] == 'data-node-metric-val="h1:cpu"' and mr[1]["valAttrs"] == 'data-node-metric-val="h1:ram"' and mr[2] == {} and "data-machine-chart" not in mr[0]["attrs"],
           "у RAM загрузка процессора и занятая память; negative: мощности у неё нет, ячейка пустая")
-    check('data-machine-chart="node:h1:vram" data-t="machine-map-total" data-t-id="vram"><span data-node-metric-val="h1:vram">—</span>' in r["totals"] and "All cards" in r["totals"], "итог по всем картам в шапке блока, с теми же ключами монитора, что и раньше")
+    check('data-machine-chart="node:h1:vram" data-t="machine-map-total" data-t-id="vram"><span data-node-metric-val="h1:vram">—</span>' in r["totals"] and "All cards" in r["totals"], "итог по всем картам — в строке шапки страницы, с теми же ключами монитора, что и раньше")
     check(r["noTotals"] == "", "negative: карт нет — итога нет")
     check(r["speed"] == ["38", "", "", ""] and r["speedRow"] == "52", "скорость модели в её строке, только пока она отвечает; negative: удержанная скорость и не сказанная — пусто")
     check('<p class="ui-legend-empty">Nothing holds memory here</p>' in r["emptyHtml"], "negative: память никто не занимает — так и сказано, список не пуст молча")
-    check(r["smallPlan"]["rows"][0][0] == "22007" and r["smallPlan"]["rows"][0][1].startswith("≈") and float(r["smallPlan"]["rows"][1][1].split()[0]) > float(r["smallPlan"]["rows"][0][1][1:].split()[0]),
+    check(r["smallPlan"]["rows"][0][0] == "c22007" and r["smallPlan"]["rows"][0][1].startswith("≈") and float(r["smallPlan"]["rows"][1][1].split()[0]) > float(r["smallPlan"]["rows"][0][1][1:].split()[0]),
           "то, что будет запущено, первым, даже когда оно меньше работающей")
-    check(r["smallPlan"]["slots"] == [["22007", 0], ["22020", 1]], "линия того, что будет запущено, на первом месте и рядом с чужой линией")
-    check(r["order"] == [["22001", "22020"], ["22020", "22001"]], "список по размеру: самая большая первой, и порядок идёт за цифрами")
+    check(r["smallPlan"]["slots"] == [["c22007", 0], ["c22020", 1]], "линия того, что будет запущено, на первом месте и рядом с чужой линией")
+    check(r["order"] == [["c22001", "c22020"], ["c22020", "c22001"]], "список по размеру: самая большая первой, и порядок идёт за цифрами")
     check(r["priceInRow"] == "9.0 GB goes to RAM · the processor computes it", "цену RAM говорит и строка ячейки: полосы под стойкой больше нет")
     check(r["price"] == ["9.0 GB goes to RAM · the processor computes it", "fits on the cards", "9.0 GB goes to RAM", "9.0 GB goes to RAM"],
           "цена RAM сказана на панели, раз на полосе слов нет: считает процессор — только у llama.cpp с частью на картах; negative: у vLLM и без карт этого не сказано")
-    check(r["card0"]["links"] == [{"slot": 0, "up": False, "down": True, "here": True, "from": r["card0"]["links"][0]["from"], "owner": "22020", "shown": True, "series": 4}]
-          and r["card1"]["links"] == [{"slot": 0, "up": True, "down": False, "here": True, "from": r["card1"]["links"][0]["from"], "owner": "22020", "shown": True, "series": 4}]
+    check(r["card0"]["links"] == [{"slot": 0, "up": False, "down": True, "here": True, "from": r["card0"]["links"][0]["from"], "owner": "c22020", "shown": True, "series": 4}]
+          and r["card1"]["links"] == [{"slot": 0, "up": True, "down": False, "here": True, "from": r["card1"]["links"][0]["from"], "owner": "c22020", "shown": True, "series": 4}]
           and r["card0"]["links"][0]["from"] == 50 and r["card1"]["links"][0]["from"] == 25.15
           and r["ram"]["links"] == [], "линия идёт от первой карты до второй, с начала свободной части бруска, и не заходит в ОЗУ, где куска нет")
     skip = r["skip"]
-    check(skip[0][0][0]["down"] is True and skip[1][0] == [{"slot": 0, "up": True, "down": True, "here": False, "from": 0, "owner": "22020", "shown": False, "series": 1}]
+    check(skip[0][0][0]["down"] is True and skip[1][0] == [{"slot": 0, "up": True, "down": True, "here": False, "from": 0, "owner": "c22020", "shown": False, "series": 1}]
           and skip[1][1] == [] and skip[2][0][0]["up"] is True and skip[2][0][0]["down"] is False,
           "ячейка на 1-й и 3-й картах: линия проходит мимо 2-й, там ни куска, ни подписи")
-    check('class="ui-lane-link ui-lane-c is-up is-down" data-lane-owner="22020"' in r["skipHtml"] and "ui-lane-lead" not in r["skipHtml"],
+    check('class="ui-lane-link ui-lane-c is-up is-down" data-lane-owner="c22020"' in r["skipHtml"] and "ui-lane-lead" not in r["skipHtml"],
           "negative: на пропущенной карте линия без точки и без отвода к бруску")
     check(r["blind"][1][1:] == [0, 0] and r["blindWords"] == "1.0 GB · 13% of the card" and r["blind"][0][2] == 0,
           "negative: у карты без размера нет ни подписи, ни линии, и кусок на ней не считается частью")
@@ -1056,12 +1174,17 @@ def section_rides(got):
     check(r["blind"]["verdict"] == "rides", "negative: машина не сказала, что занято в RAM: не отказ, а сказанное как есть")
     check(r["over"]["verdict"] == "none", "negative: и так не влезает на карту: не влезет")
     check(r["words"] == "12.0 GB stays in RAM and comes to the card for every pass" and r["tone"] == "idle", "панель называет цену словами, и план не зелёный: будет медленнее")
+    check(r["speedWords"] == "12.0 GB stays in RAM and comes to the card for every pass: ≈ 4.8 tokens/s, 40× slower",
+          f"оценка скорости (DecodeSpeed) — в тех же словах, когда её можно посчитать (получено {r['speedWords']!r})")
+    check(r["speedNone"] is None, "negative: все веса на карте — вердикт не «rides», оценки в словах нет")
+    check(r["speedFacts"][0] == {"now": 4.77, "full": 192, "slower": 40.3} and r["speedFacts"][1] is None,
+          "факты ячейки берут оценку у размещения vLLM; нет оценки — null, а не выдуманное число")
     check(r["keeps"] == [False, True, True, False],
           "vLLM держит RAM только с весами в ней: реестр говорит за весь раннер, а ячейка без них рисуется как прежде; Strata как была; negative: реестр не сказал — нет")
     check(r["said"] == 7.5 and r["field"] == "7.5", "строитель читает поле и переносит то, что посчитало правило")
     p = got["planMap"]["rides"]
     print_lanes = p["lanes"]
-    check(print_lanes[1]["blocks"] == [["22020", "estimate", 20480], ["22020", "estimate-cache", 8192]] and print_lanes[2]["blocks"] == [["22020", "estimate", 12]],
+    check(print_lanes[1]["blocks"] == [["c22020", "estimate", 20480], ["c22020", "estimate-cache", 8192]] and print_lanes[2]["blocks"] == [["c22020", "estimate", 12]],
           "на карте пунктиром веса и кэш, в RAM пунктиром то, что едет")
     check(print_lanes[1]["notes"] == ["≈28.0 GB · part 1 of 2 · vLLM"] and print_lanes[2]["notes"] == ["≈12.0 GB · part 2 of 2 · vLLM · comes to the card for every pass"],
           f"подпись в RAM говорит, что считает всё равно карта: это не «считает процессор» llama.cpp (получено {print_lanes[2]['notes']})")
@@ -1076,13 +1199,35 @@ def section_rides(got):
           f"работающая: кусок в RAM — её RSS, и подпись та же (получено {run})")
 
 
+def section_launch_map(got):
+    print("собираемый запуск на стойке:")
+    lm = got["launchMap"]
+    check(lm["ghost"] is not None and lm["ghost"][0] == "new" and sum(lm["dashes"]) > 0,
+          f"собранный запуск выбран под ключом сборки — на полосах его пунктир, как у стоящей ячейки (получено {lm['ghost']}, {lm['dashes']})")
+    check(lm["untold"] is None and lm["notChosen"] is None, "negative: запуск не сказан карте или не выбран — пунктира нет")
+    check("new" not in lm["bench"], "negative: в списках машины его нет — ни строки, ни счёта")
+    for target in ("0", "1", "ram"):
+        check(f'data-machine-place="{target}" data-machine-place-for="new"' in lm["choice"], f"последняя строка запуска: место {target} без перетаскивания")
+    check(" hidden" not in lm["choice"].split(">")[0], "строка выбранного запуска видна")
+    pl = lm["planned"]
+    check(pl["ghost"] is not None and pl["ghost"][0] == "new" and pl["chosen"] == "new" and 'data-machine-plan-start="new"' in pl["choice"],
+          "план для запуска: он выбран, пунктир по плану, в его строке Start плана")
+    check(lm["plannedUntold"] is None, "negative: план под ключом, которого карта не знает, — пунктира нет")
+    check(lm["targets"] == ["no", "ok", "ok"], f"пока ячейку несут, каждая полоса говорит, можно ли туда (получено {lm['targets']})")
+    check(lm["noTargets"] == [None, None, None] and lm["notDragging"] == [None, None, None], "negative: без ответа по полосам или без переноса — полосы молчат")
+    check(lm["ringNoPlan"] == [None, None, "no"], "defect-history: отказ над полосой без плана в руке тоже красит её кольцо — раньше кольцо было только при положенном плане")
+    check(lm["page"] == [True, True, False], "сборка — под картой и над списком; negative: движки не сказаны — сборки нет")
+    check(lm["live"] == [0, 1, True, True], "живой патч переписывает строку запуска, когда меняется план; negative: план тот же — не трогает")
+    check(lm["liveUntold"] == 1, "negative: запуск не сказан — его строку патч не пишет")
+
+
 def section_plan_map(got):
     print("план на стойке:")
     p = got["planMap"]
     off = p["off"]
     check(off["chosen"] == "" and all(not l["grips"] for l in off["lanes"]), "negative: плана нет и никто не выбран — ни пунктира, ни ручек")
     on = p["on"]
-    check(on["chosen"] == "22020" and [b for b in on["lanes"][1]["blocks"]] == [["22020", "estimate"], ["22020", "estimate-cache"]],
+    check(on["chosen"] == "c22020" and [b for b in on["lanes"][1]["blocks"]] == [["c22020", "estimate"], ["c22020", "estimate-cache"]],
           "план: его ячейка выбрана, на карте её пунктир — веса и кэш")
     check(on["lanes"][1]["notes"] == ["≈20.0 GB · 63% of the card · layers 0–19"], f"подпись: сколько, сколько карты, какие слои (получено {on['lanes'][1]['notes']})")
     g1 = on["lanes"][1]["grips"][0]
@@ -1093,9 +1238,9 @@ def section_plan_map(got):
     check(g0[0] is False and g0[2] == "Drag: put a part of it on GPU 0" and 'data-machine-grip-from="12"' in g0[3] and 'data-machine-grip-holds="0"' in g0[3],
           "на карте с местом, где куска нет, — полая ручка: добавить её")
     check(on["lanes"][2]["grips"][0][0] is False, "и на RAM — полая")
-    planned = launch_of(on["panels"], 22020)
+    planned = launch_of(on["panels"], "c22020")
     check('data-t-state="planned"' in planned and "<b>→ GPU 1</b>" in planned and "data-machine-plan-start" in planned and "Start here" in planned
-          and "data-machine-plan-cancel" in planned and "changes " in planned and 'data-machine-panel="22007"' in on["panels"],
+          and "data-machine-plan-cancel" in planned and "changes " in planned and 'data-machine-panel="c22007"' in on["panels"],
           "строка плана: куда, что поменяется, своя кнопка запуска и отмена; у других последняя строка на месте")
     check('data-t="machine-model-window"' in planned or "data-cell-window-open" not in planned, "negative: кнопки самой строки на месте")
     check("DEVICE=CUDA1" in on["panels"] and "THREADS=" not in on["panels"].split("changes ")[1].split("<")[0],
@@ -1111,9 +1256,10 @@ def section_plan_map(got):
     check('data-machine-drop="ok"' in dr["lanes"][1]["attrs"] and "data-machine-drop" not in dr["lanes"][0]["attrs"] and 'data-machine-drop="no"' in p["draggingNo"],
           "полоса под указателем говорит, ляжет ли; другие молчат")
     ev = p["evict"]
-    check(ev["holders"] == [] and [b[0] for b in ev["lanes"][0]["blocks"]] == ["22020", "22020"] and ev["lanes"][0]["free"] == "≈4.0 free",
+    check(ev["holders"] == [] and [b[0] for b in ev["lanes"][0]["blocks"]] == ["c22020", "c22020"] and ev["lanes"][0]["free"] == "≈4.0 free",
           "вытесняемая не рисуется, её место считается свободным, а «свободно» — то, что останется после плана, и со знаком оценки")
-    check(ev["bench"] == [22007, 22020] and "gives way: :22007" in ev["panels"], "но в списке она есть, и строка плана говорит, кто уступит")
+    check(ev["bench"] == ["c22007", "c22020"] and "gives way: gemma" in ev["panels"] and "gives way: :" not in ev["panels"],
+          "но в списке она есть, и строка плана говорит, кто уступит — именем, как её называет доска; negative: не портом")
     mv = p["moved"]
     moved_line = re.search(r'<span class="machine-pick-words">(.*?)</span>', mv["choice"]).group(1)
     standing_line = re.search(r'<span class="machine-pick-words">(.*?)</span>', on["choice"]).group(1)
@@ -1121,7 +1267,7 @@ def section_plan_map(got):
           f"работающая: куда ляжет — словами, в её второй строке этого нет (получено {moved_line})")
     check(re.search(r"</b> changes ", standing_line) is not None,
           f"negative: стоящая: сразу что изменится, куда ляжет уже сказала её вторая строка (получено {standing_line})")
-    check([b[0] for b in mv["lanes"][0]["blocks"]] == [] and [b for b in mv["lanes"][1]["blocks"]][0] == ["22007", "estimate"] and "Restart here" in mv["panels"],
+    check([b[0] for b in mv["lanes"][0]["blocks"]] == [] and [b for b in mv["lanes"][1]["blocks"]][0] == ["c22007", "estimate"] and "Restart here" in mv["panels"],
           "перенос работающей: со старой карты убрана, на новой пунктиром, кнопка «Перезапустить здесь»")
     check("disabled" in p["noFit"].split('data-t-state="planned"')[1] and "machine-pick--bad" in p["noFit"] and "won&#39;t fit now" in p["noFit"].replace("won't", "won&#39;t"),
           "не влезает: запуск закрыт, строка плана красная и говорит почему")
@@ -1130,13 +1276,13 @@ def section_plan_map(got):
     check(p["fullCard"] == [0, 1, 1], "negative: на полной карте полой ручки нет: положить туда нечего")
     pl = p["places"]
     check(pl["llama"] == ["0", "1", "ram"] and pl["running"] == ["0", "1", "ram"], "кнопки куда положить: каждая карта и RAM, у стоящей и работающей")
-    check('title="Lay it on GPU 0" data-machine-place="0" data-machine-place-for="22020" data-t="machine-place" data-t-id="0"' in pl["html"] and pl["html"].endswith(">GPU 0"), "кнопка говорит, что делает, и чью ячейку кладёт")
+    check('title="Lay it on GPU 0" data-machine-place="0" data-machine-place-for="c22020" data-t="machine-place" data-t-id="0"' in pl["html"] and pl["html"].endswith(">GPU 0"), "кнопка говорит, что делает, и чью ячейку кладёт")
     check(pl["cardOnly"] == ["0", "1"], "раннер только для карты: без RAM")
     check(pl["engine"] == [] and pl["noStart"] == [] and pl["noStop"] == [], "negative: ячейка движка, ячейка без запуска и без остановки: кнопок нет")
     lv = p["live"]
     check(lv["quiet"] == 0 and lv["laid"] == [1, True] and lv["again"] == 1 and lv["cleared"] == [2, False], "последняя строка пишется целиком только когда план поменялся")
-    check(p["otherCell"] == [False, "22007"], "выбрал другую ячейку: план снят")
-    check(p["sameCell"] == [True, "22020"], "negative: выбрал свою: план на месте")
+    check(p["otherCell"] == [False, "c22007"], "выбрал другую ячейку: план снят")
+    check(p["sameCell"] == [True, "c22020"], "negative: выбрал свою: план на месте")
 
 
 def main():
@@ -1160,23 +1306,27 @@ def main():
     choose = " — click to choose"
 
     print("полосы карт:")
-    check(got["holders"] == [[22001, 1], [22003, 2], [22010, 3], [22020, 4]],
-          "держат память работающие и прогревающиеся ячейки, по порту, у каждой свой цвет; negative: остановленная (:22007) и "
-          "порт без модели — не держат")
+    check(got["holders"] == [["c22001", 1], ["c22003", 2], ["c22010", 3], ["c22020", 4]],
+          "держат память работающие и прогревающиеся ячейки, по своим именам, в порядке, в каком их создали, у каждой свой цвет; "
+          "negative: остановленная (c22007) и ячейка без модели — не держат")
+    mo = got["madeOrder"]
+    check(mo["holders"] == [["c22050", 1], ["c3f9a02b1", 2], ["c22002", 3]] and mo["bench"] == ["c22050", "c3f9a02b1", "c22002"] and mo["band"] == 3,
+          f"порядок карты — порядок создания: созданная позже не берёт раньший цвет ни по имени, ни по номеру; negative: строка с портом, "
+          f"но без имени ячейки — не ячейка: ни цвета, ни строки, ни счёта (получено {mo})")
     c0 = got["card0"]
     check(c0["label"] == "GPU 0" and c0["side"] == "RTX 3090 · 24.0 GB · 52 °C" and c0["free"] == "12.0 free" and c0["total"] == 24576,
           "карта: номер, имя без «NVIDIA GeForce», объём и температура рядом; справа — сколько свободно; числа скаута, хотя он пишет их строкой")
     check(c0["blocks"] == [
         {"value": 1024, "kind": "other", "name": "Xorg", "short": "Xorg", "figure": "1.0 GB", "title": "Xorg · 1.0 GB", "owner": ""},
         {"value": 1024, "kind": "other", "name": "other processes", "short": "other processes", "figure": "1.0 GB", "title": "other processes · 1.0 GB", "owner": ""},
-        {"value": 2048, "series": 3, "name": ":22010 gemma-4-12B-it", "figure": "2.0 GB", "short": "2.0", "on": False, "port": "22010",
-         "title": ":22010 gemma-4-12B-it · 2.0 GB" + choose, "owner": "22010", "pick": True},
-        {"value": 8192, "series": 4, "name": ":22020 Hermes-4-70B", "figure": "8.0 GB", "short": "8.0", "on": True, "port": "22020",
-         "title": ":22020 Hermes-4-70B · 8.0 GB" + choose, "owner": "22020", "pick": True}],
+        {"value": 2048, "series": 3, "name": "gemma-4-12B-it", "figure": "2.0 GB", "short": "2.0", "on": False, "cellId": "c22010",
+         "title": "gemma-4-12B-it · 2.0 GB" + choose, "owner": "c22010", "pick": True},
+        {"value": 8192, "series": 4, "name": "Hermes-4-70B", "figure": "8.0 GB", "short": "8.0", "on": True, "cellId": "c22020",
+         "title": "Hermes-4-70B · 8.0 GB" + choose, "owner": "c22020", "pick": True}],
           "блоки: чужой процесс штриховкой по имени, остаток занятого — «другие процессы», ячейки — своим цветом по замеру gpuMem, "
-          "с портом и именем; выбранная — on; negative: остановленная :22007 с её 9999 MiB не нарисована, чужие — не кнопки")
-    check(got["card0Pick"] == 'data-machine-pick="22020" data-t="machine-map-block" data-t-id="22020"',
-          "блок ячейки — кнопка выбора с меткой для теста")
+          "названы, как их называет доска, — без порта; выбранная — on; negative: остановленная c22007 с её 9999 MiB не нарисована, чужие — не кнопки")
+    check(got["card0Pick"] == 'data-machine-pick="c22020" data-t="machine-map-block" data-t-id="c22020"',
+          "блок ячейки — кнопка выбора по её имени (cellId), с меткой для теста")
     check(c0["attrs"] == 'data-t="machine-map-lane" data-t-id="gpu-0"' and c0["foot"] == "", "метка полосы для теста; negative: подписи под полосой нет")
     c1 = got["card1"]
     check(c1["side"] == "RTX 5090 · 31.8 GB · 48 °C" and c1["free"] == "23.8 free"
@@ -1191,8 +1341,10 @@ def main():
           "имя карты экранировано")
     check(b[1]["total"] is None and b[1]["foot"] == "the scout does not report the RAM" and b[1]["side"] == "",
           "negative: RAM не сказана — тоже без полосы и со словами почему; загрузки CPU нет — нет и подписи")
-    check(got["blindUnplaced"] == [22002] and 'data-t="machine-map-unplaced-cell"' in got["blindHtml"],
-          "ячейка на карте, чья полоса не нарисована, — не пропала: названа под полосами")
+    check(got["blindLegend"] == [["c22002", "", "no place yet", "running", "machine-map-legend", "c22002"]]
+          and 'data-machine-pick="c22002" data-t="machine-map-legend" data-t-id="c22002"' in got["blindHtml"],
+          "ячейка на карте, чья полоса не нарисована, — не пропала: она строка списка, её цифра не сказана, место названо словами, и её можно выбрать; "
+          "строитель её не назвал — она названа своим именем, cellId")
 
     print("полоса RAM:")
     r = got["ram"]
@@ -1201,52 +1353,60 @@ def main():
     check(r["blocks"] == [
         {"value": 5.800000000000001, "kind": "other", "name": "the system and other processes", "short": "system", "figure": "5.8 GB",
          "title": "the system and other processes · 5.8 GB", "owner": ""},
-        {"value": 3, "series": 1, "name": ":22001 Qwen3-Embedding-0.6B", "figure": "3.0 GB", "short": "3.0", "on": False, "port": "22001",
-         "title": ":22001 Qwen3-Embedding-0.6B · 3.0 GB · RSS of its processes" + choose, "owner": "22001", "pick": True}],
-          "в RAM — ячейка без карты по её RSS; остальное занятое — система и другие процессы; negative: ячейки на картах (:22020 с RSS "
-          "41 ГБ, :22010) не нарисованы — их RSS считает отображённый файл модели, а «занято» машины его не считает")
-    check(got["unplaced"] == [22003] and 'data-machine-pick="22003" data-t="machine-map-unplaced-cell" data-t-id="22003"' in got["html"]
-          and "Running, memory not measured:" in got["html"] and ":22003 gigaam &lt;v3&gt;" in got["html"],
-          "работающая ячейка, чью память никто не замерил, — не пропала с карты: названа под полосами, её можно выбрать; имя экранировано")
+        {"value": 3, "series": 1, "name": "Qwen3-Embedding-0.6B", "figure": "3.0 GB", "short": "3.0", "on": False, "cellId": "c22001",
+         "title": "Qwen3-Embedding-0.6B · 3.0 GB · RSS of its processes" + choose, "owner": "c22001", "pick": True}],
+          "в RAM — ячейка без карты по её RSS; остальное занятое — система и другие процессы; negative: ячейки на картах (c22020 с RSS "
+          "41 ГБ, c22010) не нарисованы — их RSS считает отображённый файл модели, а «занято» машины его не считает")
+    check(got["legend"][3] == ["gigaam <v3>", "", "no place yet", "memory not measured", "machine-map-legend", "c22003", 2,
+                    'data-machine-pick="c22003" data-t="machine-map-legend" data-t-id="c22003"', False,
+                    "gigaam <v3>\nplace not known\nmemory not measured", "c22003"]
+          and 'data-machine-pick="c22003" data-t="machine-map-legend" data-t-id="c22003"' in got["html"] and "gigaam &lt;v3&gt;" in got["html"],
+          "работающая ячейка, чью память никто не замерил, — не пропала: она строка списка, и слова говорят, что не замерено; имя экранировано")
     check(got["capped"] == [[3, "3.0 GB", 1], [1, "3.0 GB", 2]],
           "boundary: ячейки не рисуются дальше занятого машиной (4 ГБ): вторая обрезана до остатка, подпись — её настоящий RSS")
-    check(got["unnamed"][1] == ":22001", "negative: строитель не назвал ячейку — блок назван портом, а не пустым местом")
-    check('aria-label="What lies where"' in got["html"] and '<strong class="machine-map-title">What lies where</strong>' in got["html"]
-          and "drag a model from below" in got["html"] and '<i class="is-weights" aria-hidden="true"></i>weights<i class="is-cache" aria-hidden="true"></i>cache and buffers' in got["html"]
+    check(got["unnamed"][1] == "c22001", "negative: строитель не назвал ячейку — блок назван её именем (cellId), а не пустым местом и не портом")
+    check(got["html"].startswith('<section class="machine-map" aria-label="What lies where" data-t="machine-map"><div class="machine-map-lanes" data-machine-map>')
           and got["html"].count('data-t="machine-map-lane"') == 3
           and '<button type="button" class="ui-lane-blk ui-lane-blk--s4 is-on"' in got["html"] and "data-machine-map>" in got["html"]
           and "data-machine-picks" not in got["html"] and "machine-pick\"" not in got["html"],
-          "карта: заголовок и как её читать, три полосы (ui-parts Lane), блок ячейки — кнопка (её достаёт клавиатура), выбранная "
+          "карта: сразу полосы (ui-parts Lane), её имя — для экранного диктора; блок ячейки — кнопка (её достаёт клавиатура), выбранная "
           "обведена; negative: полосы выбранной ячейки под стойкой нет (владелец, 2026-11-02)")
+    check("machine-map-head" not in got["html"] and "machine-map-title" not in got["html"] and "drag a model from below" not in got["html"]
+          and "machine-map-key" not in got["html"] and "All cards" not in got["html"],
+          "negative (владелец, 2026-11-08, вариант Б): строки заголовка «What lies where» с подсказкой у карты нет, легенды и итога карт — тоже: "
+          "они в строке шапки")
 
     print("строка выбранной ячейки:")
     p = got["panels"]
-    check('data-machine-panel="22020" data-machine-own data-t="machine-pick" data-t-id="22020">' in p
-          and 'data-machine-panel="22001" data-machine-own data-t="machine-pick" data-t-id="22001" hidden' in p,
-          "последняя строка есть у каждой ячейки: у выбранной (:22020) открыта, у остальных спрятана")
-    hermes = launch_of(p, 22020)
-    check('data-machine-bench-size="22020">12.0 GB on the cards</span>' in hermes and 'data-t-state="running">running</span>' in hermes
-          and 'data-cell-window-open="box:22020" data-t="machine-model-window" data-t-id="22020">Cell window</button>' in hermes
-          and 'class="ui-btn ui-btn--main ui-btn--danger" title="Stop server" data-node-cell-stop="box" data-node-cell-port="22020" data-t="machine-model-stop" data-t-id="22020">Stop</button>' in hermes,
-          "строка :22020: что делает и сколько держит на картах; «Окно ячейки» — ключом её окна, «Остановить» — атрибутами доски (тот же вопрос, то же действие)")
-    gemma = launch_of(p, 22010)
-    check("machine-bench-fit--busy" in gemma and "loading its weights" in gemma and 'data-machine-bench-size="22010">2.0 GB on the cards<' in gemma
-          and "data-cell-window-open" not in gemma and 'data-node-cell-port="22010"' in gemma,
+    check('data-machine-panel="c22020" data-machine-own data-t="machine-pick" data-t-id="c22020">' in p
+          and 'data-machine-panel="c22001" data-machine-own data-t="machine-pick" data-t-id="c22001" hidden' in p,
+          "последняя строка есть у каждой ячейки: у выбранной (c22020) открыта, у остальных спрятана")
+    hermes = launch_of(p, "c22020")
+    check('data-machine-bench-size="c22020">12.0 GB on the cards</span>' in hermes and 'data-t-state="running">running</span>' in hermes
+          and 'data-cell-window-open="c22020" data-t="machine-model-window" data-t-id="c22020">Cell window</button>' in hermes
+          and 'class="ui-btn ui-btn--main ui-btn--danger" title="Stop server" data-node-cell-stop="box" data-cell-id="c22020" data-t="machine-model-stop" data-t-id="c22020">Stop</button>' in hermes,
+          "строка c22020: что делает и сколько держит на картах; «Окно ячейки» — ключом её окна, «Остановить» — атрибутами доски (тот же вопрос, то же действие)")
+    check('title="Hermes-4-70B — click to choose"><span class="machine-model-dot" aria-hidden="true"></span>c22020</button>' in hermes
+          and not re.search(r":\d{4,5}\b|\b220\d\d\b", hermes),
+          "кнопка строки говорит имя ячейки (cellId), а подсказка — как её называет доска; negative: ни одного номера порта в строке — ни «:22020», ни 22020")
+    gemma = launch_of(p, "c22010")
+    check("machine-bench-fit--busy" in gemma and "loading its weights" in gemma and 'data-machine-bench-size="c22010">2.0 GB on the cards<' in gemma
+          and "data-cell-window-open" not in gemma and 'data-cell-id="c22010"' in gemma,
           "грузит веса — жёлтые слова; negative: окна у неё строитель не рисовал (полная карточка) — кнопки окна нет")
-    giga = launch_of(p, 22003)
-    check("memory not measured" in giga and 'title="Not running" data-t="machine-model-stop" data-t-id="22003" disabled' in giga
+    giga = launch_of(p, "c22003")
+    check("memory not measured" in giga and 'title="Not running" data-t="machine-model-stop" data-t-id="c22003" disabled' in giga
           and "data-node-cell-stop" not in giga,
           "negative: остановить нельзя — кнопка закрыта и говорит почему, без атрибутов доски; память не замерена — так и сказано")
-    last_lines = lambda html: re.findall(r'<div class="machine-pick[^"]*" data-machine-panel="\d+"[^>]*>', html)
+    last_lines = lambda html: re.findall(r'<div class="machine-pick[^"]*" data-machine-panel="[^"]+"[^>]*>', html)
     check(len(last_lines(got["noChoice"])) == 6 and all(line.endswith(" hidden>") for line in last_lines(got["noChoice"]))
-          and "Choose a cell" not in got["noChoice"] and 'data-machine-panel="22007"' in got["noChoice"] and 'data-machine-panel="22014"' in got["noChoice"],
+          and "Choose a cell" not in got["noChoice"] and 'data-machine-panel="c22007"' in got["noChoice"] and 'data-machine-panel="c22014"' in got["noChoice"],
           "ничего не выбрано — последние строки всех шести ячеек спрятаны: и тех, что держат память, и стоящих; negative: никакой «Выберите ячейку»")
     check(all(line.endswith(" hidden>") for line in last_lines(got["staleChoice"])) and len(last_lines(got["staleChoice"])) == 6,
-          "negative: выбран порт, которого у машины нет, — все спрятаны")
-    stopped = launch_of(got["stoppedChoice"], 22007)
-    check('data-t="machine-pick" data-t-id="22007">' in stopped
-          and 'data-machine-bench-size="22007">size not known</span>' in stopped and '>place not known</span>' in stopped
-          and 'data-t="machine-model-start" data-t-id="22007" disabled>Start</button>' in stopped and "data-node-cell-stop" not in stopped,
+          "negative: выбрана ячейка, которой у машины нет, — все спрятаны")
+    stopped = launch_of(got["stoppedChoice"], "c22007")
+    check('data-t="machine-pick" data-t-id="c22007">' in stopped
+          and 'data-machine-bench-size="c22007">size not known</span>' in stopped and '>place not known</span>' in stopped
+          and 'data-t="machine-model-start" data-t-id="c22007" disabled>Start</button>' in stopped and "data-node-cell-stop" not in stopped,
           "остановленную ячейку можно выбрать: её кнопка — «Запустить», а не «Остановить»; строитель не сказал ни размера, ни "
           "запуска — так и сказано, кнопка закрыта")
     check(got["words"] == ["12.0 GB on the cards", "3.0 GB in RAM", "memory not measured", "2.0 GB on the cards"]
@@ -1255,26 +1415,26 @@ def main():
     check(got["brokenSub"] == ["its process runs, its engine does not answer", "1.0 GB on the cards"], "сломанная: процесс жив, движок молчит — словами")
     tr = got["trouble"]
     check(tr[0] == ["busy", "crashed", "running · 💥 crashed 2× since it was last started by hand", "1.0 GB on the cards", True]
-          and tr[1] == ["bad", "unreachable", "running · ⚠ port unreachable from server — open the host firewall for this port · "
-                        "💥 crashed 1× since it was last started by hand", "1.0 GB on the cards", True],
+          and tr[1] == ["busy", "crashed", "running · 💥 crashed 1× since it was last started by hand", "1.0 GB on the cards", True],
           "defect-history (2026-10-26): ячейка в беде на странице машины — только окно, и беду говорит её строка, у каждой ячейки, а не только у выбранной: падала (сторож "
-          "поднял) — янтарная и «💥 crashed 2×…», контроллер не достаёт — красная и словами; кнопка окна у обеих")
+          "поднял) — янтарная и «💥 crashed …×», кнопка окна у обеих; negative (2026-11-08): слово «контроллер не достаёт» ушло — "
+          "ячейка слушает петлю своей машины, контроллер доходит через скаут, и старое `unreachable` строки не красит")
     check(tr[2] == ["good", "running", "running", "1.0 GB on the cards", True],
           "negative: без беды (0 падений, порт доступен) — зелёная, без лишних слов")
 
     print("полоса статуса в строке шапки:")
     bd = got["band"]
-    check(bd["good"] == ["good", "Cells running: 4 of 5", ""], "работает — зелёная: сколько из скольких (порт без модели не в счёте); второй строки нет — её говорят полосы")
-    check(bd["warming"] == ["busy", "Starting :22010 · running 3 of 5", ""],
-          "ячейка грузит веса — жёлтая: какая в пути (одна — названа, 1.3.657) и сколько уже работает, одной строкой")
+    check(bd["good"] == ["good", "Cells running: 4 of 5", ""], "работает — зелёная: сколько из скольких (ячейка без модели не в счёте); второй строки нет — её говорят полосы")
+    check(bd["warming"] == ["busy", "Starting c22010 · running 3 of 5", ""],
+          "ячейка грузит веса — жёлтая: какая в пути (одна — названа, 1.3.657; без слова доски — своим именем, cellId) и сколько уже работает, одной строкой")
     check(bd["silent"] == ["bad", got["en"]["silent"], "<span data-live-hostage>7 min</span>"],
           "машина молчит — красная, и сколько молчит, в живом месте для патча")
-    check(bd["coming"] == ["busy", "Starting :1 · running 1 of 2", ""] and bd["idle"] == ["idle", "No cell is running", ""]
+    check(bd["coming"] == ["busy", "Starting c1 · running 1 of 2", ""] and bd["idle"] == ["idle", "No cell is running", ""]
           and bd["empty"] == ["No cells yet", "No cells yet"],
           "в пути — жёлтая; ни одна не работает — тихая; нет ни одной ячейки — так и сказано")
-    check(bd["named"] == "Starting :22020 Hermes-4-70B · running 1 of 2" and bd["two"] == ["busy", "Starting 2 · running 1 of 3", ""],
-          "1.3.657 (владелец 2026-10-26: «где видно, какая ячейка запускается?»): одна в пути — шапка её называет, порт и имя, как "
-          "плашка под картой; negative: две — только сколько, имена — в строке под картой")
+    check(bd["named"] == "Starting Hermes-4-70B · running 1 of 2" and bd["two"] == ["busy", "Starting 2 · running 1 of 3", ""],
+          "1.3.657 (владелец 2026-10-26: «где видно, какая ячейка запускается?»): одна в пути — шапка её называет, как доска, без порта; "
+          "negative: две — только сколько, имена — в строке под картой")
     check(bd["controller"] != "bad", "negative: молчание — только у машины со скаутом")
     check(bd["html"] == '<div class="ui-band ui-band--good ui-band--inline" role="status" data-machine-band data-t="machine-band" data-t-state="good">'
           '<span class="ui-band-dot" aria-hidden="true"></span><div class="ui-band-text"><strong class="ui-band-title">Cells running: 4 of 5</strong></div></div>',
@@ -1292,7 +1452,19 @@ def main():
           and '<div class="ui-win-body"><section class="machine-map"' in h["html"],
           "шапка — одна строка: имя (h1, экранировано), метка старого скаута, справа — что делает, «⋯» и «Добавить модель»; под ней — карта; "
           "negative: отдельной полосы-карточки больше нет")
-    check(h["add"] == '<button type="button" class="ui-btn ui-btn--main" title="on :22030" data-t="machine-add" data-t-id="box" data-caravan-add="box">'
+    row = h["html"][:h["html"].index('<div class="ui-win-body">')]
+    key = row[row.index('<div class="machine-head-key">'):row.index('<div class="machine-tools">')]
+    check(row.index('<div class="ui-win-id">') < row.index('<div class="machine-head-key">') < row.index('<div class="machine-tools">')
+          and key.startswith('<div class="machine-head-key"><span class="machine-map-key" title="weights · cache and buffers"><i class="is-weights" aria-hidden="true"></i>'
+                             '<span class="machine-map-word">weights</span><i class="is-cache" aria-hidden="true"></i><span class="machine-map-word">cache and buffers</span></span>')
+          and 'data-machine-chart="node:box:gpu" data-t="machine-map-total" data-t-id="gpu"><span data-node-metric-val="box:gpu">—</span>' in key
+          and key.count('data-t="machine-map-total"') == 3 and "All cards" in key,
+          "вариант Б (владелец, 2026-11-08): в одной строке шапки — имя с фактами, легенда карты с итогом всех карт (те же кнопки графиков и ключи "
+          "монитора), потом что делает машина, «⋯» и «Добавить модель»; слово легенды — свой элемент (CSS прячет слова, когда строка коротка), "
+          "и подсказка значков говорит их")
+    check(row.count('class="machine-map-key"') == 1 and h["html"].count('class="machine-map-key"') == 1 and "machine-map-title" not in h["html"],
+          "negative: легенда одна — в шапке; над стойкой ни её, ни заголовка")
+    check(h["add"] == '<button type="button" class="ui-btn ui-btn--main" title="a new cell here" data-t="machine-add" data-t-id="box" data-caravan-add="box">'
           + h["add"][h["add"].index("<svg"):h["add"].index("</svg>") + 6] + "Add model</button>",
           "главная кнопка — «Добавить модель» с атрибутом, по которому её слушает доска (data-caravan-add)")
     check("disabled" in h["addBusy"] and "data-caravan-add" not in h["addBusy"] and f'title="{got["en"]["busy"]}"' in h["addBusy"],
@@ -1308,34 +1480,35 @@ def main():
           "negative: у машины без скаута отпускать некого — пункта нет")
 
     print("выбор ячейки:")
-    check(got["choose"] == ["22020", True, "", False, "22001", False, 0, 4],
-          "выбор — порт строкой; выбранная снова — отпущена; negative: пустой порт — не выбор; знания строителя — только карта, иначе пусто")
+    check(got["choose"] == ["c22020", True, "", False, "c22001", False, False, False, 0, 4],
+          "выбор — имя ячейки; выбранная снова — отпущена; negative: пустое — не выбор; номер, которым её знали, и порт её работы — не её имя; "
+          "знания строителя — только карта, иначе пусто")
     sh = got["show"]
-    check(sh["one"] == {"on": [[False, "false"], [True, "true"], [True, "true"]], "shown": ["22001"]},
+    check(sh["one"] == {"on": [[False, "false"], [True, "true"], [True, "true"]], "shown": ["c22001"]},
           "показ без перерисовки: блоки выбранной обведены и aria-pressed (на всех полосах), открыта последняя строка её ряда")
     check(sh["letGo"] == {"on": [[False, "false"], [False, "false"], [False, "false"]], "shown": []},
           "отпущена — ни один блок не обведён, последних строк нет")
     check(sh["stale"]["shown"] == [], "negative: выбрана ячейка, которой тут нет, — ничего не открыто")
-    check(sh["row"] == {"row": [True, None], "port": [True, "true"], "heard": ["the page"]},
-          "строка ячейки обведена, но она не кнопка: «нажата» говорит её порт; negative: у строки aria-pressed нет; список моделей слышит о выборе")
+    check(sh["row"] == {"row": [True, None], "chip": [True, "true"], "heard": ["the page"]},
+          "строка ячейки обведена, но она не кнопка: «нажата» говорит кнопка её имени; negative: у строки aria-pressed нет; список моделей слышит о выборе")
     bn = got["bind"]
     check(bn["listeners"] == 3, "привязан дважды — слушает один раз: нажатие и два указателя")
     check(got["chartClick"] == [["node:h:gpu"], ""], "нажатие на показатель открывает график, ячейку не выбирает: слушатель общий, полосы пишутся заново между перерисовками")
     lt = got["light"]
-    check(lt["lit"] == ["22020", True, [True, False, True]], "указатель на ячейке: её куски подсвечены на всех полосах, стойка знает, что идёт подсветка")
+    check(lt["lit"] == ["c22020", True, [True, False, True]], "указатель на ячейке: её куски подсвечены на всех полосах, стойка знает, что идёт подсветка")
     check(lt["again"] == 0, "negative: та же ячейка под указателем — страницу не трогаем на каждое движение")
-    check(lt["other"] == ["22001", True, [False, True, False]], "другая ячейка: подсветка переходит")
+    check(lt["other"] == ["c22001", True, [False, True, False]], "другая ячейка: подсветка переходит")
     check(lt["off"] == ["", False, [False, False, False]], "указатель ушёл: всё как было")
-    check([lt["onOwner"], lt["offOwner"], lt["stays"], lt["leftPage"]] == ["22001", "", "22001", ""], "слушатели: на ячейке, мимо, уход на другой элемент ничего не значит, уход со страницы снимает")
+    check([lt["onOwner"], lt["offOwner"], lt["stays"], lt["leftPage"]] == ["c22001", "", "c22001", ""], "слушатели: на ячейке, мимо, уход на другой элемент ничего не значит, уход со страницы снимает")
     check(lt["dragging"] == "", "negative: во время перетаскивания подсветка молчит: на полосах план")
     check(lt["shown"] == [False, True], "линия выбранной ячейки рисуется без перерисовки доски")
-    check(bn["afterShown"] == ["22020", 0], "щелчок по блоку — выбор и показ на месте: окно ячейки в странице есть, доска не перерисована")
-    check(bn["afterHidden"] == ["22001", 1, ["machine-map-block:22001"]],
+    check(bn["afterShown"] == ["c22020", 0], "щелчок по блоку — выбор и показ на месте: окно ячейки в странице есть, доска не перерисована")
+    check(bn["afterHidden"] == ["c22001", 1, ["machine-map-block:c22001"]],
           "окна выбранной в странице нет (список прячет её фильтром) — доска рисуется заново: выбранная ячейка тогда остаётся в списке; "
           "клавиатура возвращается на её блок")
-    check(bn["afterFull"] == ["22010", 1],
+    check(bn["afterFull"] == ["c22010", 1],
           "negative: ячейка, нарисованная полной карточкой, окна не имеет — выбор показан на месте, доска не перерисована зря")
-    check(bn["afterMiss"] == ["22010", 1], "negative: щелчок мимо блока выбора не трогает")
+    check(bn["afterMiss"] == ["c22010", 1], "negative: щелчок мимо блока выбора не трогает")
     check(bn["brought"] == [{"block": "nearest"}],
           "выбранная ячейка: её строка приезжает в вид настолько, насколько нужно; negative: снятие выбора и документ без строки ничего не двигают")
 
@@ -1351,16 +1524,20 @@ def main():
     check(lv["empty"] == "quiet", "negative: на странице без головы машины патч молчит, не падает")
     print("панели страницы машины:")
     pn = got["panes"]
-    check(pn["tops"] == [640, 0] and pn["drawn"] == "<new>" and pn["main"] == 640,
+    check(pn["tops"] == [640, 0, 300] and pn["drawn"] == "<new>" and pn["main"] == 640,
           "доска нарисовала страницу заново: панель с ячейками осталась на своём месте, а не прыгнула наверх")
+    check(pn["body"] == 300,
+          "defect-history (живая проверка, 2026-11-07): и тело страницы на широком экране осталось на месте — раньше каждая карточка, "
+          "поставленная в сборку, перерисовывала страницу и бросала её в начало, прочь от полки")
     check(pn["side"] == 0, "negative: панель, стоявшая наверху, не трогается")
-    check(pn["noPage"] == [0, 0] and pn["noRoot"] == [0, 0] and pn["boardDrawn"] == "<cards>",
+    check(pn["noPage"] == [0, 0, 0] and pn["noRoot"] == [0, 0, 0] and pn["boardDrawn"] == "<cards>",
           "negative: на главной доске панелей нет: она рисуется как рисовалась")
     section_rack(got)
     section_plan_map(got)
+    section_launch_map(got)
     section_rides(got)
     ip = got["inPlace"]
-    check(ip["rowOn"] == [["22020", "true"]], "строка выбранной ячейки в списке после правки на месте тоже помечена")
+    check(ip["rowOn"] == [["c22020", "true"]], "строка выбранной ячейки в списке после правки на месте тоже помечена")
     check(ip["notes"]["writes"] == 0 and "11.0" in ip["notes"]["figures"] and "GPU 0: 7.0 GB · part 1 of 2" in ip["notes"]["title"] and ip["notes"].get("lead") == "45.84",
           f"цифры на карте сдвинулись — слова подписи и отвод куска правятся на месте, полосы не переписаны (получено {ip['notes']})")
     check(ip["first"] == {"map": 0, "inner": 0},
@@ -1368,10 +1545,10 @@ def main():
     check(ip["after"]["map"] == 0 and ip["free"] == "51.5 free" and ip["system"] == "9.92%",
           "занятая RAM сдвинулась — на месте поменялись «свободно» и ширина блока системы: кнопки ячеек не перерисованы, фокус и наведение "
           "остаются (щелчок не попадает между двумя переписями)")
-    check(ip["chosen"] == [["22020", "true"]], "выбранная ячейка после правки на месте — по-прежнему обведена и aria-pressed")
+    check(ip["chosen"] == [["c22020", "true"]], "выбранная ячейка после правки на месте — по-прежнему обведена и aria-pressed")
     check(ip["letGo"] == [[], "false", 0], "выбор снят — на месте снята и обводка, и aria-pressed; полосы целиком не переписаны")
     check(ip["rowLetGo"] == [[False, "false"]], "и строка списка снята тоже")
-    check(ip["speed"] == "41", "скорость модели в её строке правится на месте")
+    check(ip["doing"] == "41", "скорость модели в её строке правится на месте")
     check(ip["reshaped"] == [1, 1],
           "negative: ячейка начала держать память или её наконец замерили (из фишек — в блок RAM) — набор блоков другой, полосы "
           "переписаны целиком")
@@ -1444,8 +1621,8 @@ def main():
           "работающая ячейка — зелёная строка: правило стиля читает то самое состояние, что говорит её вердикт (running)")
     check(tints.get("busy") == {bs["warming"], got["trouble"][0][1], *(bs[ph] for ph in coming)},
           "грузит веса, в пути (скачивание, старт, остановка…) или падала и поднята сторожем — янтарная рамка; набор состояний стиля — ровно тот, что говорит вердикт")
-    check(tints.get("bad") == {bs["broken"], bs["error"], got["trouble"][1][1]} and None not in tints,
-          "сломана, не запустилась или контроллер до неё не достаёт — красная рамка; negative: стоящая (влезет / не влезет / не известно) — без цвета строки")
+    check(tints.get("bad") == {bs["broken"], bs["error"]} and None not in tints,
+          "сломана или не запустилась — красная рамка (до 2026-11-08 и «контроллер до неё не достаёт», слово ушло); negative: стоящая (влезет / не влезет / не известно) — без цвета строки")
     dot = re.search(r"\.machine-model-dot\s*\{([^}]*)\}", css)
     check(dots == {"good": "good", "busy": "busy", "bad": "bad"} and dot is not None and "var(--launch-state, var(--ui-muted))" in dot.group(1),
           "точка у порта говорит то же из того же вердикта: работает, в пути, сломана; negative: стоящая — серая, своего цвета нет; второй копии состояния нет")
@@ -1458,6 +1635,17 @@ def main():
     check(fr[3][0] == "unknown" and fr[4][0] == "unknown" and fr[6][0] == "unknown",
           "negative: резерв не число, карта закрепления не существует, карта не сказала свободное — «не известно»")
     check(fr[5] == ["free", [["0", 24]], 0, 24], "без закрепления — карта 0, как её прочтёт сервер")
+    fe = f["freeEvery"]
+    check(fe[0] == ["free", [["0", 24], ["1", 31.84]], 0, 55.84] and fe[1] == fe[0],
+          "Strata · DeepSeek берёт свободное КАЖДОЙ карты (everyCard): обе карты, 24 + 31.84 = 55.84 ГБ, и закрепление карты этого не меняет "
+          "(владелец, 2026-11-03: «fits on GPU 0» у ячейки, что заняла обе)")
+    check(fe[2][0] == "unknown" and fe[3][0] == "unknown",
+          "negative: карта не сказала свободное — место не известно целиком; карт нет — не известно")
+    check(fe[4] == ["free", [["1", 31.84]], 0, 31.84], "на машине с одной картой — эта одна")
+    fw = f["freeEveryWords"]
+    check(fw == ["takes the free memory of every card · its share of RAM is not counted here", "fits on the cards", "takes its card's free memory", "fits on GPU 1", "fits on GPU 1"],
+          "слова: «берёт свободную память всех карт» и «влезет на карты»; negative: однокарточная Strata — своей карты и «на GPU 1», "
+          f"и на машине с одной картой — «на GPU 1»: {fw}")
     a = f["asks"]
     check(a[0] == ["card", [["0", 21.6]], 0, 21.6] and a[1] == ["cards", [["0", 21.6], ["1", 21.6]], 0, 43.2],
           "vLLM — свою долю каждой карты, что он берёт (её считает VllmPlacement): одна карта — «на GPU 0», две — «на карты»")
@@ -1474,7 +1662,7 @@ def main():
                          "fields": {"ENV": "A=1", "DEVICE": "CUDA1", "FIT_TARGET": "2048", "TENSOR_SPLIT": "3,1", "FIT": "1",
                                     "N_GPU_LAYERS": "auto", "N_CPU_MOE": "2", "CPU_MOE": "0", "KV_OFFLOAD": "1", "CPU_OFFLOAD_GB": ""},
                          "mode": "layer", "model": None, "split": None, "floorMiB": 6144, "reserve": "4096", "asks": [], "over": False, "ridesGb": 0,
-                         "orRam": False, "oneCard": False, "family": "", "cpuOk": False, "gpuOk": True, "onCard": "card", "parallel": False, "asksFor": None},
+                         "speed": None, "orRam": False, "oneCard": False, "everyCard": False, "family": "", "cpuOk": False, "gpuOk": True, "onCard": "card", "parallel": False, "asksFor": None},
           "что строитель берёт из конфига ячейки и строки реестра: поля способа так, как их покажет форма (флажок KV_OFFLOAD не сказан — "
           "включён), порог и резерв Strata по имени поля из реестра; модели не дали — не известна")
     check(fc["planned"] == ["runner", "files", True] and fc["vllm"] == {"gb": 44.2, "source": "runner", "asks": [["0", 22630.4], ["1", 22630.4]], "over": True},
@@ -1518,12 +1706,39 @@ def main():
     check(ex["cpu"] == ["ram", "plan", 41.89, [39.6, 2.29]] and ex["cpuPlaced"] == ex["noCardSmall"],
           "ячейка на CPU с известной моделью — в RAM целиком, веса и кэш порознь")
     check(ex["asks"]["cards"] == [["0", 22.1, 15, 7.1], ["1", 22.1, 15, 7.1]], "vLLM — на каждой карте его доля: 15 ГБ весов и 7.1 кэша")
+
+    print("черновик спекуляции в точном расчёте (2026-11-07):")
+    dr = got["draft"]
+    check(dr["plain"] == ["plan", "plan", 41.89, [39.6, 2.29]] and dr["told"] == ["plan", "plan", 43.17, [40.88, 2.29]],
+          "positive (дефект): голова MTP 1.28 ГБ — в весе ячейки (41.89 → 43.17) и в её весах (39.6 → 40.88), кэш тот же")
+    pd, pp = dr["placed"], dr["placedPlain"]
+    diffs = [round(a[1] - b[1], 2) for a, b in zip(pd["cards"], pp["cards"])]
+    check(pd["verdict"] == pp["verdict"] == "cards" and abs(sum(diffs) - 1.28) < 0.02 and all(d > 0 for d in diffs)
+          and abs(diffs[0] / diffs[1] - (23.75 - 17.92) / (32607 / 1024 - 0.25 - 23.96)) < 0.05
+          and all(abs((a[2] - b[2]) - d) < 0.015 for a, b, d in zip(pd["cards"], pp["cards"], diffs))
+          and [a[3] for a in pd["cards"]] == [b[3] for b in pp["cards"]]
+          and round(pd["need"] - pp["need"], 2) == 1.28,
+          f"черновик на картах — поверх модели, по месту, что на каждой осталось (+{diffs}), он — веса; влезает (got {pd['cards']} против {pp['cards']})")
+    check(dr["ram"]["cards"] == pp["cards"] and dr["ram"]["ram"] == [1.28, 1.28, 0] and dr["ram"]["need"] == 43.17,
+          "SPEC_DRAFT_N_GPU_LAYERS 0 — карты те же, черновик в RAM (его веса)")
+    check(dr["none"] == dr["plain"] and dr["ngram"] == dr["plain"],
+          "negative: SPEC_TYPE none и ngram-* — черновик не грузится и не весит")
+    check(dr["unsized"] == dr["plain"] and dr["byDefault"] == dr["plain"],
+          "черновика нет в библиотеке — в сумме его нет (сказано словами ниже); negative: умолчание контроллера за пустым полем — не черновик ячейки")
+    check(dr["cpu"] == {"verdict": "ram", "cards": [], "ram": [43.17, 40.88, 2.29], "need": 43.17}
+          and dr["cpuPlain"] == {"verdict": "ram", "cards": [], "ram": [41.89, 39.6, 2.29], "need": 41.89},
+          "ячейка на CPU — черновик с ней в RAM, среди весов")
+    check(dr["words"] == ["≈43.2 GB with the cache · the draft's own cache is not counted",
+                          "≈41.9 GB with the cache · the draft's size is not known", "≈41.9 GB with the cache", "≈41.9 GB with the cache"],
+          f"размер говорит, что собственный кэш черновика не посчитан, а черновика не из библиотеки — что его размер не известен; "
+          f"negative: без черновика — как было (got {dr['words']})")
     eg = got["exactGhost"]
-    title = ":22020 Hermes · ≈22.9 GB · part 1 of 3 · layers 12–40 · weights ≈14.4 GB · cache and buffers ≈8.5 GB"
-    check(eg["spill"][0] == [["estimate", 14699.52, "would go here :22020", "≈14.4 GB", title],
-                             ["estimate-cache", 8720, "cache :22020", "≈8.5 GB", title]]
+    title = "Hermes · ≈22.9 GB · part 1 of 3 · layers 12–40 · weights ≈14.4 GB · cache and buffers ≈8.5 GB"
+    check(eg["spill"][0] == [["estimate", 14699.52, "would go here Hermes", "≈14.4 GB", title],
+                             ["estimate-cache", 8720, "cache Hermes", "≈8.5 GB", title]]
           and [b[0] for b in eg["spill"][2]] == ["estimate", "estimate-cache"] and eg["spill"][2][0][3] == "≈5.9 GB",
-          "пунктир на карте — два блока: веса и бледнее «кэш :22020», в подсказке какая он часть, какие слои и сколько чего на этой карте; в RAM — так же")
+          "пунктир на карте — два блока: веса и бледнее «кэш Hermes» (ячейка названа, как её называет доска, без порта), в подсказке какая он часть, "
+          "какие слои и сколько чего на этой карте; в RAM — так же")
     check('class="ui-lane-blk ui-lane-blk--estimate-cache"' in eg["html"], "бледный пунктир — вид estimate-cache части Lane")
     check([[b[0] for b in lane] for lane in eg["kvRam"]] == [["estimate", "estimate-cache"], ["estimate", "estimate-cache"], ["estimate-cache"]],
           "кэш в RAM — на полосе RAM только бледный блок кэша; negative: блока весов нулевой ширины нет")
@@ -1535,32 +1750,34 @@ def main():
 
     print("ячейки в списке моделей (скамейки нет с Н1, 2026-11-02; её правила и слова здесь):")
     bn = got["bench"]
-    check(bn["standing"] == [22009, 22020, 22014, 22026, 22018, 22023, 22005, 22030],
+    check(bn["standing"] == ["c22009", "c22020", "c22014", "c22026", "c22018", "c22023", "c22030", "c22005"],
           "стоящие — крупные первыми по тому, что взяли бы сейчас (70.7, 39.6, 31.84 свободных у Strata, 31, 3, 0.3); без размера — в "
-          "конце, по порту; negative: работающие и те, что в пути, — не среди стоящих")
-    check(bn["order"] == [22001, 22011, 22012, 22017, 22009, 22020, 22014, 22026, 22018, 22023, 22005, 22030],
+          "конце, в порядке, в каком их создали (c22030 раньше c22005), а не по номеру; negative: работающие и те, что в пути, — не среди стоящих")
+    check(bn["coming"] == ["c22017", "c22011", "c22012"],
+          "в пути — в порядке создания; negative: не по номеру и не по имени (c22017 создана первой)")
+    check(bn["order"] == ["c22001", "c22017", "c22011", "c22012", "c22009", "c22020", "c22014", "c22026", "c22018", "c22023", "c22030", "c22005"],
           "1.3.659 (владелец, 2026-10-26: «запущенные ячейки — что убираются отсюда? не надо их убирать, надо показывать, и что они "
           "грузятся или запущены»): правило говорит о каждой ячейке машины — сначала работающие, потом те, что в пути, потом стоящие; "
           "negative: запущенная из него не уходит")
     check(bn["groups"] == ["holds", "holds", "holds", "coming", "coming", "coming", "coming", "coming", "bench", "bench", "bench", "bench"],
           "где ячейка на странице: держит память (работает, прогревается, сломана) — на полосах; в пути (копия, старт, загрузка, "
           "остановка) — под ними; остальное — только в списке")
-    check(bn["every"] == [22001, 22011, 22012, 22017, 22009, 22020, 22014, 22026, 22018, 22023, 22005, 22030],
+    check(bn["every"] == ["c22001", "c22017", "c22011", "c22012", "c22009", "c22020", "c22014", "c22026", "c22018", "c22023", "c22030", "c22005"],
           "каждая ячейка машины — один раз: на полосах, в пути, стоящие")
     html = bn["html"]
-    check(html.startswith('<section class="machine-models" aria-label="Models" data-t="machine-models" data-t-state="models">')
-          and '<strong class="machine-models-title">Models</strong>' in html
-          and '<span class="machine-models-hint">click a cell to plan it, or drag it up onto the rack</span>' in html,
-          "список: заголовок и как с ним обращаться: щелчок ставит ячейку в планер, можно перетащить на стойку")
-    running = launch_of(html, 22001)
-    check('<span class="machine-bench-size" data-machine-bench-size="22001">0.6 GB in RAM</span>' in running
-          and '<span class="machine-bench-fit machine-bench-fit--good" data-machine-bench-fit="22001" data-t-state="running">running</span>' in running,
+    check(html.startswith('<section class="machine-chosen" aria-label="The model picked" data-t="machine-chosen" data-t-id="Hermes-4-70B-GGUF" data-t-state="chosen">')
+          and '<p class="machine-chosen-none" data-t="machine-chosen-none" data-t-state="none">Nothing is picked yet.</p>' in bn["noPick"]
+          and '<span class="machine-models-hint">pick a model</span>' in html,
+          "Models keeps the picking, the block above shows what is picked; negative: с ничего не выбранного блок не пустой — он говорит словами, что ничего не выбрано")
+    running = launch_of(html, "c22001")
+    check('<span class="machine-bench-size" data-machine-bench-size="c22001">0.6 GB in RAM</span>' in running
+          and '<span class="machine-bench-fit machine-bench-fit--good" data-machine-bench-fit="c22001" data-t-state="running">running</span>' in running,
           "работающая — что держит сейчас и «работает» зелёным; negative: не «влезет на карты» — она уже там")
-    check('data-machine-bench-size="22017">size not known</span>'
-          '<span class="machine-bench-fit machine-bench-fit--busy" data-machine-bench-fit="22017" data-t-state="downloading">'
+    check('data-machine-bench-size="c22017">size not known</span>'
+          '<span class="machine-bench-fit machine-bench-fit--busy" data-machine-bench-fit="c22017" data-t-state="downloading">'
           'voice.safetensors · 4.0/8.0 GB · 50%</span>' in html
-          and 'data-machine-bench-fit="22012" data-t-state="starting">starting</span>' in html
-          and 'data-machine-bench-fit="22011" data-t-state="stopping">stopping…</span>' in html
+          and 'data-machine-bench-fit="c22012" data-t-state="starting">starting</span>' in html
+          and 'data-machine-bench-fit="c22011" data-t-state="stopping">stopping…</span>' in html
           and html.count("machine-bench-fit--busy") == 4,
           "в пути — жёлтым, что делает: копирует модель (файл и цифры копии), запускается, останавливается; те же слова, что у фишки «в пути»")
     ld = bn["load"]
@@ -1573,46 +1790,49 @@ def main():
                  [{"tone": "bad", "words": "its process runs, its engine does not answer", "state": "broken"}, "4.0 GB on the cards"],
                  [{"tone": "good", "words": "running", "state": "running"}, "memory not measured"]],
           "держит память: грузит веса — жёлтым, сломана — красным, работает — зелёным; что держит — по картам; не измерено — так и сказано")
-    hermes = launch_of(html, 22020)
-    check(hermes.startswith('<div class="machine-model-launch" data-machine-pick="22020" data-machine-jobs="llm" data-t="machine-model-launch" data-t-id="22020" title="click a cell to plan it, or drag it up onto the rack">'
-                            '<button type="button" class="machine-model-port" aria-pressed="false" data-machine-pick="22020" data-t="machine-model-cell" data-t-id="22020" title=":22020 Hermes-4-70B' + choose + '">')
-          and '<span class="machine-bench-size" data-machine-bench-size="22020">≈39.6 GB by file size, without the cache</span>' in hermes
-          and '<span class="machine-bench-fit machine-bench-fit--good" data-machine-bench-fit="22020" data-t-state="cards">fits on the cards</span>' in hermes,
-          "строка ячейки выбирает её вся, порт — кнопка выбора для клавиатуры; размер по файлам с оговоркой «без кэша»; куда ляжет — зелёным")
+    hermes = launch_of(html, "c22020")
+    check(hermes.startswith('<div class="machine-model-launch" data-machine-pick="c22020" data-machine-jobs="llm" data-t="machine-model-launch" data-t-id="c22020" title="click a cell to plan it, or drag it up onto the rack">'
+                            '<button type="button" class="machine-model-port" aria-pressed="false" data-machine-pick="c22020" data-t="machine-model-cell" data-t-id="c22020" title="Hermes-4-70B' + choose + '">'
+                            '<span class="machine-model-dot" aria-hidden="true"></span>c22020</button>')
+          and '<span class="machine-bench-size" data-machine-bench-size="c22020">≈39.6 GB by file size, without the cache</span>' in hermes
+          and '<span class="machine-bench-fit machine-bench-fit--good" data-machine-bench-fit="c22020" data-t-state="cards">fits on the cards</span>' in hermes,
+          "строка ячейки выбирает её вся, её имя (cellId) — кнопка выбора для клавиатуры; размер по файлам с оговоркой «без кэша»; куда ляжет — зелёным")
     check('<b class="machine-model-name">Hermes-4-70B-GGUF</b><small class="machine-model-repo" data-t="machine-model-repo" data-t-id="Hermes-4-70B-GGUF" '
           'title="lmstudio-community/Hermes-4-70B-GGUF">lmstudio-community/<wbr>Hermes-4-70B-GGUF</small>' in html,
           "под именем модели мелко — репозиторий на HF (владелец, 2026-10-27), как был под именем на карточке")
-    check('data-t="machine-model-repo" data-t-id="Strata-Kimi" title="a&amp;b/&lt;c&gt;">a&amp;b/<wbr>&lt;c&gt;</small>' in html
-          and html.count('class="machine-model-repo"') == 2,
+    check('data-t="machine-model-repo" data-t-id="Strata-Kimi" title="a&amp;b/&lt;c&gt;">a&amp;b/<wbr>&lt;c&gt;</small>' in bn["strata"]
+          and bn["strata"].count('data-t="machine-model-ctx" data-t-id="c22014" data-t-state="set"') == 1
+          and html.count('data-t="machine-model-ctx" data-t-id="c22014"') == 0,
           "репозиторий экранирован по частям, перенос — после «/» автора (<wbr>), без пробелов по краям; negative: у ячейки, чей путь "
-          "репозитория не называет, строки нет — "
-          "автор не угадан, и пустой строки тоже нет")
+          "репозитория не называет, строки нет — автор не угадан, и пустой строки тоже нет; "
+          "negative: ячейка модели, которая не выбрана, на странице не нарисована — блок рисует только выбранную")
     check('<span class="machine-model-runner">llama.cpp</span><span class="machine-model-quant"></span><span class="machine-model-ctx" data-t="machine-model-ctx" '
-          'data-t-id="22020" data-t-state="both" title="Context set: 32,768 tokens · the model is trained for 131,072">🪟 32.8k / 🎓 131k</span>' in hermes,
+          'data-t-id="c22020" data-t-state="both" title="Context set: 32,768 tokens · the model is trained for 131,072">🪟 32.8k / 🎓 131k</span>' in hermes
+          and '<strong class="machine-model-cell-name">' not in hermes,
           "1.3.648 (владелец, 2026-10-26): рядом с раннером — заданный контекст и самый большой, на каком модель обучена, "
           "словами строки ячейки (CellContext): 🪟 задан / 🎓 обучена, числа целиком в подсказке")
-    check('class="machine-model-ctx over" data-t="machine-model-ctx" data-t-id="22009" data-t-state="over" '
+    check('class="machine-model-ctx over" data-t="machine-model-ctx" data-t-id="c22009" data-t-state="over" '
           'title="Context set: 196,608 tokens · the model is trained for 131,072 · past its training: the window is stretched (YaRN)">'
-          '🪟 197k / 🎓 131k</span>' in html
-          and 'data-t="machine-model-ctx" data-t-id="22014" data-t-state="set" title="Context set: 65,536 tokens">🪟 65.5k</span>' in html,
+          '🪟 197k / 🎓 131k</span>' in html,
           "окно больше обучения — предупреждением, как в строке; обучение не известно (Strata) — только заданное")
-    check(not any(f'data-t="machine-model-ctx" data-t-id="{p}"' in html for p in ("22018", "22005", "22030", "22026", "22023")),
-          "negative: у речи, у ячейки движка без чисел, у порта без модели и где контекст не сказан — строки контекста нет, "
+    check(not any(f'data-t="machine-model-ctx" data-t-id="{p}"' in html for p in ("c22018", "c22005", "c22030", "c22026", "c22023")),
+          "negative: у речи, у ячейки движка без чисел, у ячейки без модели и где контекст не сказан — строки контекста нет, "
           "а не «0» и не прочерк")
-    check('data-t-state="spill">18.9 GB goes to RAM</span>' in html and 'machine-bench-fit--idle" data-machine-bench-fit="22009"' in html,
+    check('data-t-state="spill">18.9 GB goes to RAM</span>' in html and 'machine-bench-fit--idle" data-machine-bench-fit="c22009"' in html,
           "не влезает на карты — сколько уйдёт в RAM, спокойным тоном: это не отказ")
-    check('machine-bench-fit--busy" data-machine-bench-fit="22026" data-t-state="none">won&#39;t fit now</span>' in html
+    check('machine-bench-fit--busy" data-machine-bench-fit="c22026" data-t-state="none">won&#39;t fit now</span>' in html
           and "≈31.0 GB, what its runner takes" in html,
           "раннер со своим замером — «столько берёт раннер»; на свою карту не влезает — «сейчас не влезет» жёлтым")
-    check("takes its card&#39;s free memory · its share of RAM is not counted here" in html and 'data-t-state="free">fits on GPU 1</span>' in html,
+    check("takes its card&#39;s free memory · its share of RAM is not counted here" in bn["strata"]
+          and 'data-t-state="free">fits on GPU 1</span>' in bn["strata"],
           "Strata: берёт свободное своей карты, и сказано, что её доля RAM здесь не учтена")
-    check('machine-bench-fit--bad" data-machine-bench-fit="22018" data-t-state="failed" title="exit 1: CUDA out of &lt;memory&gt;">failed to start</span>' in html,
+    check('machine-bench-fit--bad" data-machine-bench-fit="c22018" data-t-state="failed" title="exit 1: CUDA out of &lt;memory&gt;">failed to start</span>' in html,
           "не запустилась — красным, причина в подсказке (экранирована); negative: не «влезет», хоть по размеру и влезла бы")
-    check('<span class="machine-bench-size" data-machine-bench-size="22030"></span><span class="machine-bench-fit machine-bench-fit--idle" data-machine-bench-fit="22030" data-t-state="reserved">no model yet — choose it in the cell window</span>' in html
-          and 'data-machine-pick="22030" data-machine-jobs=""' in html,
-          "порт без модели — «без модели», без размера; negative: не «место не известно»")
-    check('<span class="machine-bench-size" data-machine-bench-size="22005">size not known</span><span class="machine-bench-fit machine-bench-fit--idle" data-machine-bench-fit="22005" data-t-state="unknown">place not known</span>' in html
-          and 'data-machine-pick="22005" data-machine-jobs="llm"' in html and '<strong class="machine-model-cell-name">ollama-qwen · 💬 LLM</strong><span class="machine-model-runner">Ollama</span>' in html,
+    check('<span class="machine-bench-size" data-machine-bench-size="c22030"></span><span class="machine-bench-fit machine-bench-fit--idle" data-machine-bench-fit="c22030" data-t-state="reserved">no model yet — choose it in the cell window</span>' in html
+          and 'data-machine-pick="c22030" data-machine-jobs=""' in html,
+          "ячейка без модели — «без модели», без размера; negative: не «место не известно»")
+    check('<span class="machine-bench-size" data-machine-bench-size="c22005">size not known</span><span class="machine-bench-fit machine-bench-fit--idle" data-machine-bench-fit="c22005" data-t-state="unknown">place not known</span>' in html
+          and 'data-machine-pick="c22005" data-machine-jobs="llm"' in html and '<strong class="machine-model-cell-name">ollama-qwen · 💬 LLM</strong><span class="machine-model-runner">Ollama</span>' in html,
           "ячейка движка — размер и место не известны, так и сказано; negative: работа не из словаря («nonsense») не названа")
     check(bn["sizes"] == ["≈39.6 GB by file size, without the cache", "takes its card's free memory · its share of RAM is not counted here",
                           "≈31.0 GB, what its runner takes", "size not known"],
@@ -1620,15 +1840,16 @@ def main():
     check(bn["jobs"] == [{"job": "llm", "count": 6}, {"job": "embed", "count": 2}, {"job": "asr", "count": 1}, {"job": "tts", "count": 2}]
           and '<div class="machine-models-jobs" role="group" aria-label="Work">' in html
           and '<button type="button" class="ui-pill" aria-pressed="false" data-machine-job="llm" data-t="machine-models-job" data-t-id="llm">💬 LLM <span class="ui-count">6</span></button>' in html,
-          "фильтр по работе над списком: работы всех ячеек машины в порядке словаря, со счётом — работающие и те, что в пути, тоже (эмбеддинг :22001, "
-          "голос :22017)")
+          "фильтр по работе над списком: работы всех ячеек машины в порядке словаря, со счётом — работающие и те, что в пути, тоже (эмбеддинг c22001, "
+          "голос c22017)")
     tts = bn["tts"]
-    slot_marks = re.findall(r'<div class="machine-model-launch" data-machine-pick="(\d+)" data-machine-jobs="[^"]*" data-t="machine-model-launch" data-t-id="\d+" title="[^"]*"( hidden)?>', tts)
+    slot_marks = re.findall(r'<div class="machine-model-launch" data-machine-pick="([^"]+)" data-machine-jobs="[^"]*" data-t="machine-model-launch" data-t-id="[^"]+" title="[^"]*"( hidden)?>', tts)
     shown = [port for port, gone in slot_marks if not gone]
-    check(shown == ["22017", "22026"] and 'aria-pressed="true" data-machine-job="tts"' in tts and sum(1 for _, gone in slot_marks if gone) == 10,
-          "выбрана работа «текст → речь» — видны только её ячейки (и та, что копирует модель), её пилюля нажата, остальные спрятаны")
-    check(not re.search(r'<div class="machine-model-launch" data-machine-pick="\d+"[^>]* hidden>', bn["stale"])
-          and 'aria-pressed="true" data-machine-job=' not in bn["stale"] and bn["stale"].count('class="machine-model-launch"') == 12,
+    check(shown == ["c22017", "c22026"] and 'aria-pressed="true" data-machine-job="tts"' in tts and sum(1 for _, gone in slot_marks if gone) == 9,
+          "выбрана работа «текст → речь» — видны только её ячейки (и та, что копирует модель), её пилюля нажата, остальные спрятаны; "
+          "строка выбранной модели в блоке — одна, её ячейка не показывается дважды")
+    check(not re.search(r'<div class="machine-model-launch" data-machine-pick="[^"]+"[^>]* hidden>', bn["stale"])
+          and 'aria-pressed="true" data-machine-job=' not in bn["stale"] and bn["stale"].count('class="machine-model-launch"') == 11,
           "negative: выбрана работа, которой на машине нет (выбрали на другой машине), — список не сужен: снять выбор было бы нечем")
     check(bn["shown"] == ["tts", "", ""], "правило: работа стоит, пока её делает ячейка машины; negative: чужая и пустая — нет")
     check(bn["empty"].endswith('<p class="machine-models-empty">The library holds no models</p></section>')
@@ -1642,73 +1863,76 @@ def main():
 
     print("куда ляжет — пунктир на полосах:")
     g = got["ghost"]
-    check(g["hermes"] == [[[16425.79, "≈16.0 GB", "would go here :22020",
-                            ":22020 Hermes-4-70B · ≈16.0 GB · part 1 of 2 · llama.cpp · ≈39.6 GB by file size, without the cache"]],
-                          [[24124.61, "≈23.6 GB", "would go here :22020",
-                            ":22020 Hermes-4-70B · ≈23.6 GB · part 2 of 2 · llama.cpp · ≈39.6 GB by file size, without the cache"]], []],
+    check(g["hermes"] == [[[16425.79, "≈16.0 GB", "would go here Hermes-4-70B",
+                            "Hermes-4-70B · ≈16.0 GB · part 1 of 2 · llama.cpp · ≈39.6 GB by file size, without the cache"]],
+                          [[24124.61, "≈23.6 GB", "would go here Hermes-4-70B",
+                            "Hermes-4-70B · ≈23.6 GB · part 2 of 2 · llama.cpp · ≈39.6 GB by file size, without the cache"]], []],
           "выбрана стоящая — пунктир на картах, куда ляжет: доля каждой (первая карта занята на 2 ГБ — ей меньше); в подсказке — что весит "
           "и по чему; negative: в RAM — ничего")
-    check(g["spill"][2] == [[18.86, "≈18.9 GB", "would go here :22009", ":22009 Llama-3.3-70B · ≈18.9 GB · part 3 of 3 · llama.cpp · ≈70.7 GB by file size, without the cache"]]
+    check(g["spill"][2] == [[18.86, "≈18.9 GB", "would go here Llama-3.3-70B", "Llama-3.3-70B · ≈18.9 GB · part 3 of 3 · llama.cpp · ≈70.7 GB by file size, without the cache"]]
           and g["spill"][0][0][1] == "≈21.0 GB" and g["spill"][1][0][1] == "≈30.8 GB",
           "не влезает на карты — пунктир заполняет их, остаток — пунктиром в RAM")
     check(g["strata"][0] == [] and g["strata"][1][0][:2] == [32607, "≈31.8 GB"], "Strata — на своей карте, всё её свободное")
     check(g["none"] == [[], [], []] and g["running"] == [[], [], []] and g["reserved"] == [[], [], []],
-          "negative: не влезет — пунктира нет нигде; выбрана работающая или порт без модели — тоже")
+          "negative: не влезет — пунктира нет нигде; выбрана работающая или ячейка без модели — тоже")
     check('class="ui-lane-blk ui-lane-blk--estimate"' in g["lanesHtml"], "пунктир — часть Lane вида estimate")
 
-    print("в пути:")
-    ch = got["comingHtml"]
-    check(ch == '<div class="machine-map-coming" data-t="machine-map-coming"><span>Starting:</span>'
-          '<button type="button" class="ui-pill" aria-pressed="false" data-machine-pick="22012" data-t="machine-map-coming-cell" data-t-id="22012">:22012 · starting</button>'
-          '<button type="button" class="ui-pill" aria-pressed="false" data-machine-pick="22017" data-t="machine-map-coming-cell" data-t-id="22017">:22017 voice-clone · voice.safetensors · 4.0/8.0 GB · 50%</button></div>'
-          '<div class="machine-map-coming" data-t="machine-map-coming"><span>Stopping:</span>'
-          '<button type="button" class="ui-pill" aria-pressed="false" data-machine-pick="22011" data-t="machine-map-coming-cell" data-t-id="22011">:22011 gemma · stopping…</button></div>',
-          "ячейки в пути — под полосами, по порту, с тем, что делают, и каждая строка говорит, что это (1.3.657: было «В пути:»): "
-          "«Запускается:» — стартует, копирует модель (файл и цифры копии); «Останавливается:» — отдельной строкой; их можно выбрать")
-    check("machine-map-coming" not in got["html"], "negative: никого в пути — строки нет")
+    print("в пути — одной списком с работающими:")
+    bl = got["benchLegend"]
+    check([row[0] for row in bl] == ["voice-clone", "gemma", "c22012", "Qwen3-Embedding-0.6B", "other processes"],
+          "список один: те, что в пути, первыми (оценку нельзя рядить с замером), между собой — в порядке создания, потом работающие по размеру, "
+          "потом чужие процессы; ячейка без имени названа своим именем (cellId), а не портом")
+    check([row[3] for row in bl[:3]] == ["voice.safetensors · 4.0/8.0 GB · 50%", "stopping…", "starting"],
+          "что делает: останавливается, запускается, копирует модель (файл и цифры копии) — те же слова, что у строки ячейки (1.3.657)")
+    check(all(row[1] == "" and row[2] == "no place yet" for row in bl[:3]),
+          "negative: ячейке ещё негде лечь — место названо словами, цифра не выдумана")
+    check([row[4] for row in bl[:4]] == ["machine-map-legend"] * 4 and [row[5] for row in bl[:4]] == ["c22017", "c22011", "c22012", "c22001"]
+          and "machine-map-coming" not in got["html"] and "machine-map-unplaced" not in got["html"],
+          "строка списка — единственный выбор на странице, и по нему блок наверху показывает модель; negative: отдельных строк «в пути» "
+          "и «не замерено» больше нет — ячейка названа один раз")
 
     print("строка — у каждой ячейки:")
     bp = got["bpanels"]
-    stood = launch_of(bp, 22020)
-    check('data-machine-bench-size="22020">≈39.6 GB by file size, without the cache</span>' in stood and '>fits on the cards</span>' in stood
-          and 'data-cell-window-open="bench:22020" data-t="machine-model-window" data-t-id="22020">Cell window</button>' in stood
-          and '<button type="button" class="ui-btn ui-btn--main" title="Start server" data-node-cell-play="bench" data-node-cell-port="22020" data-t="machine-model-start" data-t-id="22020">Start</button>' in stood
+    stood = launch_of(bp, "c22020")
+    check('data-machine-bench-size="c22020">≈39.6 GB by file size, without the cache</span>' in stood and '>fits on the cards</span>' in stood
+          and 'data-cell-window-open="c22020" data-t="machine-model-window" data-t-id="c22020">Cell window</button>' in stood
+          and '<button type="button" class="ui-btn ui-btn--main" title="Start server" data-node-cell-play="bench" data-cell-id="c22020" data-t="machine-model-start" data-t-id="c22020">Start</button>' in stood
           and "machine-model-stop" not in stood,
           "выбрана стоящая: что весит и куда ляжет; «Окно ячейки» и «Запустить» атрибутами кнопки доски; negative: «Остановить» нет")
-    reserved = launch_of(bp, 22030)
-    check('title="Choose a model first" data-t="machine-model-start" data-t-id="22030" disabled>Start</button>' in reserved
+    reserved = launch_of(bp, "c22030")
+    check('title="Choose a model first" data-t="machine-model-start" data-t-id="c22030" disabled>Start</button>' in reserved
           and "data-node-cell-play" not in reserved and "no model yet — choose it in the cell window" in reserved,
-          "negative: запустить нельзя (порт без модели) — кнопка закрыта и говорит почему, без атрибутов доски; строка говорит, где выбрать модель")
-    failed = launch_of(bp, 22018)
+          "negative: запустить нельзя (ячейка без модели) — кнопка закрыта и говорит почему, без атрибутов доски; строка говорит, где выбрать модель")
+    failed = launch_of(bp, "c22018")
     check("machine-bench-fit--bad" in failed and '<span class="machine-pick-words">exit 1: CUDA out of &lt;memory&gt;</span>' in failed
-          and 'data-t="machine-model-start" data-t-id="22018"' in failed,
+          and 'data-t="machine-model-start" data-t-id="c22018"' in failed,
           "не запустилась — красные слова, причина целиком в последней строке; «Запустить» — ещё раз")
-    coming = launch_of(bp, 22017)
+    coming = launch_of(bp, "c22017")
     check("machine-bench-fit--busy" in coming and "voice.safetensors · 4.0/8.0 GB · 50%" in coming
-          and 'title="Not running" data-t="machine-model-stop" data-t-id="22017" disabled>Stop</button>' in coming,
+          and 'title="Not running" data-t="machine-model-stop" data-t-id="c22017" disabled>Stop</button>' in coming,
           "в пути — жёлтые слова с тем, что делает; «Остановить» — закрыта, раз строитель её не дал")
     sb = got["bsubs"]
-    check(sb["22011"].endswith("stopping…") and sb["22012"].endswith("starting") and sb["22023"] == "≈0.3 GB by file size, without the cache · in RAM"
-          and sb["22014"] == "takes its card's free memory · its share of RAM is not counted here · fits on GPU 1"
-          and sb["22030"] == "no model yet — choose it in the cell window" and sb["22005"] == "size not known · place not known",
+    check(sb["c22011"].endswith("stopping…") and sb["c22012"].endswith("starting") and sb["c22023"] == "≈0.3 GB by file size, without the cache · in RAM"
+          and sb["c22014"] == "takes its card's free memory · its share of RAM is not counted here · fits on GPU 1"
+          and sb["c22030"] == "no model yet — choose it in the cell window" and sb["c22005"] == "size not known · place not known",
           "вторая строка ряда — теми же словами, что фишка «в пути»")
 
     print("выбор на странице:")
     bb = got["bbind"]
-    check(bb["chosenStopped"] == {"port": "22020", "redraws": 1, "focus": ["machine-model-cell:22020"]},
-          "выбрана стоящая — доска рисуется заново (пунктир на полосах рисует только она), клавиатура — на тот же порт в строке")
-    check(bb["leftStopped"] == {"port": "22001", "redraws": 2, "focus": ["machine-model-cell:22020", "machine-map-block:22001"]},
+    check(bb["chosenStopped"] == {"cellId": "c22020", "redraws": 1, "focus": ["machine-model-cell:c22020"]},
+          "выбрана стоящая — доска рисуется заново (пунктир на полосах рисует только она), клавиатура — на ту же кнопку её имени в строке")
+    check(bb["leftStopped"] == {"cellId": "c22001", "redraws": 2, "focus": ["machine-model-cell:c22020", "machine-map-block:c22001"]},
           "со стоящей на работающую — снова заново: пунктир надо убрать; клавиатура — на блок работающей")
-    check(bb["runningToComing"] == {"port": "22011", "redraws": 2},
+    check(bb["runningToComing"] == {"cellId": "c22011", "redraws": 2},
           "negative: с работающей на ту, что в пути, — пунктира нет ни до, ни после: показ на месте, без перерисовки")
-    check(bb["rowChosen"] == {"port": "22026", "redraws": 1},
+    check(bb["rowChosen"] == {"cellId": "c22026", "redraws": 1},
           "щелчок где угодно по строке ячейки выбирает её для планера, как щелчок по карточке выбирал")
-    check(bb["ownPressed"] == {"port": "22026", "redraws": 1},
+    check(bb["ownPressed"] == {"cellId": "c22026", "redraws": 1},
           "negative: щелчок по «Окно ячейки», «Запустить» или «Остановить» в строке — только это: ячейка не выбрана, ничего не нарисовано")
-    check(bb["rowLetGo"] == {"port": "", "redraws": 2}, "снова по той же строке — выбор снят, как у блока")
+    check(bb["rowLetGo"] == {"cellId": "", "redraws": 2}, "снова по той же строке — выбор снят, как у блока")
     check(got["oldJob"] == ["undefined", "undefined", False],
           "работу выбирает список, и держит её он (MachineModelsChoice): у выбора ячейки своей копии нет")
-    check(bb["standing"] == [True, False, False, False, False], "стоящая — та, что строитель отнёс к стоящим; negative: работающая, в пути, пусто, чужой порт")
+    check(bb["standing"] == [True, False, False, False, False], "стоящая — та, что строитель отнёс к стоящим; negative: работающая, в пути, пусто, чужое имя")
 
     print("оценка модели в её строке (владелец, 2026-10-31):")
     en_js = (ROOT / "static" / "js" / "i18n" / "en.js").read_text(encoding="utf-8")
@@ -1720,11 +1944,11 @@ def main():
           == [(" is-on", "true", "like", "Hermes-4-70B-GGUF", "👍"), ("", "false", "dislike", "Hermes-4-70B-GGUF", "👎")]
           and {words for _, _, _, _, words, _ in rates} == {like_words, dislike_words},
           f"у строки модели — две кнопки, нажата та, что стоит; negative: у модели, чей путь папки не называет, кнопок нет (got {rates})")
-    opener = html[html.index('data-machine-model-open="Hermes-4-70B-GGUF"'):html.index('<span class="machine-model-rate">', html.index('data-machine-model-open="Hermes-4-70B-GGUF"'))]
+    opener = html[html.index('data-machine-model-choose="Hermes-4-70B-GGUF"'):html.index('<span class="machine-model-rate">', html.index('data-machine-model-choose="Hermes-4-70B-GGUF"'))]
     check(opener.endswith("</button>") and "model-rate-btn" not in opener,
           "кнопки — рядом с кнопкой строки, не внутри неё: кнопка не держит другую кнопку")
     st = got["rate"]
-    check(st["pressed"] == {"looks": [["true", True], ["false", False]], "other": None, "saved": [["strata", "like"]], "facts": ["like", "like", "like"], "port": True, "redraws": 0},
+    check(st["pressed"] == {"looks": [["true", True], ["false", False]], "other": None, "saved": [["strata", "like"]], "facts": ["like", "like", "like"], "cellId": True, "redraws": 0},
           "щелчок: сразу нажата на всех карточках модели, контроллеру ушло «модель, оценка»; факты обеих ячеек помнят; negative: кнопка чужой модели не тронута, ячейка не выбрана, доска не перерисована")
     check(st["unpressed"] == {"looks": [["false", False], ["false", False]], "saved": [["strata", ""]], "facts": ["", "", "like"]},
           "тот же щелчок снимает оценку тем же путём")
@@ -1736,28 +1960,39 @@ def main():
 
     print("живой патч строк ячеек:")
     lb = got["blive"]
-    check(lb["found"][0] == lb["found"][2] and lb["found"][1] == lb["found"][2] and len(lb["found"][2]) == 12,
-          "патч находит размер и вердикт каждой ячейки там, где их нарисовала страница: в её строке, под именами data-machine-bench-size и -fit")
-    check(lb["drawnWrites"] == 0 and lb["drawn"]["22020"][:2] == ["fits on the cards", "cards"],
+    check(lb["found"][0] == lb["found"][1] and len(lb["found"][0]) == 11 and "c22014" not in lb["found"][0]
+          and lb["found"][2] == sorted(lb["found"][0] + ["c22014"]),
+          "патч находит размер и вердикт каждой ячейки там, где их нарисовала страница: в её строке, под именами data-machine-bench-size и -fit; "
+          "negative: ячейка модели, которая не выбрана, на странице не нарисована — писать там нечего (выбрана Hermes: её ячейки c22020 и c22030, "
+          "и те, у кого нет строки модели)")
+    check(lb["drawnWrites"] == 0 and lb["drawn"]["c22020"][:2] == ["fits on the cards", "cards"],
           "доска нарисовала — патч с теми же числами не переписывает полосы; слова вердиктов — на месте")
-    check(lb["ramFull"]["mapWrites"] == 0 and lb["ramFull"]["verdicts"]["22009"] == ["won't fit now", "none", "machine-bench-fit machine-bench-fit--busy"]
-          and lb["ramFull"]["chips"] == [[":22011 gemma · stopping…", 0], [":22012 · starting", 0],
-                                         [":22017 voice-clone · voice.safetensors · 6.0/8.0 GB · 75%", 1]],
-          "RAM заполнилась, копия пошла дальше — блоки те же: вердикт «уйдёт в RAM» стал «не влезет» (с тоном) и слова фишки копии — на "
-          "месте; negative: фишки без перемен не тронуты")
-    check(lb["cardFull"]["mapWrites"] == 1 and lb["cardFull"]["verdicts"]["22020"] == ["7.3 GB goes to RAM", "spill", "machine-bench-fit machine-bench-fit--idle"]
-          and lb["cardFull"]["verdicts"]["22014"][:2] == ["fits on GPU 1", "free"],
+    check(lb["ramFull"]["mapWrites"] == 0 and lb["ramFull"]["verdicts"]["c22009"] == ["won't fit now", "none", "machine-bench-fit machine-bench-fit--busy"]
+          and lb["ramFull"]["rows"] == [[None, "", "", 0, ""],
+                                        ["c22017", "no place yet", "voice.safetensors · 6.0/8.0 GB · 75%", 1,
+                                         "voice-clone\nplace not known\nvoice.safetensors · 6.0/8.0 GB · 75%"],
+                                        ["c22011", "no place yet", "stopping…", 0,
+                                         "gemma\nplace not known\nstopping…"],
+                                        ["c22012", "no place yet", "starting", 0, "c22012\nplace not known\nstarting"],
+                                        ["c22001", "RAM", "running", 0,
+                                         "Qwen3-Embedding-0.6B · 0.6 GB\nRAM: 0.6 GB · 1% of RAM · llama.cpp"],
+                                        ["other processes", "GPU 0", "", 0, "other processes · 2.0 GB\nGPU 0: 2.0 GB"]],
+          "RAM заполнилась, копия пошла дальше — блоки те же: вердикт «уйдёт в RAM» стал «не влезет» (с тоном) и слова строки копии — на "
+          "месте; negative: строки без перемен не тронуты; negative: строка заголовков — слова над колонками, не строка данных, "
+          "и патч не пишет в неё цифру первой строки")
+    check(lb["cardFull"]["mapWrites"] == 1 and lb["cardFull"]["verdicts"]["c22020"] == ["7.3 GB goes to RAM", "spill", "machine-bench-fit machine-bench-fit--idle"]
+          and "c22014" not in lb["cardFull"]["verdicts"],
           "вторую карту занял чужой процесс — на её полосе блок прибавился, полосы переписаны целиком; вердикты пересчитаны: Hermes теперь "
-          "отдаст 7.3 ГБ в RAM, Strata возьмёт оставшееся свободное")
-    check(lb["drawn"].get("22001") == ["running", "running", "machine-bench-fit machine-bench-fit--good"]
-          and lb["drawn"].get("22017") == ["voice.safetensors · 4.0/8.0 GB · 50%", "downloading", "machine-bench-fit machine-bench-fit--busy"]
-          and (lb["ramFull"]["verdicts"].get("22017") or [""])[0] == "voice.safetensors · 6.0/8.0 GB · 75%",
+          "отдаст 7.3 ГБ в RAM; negative: ячейка модели, которая не выбрана, не переписывается — её строки на странице нет")
+    check(lb["drawn"].get("c22001") == ["running", "running", "machine-bench-fit machine-bench-fit--good"]
+          and lb["drawn"].get("c22017") == ["voice.safetensors · 4.0/8.0 GB · 50%", "downloading", "machine-bench-fit machine-bench-fit--busy"]
+          and (lb["ramFull"]["verdicts"].get("c22017") or [""])[0] == "voice.safetensors · 6.0/8.0 GB · 75%",
           "живой патч строк работающей и той, что в пути: «работает» зелёным; копия — её цифры, и они идут дальше на месте")
-    check(lb["sizes"] == {"22001": "0.6 GB in RAM", "22017": "size not known", "22020": "≈39.6 GB by file size, without the cache"}
+    check(lb["sizes"] == {"c22001": "0.6 GB in RAM", "c22017": "size not known", "c22020": "≈39.6 GB by file size, without the cache"}
           and lb["moved"] == {"size": "0.9 GB in RAM", "writes": 1, "still": 0},
           "размер в строке — на месте: работающая держит 0.6 ГБ, потом 0.9 — переписано; negative: размер стоящей не менялся и не переписан")
-    check(lb["cardFull"]["verdicts"]["22018"] == ["failed to start", "failed", "machine-bench-fit machine-bench-fit--bad"]
-          and lb["cardFull"]["verdicts"]["22030"][:2] == ["no model yet — choose it in the cell window", "reserved"],
+    check(lb["cardFull"]["verdicts"]["c22018"] == ["failed to start", "failed", "machine-bench-fit machine-bench-fit--bad"]
+          and lb["cardFull"]["verdicts"]["c22030"][:2] == ["no model yet — choose it in the cell window", "reserved"],
           "negative: «не запустилась» и «без модели» патч не переписывает вердиктом места")
 
     print("картинки у полос стойки:")
@@ -1782,7 +2017,7 @@ def main():
     box_height = int(re.search(r"(?<![-\w])height:\s*(\d+)px", box).group(1))
     check("width: 34px" in box and "flex: none" in box and box_height == 20 and box_height <= lane_height,
           f"рамка одна и не сжимается: подписи полос начинаются в одном месте; {box_height} px — не выше полосы в {lane_height} px, и шесть карт не прибавляют высоты")
-    narrow = re.search(r"@container rack \(max-width: 620px\)\s*\{\s*\.machine-lane-pic\s*\{([^}]*)\}", css)
+    narrow = re.search(r"@container rack \(max-width: 780px\)\s*\{\s*\.machine-lane-pic\s*\{([^}]*)\}", css)
     check(narrow is not None and "height: 15px" in narrow.group(1),
           "узкая стойка, где подпись стоит своей строкой, — картинка не выше её слов (15 px при подписи 15.6): строка не растёт")
     who = re.search(r"\.machine-rack-lanes\s*\{[^}]*--lane-who:\s*(\d+)px", css)
@@ -1822,7 +2057,8 @@ def main():
           and 'data-t-state="some">2</span>' in sd["junk"][2],
           "известный ноль — «0»; negative: отрицательное или не число — «не известно», дробь — целое")
     check(got["headSide"] == [True, True, False, True],
-          "стойка на всю ширину, под ней сетка: список моделей слева, колонка справа; negative: без колонки — без сетки, а стойка на месте")
+          "стойка на всю ширину, её блок выбранной модели — внутри неё под легендой, и только потом сетка: список слева, колонка справа; "
+          "negative: без колонки — без сетки, а стойка на месте")
     check(got["sideIncidents"] == [1, 1, True], "«Открыть» привязан к документу один раз и открывает инциденты; negative: щелчок мимо не открывает")
 
     print()

@@ -12,13 +12,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn process() -> CellProcess {
-    CellProcess::new(ProcessParts {
+    let parts = ProcessParts {
         clock: Arc::new(SystemClock::new()),
         scope: Arc::new(MemoryScope::new(Arc::new(SystemCommands), false)),
         patterns: Arc::new(LogPatterns::new().unwrap()),
         total_memory_mib: None,
         home: "/home/scout".to_string(),
-    })
+    };
+    CellProcess::new(parts, "c3f9a2b1")
 }
 
 #[test]
@@ -61,16 +62,34 @@ fn a_cell_is_this_scout_s_when_it_says_so_or_says_nothing_of_whose() {
         std::fs::create_dir_all(folder.path.join(pid.to_string())).unwrap();
         std::fs::write(folder.path.join(pid.to_string()).join("environ"), environment.replace(' ', "\0")).unwrap();
     };
-    write(10, "A=1 CARAVAN_SCOUT_CELL=22003 CARAVAN_SCOUT_HOME=/home/scout Z=2");
+    write(10, "A=1 CARAVAN_SCOUT_CELL=c3f9a2b1 CARAVAN_SCOUT_PORT=22007 CARAVAN_SCOUT_HOME=/home/scout Z=2");
     write(11, "CARAVAN_SCOUT_CELL=22004");
-    write(12, "CARAVAN_SCOUT_CELL=22005 CARAVAN_SCOUT_HOME=/tmp/another");
+    write(12, "CARAVAN_SCOUT_CELL=c00000005 CARAVAN_SCOUT_HOME=/tmp/another");
     write(13, "CARAVAN_SCOUT_HOME=/home/scout");
+    write(14, "CARAVAN_SCOUT_CELL=22003 CARAVAN_SCOUT_HOME=/home/scout");
+    write(15, "CARAVAN_SCOUT_CELL=c22009 CARAVAN_SCOUT_HOME=/home/scout");
+    write(16, "CARAVAN_SCOUT_CELL=not-a-name CARAVAN_SCOUT_PORT=22010");
     let processes = HostProcesses::new(folder.path.clone(), Arc::new(SystemCommands)).of_scout(Path::new("/home/scout"));
-    assert_eq!(processes.port_of(10), 22003, "started by this scout");
-    assert_eq!(processes.port_of(11), 22004, "started before scouts said whose");
-    assert_eq!(processes.port_of(12), 0, "another scout's: its cell is its own");
-    assert_eq!(processes.port_of(13), 0, "no cell");
+    let cell = |pid: i64| processes.cell_of(pid);
+    assert_eq!(cell(10).as_deref(), Some("c3f9a2b1"), "started by this scout, known by its name");
+    assert_eq!(processes.port_said(10), Some(22007), "and the port its run was leased beside it");
+    assert_eq!(
+        cell(11).as_deref(),
+        Some("c22004"),
+        "started before scouts said whose, by its port: the cell of that port's name"
+    );
+    assert_eq!(processes.port_said(11), Some(22004), "its mark of then is its port");
+    assert_eq!(cell(14).as_deref(), Some("c22003"), "a mark of before by this scout");
+    assert_eq!(cell(12), None, "another scout's: its cell is its own");
+    assert_eq!(processes.port_said(12), None);
+    assert_eq!(cell(13), None, "no cell");
+    assert_eq!(processes.port_said(15), None, "a cell of now that says no port says none: its name is no port");
+    assert_eq!(cell(16), None, "a mark that is no cell's name is no cell");
     assert_eq!(processes.owned(12), Some(true), "and it is still a scout's, for what asks only that");
+    let tagged = processes.tagged_cells();
+    assert_eq!(tagged.keys().map(String::as_str).collect::<Vec<_>>(), ["c22003", "c22004", "c22009", "c3f9a2b1"]);
+    assert_eq!(processes.carrier("c3f9a2b1", 10), 10);
+    assert_eq!(processes.carrier("c3f9a2b1", 11), 10, "a pid that carries another cell's mark is not preferred");
 }
 
 #[test]

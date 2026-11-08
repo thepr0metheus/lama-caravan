@@ -197,10 +197,11 @@ impl<'app> TopologyServer<'app> {
         )
     }
 
-    pub(super) fn boot_fields(client: &Value, port: Option<&Value>) -> (bool, bool) {
+    /// Whether the machine keeps cell `cell` on autostart, and whether its scout can say: its list names cells by id, or — a scout of
+    /// before — by port, which names the cell `c<port>`.
+    pub(super) fn boot_fields(client: &Value, cell: &str) -> (bool, bool) {
         let list = client.get("autostart").and_then(Value::as_array);
-        let number = port.filter(|port| !port.is_boolean()).and_then(Coerce::int);
-        (list.into_iter().flatten().any(|said| said.as_i64() == number && number.is_some()), list.is_some())
+        (list.into_iter().flatten().any(|said| rules::CellId::read(said).as_deref() == Some(cell)), list.is_some())
     }
 
     pub(super) fn file_of(path: &str, models_dir: &Path, locations: &Locations, app: &App) -> i64 {

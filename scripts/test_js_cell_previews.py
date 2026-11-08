@@ -174,10 +174,10 @@ const form = (runner, model, alias, extra = {}) => {
 // command (setEditCurrentCommand), writes the answer into "Current command" and draws once more: wait for that here,
 // in this pin. A late draw would land in whichever pin runs next, and could answer a question that pin never put.
 const openSaved = async (config) => {
-  freshTopology([{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", port: __PORT__, slotConfig: config }] }]);
+  freshTopology([{ id: "h1", role: "host", servers: [{ isSlot: true, clientId: "h1", cellId: "c__PORT__", port: null, slotConfig: config }] }]);
   page({ alias: aliasField("") });
   globalThis.__fetchReply["/api/llama-command-preview"] = { tokens: ["bash", "run.sh"] };
-  rc.openLlamaRemoteEdit("h1", "gpu0", [], "__PORT__");
+  rc.openLlamaRemoteEdit("h1", "gpu0", [], "c__PORT__");
   for (let i = 0; i < 100 && !F()["tr-currentCmdline"].textContent; i++) await delay(10);
 };
 // The machine's list of saved configs holds one backup; the returned function loads it as a click on its row does.
@@ -412,11 +412,12 @@ PINS = [
          '(() => { typeInto("MOONSHINE_MODEL", "es"); return execLine(); })()',
          _exec("moonshine", {"MOONSHINE_MODEL": "es"}),
          "positive: a language typed into a Moonshine form — the command names it"),
-    _pin("typed_port_redraws_the_exported_port",
+    _pin("the_exported_port_is_the_one_the_scout_leases",
          GR00T_FORM,
          '(() => { typeInto("PORT", "22044"); return String(shown()).split("\\n")[0]; })()',
-         "export PORT=22044",
-         "positive: a port typed into a command cell's form — the first line of the preview exports it"),
+         "export PORT={{PORT}}",
+         "negative: a cell's form has no port of its own since 2026-11-08 — the preview exports the placeholder the scout fills "
+         "with the port it leases at the start, and a number put into a PORT field changes nothing"),
     _pin("typed_custom_command_and_env_redraw",
          'form("custom", "", "");',
          '(() => { typeInto("COMMAND", "python serve.py --x"); typeInto("ENV", "A=1"); '

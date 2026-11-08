@@ -28,10 +28,10 @@ holds the clock, the machine's tools and the environment, and a test says each.
 | `paths.rs` | Every path and port, read from the environment once. |
 | `routes/` | What the controller answers, by topic: `auth`, `cells`, `cloud`, `fleet`, `health`, `hf`, `models`, `pages`, `pools`, `proxies`, `system`, `topology`. `openapi.json` describes it. |
 | `web/` | The board's server: `server.rs` (listener, sign-in guard), `table.rs` (route tables), `exchange.rs` (one request and its answer), `access.rs` (who may call what), `parsed.rs`, `gzip.rs`, the two pages of the sign-in. |
-| `store/` | The documents on disk: `admin.rs`, `topology.rs`, `auth.rs` and `auth/`, `proxies.rs`, `cached.rs`, `base.rs`, `sqlite.rs`. |
+| `store/` | The documents on disk: `admin.rs`, `topology.rs`, `cell_ids.rs` (the slots keyed by their cells' ids, moved once by content), `auth.rs` and `auth/`, `proxies.rs`, `cached.rs`, `base.rs`, `sqlite.rs`. |
 | `domain/` | What the records are: `runner/` (a runner as an object, one file per family), `client.rs`, `client_proxy.rs`, `host.rs`, `engine.rs`, `driver_outlook.rs`. |
 | `config/` | A cell's launch config: `fields.rs`, `text.rs`, `builder.rs`, `args.rs` and `args/`, `extra.rs`, `shell.rs`, `draft_file.rs`. |
-| `fleet/` | The machines with a scout and their cells: `scout.rs`, `scout_pairing.rs`, `scout_poll.rs`, `scout_scan.rs`, `scout_bundle.rs`, `reports.rs` and `reports/`, `clients.rs`, `server_cells.rs` and `server_cells/`, `start.rs`, `launch.rs`, `launch_files.rs`, `cell_ops.rs`, `cell_outputs.rs`, `cell_schedule.rs`, `cell_assets.rs`, `cell_talk.rs` and `cell_talk/`, `cell_live.rs`, `cell_words.rs`, `remote_cells.rs`, `llama_metrics.rs`, `llama_node.rs`, `machine_cells.rs`, `machine_models.rs`, `machine_rows.rs`, `machine_scout.rs`, `controller_machine.rs`, `model_cache.rs`, `model_card.rs`, `engine_actions.rs`, `engine_cells.rs`, `engine_outputs.rs`, `gpu_driver.rs`, `host_power.rs`, `host_telemetry.rs`, `port_exclusions.rs`, `backups.rs`, `terminal.rs`. |
+| `fleet/` | The machines with a scout and their cells: `scout.rs`, `scout_pairing.rs`, `scout_poll.rs`, `scout_scan.rs`, `scout_bundle.rs`, `reports.rs` and `reports/`, `clients.rs`, `server_cells.rs` and `server_cells/`, `start.rs`, `launch.rs`, `launch_files.rs`, `cell_ops.rs`, `cell_outputs.rs`, `cell_schedule.rs`, `cell_assets.rs`, `cell_talk.rs` and `cell_talk/`, `cell_doorway.rs`, `cell_live.rs`, `cell_words.rs`, `remote_cells.rs`, `llama_metrics.rs`, `llama_node.rs`, `machine_cells.rs`, `machine_models.rs`, `machine_rows.rs`, `machine_scout.rs`, `controller_machine.rs`, `model_cache.rs`, `model_card.rs`, `engine_actions.rs`, `engine_cells.rs`, `engine_outputs.rs`, `gpu_driver.rs`, `host_power.rs`, `host_telemetry.rs`, `default_cells_retired.rs`, `listen_address_retired.rs`, `backups.rs`, `terminal.rs`. |
 | `models/` | What is on the disk and in the libraries, what the headers say, where models come from: `listing.rs`, `model_list.rs`, `headers.rs`, `gguf_header.rs`, `memory.rs`, `locator.rs`, `stores.rs` and `stores/`, `store_probe.rs`, `moves/`, `gc.rs`, `folder.rs`, `checkpoints.rs`, `walk.rs`, `hf.rs` and `hf/`, `hub.rs`, `downloads.rs` and `downloads/`, `verify.rs` and `verify/`, `staging.rs`, `watch.rs`, `notes.rs`. |
 | `cloud/` | The cloud accounts, their pools and clients: `data.rs`, `presets.rs`, `oauth.rs` and `oauth/`, `api.rs`, `call.rs`, `catalog.rs`, `subscription.rs`, `reports.rs`, `pricing.rs`, `spend.rs`, `usage_stats.rs`, `upstream_errors.rs`, `resets.rs`, `pools.rs`, `pool_edits.rs` and `pool_edits/`, `pool_state.rs`, `pool_ports.rs`, `refs.rs`, `schedules.rs`, `consumers.rs`, `entry_move.rs`, `misses.rs`, `board_providers.rs`. |
 | `proxies/` | The proxy's document and the proxy itself: `config.rs` and `config/`, `dsl.rs` and `dsl/`, `output_refs.rs`, `queues.rs`, `queue_thresholds.rs`, `entry_settings.rs`, `as_consumer.rs`, `ops.rs`, `stats.rs` and `stats/`, `latency.rs`, `token_history.rs`, `service.rs` and `service/`. |
@@ -99,12 +99,20 @@ stands behind a lock, and a change is a closure (`app.admin.change(|doc| …)`):
 across a call to the network.
 `Topology::of(doc)` is a view of its `topology` section, with its sub-keys ensured (`clients`,
 `assignments`, `clientAliases`, `layout` — the order of the server cards (pools and machines), see
-`board_layout.rs` — and `serverSlots`, the persistent host:port declarations that keep proxy cables
-attached across restarts). On load it drops, once, what scout reports and
+`board_layout.rs` — and `serverSlots`, the cells the board keeps, each under its own id (`rules::CellId`): `c<port>` for a cell
+made before 2026-11-07, `c` and eight hex digits for a new one. A slot holds no port: its scout leases one when the cell starts and
+gives it back at the stop (Papyrus `caravan-scout-port-lease`, step 2). `store/cell_ids.rs` moves a document of before once, when
+it is opened: a slot under `<host>:<port>` goes under `c<port>` without its port and its config's `PORT`, and so do the machines'
+`autostart` and `autostartRequests`; the scout comes to the same names on its own (`cells/migration.rs`). On load it drops, once, what scout reports and
 adoption left in the document (`AdminStore.SCOUT_WORDS`, the `deletedAgents` tombstones).
+A change is saved by its caller: `saving` saves at once; `save_later` marks a change that can wait — a scout's
+report, live in memory at once — and the file takes it with the next save of anything or once it has waited
+`FleetReads::REPORT_SAVE_WITHIN` (300 s), which every report and the `admin-save-later` tick (a minute) check
+(`save_if_waited`); a release saves what waits before its process ends. Until 2026-11-03 every heartbeat rewrote the
+whole file, 526 KB, 11 times a minute, on the NAS's disks.
 Owns: `admin_state` (in-memory), `admin.json` on disk.
-Key names: `AdminStore` (`open`, `read`, `change`), `Store`, `Unreadable` (a file that cannot be used is
-copied aside once before anything overwrites it), `Topology`.
+Key names: `AdminStore` (`open`, `read`, `change`, `save`, `saving`, `save_later`, `save_if_waited`), `Store`,
+`Unreadable` (a file that cannot be used is copied aside once before anything overwrites it), `Topology`.
 
 ## `board_layout.rs`
 
@@ -149,7 +157,8 @@ Then every route needs a session except the login and setup pages, the auth boot
 the machine endpoints (heartbeats, `/metrics`), which take the **fleet token** — a shared machine
 secret scouts carry in their config. Passwords are PBKDF2 (per-user salt, constant-time compare with
 a timing pad on unknown users, per-IP lockout after 5 failures); sessions are random tokens stored
-as SHA-256 hashes with a TTL. There is no command line any more: `POST /api/auth/users`
+as SHA-256 hashes with a TTL; the last sight the panel lists is written at most once in 10 minutes (`SEEN_EVERY`;
+once a minute until 2026-11-03, the whole file for every open board). There is no command line any more: `POST /api/auth/users`
 (the System page's Security panel) makes an account, changes its role or its password, and deletes it,
 and `POST /api/auth/fleet-token` gives or regenerates the token. The panel lists a session
 under the first 12 characters of its hash and ends one by exactly that id: an empty
@@ -182,6 +191,11 @@ A cell with a draft file and no type is launched with the type its file is for (
 common/draft.rs), read off `SPEC_DRAFT_MODEL_FILE` as the config names it, never off
 the path emitted: for a scout's cell that is the `{{SPEC_PATH}}` placeholder, and until 2026-10-11
 every such cell ran its draft as `draft-simple`.
+The placeholders also tell the scout which files the command reads: it copies, counts and reports a
+projector or a draft only when its placeholder is in the args (`SentArgs`,
+rust/crates/scout/src/starts/llama/sent_args.rs), not because the config names one. A draft switched
+off stays named beside `SPEC_TYPE` `none`, and until 2026-11-07 a scout still copied it (gigabytes
+for a big draft) and counted it in the start's weight, for a command that never read it.
 `model_paths` answers where this host reads the cell's three model files: without a `locations`
 snapshot every one is on the models disk (the answer from before libraries existed, and the right
 one for a command that is only being shown), with one a file that lives in a library is read from
@@ -409,6 +423,24 @@ goes by it, because a stopped cell's model may travel and its start brings it ba
 going by the first. Each listed file carries both: `referencedBy` and `readBy`.
 Owns: —.
 Key functions: `list_unused_models`, `delete_models`, `holders`, `running_owners`.
+
+## `models/defaults.rs`
+
+What a model's maker stated once, kept as a table a guard can read: 12 folders, 34 values. `modelParams` is prose
+for a person, and 28 of the 59 cards name a value twice — once for the mode with reasoning, once without, or as the
+model's trained context and once as an example in a command — so a number read out of prose is a choice, not a fact.
+Only what a card states once, in a sentence that names no mode or use, is here; `contract/model_defaults.json` keeps
+the sentence each value came from, and `scripts/check_model_defaults.py` reads every number back out of its own
+sentence, holds the field to the name the program gives it (`ConfigFields::ALL` and the flag in `config/args.rs`), and
+refuses a sentence that names a mode or a use ("для текста", "картинка") without saying the value holds for all of
+them — the word is read at the start of a word, so that "Контекст" is not a sentence about a use. A penalty is not a
+row: the cards name presence_penalty and repetition_penalty, but the caravan writes no flag for a penalty, so a cell
+cannot say it; and the port, a key, a path and a runner are the cell's facts, not the model's. `answer()` sends the
+table to the page under the key `defaults` (the model texts) and to the launch builder under `makers`
+(`RunnerPresets::list`): the preset a model's default cell became on 2026-11-07. `values(model)` is what the retirement
+of the default cells holds a slot to (`fleet/default_cells_retired.rs`).
+Owns: the maker's numbers. The sentences are the other half of the same fact, in the contract file.
+Key functions: `ModelDefaults::TABLE`, `ModelDefaults::FIELDS`, `ModelDefaults::values`, `ModelDefaults::answer`, `ModelDefaults::rows`.
 
 ## `proxies/service.rs`, `proxies/service/units.rs`
 
@@ -684,9 +716,17 @@ Key functions: `start_verify`, `verify_status`, `file_digest`, `file_sha256`.
 Background HuggingFace GGUF downloads. `start_hf_download` registers a job (id, repo, per-file and
 total byte counters) and spawns one thread per job; the thread streams each file in 1 MiB
 chunks into `<models>/<destDir>/`, updating progress under the jobs lock. A silently truncated
-stream (HF CDN closing early) is detected by byte count, the partial file deleted, and the job
-marked `error` — so a short GGUF is never served as a valid model. Finished job records are pruned
+stream (HF CDN closing early) is detected by byte count and retried from the bytes on disk; when the
+retries give up, the job is marked `error` and the partial stays, never under the model's name — so a
+short GGUF is never served as a valid model. Finished job records are pruned
 300s after completion by the `/api/hf/download/jobs` handler.
+The job lives in memory; on the disk, beside the file in progress, its partial `<name>.part` and the
+manifest `<name>.part.json` (repo, path, size) also name the files of the job after it (`rest`, since
+2026-11-03). A restart leaves only the disk: the interrupted row is the job the partial was part of —
+its file and the files after it that are neither on disk nor written by a running job — and Resume
+starts that one job (`InterruptedJob`). Before, the row was the partial alone, and the resume of a
+five-file set brought one file. A manifest whose list of the other files cannot be read is refused,
+not guessed.
 A cancel (`cancel_hf_download`, from `POST /api/hf/download/cancel`) raises a flag the thread
 checks before each file and after each chunk: the job ends `cancelled`, is never retried, and the
 bytes already fetched stay as a partial with its manifest — listed as interrupted and resumable at
@@ -729,8 +769,9 @@ Router/graph normalization — pure validation, no file I/O. The proxy decides b
 `accountId` and have unlimited concurrency), legacy rules (`default`, `schedule`, `bySource`,
 `failover` chain, fleet-wide `audioOutput`/`embeddingsOutput` short-circuits) and the optional
 n8n-style DAG (node types byModel / schedule / weighted / roundRobin / failover / queue /
-requestType; edges reference `in:<proxy>` / `rule:<node>` / `out:<output>`, with port-keyed
-`out:srv:<port>` edges kept even while the server is offline). Garbage in a graph is dropped, never
+requestType; edges reference `in:<proxy>` / `rule:<node>` / `out:<output>`, an edge to an output of a kind
+it knows — `srv:`, `cb:`, `eng:`, `mm:` — kept even while that output is not there; no output is named `srv:<port>` since
+2026-11-07, and such an edge of before leads nowhere). Garbage in a graph is dropped, never
 raised — a malformed graph degrades to legacy rules. Router `inputs` are never trusted from disk;
 they are derived from the routes.
 Owns: `DEFAULT_ROUTER_ID`, `ROUTER_NODE_TYPES`.
@@ -833,15 +874,20 @@ names the model. The output's address is the machine's entry, its scout's
 `agentUrl`; `upstreamType: "machine"`, `upstreamModel` the model's name, which
 the proxy puts into every request, `hostId` its machine. What the model does and
 the window it serves are its copies' (`ModelKind.cell_facts` of the cells the
-controller knows by machine and port): the first copy's jobs and inputs, the
+controller knows by their ids): the first copy's jobs and inputs, the
 smallest window — a request may land on any copy. A copy the controller has no
 record of says nothing; a model none of whose copies says anything carries no
 facts, and its pool's kind and window are not known. A machine whose scout gives
-no address or no list has no such outputs: its cells' `srv:<port>` outputs serve
-as before. `topology_nodes` gives each node its `entryModels`, as its record
+no address or no list has no such outputs, and its cells none either: since
+2026-11-07 a cell is no output of its own (`srv:<port>` named the port it held
+whether it ran or not; now it holds one only while it runs, Papyrus
+`caravan-scout-port-lease`), and a pool reaches it through its machine's model —
+the running copies' ports ride the output as `copyPorts`. `topology_nodes` gives each node its `entryModels`, as its record
 keeps them: the board reads a model's state and copies there. Since 1.3.655 the
-output also carries `copyPorts` — its running copies' ports, the proxy's spare way
-when the entry does not answer — and `stopped` when none of its copies runs or
+output also carries `copyPorts` — its running copies' ports: the model list reads
+from it that a copy runs; nobody dials them from outside the machine since its cells
+listen on its loopback (2026-11-08), and the proxy waits for an entry that does not
+answer instead — and `stopped` when none of its copies runs or
 starts, so a pool passes its row by (as a stopped cell's). A report that changes
 what the entry lists rewrites the routers' outputs in the background
 (`fleet_clients.CellsFollow.models`).
@@ -869,8 +915,8 @@ Key functions: `listed`, `owners`, `renames`, `recable`, `run`, `heard`, `sole_m
 The cells the controller keeps for a machine, as the machine's scout is told them (1.3.629, scout 2.37; step 3 of
 Papyrus caravan-scout-openai). Until then the scout's entry listed only the cells it had started since its own start
 or kept a start for: on 2026-10-25 it named 8 of the 17 ports the pools' rows led to. The answer to every heartbeat
-(`POST /api/topology/client-heartbeat`) now carries `cells: [{port, modelPath, config}]` — the machine's configured
-cells by port, `config` holding only the fields a model's name is made of (`MachineCells.NAME_FIELDS`: MODEL_NAME,
+(`POST /api/topology/client-heartbeat`) now carries `cells: [{id, modelPath, config}]` — the machine's configured
+cells by their ids (by port until 2026-11-07: a cell holds a port only while it runs), `config` holding only the fields a model's name is made of (`MachineCells.NAME_FIELDS`: MODEL_NAME,
 ALIAS, RUNNER, WHISPER_MODEL, MOONSHINE_MODEL, MODEL_FILE); a cell's key or any other setting never leaves the
 controller. The scout names the models itself (its `entry.ModelName`), so the rule has one copy.
 
@@ -928,18 +974,16 @@ incoming payload would lose a non-empty graph it restores the old graph into the
 newest 20 of those copies are kept (`ProxyStore.backups_kept`) and older ones are removed on the
 next write — there was no limit, and a copy per save left 13 678 of them beside the file (2026-09-20). Reads
 migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) idempotently.
-`sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
-server, one per engine model the operator made an output, and one `cb:<pool id>` per pool
+`sync_router_outputs` auto-derives every router's outputs: one per engine model the operator made an output, one
+`mm:<hash>` per model of each machine's entry (`MachineOutputs`), and one `cb:<pool id>` per pool
 (`pool_output`: a pool is in Routing for as long as it is; with a one-time migration from legacy
-`cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server. A cell's output
-carries what its model does (1.3.502, `ModelKind.cell_facts`, common/model_kinds.rs): its
+`cloud:<accountId>` outputs), keeping `rules.default` pointed at a local output. A machine's model output
+carries what its model does (1.3.502, `ModelKind.cell_facts`, common/model_kinds.rs) from its copies' cells: its
 `jobs` by the record rule (`model_jobs.cell_jobs`, the twin of the board's `cellJobs`), a chat
 cell's `inputs` by llama.cpp's own `/props`, the `languages` and `maxAudioMs` it says on its health
 path, the `contextLength` it serves — each only when known, kept by `normalize_router_output`
-through `ModelKind.clean_facts`. A cell the board knows stands still — phase `stopped` or
-`reserved` (`STANDING_PHASES`, the twin of the board's `OutputCells.PHASES`, one table in
-test_js_output_cells.py) — carries `stopped: true` (1.3.645), and a pool passes its row by; a start
-rewrites the output, and the word is gone. The outputs are rewritten by every board read
+through `ModelKind.clean_facts`. Until 2026-11-07 a cell that stood still carried `stopped: true` (`STANDING_PHASES`, 1.3.645) and a
+pool passed its row by; a cell is no output now, and a machine's model none of whose copies runs says so by its state. The outputs are rewritten by every board read
 (`topology.RouterOutputs.sync`) and, with no board open, by a machine's report — heartbeat or pull — that changed
 what its cells do (`fleet_clients.CellsFollow`, 1.3.647): in the background, one rewrite at a time and one more for a
 report that came during it (`scout_poll.Rerun`), so a cell its machine started by itself loses its mark within a
@@ -1076,7 +1120,9 @@ its token counters — and `correlate_activity` matched requests to its busy slo
 its journal timings, whichever server had served them.) `append_incidents_from_sample` derives incidents (failed / client_disconnected /
 upstream_timeout / slow first byte ≥30s / slow request ≥120s, each with a cause) and appends deduped
 records to `state/incident-log.jsonl` (30-day retention). The sample ring is trimmed to the configurable
-retention and persisted to `state/monitor-history.json` at most every 10s, reloaded on startup. Also hosts
+retention and persisted to `state/monitor-history.json` at most every 10 min (`PERSIST_EVERY`; every 10 s until
+2026-11-03, an hour of samples, 420 KB, each time) and when a release ends the process (`persist_now`), reloaded on
+startup: a restart that is no release starts without the last minutes. Also hosts
 the dashboard hardware state (`gpu_state`: the cards its scout last reported, with the reason when
 there are none) and on-demand `monitor_snapshot` (taken by the scout: nvidia-smi, or a btop frame
 rendered here via `fleet/terminal.rs` with the scout's `top` as the fallback).
@@ -1327,10 +1373,12 @@ Key functions: `fetch_model_pricing`, `per_million`.
 ## `fleet/remote_cells.rs`
 
 Remote-node probes and the in-memory telemetry rings behind topology cards. Probes, each behind its
-own `TtlCache`: `probe_remote_port` (TCP connect, 15s), `remote_llama_health` (`/health` → ok / loading — llama.cpp
-answers 503 while loading into VRAM — / down, 3s), `remote_llama_modalities` (`/props`, the
+own `TtlCache` and each through the cell's machine's scout (`cell_doorway.rs`, since 2026-11-08 — a cell listens on its
+machine's loopback): `llama_health` (`/health` → ok / loading — llama.cpp
+answers 503 while loading into VRAM — / down, 3s), `llama_modalities` (`/props`, the
 authoritative vision/audio source, 300s), and `command_cell_health` (HEALTH_PATH JSON with
-download/load progress bytes, or a bare TCP probe when unset), and `remote_cell_about` (what a cell
+download/load progress bytes, or, when unset, whether its port listens as its scout sees it on the loopback — `listening`
+of its report; `unknown` when the scout could not read its listeners), and `cell_about` (what a cell
 this controller holds no settings for says it is: engine, model, kinds — and since 1.3.502 its
 `langs`, `maxAudioMs` and `targetLang`, which the entry tells its clients of an ear, 30s). A 401 or 403 on a health path is
 `broken` — "the cell refuses the caravan": a server started with a key of its own, which the
@@ -1340,9 +1388,11 @@ proxy's requests meet as well — not the `ok` any answer below 500 used to be (
 samples collapsed, 600s retention / 300 rows kept / 150 emitted, all guarded by `_history_lock`. A cell that says it answers no
 request (`requestsProcessing` 0 on its entry) records zeros in `_tps_history`, not the rates its scout keeps while it is idle (`TokenRates`, 1.3.590):
 a cell that says no count is recorded as it reports.
-Owns: the three probe caches, the three history rings, `_history_lock`.
-Key functions: `probe_remote_port`, `remote_llama_health`,
-`command_cell_health`, `remote_llama_modalities`, the `_record_*_history` feeders used by topology.
+Owns: the three probe caches, the three history rings, `_history_lock`. (The TCP probe of a cell's port from here,
+`probe_port`, and the "closed long enough to say so" memory behind `reachable`, `port_answers.rs`, went 2026-11-08 with the
+direct way.)
+Key functions: `llama_health`, `command_cell_health`, `llama_modalities`, `cell_about`, the `_record_*_history` feeders used by
+topology.
 
 ## `fleet/cell_assets.rs`
 
@@ -1426,32 +1476,26 @@ instance.
 
 ## `fleet/cell_outputs.rs`
 
-A machine's cell is named by its output id, `srv:<port>`, in three files: the routers' outputs, rules
-and graph edges (`agent-proxies.json`, `proxies/output_refs.rs`), the pools' rows (`cloud-providers.json`
-`pools[].steps[].output`) and the models' schedules (`schedules`, keyed `out:srv:<port>`).
-`CellOutputs.move(old, new)` and `swap(a, b)` follow the cell in all three at once — the rows and the
-schedules in one write of the cloud file; until 1.3.499 a move or a swap followed the routers only,
-and after a swap a pool sent its requests to the other model (found 2026-10-12). A move onto a port a
-row or a schedule still names (a cell deleted before 1.3.499 left it) takes those names away first.
-`drop(port, host_id)` — a cell deleted — takes its rows' cables (each row stays, open, as `PoolDesk.connect_row`
-leaves one) and its schedule: a new cell takes the smallest free port, and a row still naming it would
-serve the new cell's model. A cell that was its machine's model's only copy takes that model's rows and
-schedule too (1.3.655, `MachineRows.sole_model`); a machine's model is named by no port, so a move and a
-swap leave it as it is. The routers keep their names of a deleted cell: their graph is drawn
-nowhere since 1.3.486 and decides nothing since 2026-11-02. Each file is followed on
-its own; one that cannot be written is named in the answer (`notFollowed`) and in the log, and the
-cell's move stands. An engine's model (`eng:<id>`) is named by its machine, engine and model, not by a
-port, and is not followed; neither are the proxy's in-memory health verdicts (300 s; a move and a swap
-are offered on stopped cells only).
+What a deleted cell takes with it. Until 2026-11-07 a machine's cell was named by its output id, `srv:<port>`, in the routers'
+outputs, the pools' rows and the models' schedules, and `CellOutputs` followed a cell that moved to another port or swapped
+ports with another (`move`, `swap`, 1.3.499). A cell has a port only while it runs since then (Papyrus `caravan-scout-port-lease`,
+steps 2–3): it is no output, there is nothing to move or swap, and the port picker is gone. A pool's row names the machine's
+model (`mm:<hash>`) instead; a row of before that named `srv:<port>` names the cell `c<port>`, and `MachineRows` cables it to that
+cell's model (`fleet/machine_rows.rs`).
+`dropped(id, host_id)` — a cell deleted — takes the rows and the schedule of its machine's model when it was that model's only
+copy (1.3.655, `MachineRows.sole_model`): a row still naming the model would wait for a model that is gone. Each file is followed
+on its own; one that cannot be written is named in the answer (`notFollowed`) and in the log. An engine's model (`eng:<id>`) is
+named by its machine, engine and model, and is not followed.
 Owns: nothing in memory.
-Key names: `CellOutputs` (`move`, `swap`, `drop`).
+Key names: `CellOutputs` (`dropped`).
 
 ## `cloud/schedules.rs`
 
 When each model is open (1.3.498, step 1 of the visumap scheme caravan-model-schedule; the owner,
 2026-10-12: the schedule is the model's, not a pool's or a set's). `ModelScheduleDesk.set(key,
 {enabled, windows})` is the door Routing's ⏱ calls (`POST /api/models/schedule`): the key is the
-Routing's — `acc:<account>/<model>` or `out:srv:<port>` / `out:eng:<id>` (`ModelKey`); the windows are
+Routing's — `acc:<account>/<model>`, `out:mm:<hash>` (a machine's model) or `out:eng:<id>` (`ModelKey`; an `out:srv:<port>`
+of before names an output no longer there); the windows are
 read strictly (`WeekWindows.parse`, rust/crates/rules/src/model_schedules.rs: what is wrong with which window,
 400); an unknown account is 404, and a schedule switched on with no window is 400 — it would close
 the model for good. The schedules live in `cloud-providers.json` under `schedules` (`ModelSchedules`,
@@ -1493,7 +1537,9 @@ LM Studio — `EngineReport` in `domain/engine.rs` keeps them typed, and None fo
 that cannot look, never "none"), CPU/RAM, cells, build versions, address, and its NVIDIA driver as
 the next boot will meet it (`driver`, scout 2.19+, kept in its own shapes by `DriverOutlook.clean`) —
 and `record_host_report` /
-`host_from_report` replace it with each report; its CLIENT record in `topology.clients` is the
+`host_from_report` replace it with each report — in memory at once; the file takes a machine first heard of and a
+change of its settings (`MachineSettings::remember` says) at once, and the rest within `REPORT_SAVE_WITHIN`
+(`AdminStore::save_later`); its CLIENT record in `topology.clients` is the
 operator's — name, agents — and no report touches it (old scouts still send agents; they are not
 read). `topology_hosts` computes a host's liveness on read (`online` within `HOST_REPORT_TTL`,
 180 s — three scout heartbeats — else `stale`; never stored) and returns the machines in the
@@ -1613,7 +1659,7 @@ request carries, the cue that begins a spoken answer (Step-Audio 2's `<tts_start
 own tokens its words carry; `talk_modes_json` goes to the board in `/api/state`. `CellTalk.talk` finds the cell
 in its machine's report (running, with a config — without one the board does not know what runs
 there), refuses a mode its runner does not answer, reads the window's body (`TalkAsk`: base64,
-sizes, roles) and asks, timing the answer until it began and in all. The cell's refusal is handed on
+sizes, roles) and asks through the cell's machine's scout (`cell_doorway.rs`), timing the answer until it began and in all. The cell's refusal is handed on
 as an answer (`status`, its words in `error`); no answer at all is 502.
 
 A cell that keeps voices (Qwen3-TTS, 1.3.608; the voice-clone runner's, 1.3.611, which speaks vLLM-Omni's
@@ -1631,12 +1677,31 @@ voice need `consent: true`, the operator's word that the voice is theirs or its 
 `POST /api/cell-talk/voice`.
 Key classes: `TalkMode` and its five modes, `TalkAsk`, `CellTalk`, `VoiceList`, `FormBody`, `Consent`.
 
+## `fleet/cell_doorway.rs`
+
+The way from the controller to one cell: through its machine's scout. Since step 7 of the owner's plan (Papyrus
+`caravan-scout-port-lease`, 2026-11-08) a cell listens on its machine's loopback alone (`rules::CellDoor::LISTEN`, which
+the command builders write as `--host` and every cell server of `cells/` binds), and the machine shows the network one
+port of the caravan, its scout's. `CellDoorway::of(app, host, cell)` is the scout's address as its machine reported it
+(`agentUrl`), the fleet token's field, and the cell's name; `url(path)` is `<agentUrl>/api/cell/<cell><path>`, the scout's
+door, which hands the request to the cell on the loopback as it came and every byte after it both ways (the scout's
+`cells/door.rs`). Everything the controller asks a cell goes this way: the health and the `/props` the board's cell rows
+read (`RemoteCells`), the voice and text questions of the Talk tab (`CellTalk`), and a live talk's WebSocket
+(`CellLive`). A machine that reported no scout address with its port has no way to its cells: a row then says its health is
+not known, never "down". Before, each of these asked `<machine ip>:<the cell's port>` straight over the network, and only
+the owner's firewall rule kept anyone else out; the board drew whom the firewall let in (`firewall`), whether the
+controller reached the port (`reachable`) and the rule to open it. Those words are gone with the way. A scout older than
+2.48.0 has no door: a start on its machine is refused with "update the scout" (`ScoutStart::OPENS_ITS_CELLS`), and the
+scout takes the release at its machine's next report. Every slot loses its `HOST` once, at the start
+(`ListenAddressRetired`): the address is the caravan's word, not a setting of the cell, and EXTRA_ARGS cannot say
+`--host` or `--port` again (`LlamaArgs::CARAVANS_OWN`).
+
 ## `fleet/cell_live.rs`
 
 A live talk with a running cell over the cell's own WebSocket, through the controller (1.3.612): `GET /api/cell-live`
 opened as a WebSocket. A runner says it talks live in its `LiveSpec` (`domain/runner/specs.rs`: the cell's path —
 MiniCPM-o's `/backend` — and the protocol the board's window speaks there). `CellLive` finds the cell as the voice
-window does (`CellTalk.cell`: running, with a config), opens its WebSocket with the browser's own handshake (`LiveAsk`:
+window does (`CellTalk.cell`: running, with a config), opens its WebSocket through the scout's door (`cell_doorway.rs`) with the browser's own handshake (`LiveAsk`:
 the key, the version, the extensions and the protocol go on; the page's Origin and the board's cookie do not), checks
 the 101 and its accept (`CellAnswer`; anything else is 502 with the cell's line) and hands that answer to the browser.
 From then on it passes the bytes both ways, unparsed — the client's masked frames one way, the server's frames the
@@ -1722,9 +1787,8 @@ slot (reserving the next free port when none is given); `client_server_slot_dele
 and also tells the scout to stop/clear the node — otherwise the cell keeps coming back with the next
 report. `CellAutostart` (1.3.504) keeps a cell's autostart with its slot: the scout's kept request
 makes a slot again where the controller lacks one (`KeptCells`), so a deletion takes the request away
-first (`forget`), and a port move or a swap (`moved`) takes it off the old port before the slots move
-and puts it on the new one after, from the slot there; a refused move puts it back. A scout out of
-reach keeps its request, and the answer says so (`autostart: {port, enabled, ok, error?}`). `server_cell_save_config` saves without starting (and refreshes the request the scout keeps
+first (`forget`). A request is kept by the cell's id since 2026-11-07 (scout 2.46.0), and there is no port move or swap
+to follow any more. A scout out of reach keeps its request, and the answer says so (`autostart: {ok, error?}`). `server_cell_save_config` saves without starting (and refreshes the request the scout keeps
 for an autostart cell); a cell whose runner serves a page of its own (`PageSpec`, PersonaPlex's `PAGE_URL`) has the
 page's address checked for its form first — https, a name, a port and a path or none — and is refused whole otherwise
 (1.3.613): the form hears why, and a start never reads the address. `server_cell_action` forwards start/restart (from the saved slot config;
@@ -1736,6 +1800,22 @@ IS that answer. `script_preview` shows a script a command names, from this machi
 Owns: —.
 Key functions: `client_server_slot_add`, `client_server_slot_delete`, `server_cell_save_config`,
 `server_cell_action`, `bring_home`, `script_preview`; `CellAutostart` (`CELL_AUTOSTART`: `forget`, `moved`).
+
+## `fleet/default_cells_retired.rs`
+
+The default cells of 2026-11-05, retired on 2026-11-07 (Papyrus `caravan-scout-port-lease`, step 1). From 2026-11-05 every
+folder of the library got a cell on every machine at each start: a slot with a reserved port and one more fact,
+`defaultFor`. On 2026-11-07 that was 51 of the 85 ports of the big machine, none ever started, and one took an `mmproj` file
+for its model. The owner chose: a cell holds a port only while it runs, and a default cell becomes a preset — the
+maker's numbers, offered by the launch builder as the model's own set (`makers` of `RunnerPresets::list`), with no slot
+and no port until a launch of them is started. A step of the start's migrations looks at each marked slot once: one the
+preset gives back whole — its config is `ModelDefaults::values` of its folder with at most a file, the names the pass
+gave it, no note, schedule or command history — goes, kept as it was under `topology.defaultCellsRetired` (`at`,
+`slots` by key) and its cables taken away as a deletion takes them (`CellOutputs::dropped`); one that holds more is the
+operator's cell now and only loses the mark. `cacheModels` is not the operator's here: a start asks it again, and the
+record keeps it. No code makes the mark any more, so the step finds nothing after the first start.
+Owns: `defaultCellsRetired`.
+Key functions: `DefaultCellsRetired::migrate`, `DefaultCellsRetired::given_back`.
 
 ## `routes/`, `web/server.rs`, `web/table.rs`, `web/exchange.rs`
 
@@ -1803,8 +1883,8 @@ Entry point. `Program::run` refuses a container without its two settings and a b
 forever. Two flags are their own programs: `--health`, the container's check of itself (the image has no other
 tool to ask with), and `StoreProbe::CHILD_FLAG`, a look inside a store as a child process.
 `Startup::run`: a data folder this process cannot write stops the start; then the proxy and its watchdog, the
-one-shot migrations (a step that fails says so and the rest go on), the built-in clients, the pools' rows of the
-machines, and the background threads: the first walk of the models folder, the board's first read over the
+one-shot migrations (a step that fails says so and the rest go on; the last retires the models' default cells,
+`fleet/default_cells_retired.rs`), the built-in clients, the pools' rows of the machines, and the background threads: the first walk of the models folder, the board's first read over the
 journal, the monitor sampler loop (1s cadence), a one-shot bootstrap that recomputes cloud-fallback eligibility
 from current graph connections (writing `agent-proxies.json` only when something changed), the 6-hour threshold
 refresh loop, a minute's giving back of freed memory, the release watch, the GPU driver's watch and the cells'

@@ -1,5 +1,7 @@
 //! Token-rate history, fed by the proxy's own records.
 
+use super::client_ids::FormerPorts;
+use super::config::ProxiesConfig;
 use crate::app::App;
 use files::AtomicFile;
 use plumbing::log::Log;
@@ -120,7 +122,7 @@ impl<'app> TokenHistory<'app> {
             "t": moment,
             "sig": sig,
             "client": client,
-            "port": item.get("port").and_then(Coerce::int),
+            "routeId": Coerce::text(item.get("routeId")),
             "route": route,
             "promptTps": if timed.is_some() { json!(Coerce::rounded(measure("prompt_per_second"), 1)) } else { json!(0) },
             "evalTps": if timed.is_some() { json!(Coerce::rounded(measure("predicted_per_second"), 1)) } else { json!(derived_at("evalTps")) },
@@ -134,7 +136,7 @@ impl<'app> TokenHistory<'app> {
         }))
     }
 
-    /// One entry per completed proxy request of the sample, attributed to the consumer by proxy port.
+    /// One entry per completed proxy request of the sample, attributed to its client by the record's id.
     pub fn record(&self, sample: &Value) {
         let agents = sample.get("agentProxies").and_then(|proxies| proxies.get("agents")).and_then(Value::as_object);
         let mut items: Vec<&Value> = Vec::new();
@@ -166,16 +168,16 @@ impl<'app> TokenHistory<'app> {
         }
     }
 
-    /// The rows of one port, or of one client, over a range.
-    pub fn query(&self, client: &str, range: &str, port: &str) -> Value {
+    /// The rows of one client of the entry (`route_id`), or of one sender's address, over a range. A row written before 2026-11-07
+    /// names its client by the number it had then, and is that client's still.
+    pub fn query(&self, client: &str, range: &str, route_id: Option<&str>) -> Value {
         let mut rows = {
             let mut held = self.app.token_history.rows.lock().unwrap_or_else(PoisonError::into_inner);
             held.get_or_insert_with(|| self.load()).clone()
         };
-        if !port.is_empty() {
-            if let Ok(port) = Coerce::strip(port).parse::<i64>() {
-                rows.retain(|row| row.get("port") == Some(&json!(port)));
-            }
+        let former = FormerPorts::of(&ProxiesConfig::of(self.app).read_payload());
+        if let Some(route_id) = route_id {
+            rows.retain(|row| former.client_of(row).as_deref() == Some(route_id));
         } else if !client.is_empty() {
             rows.retain(|row| row.get("client").and_then(Value::as_str) == Some(client));
         }
@@ -193,7 +195,8 @@ impl<'app> TokenHistory<'app> {
                     "promptTokens": or("promptTokens", json!(0)), "evalTokens": or("evalTokens", json!(0)),
                     "promptMs": or("promptMs", json!(0)), "genMs": or("genMs", json!(0)),
                     "cacheTokens": or("cacheTokens", json!(0)), "finish": or("finish", json!("")),
-                    "port": row.get("port"), "route": or("route", json!("")), "client": or("client", json!("")),
+                    // absent-ok: a row of no client of the entry is said with no id.
+                    "routeId": former.client_of(row).unwrap_or_default(), "route": or("route", json!("")), "client": or("client", json!("")),
                 })
             })
             .collect();

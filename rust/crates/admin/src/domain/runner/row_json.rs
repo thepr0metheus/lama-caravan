@@ -52,6 +52,9 @@ impl RowJson {
                 out.insert(key.to_string(), json!(true));
             }
         }
+        if !row.own_companions.is_empty() {
+            out.insert("ownCompanions".to_string(), json!(row.own_companions));
+        }
         if !row.format_requirements.is_empty() {
             let gates: Map<String, Value> =
                 row.format_requirements.iter().map(|(quant, compute)| ((*quant).to_string(), json!(compute))).collect();

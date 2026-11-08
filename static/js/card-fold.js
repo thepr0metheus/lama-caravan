@@ -207,10 +207,10 @@ export class CardFold {
 
   /** Whether a cell may fold. Settled states only: running with nothing to
    *  report, or parked — configured, or reserved with no model yet. Starting,
-   *  warming, stopping, failed, crashed or out of reach keeps the full card. */
+   *  warming, stopping, failed or crashed keeps the full card. */
   static cellQuiet(f = {}) {
     const settled = f.phase === "running" || f.phase === "stopped" || f.phase === "reserved";
-    return settled && !f.transient && !f.crashed && !f.unreachable;
+    return settled && !f.transient && !f.crashed;
   }
 
   /** Whether a cell has failed: its start ended in an error, or its process lives around a dead engine. It folds
@@ -231,8 +231,8 @@ export class CardFold {
    *  line (cellFailed), and never hides either. */
   static cellFoldable(f = {}) {
     return CardFold.cellQuiet(f) || CardFold.cellFailed(f) || (["start", "stop"].includes(f.motion)
-      && !f.deleting && !f.crashed && !f.unreachable && !f.failed)
-      || (!!f.progress && !f.deleting && !f.crashed && !f.unreachable && !f.failed);
+      && !f.deleting && !f.crashed && !f.failed)
+      || (!!f.progress && !f.deleting && !f.crashed && !f.failed);
   }
 
   /** Whether a machine's eye may hide a cell: quiet, and not running — parked,

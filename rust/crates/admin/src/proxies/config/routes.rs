@@ -1,21 +1,18 @@
-//! The proxy's routes one at a time: their ports, their keys, their settings.
+//! The clients' records one at a time: their keys, their settings, their deletion.
 
 use super::*;
 
 /// What a patch of one route is held against.
 pub(super) struct PatchContext<'read> {
-    pub(super) entry_open: bool,
     pub(super) routers: &'read BTreeSet<String>,
     pub(super) others: &'read [Value],
-    pub(super) target: i64,
+    pub(super) target: &'read str,
 }
 
 impl<'app> ProxiesConfig<'app> {
-    /// Every number the fleet must not hand out, from ALL of its own registers.
-    /// Every port the fleet holds: a route's, a cell's, an excluded one.
-    pub fn all_taken_ports(&self, routes: &[Value]) -> BTreeSet<i64> {
+    /// Every port the fleet holds: a cell's, an excluded one, the entry's. A client holds none: it comes in through the entry.
+    pub fn all_taken_ports(&self) -> BTreeSet<i64> {
         let mut used = self.app.used_cell_ports();
-        used.extend(routes.iter().filter_map(|route| Coerce::int_or_zero(route.get("port"))));
         if let Ok(config) = self.load() {
             used.extend(Coerce::int_or_zero(config.get("entry").and_then(|entry| entry.get("port"))));
         }
@@ -28,60 +25,17 @@ impl<'app> ProxiesConfig<'app> {
         ListeningPorts::read().busy(port)
     }
 
-    /// The smallest free port in the proxy range: a consumer's number.
-    pub fn next_free_port(&self, routes: &[Value]) -> Result<i64, AppError> {
-        let used = self.all_taken_ports(routes);
-        let ports = self.app.paths.proxy_ports;
-        let mut port = ports.base;
-        while used.contains(&port) || Self::port_is_listening(port) {
-            port += 1;
-            if port > ports.upper {
-                return Err(AppError::with_status(format!("no free proxy port left in the proxy range {ports}"), 500));
-            }
-        }
-        Ok(port)
-    }
-
-    /// Deletes ANY proxy port from the board, with its router wiring.
-    pub fn delete_route(&self, port: Option<&Value>, force: bool) -> Result<Value, AppError> {
-        let port = port.and_then(Coerce::int).ok_or_else(|| AppError::new("port must be a number"))?;
+    /// Deletes one client from the board: its key stops opening the entry in the same write.
+    pub fn delete_route(&self, route_id: &str) -> Result<Value, AppError> {
         let payload = self.load()?;
         let routes = Coerce::list(payload.get("routes"));
-        let is_it = |route: &Value| route.get("port").and_then(Value::as_i64) == Some(port);
+        let is_it = |route: &Value| ClientIds::of(route) == route_id;
         let Some(target) = routes.iter().find(|route| is_it(route)).cloned() else {
-            return Err(AppError::with_status(format!("no proxy route on port {port}"), 404));
+            return Err(AppError::with_status(format!("no client has the id {route_id}"), 404));
         };
-        if !force {
-            let bound = self.bound_to(port);
-            if !bound.is_empty() {
-                return Err(AppError::with_status(
-                    format!("port {port} is still assigned to {} — point the agent elsewhere first", bound.join(", ")),
-                    409,
-                ));
-            }
-        }
         let kept: Vec<Value> = routes.iter().filter(|route| !is_it(route)).cloned().collect();
         self.save(Value::Array(kept), payload.get("routers").cloned(), None)?;
-        Ok(json!({"deleted": port, "label": Coerce::text(target.get("label"))}))
-    }
-
-    /// Who is pointed at a port, as "host/agent".
-    pub(super) fn bound_to(&self, port: i64) -> Vec<String> {
-        let end = format!(":{port}");
-        self.app.admin.change(|doc| {
-            let mut topology = Topology::of(doc);
-            let mut bound = Vec::new();
-            for (host, row) in topology.assignments().iter() {
-                for entry in row.get("assignments").and_then(Value::as_array).into_iter().flatten() {
-                    for route in entry.get("routes").and_then(Value::as_array).into_iter().flatten() {
-                        if Coerce::text(route.get("proxyId")).ends_with(&end) {
-                            bound.push(format!("{host}/{}", Coerce::str_of(entry.get("agentId"))));
-                        }
-                    }
-                }
-            }
-            bound
-        })
+        Ok(json!({"deleted": route_id, "label": Coerce::text(target.get("label"))}))
     }
 
     /// The proxy's policy.
@@ -109,19 +63,9 @@ impl<'app> ProxiesConfig<'app> {
         Ok(format!("lcv1_{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
     }
 
-    /// A route's own settings.
-    pub fn set_route_policy(&self, port: Option<&Value>, patch: &Value) -> Result<Value, AppError> {
-        let target = port.and_then(Coerce::int).ok_or_else(|| {
-            let words = if port.is_none_or(Value::is_null) {
-                "int() argument must be a string, a bytes-like object or a real number, not 'NoneType'".to_string()
-            } else {
-                format!("invalid literal for int(): {}", Coerce::str_of(port))
-            };
-            AppError::with_status(words, 500)
-        })?;
+    /// A client's own settings: `route_id` names it.
+    pub fn set_route_policy(&self, route_id: &str, patch: &Value) -> Result<Value, AppError> {
         let mut payload = self.load()?;
-        let entry_open =
-            Coerce::int_or_zero(payload.get("entry").and_then(|entry| entry.get("port"))).is_some_and(|port| port != 0);
         let routers: BTreeSet<String> = payload
             .get("routers")
             .and_then(Value::as_array)
@@ -135,9 +79,9 @@ impl<'app> ProxiesConfig<'app> {
             .and_then(Value::as_array_mut)
             .ok_or_else(|| AppError::with_status("proxy route not found", 404))?;
         let mut found = false;
-        for route in routes.iter_mut().filter(|route| route.get("port").and_then(Value::as_i64) == Some(target)) {
+        for route in routes.iter_mut().filter(|route| ClientIds::of(route) == route_id) {
             found = true;
-            let context = PatchContext { entry_open, routers: &routers, others: &others, target };
+            let context = PatchContext { routers: &routers, others: &others, target: route_id };
             self.patch_route(route, patch, &context)?;
         }
         if !found {
@@ -200,17 +144,7 @@ impl<'app> ProxiesConfig<'app> {
             fields.insert("preemptible".to_string(), json!(Coerce::truthy(patch.get("preemptible"))));
         }
         if patch.get("portClosed").is_some() {
-            if Coerce::truthy(patch.get("portClosed")) {
-                if !context.entry_open {
-                    return Err(AppError::with_status(
-                        "the entry is off — open it before closing a port, or the agent has no way in",
-                        409,
-                    ));
-                }
-                fields.insert("portClosed".to_string(), json!(true));
-            } else {
-                return Err(ProxiesConfig::own_ports_gone());
-            }
+            return Err(ProxiesConfig::own_ports_gone());
         }
         Self::patch_upstream(fields, patch)?;
         if patch.get("cloudFallbackProviderId").is_some() {

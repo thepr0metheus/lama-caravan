@@ -343,7 +343,7 @@ button.ui-row-name:focus-visible { outline: 2px solid var(--ui-act-strong); outl
 .ui-lane-blk--other { background: var(--ui-hatch); color: var(--ui-text-dim); }
 .ui-lane-blk--estimate { border: 2px dashed var(--ui-act); background: color-mix(in srgb, var(--ui-act) 12%, transparent); color: var(--ui-act-strong); }
 .ui-lane-blk--estimate-cache {
-  border: 2px dashed color-mix(in srgb, var(--ui-act) 55%, transparent);
+  border: 2px dotted color-mix(in srgb, var(--ui-act) 70%, transparent);
   background: color-mix(in srgb, var(--ui-act) 5%, transparent);
   color: var(--ui-text-dim);
 }
@@ -456,7 +456,7 @@ button.ui-lane-blk:focus-visible { outline: 2px solid var(--ui-act-strong); outl
 .ui-legend { display: flex; flex-direction: column; min-width: 0; }
 .ui-legend-row {
   display: grid;
-  grid-template-columns: 9px minmax(0, 1fr) 46px 92px 34px;
+  grid-template-columns: 9px minmax(0, 1fr) 40px 66px 100px;
   align-items: center;
   gap: 0 var(--ui-s2);
   width: 100%;
@@ -489,22 +489,26 @@ button.ui-legend-row:focus-visible { outline: 2px solid var(--ui-act-strong); ou
 .ui-lane-c--other > .ui-legend-name { font-weight: 500; color: var(--ui-muted); }
 .ui-legend-figure { text-align: right; font: 500 var(--ui-fs-fact)/1.35 var(--ui-mono); color: var(--ui-text-dim); font-variant-numeric: tabular-nums; }
 .ui-legend-where { overflow: hidden; text-overflow: ellipsis; color: var(--ui-muted); }
-.ui-legend-speed { text-align: right; font: 500 var(--ui-fs-fact)/1.35 var(--ui-mono); color: var(--ui-good); font-variant-numeric: tabular-nums; }
+.ui-legend-doing { overflow: hidden; text-overflow: ellipsis; font: 500 var(--ui-fs-fact)/1.35 var(--ui-mono); color: var(--ui-good); font-variant-numeric: tabular-nums; }
 .ui-legend-row.ui-legend-heads { height: 15px; font: 650 var(--ui-fs-label)/15px var(--ui-font); letter-spacing: .05em; color: var(--ui-muted); }
-.ui-legend-heads .ui-legend-figure, .ui-legend-heads .ui-legend-speed { font: inherit; color: inherit; }
+.ui-legend-heads .ui-legend-figure, .ui-legend-heads .ui-legend-doing { font: inherit; color: inherit; }
 .ui-legend-empty { margin: 0; padding: var(--ui-s1); font: 500 var(--ui-fs-fact)/1.35 var(--ui-font); color: var(--ui-muted); }
 /* A pointer on a holder, in the list or on a block: its pieces and its line stay, the rest step back (MachinePick.light). */
 .is-lighting .ui-lane-blk:not(.is-lit), .is-lighting .ui-legend-row:not(.is-lit) { opacity: .35; }
 /* Narrower, the little charts go, the figures stay; the list goes under the lanes (machine.css); too narrow for a row, the bar under its
-   name and the figures under the bar, on no lines. */
-@container rack (max-width: 1180px) {
+   name and the figures under the bar, on no lines. The little charts take 176 px of a row, so they stay only where the bar keeps 240 px with
+   them beside the list: from a rack of 1366 px. At 1180 px they came while the bar was 144 px wide (2026-11-07). Under 780 px a row is too
+   short for its words, its room, a bar and its figures at once; its free room is then only as wide as its figure, and the words cut short ran
+   into it ("45 °C31.8 free" on a phone, 2026-11-07): the two columns stand apart there. Not at rest: a gap there would move the lanes'
+   columns off the heads' over them. */
+@container rack (max-width: 1365px) {
   .ui-lane--rack, .ui-lane-heads { --lane-metrics: 214px; }
   .ui-lane-metrics { grid-template-columns: 44px 84px 62px; column-gap: var(--ui-s2); }
   .ui-lane-metric-spark { display: none; }
 }
-@container rack (max-width: 620px) {
+@container rack (max-width: 780px) {
   .ui-lane-heads { display: none; }
-  .ui-lane--rack { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto var(--lane-height) auto auto; row-gap: var(--ui-s1); }
+  .ui-lane--rack { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto var(--lane-height) auto auto; row-gap: var(--ui-s1); column-gap: var(--ui-s2); }
   .ui-lane--rack > .ui-lane-head { grid-column: 1; grid-row: 1; }
   .ui-lane--rack > .ui-lane-free { grid-column: 2; grid-row: 1; padding-right: 0; }
   .ui-lane-line { grid-column: 1 / -1; grid-row: 2; }

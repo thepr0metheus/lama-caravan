@@ -66,6 +66,11 @@ impl AnswerHeadReader {
         Self::default()
     }
 
+    /// Whether a byte of a head has come: an answer has begun, and whoever sent it read the request.
+    pub fn began(&self) -> bool {
+        !self.raw.is_empty()
+    }
+
     /// The answer's head, stepping over any `100 Continue` before it. Fails as the source fails, a read that waited its
     /// time included.
     pub fn read(&mut self, source: &mut impl BufRead) -> io::Result<AnswerHead> {
@@ -328,39 +333,25 @@ impl<R: Read> Read for AnswerBody<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stutter::{Patience, Stutter};
     use std::io::Cursor;
 
-    /// A source that hands out its pieces one read at a time, failing with `TimedOut` between them:
-    /// a socket whose read waited its time.
-    struct Stutter {
-        pieces: Vec<Vec<u8>>,
-        at: usize,
-        waited: bool,
+    /// A source whose reads time out between `pieces`: a socket whose read waited its time.
+    fn stutter(pieces: &[&[u8]]) -> Stutter {
+        Stutter::of(io::ErrorKind::TimedOut, pieces)
     }
 
-    impl Stutter {
-        fn of(pieces: &[&[u8]]) -> Self {
-            Self { pieces: pieces.iter().map(|piece| piece.to_vec()).collect(), at: 0, waited: false }
-        }
-    }
-
-    impl Read for Stutter {
-        fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
-            if !self.waited {
-                self.waited = true;
-                return Err(io::Error::new(io::ErrorKind::TimedOut, "waited"));
+    /// All of `body`, read 64 bytes at a time and asked again after each wait; and how many waits there were.
+    fn read_whole(body: &mut AnswerBody<Stutter>) -> (Vec<u8>, usize) {
+        let mut patience = Patience::default();
+        let mut out = Vec::new();
+        let mut piece = [0u8; 64];
+        loop {
+            match patience.answer("a piece of the body", || body.read(&mut piece)) {
+                Ok(0) => return (out, patience.waits()),
+                Ok(count) => out.extend_from_slice(&piece[..count]),
+                Err(error) => panic!("{error}"),
             }
-            self.waited = false;
-            let Some(piece) = self.pieces.get_mut(self.at) else {
-                return Ok(0);
-            };
-            let count = piece.len().min(out.len());
-            out[..count].copy_from_slice(&piece[..count]);
-            piece.drain(..count);
-            if piece.is_empty() {
-                self.at += 1;
-            }
-            Ok(count)
         }
     }
 
@@ -394,26 +385,14 @@ mod tests {
     #[test]
     fn a_wait_inside_the_head_loses_nothing() {
         let pieces: &[&[u8]] = &[b"HTTP/1.1 2", b"00 OK\r\nX-A", b": 1\r\n", b"\r", b"\nbody"];
-        let mut source = BufReader::with_capacity(4, Stutter::of(pieces));
+        let mut source = BufReader::with_capacity(4, stutter(pieces));
         let mut reader = AnswerHeadReader::new();
-        let mut waits = 0;
-        let head = loop {
-            match reader.read(&mut source) {
-                Ok(head) => break head,
-                Err(error) if error.kind() == io::ErrorKind::TimedOut => waits += 1,
-                Err(error) => panic!("{error}"),
-            }
-        };
+        let mut patience = Patience::default();
+        let head = patience.answer("the head", || reader.read(&mut source)).unwrap();
         assert_eq!((head.status, head.headers.get("x-a").as_deref()), (200, Some("1")));
-        assert!(waits >= pieces.len() - 1, "{waits} waits seen");
+        assert!(patience.waits() >= pieces.len() - 1, "{} waits seen", patience.waits());
         let mut rest = Vec::new();
-        loop {
-            match source.read_to_end(&mut rest) {
-                Ok(_) => break,
-                Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
-                Err(error) => panic!("{error}"),
-            }
-        }
+        patience.answer("the rest", || source.read_to_end(&mut rest)).unwrap();
         assert_eq!(rest, b"body");
     }
 
@@ -528,18 +507,8 @@ mod tests {
 
     #[test]
     fn an_answer_until_its_close_may_come_in_pieces() {
-        let mut body = AnswerBody::new(BufReader::new(Stutter::of(&[b"one ", b"two"])), &head(&[], 200), "POST");
-        let mut out = Vec::new();
-        let mut piece = [0u8; 64];
-        loop {
-            match body.read(&mut piece) {
-                Ok(0) => break,
-                Ok(count) => out.extend_from_slice(&piece[..count]),
-                Err(error) if error.kind() == io::ErrorKind::TimedOut => {}
-                Err(error) => panic!("{error}"),
-            }
-        }
-        assert_eq!(out, b"one two");
+        let mut body = AnswerBody::new(BufReader::new(stutter(&[b"one ", b"two"])), &head(&[], 200), "POST");
+        assert_eq!(read_whole(&mut body).0, b"one two");
     }
 
     #[test]
@@ -560,19 +529,8 @@ mod tests {
     #[test]
     fn a_wait_anywhere_in_the_chunks_loses_nothing() {
         let pieces: &[&[u8]] = &[b"1", b"0\r", b"\n0123456", b"789abcdef\r", b"\n1;x=", b"y\r\nZ\r\n0\r\nT: ", b"v\r\n\r\n"];
-        let mut body =
-            AnswerBody::new(BufReader::new(Stutter::of(pieces)), &head(&[("Transfer-Encoding", "chunked")], 200), "POST");
-        let mut out = Vec::new();
-        let mut piece = [0u8; 64];
-        let mut waits = 0;
-        loop {
-            match body.read(&mut piece) {
-                Ok(0) => break,
-                Ok(count) => out.extend_from_slice(&piece[..count]),
-                Err(error) if error.kind() == io::ErrorKind::TimedOut => waits += 1,
-                Err(error) => panic!("{error}"),
-            }
-        }
+        let mut body = AnswerBody::new(BufReader::new(stutter(pieces)), &head(&[("Transfer-Encoding", "chunked")], 200), "POST");
+        let (out, waits) = read_whole(&mut body);
         assert_eq!(out, b"0123456789abcdefZ");
         assert!(waits >= pieces.len(), "the source waited before every piece, {waits} waits seen");
     }

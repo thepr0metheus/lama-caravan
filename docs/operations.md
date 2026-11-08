@@ -50,10 +50,19 @@ The home deployment does all four with one command, `python3 deploy/nas/release_
 (it names its machines, and `deploy/nas/` stays out of the public mirror). The running
 release and the two before it stay; the older go.
 
-Then a machine's scout takes that release from its ⋯ menu on the board, **Update the
-scout**. Cells outlive the restart. A copy of a model and a build do not, so a machine in
-the middle of one refuses and nothing changes. A new machine takes it with the command of
-＋ Add scout.
+Then a machine's scout takes that release by itself when the scout in it changed: the
+controller hands it at the machine's next report (rust/crates/admin/src/fleet/scout_follow.rs),
+compares the two releases by `content` in `scout-bundle.json` (the program and its scripts),
+asks a busy scout again 2 minutes on, and says each step in its log (`[scout-release]`).
+`CARAVAN_SCOUT_FOLLOW=off` in its environment turns that off. The machine's ⋯ menu on the
+board, **Update the scout**, does the same by hand, and a busy machine is asked again in
+the same cycle. Cells outlive the restart. A copy of a
+model, a move of its model folders and a build do not, so a machine in the middle of one refuses
+and nothing changes. A
+request through the machine's entry does not refuse it: the scout puts the release in place,
+answers what it waits for (`waitsFor`), and ends once nothing passes through it, ten minutes
+at the most, as the controller waits for its proxy (`rules::ReleasePatience`). A
+new machine takes it with the command of ＋ Add scout.
 
 What restarts what:
 
@@ -65,6 +74,15 @@ What restarts what:
   too: a release cuts a stream only past the ten minutes.
 - The proxy is respawned when it dies, within half a second. A move of the entry to
   another port replaces it at once: the requests it holds are cut.
+- A machine's scout that took a release ends at its first look (every quarter of a second)
+  at which no connection is answered — a request through the machine's entry, a stream
+  among them, or a call of the controller — and no work of its own runs: a cell on its way
+  up, a build, a move of its model folders. It serves new requests meanwhile, and waits for them too. The connections are
+  waited for ten minutes at the most from the release; past them it cuts what runs and its
+  log says what (`[release]`). Its own work, begun after the release came, is waited for to
+  its end: nothing would finish it. The service starts the new scout 3 s after the end
+  (`RestartSec`); a request that comes in those seconds finds the entry refusing, and the
+  proxy waits for it, 15 s at the most (`machine_entry_wait`).
 - The image changes only with the system under the programs. Then it is built again and the
   container started anew, which takes the host's password and ends what runs.
 - `static/` needs no restart of its own: every file is read from the release per request
@@ -125,9 +143,10 @@ syncs are all dead.
 Order that survives it, with no shim needed — a scout tolerates an unreachable
 controller and reconnects by itself:
 
-1. Open the new port in the firewall FIRST. On the controller the inference
-   range (default 22001–22999; legacy installs 8001–8099) is already open; anything outside it needs its own rule, and
-   a forgotten rule is the one failure that looks like the app being broken.
+1. Open the new port in the firewall FIRST. Anything outside the rules the machine already has needs its own rule, and
+   a forgotten rule is the one failure that looks like the app being broken. (The cells' range, 22001–22999, needs none
+   since 2026-11-08: a cell listens on its machine's loopback, and the scout's port, 8092, is the machine's one port of
+   the caravan.)
 2. Re-point every scout while the controller is still on the old port —
    `POST http://<client>:8092/api/controller-url` with `{"url", "token"}`. It
    rewrites config.json and applies live; no restart, no ssh.
@@ -162,6 +181,12 @@ Quick checks while developing:
 python3 scripts/check_rust_contract.py
 node --check <(cat static/js/<module>.js)        # ES-module syntax (or copy to .mjs)
 ```
+
+cargo starts every test binary through `scripts/rust_test_runner.py` (the root `.cargo/config.toml`, held by
+`scripts/check_rust_test_start.py`): a binary gets 300 seconds and is stopped with everything it started when it runs
+longer, when the run that started it is gone, or when the runner is told to stop. A stopped binary fails the run with exit
+124 and a line that names it; the hung test is the one libtest named "has been running for over 60 seconds". A run that is
+long on purpose sets `CARAVAN_TEST_LIMIT=<seconds>`; there is no "no limit". The runner needs Python 3.11 or newer.
 
 ## Controller in a container
 
@@ -373,13 +398,16 @@ offers to delete the pools that became twins of their model.
 
 ### Agents of the old kind
 
-An agent with a port of its own (made before 1.3.466 in Routing) has its record on the
-board and no way in. Since 2026-11-02 (the owner: its own ports go) the proxy listens on
-the entry alone, the entry answers such a route's key 403 (`entry:not-a-consumer` in the
-journal), and a reopening of a closed port (`route-policy` with `portClosed: false`) answers 410. To bring one back: ＋ in the clients column makes a client
-with a key of its own; set the agent's base URL to the entry and its API key to that key,
-and delete the old route (`POST /api/agent-proxies/route-delete {"port": …}`). A client that
-cannot send a key cannot connect.
+An agent with a port of its own (made before 1.3.466 in Routing) had its record on the
+board and no way in: since 2026-11-02 (the owner: its own ports go) the proxy listens on
+the entry alone and answers such a route's key 403 (`entry:not-a-consumer` in the journal).
+Since 2026-11-07 a client is known by its record's id and has no number at all: the
+controller's start gives every client its id once, keeps the number each one had in
+`formerPorts` of `agent-proxies.json` (so that the journal's older rows stay that client's),
+and retires the routes of the old kind, saying so in its log (`entry: every client is known by
+its id …; routes of the old kind retired: …`). To bring one back: ＋ in the clients column
+makes a client with a key of its own; set the agent's base URL to the entry and its API key to
+that key. A client that cannot send a key cannot connect.
 
 ## Request-log diagnostics (API)
 
@@ -388,29 +416,29 @@ the controller, and `GET /api/agent-proxy-logs` serves those rows filtered —
 enough to root-cause a route problem from any LAN host without ssh:
 
 ```sh
-# last errors on one route, by its proxy port (slim rows, newest first)
-curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?port=8117&event=finished&errors=1&slim=1&limit=20'
+# last errors of one client, by its id — GET /api/topology `proxies[].id` (slim rows, newest first)
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?routeId=<client-id>&event=finished&errors=1&slim=1&limit=20'
 
 # today's failed requests fleet-wide / for one route label / for one client IP
 curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?event=finished&errors=1&slim=1'
 curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?route=<label>&errors=1&slim=1'
 curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?client=<client-ip>&event=finished&slim=1&limit=50'
 
-# the cheap health check: per-port terminal counters {total, errors, byKind}
+# the cheap health check: terminal counters per client {routeId, total, errors, byKind}
 curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?summary=1'
-curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?summary=1&port=8117'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?summary=1&routeId=<client-id>'
 ```
 
 Params: `date` (`YYYY-MM-DD`, default — the latest log), `limit` (≤2000,
 applied after the filters), `event`
 (`received | queued | admitted | upstream_started | upstream_response | finished | blocked`;
 several, comma-separated: `finished,blocked` is every request that ended, refusals included),
-`port` (the route's number — a port of the older kind, or a client of the entry's record, which never listens), `route`
-(case-insensitive substring of the route label), `client` (exact IP),
+`routeId` (a client's record id; its rows written before 2026-11-07 under the number it had count as its own — a
+`port` in its place is refused with 400), `route` (case-insensitive substring of the route label), `client` (the sender's exact IP),
 `errors=1` (only rows carrying an error), `slim=1` (drops the per-row
 `queue`/`policy` fleet snapshots, and `active` from rows written before 2026-11-02 — newer rows do not carry it; the request's own `item` is kept),
-`summary=1` (no rows — per-port counters of terminal events instead:
-`{"8117": {port, route, total, errors, byKind: {client_disconnected: 1, …}}}`;
+`summary=1` (no rows — per-client counters of terminal events instead, by the client's id, the entry's
+refusals before a key named anyone under `entry`: `{"client-3f9a1c07": {routeId, route, total, errors, byKind: {client_disconnected: 1, …}}}`;
 combines with the other filters), `since=60` (minutes — only rows newer than
 now−N within the selected day; powers the per-hour ⚠ badges on route rows,
 which light up from 3 failures/hour). The Request History detail popup has a
@@ -432,7 +460,7 @@ Reading a `finished` row:
   connection was taken, `connReused: true`), `headersMs` / `firstChunkMs` the
   upstream's answer from the request sent, `cpuMs` the processor time of the
   request. The route window's Details tab shows medians and the 90th
-  percentile per port; `GET /api/agent-proxy-latency?port=<port>&range=24h`
+  percentile per client; `GET /api/agent-proxy-latency?routeId=<client-id>&range=24h`
   answers the same as JSON.
 
 The proxy notices a vanished client at every phase and cancels the work: in
@@ -463,9 +491,9 @@ seconds, up to ~20 s on huge prompts).
 - **UFW**: the proxy range is opened ONCE, by the operator, with one rule —
   `sudo ufw allow 23001:23999/tcp` (the range is `proxy_ports`,
   `CARAVAN_PROXY_BASE_PORT` + `CARAVAN_PROXY_PORT_SPAN`). The caravan never runs
-  ufw (`scripts/check_firewall_untouched.py`): it hands out ports only inside
-  the range and refuses a new port outside it. An entry on an unopened port answers
-  locally but not from the LAN.
+  ufw (`scripts/check_firewall_untouched.py`), and it hands out no port there: a client has
+  no port of its own (2026-11-07), the entry is the one port the proxy listens on. An entry
+  on an unopened port answers locally but not from the LAN.
 
 
 ## Публичное зеркало
@@ -507,7 +535,9 @@ seconds, up to ~20 s on huge prompts).
 `scripts/test_rust_admin_conformance.py` (контроллер), `scripts/test_rust_scout_conformance.py`
 (скаут). Каждая задаёт программе вопросы и сравнивает ответ с тем, что записано в
 `tests/frozen/`. Ответ поменяли намеренно — тот же скрипт с `--write`, и разницу покажет diff
-файла в merge request. Командные строки ячеек держат голдены: `tests/golden/`,
+файла в merge request. Пиши `--write` на Linux: `cpu` и скан портов машина о себе читает только там
+(`LINUX_ONLY`), и на Mac `--write` запишет ответы Mac — обещание покраснеет на CI, где оно и читается.
+Командные строки ячеек держат голдены: `tests/golden/`,
 `rust/crates/admin/tests/golden.rs`.
 
 `docs/why.md` хранит правила, выведенные из инцидентов; `scripts/check_why_refs.py`

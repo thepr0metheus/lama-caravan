@@ -1,4 +1,4 @@
-//! What a llama cell leaves next to itself under `var/server-cells/<port>/`: `start.sh`, the exact command, runnable by hand, and `cell.json`, what it was started with. Both are replaced atomically: a reader of the old file sees it whole.
+//! What a llama cell leaves next to itself under `var/server-cells/<cell id>/`: `start.sh`, the exact command, runnable by hand, and `cell.json`, what it was started with. Both are replaced atomically: a reader of the old file sees it whole.
 
 use crate::models::fetcher::ModelFetcher;
 use crate::paths::ScoutPaths;
@@ -33,13 +33,13 @@ pub struct CellArtifacts<'a> {
 }
 
 impl CellArtifacts<'_> {
-    fn dir_of(&self, port: i64) -> PathBuf {
-        self.paths.server_cells.join(port.to_string())
+    fn dir_of(&self, cell: &str) -> PathBuf {
+        self.paths.server_cells.join(cell)
     }
 
-    /// Writes them; what the view shows of them.
-    pub fn write(&self, port: i64, launch: &LaunchWords<'_>) -> std::io::Result<Value> {
-        let folder = self.dir_of(port);
+    /// Writes them for the cell `cell`, whose run holds `port`; what the view shows of them.
+    pub fn write(&self, cell: &str, port: i64, launch: &LaunchWords<'_>) -> std::io::Result<Value> {
+        let folder = self.dir_of(cell);
         fs::create_dir_all(&folder)?;
         let start_path = folder.join("start.sh");
         let json_path = folder.join("cell.json");
@@ -58,6 +58,7 @@ impl CellArtifacts<'_> {
         fs::rename(&temporary, &start_path)?;
         let payload = json!({
             "hostId": self.host_id,
+            "cellId": cell,
             "port": port,
             "config": launch.config,
             "runtime": launch.runtime,

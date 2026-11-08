@@ -11,9 +11,9 @@ use crate::fleet::host_power::HostPower;
 use crate::fleet::llama_node::LlamaNode;
 use crate::fleet::machine_cells::MachineCells;
 use crate::fleet::model_cache::ModelCache;
-use crate::fleet::port_exclusions::PortExclusions;
 use crate::fleet::reports::FleetReads;
 use crate::fleet::scout_bundle::ScoutBundle;
+use crate::fleet::scout_follow::ScoutFollow;
 use crate::fleet::scout_pairing::ScoutPairing;
 use crate::fleet::scout_scan::ScoutScan;
 use crate::fleet::server_cells::ServerCells;
@@ -41,13 +41,11 @@ impl FleetRoutes {
             ("/api/topology/client-llama/list-cache", Self::list_cache),
             ("/api/cell-log", Self::cell_log),
             ("/api/fleet/cell-start", Self::cell_start),
-            ("/api/port-exclusions", Self::exclusions),
             ("/scout/install.sh", Self::scout_installer),
             ("/scout/bundle.tar.gz", Self::scout_bundle_file),
             ("/api/fleet/scout-release", Self::scout_release),
         ],
         post: &[
-            ("/api/port-exclusions", Self::set_exclusions),
             ("/api/topology/client-heartbeat", Self::heartbeat),
             ("/api/fleet/llama-update", Self::llama_update),
             ("/api/fleet/llama-restore", Self::llama_restore),
@@ -107,7 +105,7 @@ impl FleetRoutes {
     }
 
     fn scout_update(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        h.ok(&ScoutBundle::of(app).update(&Asked::said(&body, "hostId"))?);
+        h.ok(&ScoutFollow::by_hand(app, &Asked::said(&body, "hostId"))?);
         Ok(())
     }
 
@@ -152,38 +150,22 @@ impl FleetRoutes {
         Ok(())
     }
 
-    /// The start of a cell as its settings are saved now, for its machine: what its watchdog and its boot start. `request` is null when there is no such cell here.
+    /// The start of a cell as its settings are saved now, for its machine: what its watchdog and its boot start. `request` is null
+    /// when there is no such cell here. The cell is named by its id (`cell`); a scout of before names its port, the cell `c<port>`.
     fn cell_start(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
         let host = h.parsed.param_or("hostId", "");
-        // absent-ok: a port that is no number is a cell of none, and there is none.
-        let port = h.parsed.param_or("port", "").trim().parse().unwrap_or(0);
-        h.ok(&CellOps::of(app).start_request(&host, port));
+        let said = h.parsed.param_or("cell", &h.parsed.param_or("port", ""));
+        let Some(id) = rules::CellId::read(&json!(said)) else {
+            h.ok(&json!({"ok": true, "request": null}));
+            return Ok(());
+        };
+        h.ok(&CellOps::of(app).start_request(&host, &id));
         Ok(())
     }
 
     fn cell_log(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        let said = LlamaNode::of(app).cell_log(
-            &Asked::word(h, "hostId"),
-            &Asked::word(h, "port"),
-            &Asked::word(h, "lines"),
-            &Asked::word(h, "run"),
-        )?;
+        let said = LlamaNode::of(app).cell_log(&Asked::word(h, "cell"), &Asked::word(h, "lines"), &Asked::word(h, "run"))?;
         h.ok(&said);
-        Ok(())
-    }
-
-    fn exclusions(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        let desk = PortExclusions::of(app);
-        let mut out = json!({"ok": true, "exclusions": desk.list()});
-        if h.parsed.query.contains("scan=1") {
-            Coerce::put(&mut out, "scan", desk.scan_foreign());
-        }
-        h.ok(&out);
-        Ok(())
-    }
-
-    fn set_exclusions(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        h.ok(&PortExclusions::of(app).set(&body)?);
         Ok(())
     }
 
@@ -239,7 +221,12 @@ impl FleetRoutes {
         Ok(())
     }
 
-    fn start(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
+    /// The cell form's start: of the cell `cellId` names, or of a new cell, which the answer names.
+    fn start(app: &App, h: &mut Exchange<'_>, mut body: Value) -> Result<(), AppError> {
+        if body.get("cellId").is_none_or(Value::is_null) {
+            let id = ServerCells::of(app).fresh_id()?;
+            Coerce::put(&mut body, "cellId", json!(id));
+        }
         h.ok(&ScoutStart::of(app).start(&body)?);
         Ok(())
     }

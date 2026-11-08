@@ -1,0 +1,635 @@
+{
+ "why": "What the board's reader reads of a request, for the row of a pool that cannot read its pictures: rust/crates/rules/src/media_reading.rs (`Reading`), run by rust/crates/rules/tests/contract.rs (`media_reading`). The reader in every case is `gpt-sub`, wired for the pool `coder-auto`. Held by scripts/check_media_reading.py.",
+ "pictures": [
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 2,
+     "index": 2,
+     "source": "inside",
+     "url": "data:image/png;base64,AAAA"
+    }
+   ],
+   "why": "the numbers are the client's: the second message, its second part — the same numbers a refusal says (`Carried::of`)"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       },
+       {
+        "type": "image_url",
+        "image_url": "https://example.com/a.png"
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 1,
+     "index": 1,
+     "source": "inside",
+     "url": "data:image/png;base64,AAAA"
+    },
+    {
+     "message": 1,
+     "index": 2,
+     "source": "elsewhere"
+    }
+   ],
+   "why": "a link is a picture too, and it is said as one whose bytes are elsewhere — not dropped, and not read"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       "stray",
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 1,
+     "index": 2,
+     "source": "inside",
+     "url": "data:image/png;base64,AAAA"
+    }
+   ],
+   "why": "a piece of the list that is no part does not take a number away from the part after it: the client numbered it"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "input": [
+     {
+      "type": "function_call_output",
+      "call_id": "c1",
+      "output": "done"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "and this?"
+       },
+       {
+        "type": "input_image",
+        "image_url": "data:image/jpeg;base64,/9j/"
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 1,
+     "index": 2,
+     "source": "inside",
+     "url": "data:image/jpeg;base64,/9j/"
+    }
+   ],
+   "why": "a Responses input numbers its turns: an item with no role is not one, as `RequestSummary::messages` reads it"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "image",
+        "source": {
+         "type": "base64",
+         "media_type": "image/png",
+         "data": "AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 1,
+     "index": 1,
+     "source": "inside",
+     "url": "data:image/png;base64,AAAA"
+    }
+   ],
+   "why": "base64 data and its type said in a `source` is a `data:` URL written in parts: the picture is inside the request"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "input": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_image",
+        "file_id": "file-1"
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 1,
+     "index": 1,
+     "source": "elsewhere"
+    }
+   ],
+   "why": "a file a provider keeps is not inside the request: nothing here can read it, and it is said as elsewhere"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "DATA:image/png;base64,AA=="
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "pictures": [
+    {
+     "message": 1,
+     "index": 1,
+     "source": "inside",
+     "url": "DATA:image/png;base64,AA=="
+    }
+   ],
+   "why": "a scheme is a scheme in any case, as a browser reads it"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": "hi"
+     }
+    ]
+   },
+   "pictures": [],
+   "why": "the negative case: a chat of text carries no picture, and there is nothing to read"
+  }
+ ],
+ "elsewhere": [
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       },
+       {
+        "type": "image_url",
+        "image_url": "https://example.com/a.png"
+       }
+      ]
+     }
+    ]
+   },
+   "refused": true,
+   "status": 400,
+   "code": "media_reader_link",
+   "param": "messages",
+   "reason": "entry:media-reader-link",
+   "message": "The model `coder-auto` does not take image, and the reader wired for it, `gpt-sub`, reads only a picture sent inside the request (a `data:` URL). Message 1 part 2 is not: the caravan does not fetch a picture for a reader. Send the picture itself, or send the request to a model that takes image.",
+   "why": "a link is refused, and said as a link: the caravan does not fetch what a client points at for a reader — an address on its own network would be read on a client's word — and the first picture inside the request is not read either, because a request is read whole or not at all"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "refused": false,
+   "why": "the negative case: every picture is inside the request, so nothing is refused and the reader is asked"
+  }
+ ],
+ "question": [
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "picture": 0,
+   "question": {
+    "model": "gpt-sub",
+    "stream": false,
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "<the words of this version>"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "why": "the reader is asked as a chat any provider takes, with no stream so its answer is one body, in the words of this version (`Wired::PROMPT`, said beside `PROMPT_VERSION`) — never with the client's own words, which would make a caption of one question"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       },
+       {
+        "type": "image_url",
+        "image_url": "https://example.com/a.png"
+       }
+      ]
+     }
+    ]
+   },
+   "picture": 1,
+   "question": null,
+   "why": "the negative case: a picture whose bytes are elsewhere has nothing to ask about"
+  }
+ ],
+ "words": [
+  {
+   "status": 200,
+   "body": "{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"  A terminal with an error.\\n\"}}]}",
+   "said": {
+    "words": "A terminal with an error."
+   },
+   "why": "the first choice's message is the reader's words, the white space around them taken off"
+  },
+  {
+   "status": 200,
+   "body": "{\"choices\": [{\"message\": {\"content\": [{\"type\": \"text\", \"text\": \"Line one\"}, {\"type\": \"output_text\", \"text\": \"Line two\"}, {\"type\": \"image_url\", \"image_url\": {\"url\": \"x\"}}]}}]}",
+   "said": {
+    "words": "Line one\nLine two"
+   },
+   "why": "words said as parts are joined in their order, and a part that is not text is no words"
+  },
+  {
+   "status": 200,
+   "body": "{\"choices\": [{\"message\": {\"content\": \"  \"}}]}",
+   "said": {
+    "no": "its answer has no words"
+   },
+   "why": "the negative case: an answer with no words is no reading — an empty caption would send the row a picture described as nothing"
+  },
+  {
+   "status": 200,
+   "body": "{\"choices\": [{\"message\": {\"content\": null, \"refusal\": \"I can't help with that.\"}}]}",
+   "said": {
+    "no": "it refused: I can't help with that."
+   },
+   "why": "a model's refusal is said as its refusal, with its words, not as a caption"
+  },
+  {
+   "status": 200,
+   "body": "not json",
+   "said": {
+    "no": "its answer has no message"
+   },
+   "why": "a success that is not a chat answer is no reading"
+  },
+  {
+   "status": 429,
+   "body": "{\"error\": {\"message\": \"Rate limit reached\", \"type\": \"rate_limit_error\"}}",
+   "said": {
+    "no": "it answered 429: Rate limit reached"
+   },
+   "why": "an error is said with its status and its own words, so the client can act on it"
+  },
+  {
+   "status": 502,
+   "body": "",
+   "said": {
+    "no": "it answered 502"
+   },
+   "why": "an error with no words is said by its status alone, not with words made up for it"
+  },
+  {
+   "status": 503,
+   "body": "upstream down",
+   "said": {
+    "no": "it answered 503: upstream down"
+   },
+   "why": "an error that is not JSON is said by its first words"
+  }
+ ],
+ "rewritten": [
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "captions": [
+    "A red bicycle."
+   ],
+   "rewritten": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "text",
+        "text": "<caravan-caption by=\"gpt-sub\" prompt_version=\"v1\">A red bicycle.</caravan-caption>"
+       }
+      ]
+     }
+    ]
+   },
+   "why": "the picture is replaced where it stood by the caption, signed with who read it and the version of the words, and the rest of the request goes as it came"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "input": [
+     {
+      "type": "function_call_output",
+      "call_id": "c1",
+      "output": "done"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "and this?"
+       },
+       {
+        "type": "input_image",
+        "image_url": "data:image/jpeg;base64,/9j/"
+       }
+      ]
+     }
+    ]
+   },
+   "captions": [
+    "A cat & a dog"
+   ],
+   "rewritten": {
+    "model": "coder-auto",
+    "input": [
+     {
+      "type": "function_call_output",
+      "call_id": "c1",
+      "output": "done"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "input_text",
+        "text": "and this?"
+       },
+       {
+        "type": "input_text",
+        "text": "<caravan-caption by=\"gpt-sub\" prompt_version=\"v1\">A cat &amp; a dog</caravan-caption>"
+       }
+      ]
+     }
+    ]
+   },
+   "why": "a Responses input gets its own word for text, and the reader's words stay words: `&` is escaped inside the envelope"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "captions": [],
+   "rewritten": null,
+   "why": "the negative case: a picture left without words is not a request to send — never a request with a picture missing"
+  }
+ ],
+ "failed": [
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "picture": 0,
+   "because": "it answered 429: Rate limit reached",
+   "status": 502,
+   "code": "media_reader_failed",
+   "reason": "entry:media-reader-failed",
+   "message": "The reader wired for `coder-auto` names `gpt-sub`, and it did not read message 2 part 2: it answered 429: Rate limit reached. Nothing was sent to `coder-auto`.",
+   "why": "the reader's failure is said with who was asked, which part, and why; the words say nothing went on to the pool, because nothing did"
+  },
+  {
+   "payload": {
+    "model": "coder-auto",
+    "messages": [
+     {
+      "role": "system",
+      "content": "be brief"
+     },
+     {
+      "role": "user",
+      "content": [
+       {
+        "type": "text",
+        "text": "what is wrong here?"
+       },
+       {
+        "type": "image_url",
+        "image_url": {
+         "url": "data:image/png;base64,AAAA"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   "picture": 0,
+   "because": "it answered 400: The picture cannot be decoded.",
+   "status": 502,
+   "code": "media_reader_failed",
+   "reason": "entry:media-reader-failed",
+   "message": "The reader wired for `coder-auto` names `gpt-sub`, and it did not read message 2 part 2: it answered 400: The picture cannot be decoded. Nothing was sent to `coder-auto`.",
+   "why": "a reason that ends in a full stop is a clause of the sentence, and the sentence does not end twice"
+  }
+ ]
+}

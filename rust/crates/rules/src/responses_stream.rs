@@ -73,14 +73,16 @@ impl ResponsesTally {
                     self.done_items.push(item.clone());
                 }
             }
-            Some("response.completed") => self.completed(&event),
+            Some("response.completed") => self.ending(&event, true),
+            Some("response.incomplete") => self.ending(&event, false),
             _ => {}
         }
     }
 
-    /// The subscription's final response carries no `output`: the items only ever arrive as `output_item.done`, and a client that wants
-    /// it whole would get a completed response with nothing in it.
-    fn completed(&mut self, event: &Value) {
+    /// The event that ends a Responses stream. The subscription's final response carries no `output`: the items only ever arrive as
+    /// `output_item.done`, and a client that wants it whole would get a completed response with nothing in it. An answer that ran out before
+    /// its end is not complete: it says how far it got, and `done` stays what the provider said.
+    fn ending(&mut self, event: &Value, provider_said_complete: bool) {
         let mut response = event.get("response").filter(|response| response.is_object()).cloned().unwrap_or_else(|| json!({}));
         let has_output = Coerce::truthy(response.get("output"));
         if let (false, false, Some(fields)) = (has_output, self.done_items.is_empty(), response.as_object_mut()) {
@@ -90,8 +92,9 @@ impl ResponsesTally {
             self.usage = Some(ResponsesWords::usage(usage));
         }
         let called = response.get("output").and_then(Value::as_array).is_some_and(|output| ResponsesWords::has_a_call(output));
-        self.finish_reasons = vec![if called { "tool_calls" } else { "stop" }.to_string()];
-        self.done = true;
+        let reason = if provider_said_complete { ResponsesWords::finish_reason(called) } else { "length" };
+        self.finish_reasons = vec![reason.to_string()];
+        self.done = provider_said_complete;
         self.response = Some(response);
     }
 }
@@ -110,6 +113,12 @@ impl ResponsesWords {
 
     fn has_a_call(output: &[Value]) -> bool {
         output.iter().any(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+    }
+
+    /// How an answer that said its end is named: one that made a tool call ends with a tool call, whatever its final event says of the
+    /// output — the subscription's final event often says no output at all, and both directions must name the answer the same way.
+    fn finish_reason(made_a_call: bool) -> &'static str {
+        if made_a_call { "tool_calls" } else { "stop" }
     }
 }
 
@@ -188,7 +197,8 @@ impl ResponsesToChat {
                 let delta = json!({"tool_calls": [{"index": index, "function": {"arguments": arguments}}]});
                 Some(Self::framed(&self.chunk(&delta, None)))
             }
-            "response.completed" => Some(self.completed(&event)),
+            "response.completed" => Some(self.ending(&event, true)),
+            "response.incomplete" => Some(self.ending(&event, false)),
             _ => None,
         }
     }
@@ -215,11 +225,14 @@ impl ResponsesToChat {
         Some(Self::framed(&self.chunk(&delta, None)))
     }
 
-    fn completed(&mut self, event: &Value) -> Vec<u8> {
+    /// The chunk that ends the stream. `length` is said for an answer the provider left unfinished: a client that asks whether an answer
+    /// came to its end reads it here, and nowhere else.
+    fn ending(&mut self, event: &Value, provider_said_complete: bool) -> Vec<u8> {
         self.ended = true;
         let response = event.get("response");
         let output = response.and_then(|response| response.get("output")).and_then(Value::as_array);
-        let finish = if output.is_some_and(|output| ResponsesWords::has_a_call(output)) { "tool_calls" } else { "stop" };
+        let called = output.is_some_and(|output| ResponsesWords::has_a_call(output)) || !self.call_indexes.is_empty();
+        let finish = if provider_said_complete { ResponsesWords::finish_reason(called) } else { "length" };
         let mut last = self.chunk(&json!({}), Some(finish));
         if let Some(usage) = response.and_then(|response| response.get("usage")).filter(|usage| Coerce::truthy(Some(*usage))) {
             last.insert("usage".to_string(), ResponsesWords::usage(usage));

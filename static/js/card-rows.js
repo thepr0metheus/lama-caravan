@@ -44,11 +44,16 @@ export class CellContext {
 }
 
 /**
- * A cell folded into one line: what it serves, on which port, whether it runs.
+ * A cell folded into one line: what it serves, whether it runs.
  *
  * The card computes every fact once — the name the runner reports, the memory
  * chip, the start button's attributes — and hands them over; nothing here
  * re-derives them, so the line and the card cannot disagree about a cell.
+ *
+ * The line is the cell's by its id (`cellId`): its test hook and its address in
+ * the DOM (data-cell-id, which the live patch finds it by). It names no port: a
+ * cell holds one only while it runs, leased by its scout at the start (Papyrus
+ * caravan-scout-port-lease), and the line used to lead with ":22011".
  */
 export class CellRow {
   /** The runner of a cell whose model runs inside an engine, fit to name a
@@ -58,8 +63,7 @@ export class CellRow {
   }
 
   constructor(f = {}) {
-    this.key = String(f.key || "");
-    this.port = String(f.port || "");
+    this.cellId = String(f.cellId || "");
     this.name = String(f.name || "");
     this.title = String(f.title || f.name || "");
     // "running", "parked" (configured, stopped) or "reserved" (no model yet).
@@ -99,7 +103,7 @@ export class CellRow {
     const on = this.state === "running";
     const act = on ? this.stop : this.launch;
     const hook = on ? "cell-row-stop" : "cell-row-start";
-    const attrs = this.motion ? 'disabled aria-busy="true"' : act ? `${act} data-t="${hook}" data-t-id="${escapeHtml(this.key)}"` : "disabled";
+    const attrs = this.motion ? 'disabled aria-busy="true"' : act ? `${act} data-t="${hook}" data-t-id="${escapeHtml(this.cellId)}"` : "disabled";
     const why = escapeHtml(this.why);
     return `<button type="button" class="fr-switch" role="switch" aria-checked="${on}" ${attrs}`
       + ` title="${why}" aria-label="${why}">${this.motion ? `<span class="topology-spinner${this.motion === "stop" ? " stopping-spinner" : ""}" aria-hidden="true"></span>` : '<span class="fr-knob" aria-hidden="true"></span>'}</button>`;
@@ -124,10 +128,10 @@ export class CellRow {
       .filter(Boolean).join(" ");
     const failed = this.failed
       ? `<span class="fr-fail" data-t="cell-row-failed" title="${escapeHtml(this.reason)}">${escapeHtml(t("failed"))}</span>` : "";
+    const id = escapeHtml(this.cellId);
     return `<div class="${cls}" role="button" tabindex="0" data-t="cell-row"${this.failed ? ' data-t-state="failed"' : ""}`
-      + ` data-t-id="${escapeHtml(this.key)}" data-llama-port="${escapeHtml(this.port)}"`
+      + ` data-t-id="${id}" data-cell-id="${id}"`
       + ` title="${escapeHtml(this.title)}">${this.anchor}${this.lead()}`
-      + `<span class="fr-port">:${escapeHtml(this.port)}</span>`
       + `<span class="fr-name">${escapeHtml(name)}</span>${failed}${warn}`
       + `<span class="fr-tps${this.held ? " held" : ""}" data-live-rowtps${this.tpsHint ? ` title="${escapeHtml(this.tpsHint)}"` : ""}>${escapeHtml(this.tps)}</span>`
       + `${this.ctxHtml()}${this.chip}${this.strip}</div>`;
@@ -146,7 +150,8 @@ export class AgentRow {
     this.name = String(f.name || "");
     this.kind = String(f.kind || "");
     this.seen = Number(f.seen) || 0;
-    this.routes = (f.routes || []).filter((r) => r && r.port);
+    // A route is there by its role: it has no number of its own any more (2026-11-07).
+    this.routes = (f.routes || []).filter((r) => r && r.role);
   }
 
   // The dot before an agent's name says whether a request came through its ports: lit, with
@@ -171,7 +176,7 @@ export class AgentRow {
     ].join("");
     return `<div class="ar-route ${escapeHtml(r.role)}">${r.anchor || ""}`
       + `<span class="${face.cls}" title="${escapeHtml(face.tip ? t(face.tip) : "")}">${face.glyph}</span>`
-      + `<span class="ar-port" title="${escapeHtml(r.address || "")}">${r.role === "fallback" ? "↪ " : ""}:${escapeHtml(String(r.port))}</span>`
+      + `<span class="ar-role" title="${escapeHtml(r.address || "")}">${r.role === "fallback" ? "↪ " : ""}${escapeHtml(String(r.role))}</span>`
       + `${facts}${r.errBadge || ""}</div>`;
   }
 
@@ -291,7 +296,7 @@ export class EngineStrip {
 /**
  * A model its engine holds and no cell serves yet: a line of the cells' shape,
  * dashed, with "+" where a cell's switch stands — "+" makes the cell, with
- * this model, on the next free port. It has no port, so no cable lands on it.
+ * this model (a port is its run's, leased when it starts). No cable lands on it.
  * The builder hands over what the model is and what may be done to it; the
  * delete waits under the pointer, the unload of a model held outside any cell
  * does not. "+" keeps its test hook while it waits — disabled, saying why —

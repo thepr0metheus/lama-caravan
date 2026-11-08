@@ -640,12 +640,6 @@ select.cv-pin { width: 100%; }
 .router-out-state.state-starting, .router-out-state.state-stopping { color: var(--accent); }
 .router-out-state.state-unknown { font-style: italic; font-weight: 500; }
 .router-out-badge + .router-out-state { margin-left: 6px; }
-/* Two cells of one model on one machine: what sets this one apart. */
-.router-out-twin {
-  flex: 0 100 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--muted);
-  border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 4px; padding: 0 4px;
-}
 /* The stopped cells nothing leads to, under one row of their own. */
 /* A consumer's line in the clients panel: its key, how it gets in, the action it lacks.
    Small controls are sized here: the global button height (34px) would dwarf the row. */
@@ -697,13 +691,8 @@ select.cv-pin { width: 100%; }
 /* A pool's row stands in a group of its own, where its card stands under Pools. */
 .router-prov { margin-top: 4px; }
 .router-prov-caret { flex: 0 0 auto; width: 12px; font-size: 11px; color: var(--accent); font-weight: 700; }
-/* A pool's own port: a door an app may call it by. */
-.router-out-port { flex: 0 0 auto; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: var(--muted); }
 /* A pool's row: how many steps it has, their names in the hint. */
 .router-out-steps { flex: 0 0 auto; font-size: 10px; color: var(--muted); white-space: nowrap; cursor: help; }
-/* A cell's port beside its name: the name gives way, the port does not. */
-.router-out-port.cell-port { margin-left: -4px; font-size: 10.5px; }
-.router-out-row.cell-stopped .router-out-port.cell-port, .router-out-row.cell-unknown .router-out-port.cell-port { opacity: .75; }
 .router-prov-count {
   flex: 0 0 auto; margin-left: auto; font-size: 10px; color: var(--muted);
   background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 0 6px;

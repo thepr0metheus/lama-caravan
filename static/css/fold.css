@@ -266,7 +266,6 @@ a.cw-btn { display: inline-flex; align-items: center; text-decoration: none; }
 }
 .cw-chat-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cw-chat-memory { font-size: 11.5px; color: var(--muted); }
-.cw-chat-page { font-size: 12.5px; }
 .cw-chat-gap { flex: 1; }
 .cw-talk-ways { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 /* The settings edited in the window (cell-settings.js): a search and "only those set" on top, the dialog's tabs as groups on
@@ -353,7 +352,6 @@ a.cw-btn { display: inline-flex; align-items: center; text-decoration: none; }
 }
 
 .cwh-name { min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cwh-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
 .cwh-addr { flex-shrink: 0; font-size: 11.5px; color: var(--muted); }
 .cwh-via { flex-shrink: 0; font: 600 11.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--cell-accent, var(--muted)); }
 /* Sized here in full: the board's buttons carry a 34px minimum height (cards.css). */
@@ -592,8 +590,8 @@ a.cw-btn { display: inline-flex; align-items: center; text-decoration: none; }
   min-width: 0;
 }
 .ar-route.fallback { border-left: 2px dashed var(--fallback, #60a5fa); background: color-mix(in srgb, var(--fallback, #60a5fa) 5%, transparent); }
-.ar-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: color-mix(in srgb, var(--accent) 70%, var(--text)); }
-.ar-route.fallback .ar-port { color: color-mix(in srgb, var(--fallback, #60a5fa) 75%, var(--text)); }
+.ar-role { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.ar-route.fallback .ar-role { color: color-mix(in srgb, var(--fallback, #60a5fa) 75%, var(--text)); }
 .ar-model { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ar-meta { flex-shrink: 0; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .ar-model + .ar-meta, .ar-meta + .ar-meta { margin-left: 2px; }

@@ -29,6 +29,9 @@ pub struct RequestRecord {
     pub summary: Value,
     /// When its client gives up on it, epoch seconds.
     pub client_deadline: f64,
+    /// The request this one reads a picture for, when it is the board's reader at work (`exchange/reading.rs`): the board
+    /// lights the reader's cable for it, not its client's. `None` for a client's own request.
+    pub reader_for: Option<String>,
 }
 
 /// The row a request is on, as its record says it. A request that has none, because no row fits, is the pool's own.
@@ -66,6 +69,9 @@ pub struct Facts {
     pub error_kind: String,
     /// What an Anthropic stream said it used, for a stream cut before its last chunk, where the usage rides.
     pub usage_said_so_far: Option<Value>,
+    /// What the board's reader read for this request: its name, the pictures, and how many of them it had read before.
+    /// `None` for a request nothing was read for.
+    pub reading: Option<ReadFacts>,
     /// The effort the answering leg sent in place of the one asked.
     pub effort: Option<EffortSwap>,
 }
@@ -84,7 +90,26 @@ impl Default for Facts {
             error_kind: String::new(),
             usage_said_so_far: None,
             effort: None,
+            reading: None,
         }
+    }
+}
+
+/// What the board's reader read for one request, as its record says it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadFacts {
+    /// The reader, as the board names it.
+    pub reader: String,
+    /// The pictures read.
+    pub pictures: usize,
+    /// Of them, the ones whose caption was kept from a reading before (`captions.rs`).
+    pub kept: usize,
+}
+
+impl ReadFacts {
+    /// The record's fields: `readerName` is what the board lights the reader's cable by (`static/js/pool-flow.js`).
+    pub fn fields(&self) -> Value {
+        json!({"readerName": self.reader, "readerPictures": self.pictures, "readerKept": self.kept})
     }
 }
 
@@ -108,7 +133,7 @@ impl RequestRecord {
     /// The running record, when the request has just come: on its way to the pool's cable, as the board knows it.
     pub fn active_json(&self) -> Value {
         let pool = self.pool_id();
-        json!({
+        let mut active = json!({
             "id": self.id,
             "method": self.method,
             "path": self.path,
@@ -116,7 +141,7 @@ impl RequestRecord {
             "startedAt": self.started as i64,
             "clientDeadline": (self.client_deadline * 1000.0).round() / 1000.0,
             "route": self.route.label,
-            "port": self.route.port,
+            "routeId": self.route.id,
             "upstream": self.route_group(),
             "upstreamType": "cloud",
             "providerId": pool,
@@ -129,13 +154,21 @@ impl RequestRecord {
             "queue": {"queuedMs": 0, "position": Value::Null},
             "priority": self.route.priority,
             "proxy": Recorder::WHO,
-        })
+        });
+        // Said only for the reader's own request: a client's record keeps the shape every reader of the journal knows.
+        if let (Some(reads_for), Value::Object(fields)) = (&self.reader_for, &mut active) {
+            fields.insert("readerFor".to_string(), json!(reads_for));
+        }
+        active
     }
 
-    /// What the record changes to when the request goes to a machine's row.
+    /// What the record changes to when the request goes to a machine's row: the output and the machine, as the finished record says them
+    /// (`leg_fields`), so that the board ties a running request and one just ended to the same machine.
     pub fn machine_patch(&self, row: &MachineRow) -> Value {
         json!({
             "upstream": row.output.group(),
+            "upstreamHost": row.output.upstream_host,
+            "upstreamPort": row.output.upstream_port,
             "upstreamType": "machine",
             "providerId": "",
             "routedOutputId": row.output.id,
@@ -159,7 +192,7 @@ impl RequestRecord {
         let waited = ((now - self.started) * 1000.0).round() as i64;
         json!({
             "id": self.id, "method": self.method, "path": self.path, "client": self.client, "route": self.route.label,
-            "port": self.route.port, "upstream": self.route_group(), "upstreamHost": self.route.upstream_host,
+            "routeId": self.route.id, "upstream": self.route_group(), "upstreamHost": self.route.upstream_host,
             "upstreamPort": self.route.upstream_port, "upstreamType": "cloud", "status": status, "startedAt": self.started as i64,
             "finishedAt": now as i64, "durationMs": waited, "bytes": 0, "chunks": 0, "firstByteMs": null, "request": self.summary,
             "queue": {"queuedMs": waited}, "response": {}, "stream": {}, "error": words, "errorKind": kind, "proxy": Recorder::WHO,
@@ -177,7 +210,7 @@ impl RequestRecord {
         put("path", json!(self.path));
         put("client", json!(self.client));
         put("route", json!(self.route.label));
-        put("port", json!(self.route.port));
+        put("routeId", json!(self.route.id));
         match leg {
             LegNow::Machine(row) => {
                 put("upstream", json!(row.output.group()));
@@ -213,6 +246,9 @@ impl RequestRecord {
         if let Some(swap) = &facts.effort {
             put("effort", swap.as_json());
         }
+        for (name, value) in self.reading_fields(facts) {
+            put(&name, value);
+        }
         for (name, value) in Self::leg_fields(self.pool_id(), leg) {
             put(&name, value);
         }
@@ -221,17 +257,32 @@ impl RequestRecord {
         Value::Object(record)
     }
 
-    /// What the record says of the row that answered, or of a pool that answered itself.
+    /// What the record says of the board's reader: what it read for this request, and — for the reader's own request — the
+    /// request it read for. Nothing for a request the reader has no part in, so its record keeps the shape it had.
+    fn reading_fields(&self, facts: &Facts) -> Map<String, Value> {
+        let mut fields = match facts.reading.as_ref().map(ReadFacts::fields) {
+            Some(Value::Object(fields)) => fields,
+            _ => Map::new(),
+        };
+        if let Some(reads_for) = &self.reader_for {
+            fields.insert("readerFor".to_string(), json!(reads_for));
+        }
+        fields
+    }
+
+    /// What the record says of the row that answered, or of a pool that answered itself. The output it names is the running record's
+    /// (`active_json`, `machine_patch`): the finished one said none, and the board's cable to a machine stayed dark for a request just
+    /// ended there (2026-11-03).
     fn leg_fields(pool_id: &str, leg: &LegNow) -> Map<String, Value> {
         let fields = match leg {
-            LegNow::None => json!({"providerId": pool_id, "cloudAccountId": ""}),
+            LegNow::None => json!({"providerId": pool_id, "cloudAccountId": "", "routedOutputId": format!("cb:{pool_id}")}),
             LegNow::Machine(row) => json!({
                 "providerId": "", "cloudAccountId": "", "cloudPoolId": pool_id, "poolStepId": row.row_id, "cloudModel": "",
-                "credentialAccountId": null,
+                "credentialAccountId": null, "routedOutputId": row.output.id,
             }),
             LegNow::Cloud(row) => json!({
                 "providerId": pool_id, "cloudAccountId": row.provider.account_id, "cloudPoolId": pool_id, "poolStepId": row.row_id,
-                "cloudModel": row.model, "credentialAccountId": row.provider.credential_account_id,
+                "cloudModel": row.model, "credentialAccountId": row.provider.credential_account_id, "routedOutputId": format!("cb:{pool_id}"),
             }),
         };
         match fields {
@@ -268,5 +319,66 @@ impl CapturedAnswer {
     pub fn summary(captured: &[u8]) -> Value {
         let parsed = serde_json::from_slice::<Value>(captured).unwrap_or_else(|_| json!({}));
         ResponseSummary::of(&parsed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rules::{LeaveTo, MachineOutput, QueueLeave, Route};
+
+    fn record() -> RequestRecord {
+        RequestRecord {
+            id: "r1".to_string(),
+            method: "POST".to_string(),
+            path: "/v1/chat/completions".to_string(),
+            client: "10.0.0.2".to_string(),
+            started: 100.0,
+            route: Route::normalize(&json!({"label": "Open WebUI", "id": "client-ow"})).unwrap(),
+            pool_id: "live:mm:a".to_string(),
+            pool_name: "deepseek".to_string(),
+            summary: json!({"model": "deepseek"}),
+            client_deadline: 200.0,
+            reader_for: None,
+        }
+    }
+
+    fn machine_row() -> MachineRow {
+        let output = MachineOutput::read(&json!({"id": "mm:a", "upstreamType": "machine", "upstreamModel": "deepseek", "upstreamHost": "10.0.0.20", "upstreamPort": 8092})).unwrap();
+        MachineRow {
+            row_id: "r1".to_string(),
+            output,
+            leave: QueueLeave { after: None, to: LeaveTo::Refuse, limit: None },
+            read_first: false,
+        }
+    }
+
+    #[test]
+    fn a_request_on_a_machine_names_its_output_and_the_machine_while_it_runs_and_when_it_ended() {
+        let record = record();
+        let row = machine_row();
+        let running = record.machine_patch(&row);
+        let finished = record.finished_json(&Facts { status: 200, ..Facts::default() }, &LegNow::Machine(row), 110.0, json!({}));
+        for (what, said) in [("running", &running), ("finished", &finished)] {
+            assert_eq!(
+                (
+                    said["routedOutputId"].clone(),
+                    said["upstreamHost"].clone(),
+                    said["upstreamPort"].clone(),
+                    said["upstreamType"].clone()
+                ),
+                (json!("mm:a"), json!("10.0.0.20"), json!(8092), json!("machine")),
+                "{what}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pool_s_own_answer_names_the_pool_s_output_as_its_running_record_did() {
+        let record = record();
+        let finished = record.finished_json(&Facts::default(), &LegNow::None, 110.0, json!({}));
+        assert_eq!(finished["routedOutputId"], json!("cb:live:mm:a"));
+        assert_eq!(record.active_json()["routedOutputId"], finished["routedOutputId"]);
+        assert_eq!(finished["upstreamType"], json!("cloud"), "negative: no machine is named for it");
     }
 }

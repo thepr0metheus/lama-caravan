@@ -314,6 +314,34 @@
     "MODEL_FILE": "GR00T-N1.7-3B/nvidia/BF16"
    },
    "line": "bash $HOME/run_gr00t.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/GR00T-N1.7-3B/nvidia/BF16 --backbone \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/Cosmos-Reason2-2B/nvidia/BF16 --embodiment OXE_DROID_RELATIVE_EEF_RELATIVE_JOINT"
+  },
+  {
+   "runner": "strata-ds",
+   "config": {
+    "MODEL_FILE": "D/I/IQ1_M/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00006.gguf",
+    "STRATA_ENGRAM_FILE": "D/I/IQ4_NL/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf",
+    "STRATA_META_FILE": "U/u/Q8_K_XL/DeepSeek-V4.1-Flash-1017-UD-Q8_K_XL-00001-of-00009.gguf",
+    "SPEC_DRAFT_MODEL_FILE": "U/u/Q8_0/dspark-DeepSeek-V4.1-Flash-1017-Q8_0.gguf",
+    "MMPROJ_FILE": "D/I/default/mmproj-DeepSeek-V4.1-Flash-1017-BF16.gguf",
+    "STRATA_CONTEXT": "131072",
+    "MODEL_NAME": "deepseek-v4.1-flash"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/D/I/IQ1_M/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00006.gguf --family deepseek41 --engram \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/D/I/IQ4_NL/DeepSeek-V4.1-Flash-Engram-IQ4_NL.gguf --meta \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/U/u/Q8_K_XL/DeepSeek-V4.1-Flash-1017-UD-Q8_K_XL-00001-of-00009.gguf --dspark \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/U/u/Q8_0/dspark-DeepSeek-V4.1-Flash-1017-Q8_0.gguf --mmproj \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/D/I/default/mmproj-DeepSeek-V4.1-Flash-1017-BF16.gguf --context 131072 --name deepseek-v4.1-flash"
+  },
+  {
+   "runner": "strata-ds",
+   "config": {
+    "MODEL_FILE": "D/I/IQ1_M/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00006.gguf"
+   },
+   "line": "bash $HOME/run_strata.sh \"$PORT\" \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/D/I/IQ1_M/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00006.gguf --family deepseek41"
+  },
+  {
+   "name": "InferSSD: the first part of a split model, read in its folder for Strata's files",
+   "runner": "inferssd",
+   "config": {
+    "MODEL_FILE": "DeepSeek-V4.1-Flash-1017-GGUF/mrfakename/Q8_0/DeepSeek-V4.1-Flash-1017-Q8_0-00001-of-00010.gguf"
+   },
+   "line": "bash $HOME/run_inferssd.sh \"$PORT\" --context 32768 \"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}\"/DeepSeek-V4.1-Flash-1017-GGUF/mrfakename/Q8_0/DeepSeek-V4.1-Flash-1017-Q8_0-00001-of-00010.gguf"
   }
  ],
  "refusals": [
@@ -354,6 +382,12 @@
     "MODEL_FILE": "/model.gguf"
    },
    "refusal": "must be a file of a library model laid out as <model>/<author>/<variant>/<file>"
+  },
+  {
+   "name": "InferSSD: no model",
+   "runner": "inferssd",
+   "config": {},
+   "refusal": "MODEL_FILE is required for a InferSSD cell"
   }
  ]
 }

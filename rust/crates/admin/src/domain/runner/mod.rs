@@ -8,6 +8,7 @@ mod row_json;
 mod specs;
 mod speech;
 mod strata;
+mod strata_ds;
 mod vllm;
 
 pub use llama::{LlamaServerRunner, PrismRunner};
@@ -58,12 +59,16 @@ pub struct RunnerRow {
     pub model_field: Option<&'static str>,
     /// How the shared model picker treats this runner.
     pub shared_picker: &'static str,
-    /// GGUF architectures only this runner's engine reads.
+    /// GGUF architectures llama.cpp does not read and this runner's engine does. A GGUF of one is the kind of the first runner that claims it (`artifacts[0]`), so two runners of
+    /// one architecture name the same kind first: DeepSeek-V4.1's is read by Strata's engine and by InferSSD's (2026-11-03).
     pub gguf_archs: &'static [&'static str],
     /// `config.json` `model_type` values only this runner reads.
     pub st_archs: &'static [&'static str],
     /// The config fields that name model files a command cell of this runner reads.
     pub model_files: &'static [&'static str],
+    /// The fields of the files this runner finds beside its model itself (`Runner::complete`): the cell's, whatever the model list pairs with the model. A form
+    /// draws no suggestion of the list over them and keeps a file of another repository there (Strata's DeepSeek sets, 2026-11-03).
+    pub own_companions: &'static [&'static str],
     /// The oldest caravan-scout that can start this runner's cells.
     pub min_scout: Option<(u32, u32, u32)>,
     /// When a start writes what it makes from the model on the machine's disk (Strata's pack, about 2.3 GB, at every start): the owner, 2026-11-03, wants it in a folder he chose, and no start
@@ -119,6 +124,7 @@ impl RunnerRow {
         gguf_archs: &[],
         st_archs: &[],
         model_files: &[],
+        own_companions: &[],
         min_scout: None,
         work_folder: false,
         context_field: "CTX_SIZE",
@@ -185,6 +191,10 @@ pub trait Runner: Send + Sync {
         Vec::new()
     }
 
+    /// What a save adds to `config` from the controller's own knowledge where the config says nothing: nothing, but for a runner whose model reads files the library holds
+    /// apart, found there by name (Strata's DeepSeek sets, 2026-11-03). A save of the cell runs it, so what is found stands in the cell's settings.
+    fn complete(&self, _config: &mut Config, _defaults: &RunnerDefaults) {}
+
     /// Validates and completes `merged` in place, and answers with its command.
     fn prepare(&self, merged: &mut Config, defaults: &RunnerDefaults) -> Result<String, AppError> {
         if self.row().needs_models_dir {
@@ -223,6 +233,11 @@ pub trait Runner: Send + Sync {
     /// The cards are numbered the way `nvidia-smi` and the board number them, by PCI bus: CUDA's own default numbers them fastest first (2026-10-17).
     fn launch_env(&self, _config: &Config) -> Vec<(String, String)> {
         vec![("CUDA_DEVICE_ORDER".to_string(), "PCI_BUS_ID".to_string())]
+    }
+
+    /// How many of the first parts of a split GGUF named in `field` a start brings, when not every part the name counts: `None` for all of them. The scout copies what it is told (2.44.0).
+    fn parts_brought(&self, _field: &str, _value: &str) -> Option<u32> {
+        None
     }
 
     /// The card a one-card start lands on: the last `CUDA_VISIBLE_DEVICES` in the cell's ENV, else card 0; `None` when the pin names no single card or the machine has no such card.
@@ -314,6 +329,8 @@ impl RunnerRegistry {
             Box::new(llama::PrismRunner { home: defaults.home.clone() }),
             Box::new(vllm::VllmRunner),
             Box::new(strata::StrataRunner::new()?),
+            Box::new(strata_ds::StrataDeepSeekRunner::new()?),
+            launcher::LauncherRunners::inferssd(),
             Box::new(gr00t::Gr00tRunner),
         ];
         runners.extend(speech::SpeechRunners::all());

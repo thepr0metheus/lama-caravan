@@ -52,7 +52,7 @@ impl RouterOutputs {
         let engines = EngineOutputs::of(app).outputs(hosts);
         let machines = MachineOutputs::outputs(hosts, server_obj);
         let pools: &[Value] = pools.as_array().map_or(&[], Vec::as_slice);
-        if !ProxiesConfig::sync_router_outputs(&mut routers, server_obj, pools, &engines, &machines)? {
+        if !ProxiesConfig::sync_router_outputs(&mut routers, pools, &engines, &machines)? {
             return Ok(false);
         }
         let mut fresh = config.read_payload();
@@ -208,6 +208,8 @@ impl<'app> TopologyState<'app> {
             "liveCatalog": live_catalog,
             "entryMove": entry_move,
             "poolsRuntime": desk.runtime(),
+            // The reader block's row (`top.reader`, static/js/reader-block.js), from the reading the rest of this answer reads.
+            "reader": PoolDesk::reader(live),
             "modelLevels": desk.model_levels(),
             "addedModels": desk.added_models(),
             "modelJobs": desk.model_jobs(),

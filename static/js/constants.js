@@ -1,6 +1,9 @@
 // Launch-form field definitions (shared by the config form and edit modals).
+// No PORT among them: a cell's port is leased by its scout at each start (Papyrus caravan-scout-port-lease), so no form shows
+// one, and a config the form makes carries none. No HOST either: a cell listens on its machine's loopback, the caravan's word
+// (step 7 of the same plan, 2026-11-08).
 export const numericFields = [
-  "HOST", "PORT", "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE",
+  "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE",
   "UBATCH_SIZE", "PARALLEL", "N_GPU_LAYERS", "CACHE_TYPE_K", "CACHE_TYPE_V",
   "N_PREDICT", "KEEP", "CPU_RANGE", "POLL", "ROPE_SCALING", "ROPE_SCALE",
   "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE", "NUMA", "DEVICE", "SPLIT_MODE",
@@ -34,7 +37,7 @@ export const toggleFields = [
   "CPU_MOE", "CPU_MOE_DRAFT", "OP_OFFLOAD", "REPACK", "WARMUP", "CHECK_TENSORS"
 ];
 export const advancedGroups = [
-  { titleKey: "grpEndpoint", fields: ["HOST", "PORT", "ALIAS", "API_PREFIX"] },
+  { titleKey: "grpEndpoint", fields: ["ALIAS", "API_PREFIX"] },
   { titleKey: "grpRuntime", fields: ["CTX_SIZE", "N_GPU_LAYERS", "PARALLEL", "ENABLE_JINJA", "ENABLE_WEBUI"] },
   { titleKey: "grpBatching", fields: ["THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "ENABLE_CONT_BATCHING", "ENABLE_FLASH_ATTN"] },
   { titleKey: "grpThroughput", fields: ["THREADS_HTTP", "TIMEOUT", "SLEEP_IDLE_SECONDS", "SSE_PING_INTERVAL"] },

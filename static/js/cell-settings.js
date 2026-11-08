@@ -8,14 +8,18 @@
 // another cell, from its window or from a dialog; the dialog of the cell itself shows them as they stand. The board repaints the
 // lane wholesale, so what is chosen here — the cell, the search, the group — is kept here, and the map is drawn again into the
 // Memory tab after every repaint (remount).
+//
+// A cell is held by its key: its id (cellId) — the window's data-t-id — or, for a cell the new-cell wizard has not made yet, the
+// key the wizard and the form hold it under. The form is asked by that key alone (CellForm.holds, fill): a cell has a port only
+// while it runs, so none is read out of a key here.
 import { CellWindow } from "./cell-window.js";
 import { advancedGroups, advancedTabDefs, fieldChoices, toggleFields } from "./constants.js";
 import { fieldHelp, t } from "./i18n.js";
 import { escapeHtml } from "./utils.js";
 
 export class CellSettings {
-  /** The data-t names of the editor (docs/testability.md); data-t-id = the cell's key, a group, a field or the Memory tab's open
-   *  button adds ":<its id>". The editor's and the map's data-t-state say idle (the form holds another cell, or none) or open —
+  /** The data-t names of the editor (docs/testability.md); data-t-id = the cell's key (its id), a group, a field or the Memory
+   *  tab's open button adds ":<its id>". The editor's and the map's data-t-state say idle (the form holds another cell, or none) or open —
    *  the map's says none for a cell with no map; a field's says set, unset or changed; the foot's says dirty or busy. */
   static HOOKS = {
     view: "cell-settings", open: "cell-settings-open", query: "cell-settings-query", only: "cell-settings-only",
@@ -88,8 +92,7 @@ export class CellSettings {
   /** True while the form holds cell `key` for its window. */
   holds(key) {
     if (!this.key || this.key !== String(key) || !this.form) return false;
-    const { hostId, port } = CellWindow.place(this.key);
-    return this.form.holds(hostId, port);
+    return this.form.holds(this.key);
   }
 
   value(field) {
@@ -122,7 +125,8 @@ export class CellSettings {
   // ── what the form says, and what it is told ─────────────────────────────────────────────────────────────
 
   /** Fills the form with cell `key`'s saved config, unless it holds it already: edits of another cell not applied are let go
-   *  only when the operator says so. True when the form holds `key` after it. */
+   *  only when the operator says so. True when the form holds `key` after it. The form fills nothing for a key of no cell the
+   *  board shows (CellForm.fill says false) and stays as it was: so does what is kept here. */
   async open(key, doc = globalThis.document) {
     const k = String(key);
     if (!this.form) return false;
@@ -130,16 +134,19 @@ export class CellSettings {
       this.mountMap(doc);
       return true;
     }
-    const { hostId, port } = CellWindow.place(k);
-    if (!(await this.leave(hostId, port))) return false;
-    const was = this.key;
+    if (!(await this.leave(k, doc))) return false;
+    const was = { key: this.key, query: this.query, onlySet: this.onlySet, group: this.group };
+    // The key first: the filling is heard back at once as "filled" (refill), which reads the form for the cell held.
     this.key = k;
     this.query = "";
     this.onlySet = true;
     this.group = "";
-    this.form.fill(hostId, port, { hidden: true });  // heard back as "filled" (refill)
+    if (!this.form.fill(k, { hidden: true })) {
+      Object.assign(this, was);
+      return false;
+    }
     // The window of the cell left keeps no editor of the form it no longer holds: drawn idle, its fields cannot write here.
-    if (was && was !== k) this.paintAll(doc, was);
+    if (was.key && was.key !== k) this.paintAll(doc, was.key);
     return this.holds(k);
   }
 
@@ -148,8 +155,7 @@ export class CellSettings {
    *  fields that hold a value only. False when the form holds another cell. */
   adopt(key, { onlySet = false } = {}, doc = globalThis.document) {
     const k = String(key);
-    const { hostId, port } = CellWindow.place(k);
-    if (!this.form?.holds(hostId, port)) return false;
+    if (!k || !this.form?.holds(k)) return false;
     const was = this.key;
     this.key = k;
     this.query = "";
@@ -195,17 +201,18 @@ export class CellSettings {
     this.paintFoot(doc);
   }
 
-  /** The keeper's question (CellForm.keeps): the dialog of cell hostId:port shows the edits kept here as they stand. */
-  keeps(hostId, port) {
-    const at = CellWindow.place(this.key);
-    return at.hostId === String(hostId) && at.port === String(port) && this.holds(this.key) && this.dirty().length > 0;
+  /** The keeper's question (CellForm.keeps): the dialog of cell `key` shows the edits kept here as they stand. */
+  keeps(key) {
+    return !!this.key && this.key === String(key) && this.holds(this.key) && this.dirty().length > 0;
   }
 
-  /** The keeper's other question (CellForm.mayFill): may the form be filled for a cell now? Not without the operator's word
-   *  while edits here are not applied. */
-  async leave(hostId, port) {
+  /** The keeper's other question (CellForm.mayFill): may the form be filled for cell `key` now? Whichever cell that is — another,
+   *  or this one afresh — the edits here not applied would go: not without the operator's word. The question names the cell
+   *  whose edits they are as its window is titled (CellWindow.titleIn), by its key when no window of it is drawn. */
+  async leave(key, doc = globalThis.document) {
     if (!this.holds(this.key) || !this.dirty().length) return true;
-    return !!(await this.confirm(t("cwDirtyLeave", { port: CellWindow.place(this.key).port }), { danger: false }));
+    const cell = CellWindow.titleIn(doc, this.key) || this.key;
+    return !!(await this.confirm(t("cwDirtyLeave", { cell }), { danger: false }));
   }
 
   /** Writes one field into the form, as the editor's input says it, and says at the foot what is not applied. */
@@ -255,12 +262,11 @@ export class CellSettings {
     return ok;
   }
 
-  /** Back to the saved config: the form filled again from it (heard back as "filled"). */
+  /** Back to the saved config: the form filled again from it (heard back as "filled"). False when the form fills nothing — a
+   *  cell the board no longer shows: what is not applied stays so, and is said so at the foot. */
   discard() {
     if (this.busy || !this.holds(this.key)) return false;
-    const { hostId, port } = CellWindow.place(this.key);
-    this.form.fill(hostId, port, { hidden: true });
-    return true;
+    return !!this.form.fill(this.key, { hidden: true });
   }
 
   // ── the editor ──────────────────────────────────────────────────────────────────────────────────────

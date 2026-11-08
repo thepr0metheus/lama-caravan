@@ -4,7 +4,8 @@ use rules::Coerce;
 use serde_json::{Map, Value};
 
 /// The name its operator gave it (`MODEL_NAME`), else the cell's alias (`ALIAS`: what `llama-server` answers with), else one made of its model: a GGUF file's name without `.gguf` (and without the part a split file adds),
-/// a folder's own name; Whisper and Moonshine by their size or language. Nothing to go by: `cell-<port>`, a name that says it was not given one. Made of the cell's settings alone, so a model keeps its name while it is stopped.
+/// a folder's own name; Whisper and Moonshine by their size or language. Nothing to go by: `cell-<the cell's id>`, a name that says it was not given one. Made of the cell's settings alone, so a model keeps its
+/// name while it is stopped and whatever port a run of it holds.
 pub struct ModelName;
 
 impl ModelName {
@@ -18,7 +19,7 @@ impl ModelName {
     }
 
     /// The name. Settings that are no object say nothing.
-    pub fn of(config: Option<&Value>, model_path: &str, port: i64) -> String {
+    pub fn of(config: Option<&Value>, model_path: &str, cell: &str) -> String {
         let empty = Map::new();
         let config = config.and_then(Value::as_object).unwrap_or(&empty);
         for key in Self::KEYS {
@@ -40,7 +41,7 @@ impl ModelName {
         if !made.is_empty() {
             return made;
         }
-        if port != 0 { format!("cell-{port}") } else { String::new() }
+        if cell.is_empty() { String::new() } else { format!("cell-{cell}") }
     }
 
     /// What a split GGUF adds to each file's name: `model-00001-of-00003` is the model `model`.
@@ -106,15 +107,15 @@ mod tests {
 
     #[test]
     fn a_name_comes_from_the_settings_first() {
-        assert_eq!(ModelName::of(Some(&json!({"MODEL_NAME": " mine ", "ALIAS": "other"})), "x.gguf", 1), "mine");
-        assert_eq!(ModelName::of(Some(&json!({"ALIAS": "other"})), "x.gguf", 1), "other");
-        assert_eq!(ModelName::of(Some(&json!({"RUNNER": "Whisper", "WHISPER_MODEL": "large-v3"})), "", 1), "whisper-large-v3");
+        assert_eq!(ModelName::of(Some(&json!({"MODEL_NAME": " mine ", "ALIAS": "other"})), "x.gguf", "c1"), "mine");
+        assert_eq!(ModelName::of(Some(&json!({"ALIAS": "other"})), "x.gguf", "c1"), "other");
+        assert_eq!(ModelName::of(Some(&json!({"RUNNER": "Whisper", "WHISPER_MODEL": "large-v3"})), "", "c1"), "whisper-large-v3");
         assert_eq!(
-            ModelName::of(Some(&json!({"RUNNER": "llama", "WHISPER_MODEL": "large-v3", "MODEL_FILE": "a/b.gguf"})), "", 1),
+            ModelName::of(Some(&json!({"RUNNER": "llama", "WHISPER_MODEL": "large-v3", "MODEL_FILE": "a/b.gguf"})), "", "c1"),
             "b"
         );
-        assert_eq!(ModelName::of(None, "", 22001), "cell-22001");
-        assert_eq!(ModelName::of(Some(&json!([1])), "", 0), "");
+        assert_eq!(ModelName::of(None, "", "c22001"), "cell-c22001");
+        assert_eq!(ModelName::of(Some(&json!([1])), "", ""), "");
     }
 
     #[test]

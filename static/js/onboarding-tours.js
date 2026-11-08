@@ -63,6 +63,7 @@ function machineSteps() {
     { center: true, title: t("tourMcWelcomeT"), body: t("tourMcWelcomeB"), onRender: langPicker },
     { anchor: ".machine-tools", title: t("tourMcToolsT"), body: t("tourMcToolsB") },
     { anchor: "[data-machine-map]", title: t("tourMcMapT"), body: t("tourMcMapB") },
+    { anchor: "[data-t=\"machine-chosen\"]", title: t("tourMcChosenT"), body: t("tourMcChosenB") },
     { anchor: "[data-t=\"machine-models\"]", title: t("tourMcModelsT"), body: t("tourMcModelsB") },
     { anchor: "[data-t=\"machine-add\"]", title: t("tourMcAddT"), body: t("tourMcAddB") },
     { anchor: "[data-t=\"machine-side-engines\"]", title: t("tourMcEnginesT"), body: t("tourMcEnginesB") },

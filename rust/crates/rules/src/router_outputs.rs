@@ -109,8 +109,6 @@ pub struct MachineOutput {
     pub upstream_host: String,
     /// The port of the machine's entry.
     pub upstream_port: u16,
-    /// The ports of its running copies: its spare way, each asked once when the entry does not answer.
-    pub copy_ports: Vec<u16>,
     /// Whether the board knows it stands still.
     pub stopped: bool,
     /// What stands behind the address.
@@ -140,13 +138,11 @@ impl MachineOutput {
         if id.is_empty() || upstream_host.is_empty() || (name.is_empty() && kind != UpstreamType::Llama) {
             return None;
         }
-        let ports = output.get("copyPorts").and_then(Value::as_array).into_iter().flatten();
         Some(Self {
             label: Coerce::text(output.get("name")),
             host: Coerce::text(output.get("hostId")),
             upstream_host,
             upstream_port,
-            copy_ports: ports.filter_map(|port| Coerce::int(port).and_then(|port| u16::try_from(port).ok())).collect(),
             stopped: Coerce::truthy(output.get("stopped")),
             kind,
             id,

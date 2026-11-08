@@ -22,11 +22,12 @@ impl<'a> Launcher<'a> {
         Self { parts }
     }
 
-    /// The child of `argv`, in its scope, writing to `log_path`, with the scout's environment, what the start adds over it, and the marker last: nothing a start carries can take the marker away.
+    /// The child of `argv`, in its scope, writing to `log_path`, with the scout's environment, what the start adds over it, and the marks: the name of its cell and the port its run holds (`mark`),
+    /// whose it is. Nothing a start carries can take a mark away.
     pub(super) fn spawned(
         &self,
         argv: &[String],
-        port: Option<&Value>,
+        mark: (&str, Option<&Value>),
         extra: &Map<String, Value>,
         log_path: Option<&Path>,
         ram_mib: f64,
@@ -36,16 +37,14 @@ impl<'a> Launcher<'a> {
         let log = CellLog::new(log_path.map(Path::to_path_buf), Arc::clone(&self.parts.patterns))
             .open_new(self.parts.clock.epoch() as i64)
             .map_err(|error| error.to_string())?;
+        let (cell, port) = mark;
         let mut command = Command::new(program);
-        command
-            .args(rest)
-            .stdin(Stdio::null())
-            .env(HostProcesses::CELL_ENV, Coerce::text(port))
-            .env(HostProcesses::HOME_ENV, &self.parts.home);
-        for (name, value) in extra {
-            if name != HostProcesses::CELL_ENV && name != HostProcesses::HOME_ENV {
-                command.env(name, Coerce::text(Some(value)));
-            }
+        command.args(rest).stdin(Stdio::null()).env(HostProcesses::CELL_ENV, cell).env(HostProcesses::HOME_ENV, &self.parts.home);
+        if let Some(port) = port.filter(|port| !port.is_null()) {
+            command.env(HostProcesses::PORT_ENV, Coerce::text(Some(port)));
+        }
+        for (name, value) in extra.iter().filter(|(name, _)| !HostProcesses::MARKS.contains(&name.as_str())) {
+            command.env(name, Coerce::text(Some(value)));
         }
         match log {
             Some(file) => {

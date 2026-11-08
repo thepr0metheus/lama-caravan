@@ -41,17 +41,14 @@ import {
 } from "./usage-stats.js";
 import { escapeHtml } from "./utils.js";
 
-// Where Routing's pools lead: the accounts their rows call, and the machines whose cells they
-// call. A row of a local model names its output ("srv:<port>", "eng:<id>"); the router's outputs say
+// Where Routing's pools lead: the accounts their rows call, and the machines whose models they
+// call. A row of a local model names its output ("mm:<hash>" a machine's model, "eng:<id>" an engine's); the router's outputs say
 // where that output answers, and machineAt(that address) names the machine — the rule Routing's
 // machine rows go by. A row switched off leads nowhere, and neither does a row whose output is gone:
 // no request can go there, so no cable says one can.
 export class PoolReach {
-  static of(top = topology, machineOf = (address) => machineAt(address).key) {
-    const outputs = new Map();
-    for (const router of top?.routers || []) {
-      for (const out of router?.outputs || []) if (out?.id && !outputs.has(out.id)) outputs.set(out.id, out);
-    }
+  static of(top = topology, machineOf = (address) => machineAt(address)?.key) {
+    const standsOn = PoolReach.machines(top, machineOf);
     const accounts = [];
     const machines = new Map();
     for (const pool of top?.pools || []) {
@@ -60,15 +57,29 @@ export class PoolReach {
         if (row.kind === "account" && row.accountId) {
           if (!accounts.includes(row.accountId)) accounts.push(row.accountId);
         } else if (row.kind === "output" && row.output) {
-          const out = outputs.get(row.output);
-          if (!out || String(out.upstreamType || "llama") === "cloud") continue;
-          const key = String(machineOf(out.upstreamHost || "127.0.0.1"));
+          const key = standsOn.get(String(row.output));
+          if (key === undefined) continue;
           if (!machines.has(key)) machines.set(key, []);
           if (!machines.get(key).includes(row.output)) machines.get(key).push(row.output);
         }
       }
     }
     return { accounts, machines: [...machines].map(([key, outs]) => ({ key, outputs: outs })) };
+  }
+
+  // The machine each output of Routing's card stands on, by the output's id: a pool's row and a request's leg (`routedOutputId`) are
+  // told their machine by this one rule. A cloud's output stands on none, an output whose machine the board does not know stands on
+  // none either (no guess), and an id Routing does not hold is not here at all.
+  static machines(top = topology, machineOf = (address) => machineAt(address)?.key) {
+    const standsOn = new Map();
+    for (const router of top?.routers || []) {
+      for (const out of router?.outputs || []) {
+        if (!out?.id || standsOn.has(String(out.id)) || String(out.upstreamType || "llama") === "cloud") continue;
+        const key = machineOf(out.upstreamHost || "127.0.0.1");
+        if (key !== undefined && key !== null && key !== "") standsOn.set(String(out.id), String(key));
+      }
+    }
+    return standsOn;
   }
 }
 

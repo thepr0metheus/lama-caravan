@@ -9,17 +9,17 @@ use crate::casefold::Casefold;
 use crate::client_deny::ClientDeny;
 use crate::cloud_accounts::{CloudAccounts, CloudProvider, Credentials};
 use crate::cloud_models::{AccountModelJobs, AddedModels, ModelCatalogue};
-use crate::cloud_pools::{CloudPools, ContextWindow, Pool, PoolRow, RowWork};
+use crate::cloud_pools::{CloudPools, Pool, PoolRow, RowWork};
 use crate::coerce::Coerce;
 use crate::entry_refusal::EntryRefusal;
-use crate::model_kind::ModelKind;
+use crate::model_kind::{ModelKind, RowKind};
 use crate::model_schedules::ModelSchedules;
-use crate::route::Route;
 use crate::router_outputs::{MachineOutput, RouterOutput, RouterOutputs};
 use crate::usage_limits::ModelLevels;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+mod answer;
 mod board;
 
 /// A model a client calls without a pool.
@@ -74,6 +74,10 @@ pub struct EntryModels {
     credentials: Credentials,
     levels: ModelLevels,
     schedules: ModelSchedules,
+    /// The reader the board names for the parts no pool's rows can take. `None` is the absence of the operator's decision,
+    /// said as an absence — not a reader with an empty name. This is a fact of the board, not of a pool: the parts come from
+    /// a request, and the request's pool only says which row was asked to read.
+    reader: Option<String>,
     /// Something in the reading this cannot answer for: nothing is sure then, and the client hears that.
     unsure: bool,
 }
@@ -92,6 +96,8 @@ impl EntryModels {
         let known = Self::known(routers, file, &accounts, credentials);
         let mut names_sure = true;
         let live = Self::named(known, &mut names_sure);
+        // An empty name is the absence of the operator's decision, not a reader named nothing.
+        let named = Coerce::word(file.get(Self::READER_FIELD));
         let mut read = Self {
             unsure: cloud.is_none() || accounts.unsure() || pools.unsure() || credentials.unsure() || !names_sure,
             pools: pools.all().to_vec(),
@@ -103,6 +109,7 @@ impl EntryModels {
             credentials: credentials.clone(),
             levels: ModelLevels::read(file.get("levels")),
             schedules: ModelSchedules::read(file.get("schedules")),
+            reader: (!named.is_empty()).then_some(named),
         };
         read.unsure = read.unsure || read.pools.iter().any(|pool| Self::key(&pool.name).is_none());
         read
@@ -245,14 +252,18 @@ impl EntryModels {
 
     /// What a client's key calls now, what `/v1/models` lists: every pool, then every model that runs, but what it is closed to.
     pub fn models(&self, deny: &ClientDeny) -> Vec<&Pool> {
+        self.open_to(deny, true)
+    }
+
+    /// The two questions are different, so the set is held open to the flag: what a key can call now (`runs_only`), and what
+    /// the board has facts about (a name the board knows but cannot call this second still has facts to read against).
+    fn open_to(&self, deny: &ClientDeny, runs_only: bool) -> Vec<&Pool> {
         let pools = self.pools.iter().filter(|pool| !deny.closes_pool(&pool.id));
-        pools
-            .chain(
-                self.live_models(true)
-                    .filter(|entry| !deny.closes(&entry.place, &entry.account, &entry.host))
-                    .map(|entry| &entry.pool),
-            )
-            .collect()
+        let known = self
+            .live_models(runs_only)
+            .filter(|entry| !deny.closes(&entry.place, &entry.account, &entry.host))
+            .map(|entry| &entry.pool);
+        pools.chain(known).collect()
     }
 
     /// The pool a request's `model` names among the client's, spelled as the list spells it; `None` for a name its key does not call now.
@@ -261,6 +272,23 @@ impl EntryModels {
             return None;
         }
         self.models(deny).into_iter().find(|pool| pool.name == wanted)
+    }
+
+    /// The name the board named as its reader, as the file holds it. `None` is the absence of the operator's decision, said
+    /// as an absence — not a reader named nothing.
+    pub fn reader(&self) -> Option<&str> {
+        self.reader.as_deref()
+    }
+
+    /// The model `wanted` names among everything the board knows, running or not. This is what a reader is checked against:
+    /// the rule asks what a name's facts promise, not whether a call is possible this second, so a model the board knows and
+    /// cannot call is still a name with a promise, and `Reader::Unknown` stays the answer for a name no place in the reading
+    /// has. A reading that holds only the pools answers `unknown` for every model name, which is a fact about the reading.
+    pub fn known_name(&self, deny: &ClientDeny, wanted: &str) -> Option<&Pool> {
+        if wanted.is_empty() {
+            return None;
+        }
+        self.open_to(deny, false).into_iter().find(|pool| pool.name == wanted)
     }
 
     /// Whether `wanted` names a pool or a model the board knows, running or not, that this client is closed to.
@@ -283,6 +311,11 @@ impl EntryModels {
         ModelKind::of_pool(pool, &self.accounts, &self.outputs, &self.jobs)
     }
 
+    /// What one row says of itself: `ServesNothing` for a row that names no work, or whose account or cell is gone.
+    pub fn row_kind(&self, row: &PoolRow) -> RowKind {
+        ModelKind::of_row(row, &self.accounts, &self.outputs, &self.jobs)
+    }
+
     /// The window a pool stands for.
     pub fn window(&self, pool: &Pool) -> Option<i64> {
         pool.window(|row| match &row.work {
@@ -292,51 +325,6 @@ impl EntryModels {
             }
             RowWork::Output(output) => self.outputs.get(output).and_then(|found| found.window),
             RowWork::Open => None,
-        })
-    }
-
-    /// One model of the list in OpenAI's shape, answered at `created`. The window is the pool's against this client's own limit, absent
-    /// when neither is known: a guessed window is worse than none.
-    pub fn model_object(&self, route: &Route, pool: &Pool, created: i64) -> Value {
-        let mut entry = serde_json::Map::new();
-        entry.insert("id".to_string(), json!(pool.name));
-        entry.insert("object".to_string(), json!("model"));
-        entry.insert("created".to_string(), json!(created));
-        entry.insert("owned_by".to_string(), json!("caravan"));
-        if let Some(window) = ContextWindow::effective(route.context_limit, self.window(pool), route.context_auto) {
-            entry.insert("context_length".to_string(), json!(window));
-            entry.insert("max_model_len".to_string(), json!(window));
-        }
-        if let Some(kind) = self.kind(pool) {
-            entry.extend(kind.models_entry());
-        }
-        Value::Object(entry)
-    }
-
-    /// `GET /v1/models`: what a client's key calls now, at `created`.
-    pub fn list(&self, route: &Route, created: i64) -> Value {
-        let data: Vec<Value> = self.models(&route.deny).into_iter().map(|pool| self.model_object(route, pool, created)).collect();
-        json!({"object": "list", "data": data})
-    }
-
-    /// Ollama's `/api/show` for a pool, in Ollama's shape: the window under `model_info` and as `num_ctx` in its `parameters`, the figure
-    /// `/v1/models` states. A pool that states no window answers without one.
-    pub fn show(&self, route: &Route, pool: &Pool) -> Value {
-        let window = ContextWindow::effective(route.context_limit, self.window(pool), route.context_auto);
-        let mut model_info = serde_json::Map::new();
-        model_info.insert("general.architecture".to_string(), json!("caravan"));
-        if let Some(window) = window {
-            model_info.insert("caravan.context_length".to_string(), json!(window));
-        }
-        json!({
-            "modelfile": "",
-            "parameters": window.map_or(String::new(), |window| format!("num_ctx {window}")),
-            "template": "",
-            "details": {
-                "parent_model": "", "format": "", "family": "caravan", "families": ["caravan"],
-                "parameter_size": "", "quantization_level": "",
-            },
-            "model_info": model_info,
         })
     }
 

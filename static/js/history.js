@@ -200,7 +200,7 @@ export function renderHistoryTable() {
         ? `<span class="history-tag history-tag-cloud">cloud</span>`
         : `<span class="history-tag history-tag-llama">llama</span>`;
     // The via tag names where the request ENDED; the rescue badge confesses the
-    // exits it failed on first (trail in the tooltip: "srv:8002 (400) → …").
+    // exits it failed on first, each by its output's id (trail in the tooltip: "mm:3f9a02b1c4d5 (400) → …").
     const rescued = item.rescued && Number(item.rescued.hops) > 0 ? item.rescued : null;
     const rescueTag = rescued
       ? `<span class="history-tag history-tag-rescued" title="${escapeHtml(t("hsRescuedTip") + " " + (rescued.trail || []).map((h) => `${h.from} (${h.status})`).join(" → "))}">🛟 ${escapeHtml(t("hsViaRescued"))}</span>`
@@ -286,9 +286,11 @@ export function openHistoryDetailPopup(row) {
   panel.removeAttribute("hidden");
   panel.querySelector("#historyDetailCloseBtn").addEventListener("click", closeHistoryDetailPopup);
   panel.querySelector("#historyDetailCurlBtn").addEventListener("click", () => {
-    const port = (row.item || {}).port || row.port || "";
+    // The client by its record's id; a row written before 2026-11-07 names a number, and the controller reads it as its client's.
+    const routeId = (row.item || {}).routeId || "";
     const day = historyCurrentDate ? `&date=${historyCurrentDate}` : "";
-    const cmd = `curl '${location.origin}/api/agent-proxy-logs?port=${port}&event=finished&errors=1&slim=1&limit=20${day}'`;
+    const who = routeId ? `routeId=${encodeURIComponent(routeId)}&` : "";
+    const cmd = `curl '${location.origin}/api/agent-proxy-logs?${who}event=finished&errors=1&slim=1&limit=20${day}'`;
     // navigator.clipboard needs a secure context; the LAN UI runs on plain
     // http, so fall back to the legacy textarea + execCommand copy.
     const legacyCopy = () => {
@@ -361,12 +363,15 @@ export function renderHistoryDetailFull(row) {
   }
 
   const st = item.stream;
-  if (st && st.events) {
+  // A stream that came only in pieces has no events, so the section used to disappear with the number that says it was read in pieces.
+  if (st && (st.events || st.linesPastCap)) {
     const sr = [
       st.events && ["Events", st.events],
       st.deltaTextChars && ["Text chars", st.deltaTextChars],
       st.finishReasons?.length && ["Finish", st.finishReasons.join(", ")],
       st.usage?.total_tokens && ["Tokens", st.usage.total_tokens],
+      // Counted, not read: a line past 1 MiB is shown only when there is a line to name, so a stream read whole says nothing about the cap.
+      st.linesPastCap && [t("hsStreamPastCap"), st.linesPastCap],
     ].filter(Boolean);
     if (sr.length) {
       const srRows = sr.map(([k, v]) => `<tr><td class="log-detail-key">${escapeHtml(k)}</td><td>${escapeHtml(String(v))}</td></tr>`).join("");

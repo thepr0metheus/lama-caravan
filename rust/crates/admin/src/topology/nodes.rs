@@ -8,6 +8,7 @@ use crate::fleet::controller_machine::ControllerMachine;
 use crate::fleet::engine_outputs::EngineOutputs;
 use crate::fleet::host_power::HostPower;
 use crate::fleet::remote_cells::RemoteCells;
+use crate::store::topology::Topology;
 use rules::Coerce;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -156,12 +157,17 @@ impl<'app> TopologyNodes<'app> {
             let index = gpu.get("index").filter(|index| !index.is_null()).and_then(Coerce::int);
             Coerce::put(gpu, "index", json!(index));
         }
-        // absent-ok: `int(s.get("port") or 0)`: a server with no port sorts first.
-        servers.sort_by_key(|server| Coerce::whole(server.get("port")));
+        // A machine's cells stand in the order they were made, which a run's port does not change; a cell the board keeps no record of
+        // comes after them, by its name.
+        let made: Vec<String> = self.app.admin.change(|doc| Topology::of(doc).slots().keys().cloned().collect());
+        servers.sort_by_key(|server| {
+            let cell = Coerce::text(server.get("cellId"));
+            (made.iter().position(|id| *id == cell).unwrap_or(made.len()), cell) // absent-ok: a cell of no record sorts after the kept ones
+        });
         Self::bind_servers(&mut gpus, host.get("computeApps"), &mut servers, host.get("engines"));
         remote.record_gpu_history(&id, &mut gpus);
         for server in &mut servers {
-            let key = format!("{id}:{}", Coerce::str_of(server.get("port")));
+            let key = format!("{id}:{}", Coerce::text(server.get("cellId")));
             let history =
                 remote.record_tps_history(&key, server.get("promptTps"), server.get("genTps"), server.get("requestsProcessing"));
             Coerce::put(server, "tpsHistory", Value::Array(history));

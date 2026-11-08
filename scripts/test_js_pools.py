@@ -167,6 +167,13 @@ const count = (html, re) => (html.match(re) || []).length;
   const out = PoolCards.payload({ ...POOL(), mode: "manual", manualStepId: "sub", manualUntil: 5 });
   assert.deepEqual(Object.keys(out).sort(), ["contextAuto", "contextLength", "id", "name", "steps"],
     "negative: a hand pick the board still holds is not sent back");
+  assert.equal("reader" in PoolCards.payload({ ...POOL(), reader: "qwen-vl" }), false,
+    "negative: a reader a pool still carries from an older reading is not sent back through the pool's door — the reader is "
+    + "the board's, and it goes to its own door (static/js/reader-block.js `ReaderBlock.body`)");
+  assert.deepEqual(PoolCards.body(out), { pool: out },
+    "the door takes the pool under `pool` (rust/crates/admin/src/routes/pools.rs reads it there), and this is the one place that says it");
+  assert.deepEqual(PoolCards.body({ id: "work", name: "Work" }), { pool: { id: "work", name: "Work" } },
+    "negative: a body with the id at the top level names no pool, and the door answers `unknown pool: None` for it");
   assert.deepEqual(Object.keys(out.steps[0]).sort(), ["accountId", "enabled", "id", "model", "stopAt", "switchAt"],
     "negative: the level reached, the reading's time and the marks stay on the board");
   assert.equal(out.contextLength, "", "no window stated is sent as blank, not as zero");
@@ -557,6 +564,12 @@ def proxy_reasons():
     src = "".join(path.read_text(encoding="utf-8") for path in folder.glob("*.rs") if path.name != "tests.rs")
     words = {word for call in re.findall(r'\b(?:un)?fit\((.*)', src) for word in re.findall(r'"([a-z_]+)"', call)}
     words |= set(re.findall(r'\d{3} => \("([a-z_]+)", ', src))
+    # A reason chosen in a helper and handed to `unfit(reason)` is the same fact as a literal in the
+    # call: the picture rule answers `Sight::Blind("media_unsupported")` from `sight` (it answered
+    # `Some(...)` from `cannot_read` before the board's reader read for a row). A snapshot that read
+    # only the literals inside `unfit(` asked the board for no words for it, and the row showed
+    # "Unavailable" while the guard stayed green.
+    words |= set(re.findall(r'(?:Some|Blind)\("([a-z_]+)"\)', src))
     return sorted(words)
 
 

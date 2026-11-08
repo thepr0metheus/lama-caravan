@@ -42,6 +42,7 @@ TRANSLATION_ALLOWLIST = {
     "rtTitleOutputServer",     # "Output → server" — literally the same words in it/id
     "cloudNameGlm",            # "GLM Coding Plan" — the product's own name
     "cloudNameQwen",           # "Qwen Token Plan" — the product's own name
+    "runnerStrataDs",          # "Strata · DeepSeek" — two products' own names
 }
 
 # Identifiers that legitimately stay latin inside any translation. Only the

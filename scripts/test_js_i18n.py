@@ -57,6 +57,11 @@ PINS = [
      "смена языка: сохранена, применена к корню, хук страницы вызван, событие для составных текстов отправлено"),
     ("init_language_loads_stored", '', 'await (async () => { localStorage.setItem("llamacppAdminLang", "fr"); const r = await m.initLanguage(); return [r, m.lang]; })()', '["en","en"]',
      "as-is: initLanguage грузит ТЕКУЩИЙ `lang` (прочитанный при импорте модуля), а не значение из хранилища на момент вызова"),
+    ("a_language_is_a_translation_only", '',
+     'await (async () => { await m.setLang("ar"); const r = [document.documentElement.lang, document.documentElement.dir ?? "unset", D.LANGS.some((l) => "dir" in l)]; await m.setLang("en"); return [...r, document.documentElement.lang]; })()',
+     '["ar","unset",false,"en"]',
+     "язык — только перевод: арабский применён (lang=ar), а направление страницы не тронуто, и ни у одного языка в LANGS его нет; negative: уход на английский "
+     "возвращает lang=en (владелец, 2026-11-07: «пусть просто будет перевод… не надо ломать интерфейс»)"),
     ("field_help_fallbacks", '', '[typeof m.fieldHelp("THREADS"), m.fieldHelp("THREADS").length > 0, m.fieldHelp("NOPE_FIELD")]', '["string",true,""]', "подсказка поля: строка на языке или английская; неизвестное поле — пусто"),
     ("label_with_tip_markup", '', '(h => [h.includes(\'<label for="THREADS">THREADS</label>\'), h.includes(\'data-fieldhelp="THREADS"\'), h.includes("aria-label=\\"THREADS: "), h.includes(\'<span class="tooltip" role="tooltip">\')])(m.labelWithTip("THREADS"))', '[true,true,true,true]', "подпись поля с кнопкой-подсказкой и tooltip"),
     ("help_tip_escapes", '', '(h => [h.includes(\'data-i18n-tip="saved"\'), h.includes("aria-label=\\"Saved.\\""), (h.match(/Saved\\./g) || []).length])(m.helpTip("saved"))', '[true,true,2]', "инлайн-подсказка по ключу: текст в aria и в tooltip"),

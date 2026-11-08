@@ -13,7 +13,7 @@ pub struct CellAssets<'app> {
 }
 
 impl<'app> CellAssets<'app> {
-    const ASSETS: [&'static str; 24] = [
+    const ASSETS: [&'static str; 25] = [
         "cell_base.py",
         "moonshine_server.py",
         "run_moonshine.sh",
@@ -38,8 +38,9 @@ impl<'app> CellAssets<'app> {
         "run_personaplex.sh",
         "run_vllm_omni.sh",
         "run_minicpm_omni.sh",
+        "run_inferssd.sh",
     ];
-    const RUNNERS: [(&'static str, &'static [&'static str]); 17] = [
+    const RUNNERS: [(&'static str, &'static [&'static str]); 18] = [
         ("moonshine", &["run_moonshine.sh", "cell_base.py", "moonshine_server.py"]),
         ("whisper", &["run_whisper.sh", "cell_base.py", "whisper_server.py"]),
         ("custom", &["run_tts.sh", "cell_base.py", "tts_server.py"]),
@@ -57,6 +58,7 @@ impl<'app> CellAssets<'app> {
         ("qwen3-omni", &["run_vllm_omni.sh"]),
         ("qwen3-tts", &["run_vllm_omni.sh"]),
         ("minicpm-omni", &["run_minicpm_omni.sh"]),
+        ("inferssd", &["run_inferssd.sh"]),
     ];
 
     /// The assets of `app`.

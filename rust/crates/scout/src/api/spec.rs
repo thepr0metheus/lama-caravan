@@ -110,6 +110,9 @@ impl ApiSpec {
         if route.is_entry() {
             return Self::entry_responses(route);
         }
+        if route.is_door() {
+            return Self::door_responses();
+        }
         let ok = if route.kind() == RouteKind::Page {
             json!({"description": "The page.", "content": {Self::HTML: {"schema": {"type": "string"}}}})
         } else {
@@ -140,6 +143,19 @@ impl ApiSpec {
             json!({"description": "The cell's answer, as the cell gave it: JSON, or a stream of server-sent events.", "content": {Self::JSON: {"schema": {"description": "The cell's own."}}, Self::STREAM: {"schema": {"type": "string"}}}})
         };
         json!({"200": ok, "default": refusal})
+    }
+
+    /// The door answers with the cell's own answer, whatever it is, and refuses in the scout's own shape before a byte reaches the cell.
+    fn door_responses() -> Value {
+        let error = json!({"schema": {"$ref": "#/components/schemas/Error"}});
+        json!({
+            "101": {"description": "The cell switched to a WebSocket: from here every byte passes on both ways."},
+            "200": {"description": "The cell's own answer, as the cell gave it: any status, any type, a stream as a stream.", "content": {"*/*": {"schema": {"description": "The cell's own."}}}},
+            "401": {"description": "The scout holds a fleet token and none, or another, came in X-Caravan-Token: `{error: \"fleet token required (X-Caravan-Token)\"}`.", "content": {Self::JSON: error}},
+            "404": {"description": "The path names no cell, or a cell this machine does not have: `{error}`.", "content": {Self::JSON: error}},
+            "409": {"description": "The cell holds no port: it does not run. `{error}`.", "content": {Self::JSON: error}},
+            "502": {"description": "The cell does not take the connection on its port: `{error}`.", "content": {Self::JSON: error}},
+        })
     }
 
     /// `getApiLlamaNodeStatus`, `postApiHeartbeat`, `getRoot`: unique because a path and a method are.

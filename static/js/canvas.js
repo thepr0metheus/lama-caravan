@@ -27,7 +27,6 @@ import {
 import {
   _cvProxyIsTombstoned,
   canvasBoardClients,
-  editTopologyProxy,
   isEntryClient,
   topologyProxyOwner,
 } from "./topology-proxies.js";
@@ -42,7 +41,6 @@ export let _cvSchedPainting = false;             // pointer is held down on a sc
 // ── Router canvas (Phase 3: interactive node graph) ───────────────────────
 // Client naming lives on InputsBlock; these faces stay for topology-proxies and the graph.
 export function _cvAgentGroup(p) { return InputsBlock.agentGroup(p); }
-export function _cvPrimaryPort(p) { return InputsBlock.primaryPort(p); }
 export function _cvProxyToAgent() { return InputsBlock.proxyToAgent(); }
 export function canvasClientKey(p) { return InputsBlock.clientKey(p); }
 export function canvasClientName(p) { return InputsBlock.clientName(p); }
@@ -113,8 +111,9 @@ export class History {
   }
   static route(raw) {
     const item = raw.item || {};
-    if (item.port) return InputsBlock.portName(item.port, { short: true });
-    // Fallback when port missing: strip suffix from route label
+    const named = item.routeId ? InputsBlock.routeName(item.routeId, { short: true }) : "";
+    if (named) return named;
+    // Fallback when the board does not know the client: strip suffix from route label
     const r = String(raw.route || item.route || "");
     let name = r.replace(/ (?:primary|fallback)$/i, "").trim();
     if (name.includes("·")) name = name.split("·").pop().trim();
@@ -138,7 +137,8 @@ export class History {
       .find((n) => n.id === nodeId && n.modelOutputId);
     const router = modelQueue ? (topology.routers || []).find((r) => (r.graph?.nodes || []).includes(modelQueue)) : null;
     const output = router?.outputs?.find((o) => o.id === modelQueue.modelOutputId);
-    const group = output ? `${output.upstreamHost}:${output.upstreamPort}` : null;
+    // The proxy's queue group of the output, as it stamps its requests: one rule, OutputCells.upstream (a machine's model is `host:port/model`).
+    const group = output ? OutputCells.upstream(output) : null;
     const rowsForQueue = modelQueue ? cache.rows.filter((raw) => {
       const item = raw.item || {};
       const visited = item.queue?.nodeIds;
@@ -199,10 +199,10 @@ export class History {
       return `<div class="cv-q-hist-loading">${t("cvNoInputs")}</div>`;
     }
 
-    // Filter to only rows from ports wired into this schedule node
+    // Filter to only rows from the clients wired into this schedule node
     const filtered = (cache.rows || []).filter((raw) => {
-      const port = raw.item?.port;
-      return !inputPorts || !port || inputPorts.has(Number(port));
+      const id = raw.item?.routeId;
+      return !inputPorts || !id || inputPorts.has(String(id));
     }).slice(0, 20);
 
     if (!filtered.length) return `<div class="cv-q-hist-loading">${t("cvNoHistory")}</div>`;
@@ -351,12 +351,10 @@ export class ScheduleNode extends RuleNode {
         if (reachable.has(t) && !reachable.has(f)) { reachable.add(f); changed = true; }
       }
     }
-    const ports = new Set();
-    for (const ref of reachable) {
-      const m = ref.match(/:(\d+)$/);
-      if (m && ref.startsWith("in:")) ports.add(Number(m[1]));
-    }
-    return ports;
+    // The clients whose inputs reach the node, by their ids: an input is `in:<client id>` (2026-11-07).
+    const ids = new Set();
+    for (const ref of reachable) if (ref.startsWith("in:")) ids.add(ref.slice(3));
+    return ids;
   }
   static color(outputs, outId) {
     const i = (outputs || []).findIndex((o) => o.id === outId);
@@ -573,14 +571,14 @@ export class QueueNode extends RuleNode {
   // (ensureStickyBarTicker) reads stickySlotAnims[group] every frame.
   static stickyAnim(group, stickyData, totalSec) {
     const rem = Math.max(0, Number(stickyData.remainingSec));
-    const port = Number(stickyData.port);
+    const routeId = String(stickyData.routeId || "");
     const totalMs = Math.max(1, Math.round(totalSec * 1000));
     const nowMs = Date.now();
     const elapsedPollMs = Math.max(0, totalMs - rem * 1000);
     const prev = stickySlotAnims[group];
     const drift = prev ? Math.abs((nowMs - prev.startMs) - elapsedPollMs) : Infinity;
-    if (!prev || prev.port !== port || prev.durationMs !== totalMs || drift > 1500) {
-      stickySlotAnims[group] = { port, startMs: nowMs - elapsedPollMs, durationMs: totalMs };
+    if (!prev || prev.routeId !== routeId || prev.durationMs !== totalMs || drift > 1500) {
+      stickySlotAnims[group] = { routeId, startMs: nowMs - elapsedPollMs, durationMs: totalMs };
     }
     return stickySlotAnims[group];
   }
@@ -590,11 +588,12 @@ export class QueueNode extends RuleNode {
   // and reuse the proxy-panel title (host name for the host OpenClaw agent, agent name
   // otherwise) so each row is distinguishable. Fall back to the bare label.
   static clientName(it) {
-    // Port is the source of truth; show "alias :port" or ":port"
-    if (it.port) return InputsBlock.portName(it.port);
+    // The client's id is the source of truth (2026-11-07): its name, as the board knows it.
+    const named = it.routeId ? InputsBlock.routeName(it.routeId) : "";
+    if (named) return named;
     // Fallback: strip role suffix from label
     const label = String(it.label || it.route || "");
-    return label.replace(/\s+(primary|fallback)$/i, "").trim() || `:${it.port || "?"}`;
+    return label.replace(/\s+(primary|fallback)$/i, "").trim() || "?";
   }
   summary() {
     const c = this.config;
@@ -615,7 +614,7 @@ export class QueueNode extends RuleNode {
   if (!admit || !String(admit.to).startsWith("out:")) return null;
   const out = (router.outputs || []).find((o) => o.id === String(admit.to).slice(4));
   if (!out || String(out.upstreamType || "") === "cloud") return null;
-  const group = `${out.upstreamHost || "127.0.0.1"}:${out.upstreamPort || 8080}`;
+  const group = OutputCells.upstream(out);
   const overview = topologyRuntimeOverview();
   const running = overview.running.filter((it) => topologyItemGroup(it) === group).length;
   const qItems = overview.queued.filter((it) => topologyItemGroup(it) === group);
@@ -670,13 +669,10 @@ export class QueueNode extends RuleNode {
   const ov = topologyRuntimeOverview();
   const inG = (it) => group && topologyItemGroup(it) === group;
   // Show both main-admitted and cloud-overflow running items so the user can see
-  // where each request actually went. Cloud items are filtered by same proxy port.
-  const admitPort = (topology?.proxies || []).find((p) => group === _proxyUpstreamStr(p))?.port;
-  const overflowItems = admitPort
-    ? ov.running.filter((it) => {
-        const itPort = Number(it.port || 0);
-        return itPort === Number(admitPort) && (it.upstreamType === "cloud" || it.queue?.cloudFallback);
-      })
+  // where each request actually went. Cloud items are filtered by the same client.
+  const admitId = (topology?.proxies || []).find((p) => group === _proxyUpstreamStr(p))?.id;
+  const overflowItems = admitId
+    ? ov.running.filter((it) => String(it.routeId || "") === String(admitId) && (it.upstreamType === "cloud" || it.queue?.cloudFallback))
     : [];
   const runningItems = ov.running.filter(inG).slice(0, 4);
   const allRunning = [
@@ -1201,16 +1197,12 @@ export class InputsBlock {
     return map;
   }
   static agentGroup(p) { return String(p.label || "").replace(/\s+(primary|fallback)$/i, "").trim(); }
-  // Normalize port to primary of its pair (odd=primary, even=primary's fallback → port-1).
-  static primaryPort(p) {
-    const port = Number(p.port || 0);
-    return port > 0 ? (port % 2 === 0 ? port - 1 : port) : 0;
-  }
-  // Group primary+fallback pair by the primary (odd) port — label-independent.
+  // A client's primary and fallback rows grouped by its machine and its name without the role: a route has no number to pair by
+  // any more (2026-11-07). Neither — its own id.
   static clientKey(p) {
     const host = String(p.clientId || "");
-    const primary = InputsBlock.primaryPort(p);
-    return host || primary ? `${host}::${primary || p.id}` : String(p.id);
+    const group = InputsBlock.agentGroup(p);
+    return host || group ? `${host}::${group || p.id}` : String(p.id);
   }
   static clientName(p) {
     const info = InputsBlock.proxyToAgent().get(String(p.id));
@@ -1221,30 +1213,21 @@ export class InputsBlock {
         .filter((i) => i.agentId === info.agentId && i.hostId !== info.hostId);
       return dupHosts.length ? `${short} · ${info.hostId}` : short;
     }
-    // Fallback: label (stripped), or host:port when label equals host (ambiguous).
+    // Fallback: label (stripped), or the machine's name, or the record's id.
     const label = InputsBlock.agentGroup(p);
     const host = String(p.clientId || "");
     if (label && label !== host) return label;
-    const primary = InputsBlock.primaryPort(p);
-    return host ? (primary ? `${host}:${primary}` : host) : String(p.id);
+    return host || String(p.id);
   }
   static roleOf(p) { return p.role || (String(p.label || "").match(/(primary|fallback)$/i)?.[1]?.toLowerCase()) || ""; }
-  // Port-based display name for a proxy port.
-  // opts.short → use last-2 port digits as tag (:01); default → full port (:8101)
-  // opts.nameOnly → return just the alias without port tag
-  // Returns "host:01" (named+short), "host :8101" (named), ":8101" (unnamed)
-  static portName(port, opts = {}) {
-    const p = Number(port);
-    if (!p) return opts.short ? ":??" : ":????"  ;
-    const proxy = (topology?.proxies || []).find((q) => Number(q.port) === p);
-    // A client of the entry is its name: its number is a record's, never a port it called (2026-10-11).
-    if (proxy && isEntryClient(proxy)) return String(proxy.label || `:${p}`);
-    const owner = proxy ? topologyProxyOwner(proxy.id) : null;
-    // title = agent name or host name for openclaw agents
-    const name = owner?.title && owner.title !== String(proxy?.id) ? owner.title : "";
-    const portTag = opts.short ? `:${String(p).slice(-2)}` : ` :${p}`;
-    if (name) return opts.nameOnly ? name : `${name}${portTag}`;
-    return opts.short ? `:${String(p).slice(-2)}` : `:${p}`;
+  // A client's name by its record's id (2026-11-07: a client has no number). A client of the entry is its name; another route is
+  // its owner's title, else its name. `opts.short` cuts it to a queue row's width.
+  static routeName(routeId, opts = {}) {
+    const proxy = (topology?.proxies || []).find((q) => String(q.id) === String(routeId));
+    if (!proxy) return "";
+    const owner = isEntryClient(proxy) ? null : topologyProxyOwner(proxy.id);
+    const name = String((owner?.title && owner.title !== String(proxy.id) ? owner.title : "") || proxy.label || "").trim();
+    return opts.short ? name.slice(0, 8) : name;
   }
 
   constructor(router) {
@@ -1271,7 +1254,6 @@ export class InputsBlock {
       <span class="cv-in-role">${role === "primary" ? "P" : "F"}</span>
       ${CONSUMER_ACCESS.lineHtml(p)}
       ${role === "fallback" && !wired ? `<span class="cv-in-follow">↳ ${escapeHtml(t("cvInFollows"))}</span>` : ""}
-      <button class="cv-in-edit" type="button" data-cv-port-edit="${escapeHtml(p.id)}" title="${escapeHtml(t("cvPortEditTitle"))}">✎</button>
     </div>` : "";
   }
   // The wait budget is a REFERENCE here. It is edited on the client card of the
@@ -1300,16 +1282,12 @@ export class InputsBlock {
       + this.portRow("fallback", fb, fb && wired.has(fb.id))
       + `</div>`;
   }
-  // The grouped rows — one block for all clients — plus the ports nobody claims.
-  // A port nobody claims (its agent deleted, its port left free) is a row like any other: its
-  // dot draws the cable it still has — the proxy keeps routing by it — and ✎ opens its window,
-  // where it is deleted. It used to be a bare number: its cable went on routing unseen, and
-  // the delete the agent's dialog promised was nowhere (2026-10-08).
+  // The grouped rows — one block for all clients — plus the routes nobody claims.
+  // A route nobody claims (its agent deleted) is a row like any other: its dot draws the cable it
+  // still has, named by its name — never by a number (2026-11-07). It is deleted on its client's card.
   unclaimedRow(p) {
     return `<div class="cv-in-row unclaimed${this.wiredProxyIds.has(p.id) ? "" : " unwired"}" data-cv-in-row="in:${escapeHtml(p.id)}">`
-      + `<span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>`
-      + (p.label ? `<span class="cv-in-label">${escapeHtml(p.label)}</span>` : "")
-      + `<button class="cv-in-edit" type="button" data-cv-port-edit="${escapeHtml(p.id)}" title="${escapeHtml(t("cvPortEditTitle"))}">✎</button></div>`;
+      + `<span class="cv-in-label">${escapeHtml(String(p.label || p.id || ""))}</span></div>`;
   }
   bodyHtml() {
     const byClient = new Map(this.board.rows.map((r) => [r.key, r]));
@@ -2633,12 +2611,6 @@ new MutationObserver(() => board.bind())
 // existence of inputs. A port is created where its owner lives — on the client
 // card of the main board — and its handlers left with the button, so no live
 // path remains to a control that does not exist.
-document.addEventListener("click", (e) => {
-  const btn = e.target.closest && e.target.closest("[data-cv-port-edit]");
-  if (!btn) return;
-  e.stopPropagation();
-  editTopologyProxy(btn.dataset.cvPortEdit);
-});
 // The entry: its address to copy, to set up, to turn off (consumer-access.js). One listener for the panel the render rebuilds.
 document.addEventListener("click", (e) => {
   const hit = (sel) => e.target.closest && e.target.closest(sel);
@@ -2655,7 +2627,7 @@ export function _cvQHistModel(item) { return History.model(item); }
 export function _cvQHistRoute(raw) { return History.route(raw); }
 export function _fetchQueueHist(nodeId) { History.fetch(_cvQueueHistData, nodeId); }
 export function _fetchSchedHist(nodeId) { History.fetch(_cvSchedHistData, nodeId); }
-export function _portDisplayName(port, opts) { return InputsBlock.portName(port, opts); }
+export function _routeDisplayName(routeId, opts) { return InputsBlock.routeName(routeId, opts); }
 export function cvNodeTypeLabel(type) { return RuleNode.typeLabel(type); }
 export function syncQueueNodesLive() { QueueNode.syncLive(); OnErrorNode.syncLive(); }
 export function _cvSchedInputPorts(router, schedNodeId) { return ScheduleNode.inputPorts(router, schedNodeId); }

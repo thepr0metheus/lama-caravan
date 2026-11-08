@@ -34,6 +34,9 @@ export class PoolCards {
     credential_missing: ["poolLoginNeeded", "login"],
     usage_unknown: ["poolUsageUnknown", "unknown"],
     format_unsupported: ["poolChatOnly", "off"],
+    // The row said it reads text alone, and this request carries a picture: the pool sends the picture
+    // to a row that promised it, and passes this one over (the picture rule, 2026-11-06).
+    media_unsupported: ["poolMediaUnsupported", "off"],
     disabled: ["poolDisabled", "off"],
     // A row of a local model (1.3.486): its cell gives way while busy and a later row is free,
     // is passed by while off or gone, and a row that failed a request before its first byte
@@ -113,7 +116,8 @@ export class PoolCards {
   }
 
   // The pool as the server takes it back (POST /api/pools/save): only what the pool keeps, never
-  // what the board reads beside it (the levels reached, the reading's time).
+  // what the board reads beside it (the levels reached, the reading's time). The reader is not one of what a pool keeps: it
+  // is the board's, and it goes to its own door (`boardBody` below).
   static payload(pool) {
     const out = {
       id: pool.id, name: pool.name, contextAuto: !!pool.contextAuto, contextLength: pool.contextLength ?? "",
@@ -121,6 +125,16 @@ export class PoolCards {
         enabled: s.enabled !== false, switchAt: { ...(s.switchAt || {}) }, stopAt: { ...(s.stopAt || {}) } })),
     };
     return JSON.parse(JSON.stringify(out));
+  }
+
+  // The body the save door takes: the pool, under `pool` — `rust/crates/admin/src/routes/pools.rs` reads the body there and
+  // nowhere else, so a body with the pool's id at the top level names no pool and the door answers that it does not know one
+  // (`unknown pool: None`, what the board got until 2026-11-06 because a reader cable sent the field without the pool around
+  // it). Said once, for the cards' edits. The reader is not in it: the reader is the board's, and its body is said in
+  // static/js/reader-block.js (`ReaderBlock.body`), for its own door. A body that copied the whole pool from a cable would
+  // put an empty `steps` where the pool's rows stand.
+  static body(pool) {
+    return { pool: pool };
   }
 
   // The steps in the order `ids` names — the order a carried step left behind. Null when it changes
@@ -360,7 +374,7 @@ export class PoolCards {
   stored(poolId) { return this.pools.find((p) => p.id === poolId) || null; }
 
   async save(pool) {
-    const res = await this.call("/api/pools/save", { method: "POST", body: JSON.stringify({ pool: PoolCards.payload(pool) }) });
+    const res = await this.call("/api/pools/save", { method: "POST", body: JSON.stringify(PoolCards.body(PoolCards.payload(pool))) });
     this.apply(res.topology);
     return res;
   }

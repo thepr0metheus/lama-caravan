@@ -1,7 +1,7 @@
 //! One file of a download: what the hub calls it and where it lands.
 
 use rules::Coerce;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// One file to fetch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,9 +35,24 @@ impl DownloadFile {
         if folder.is_empty() { self.name.clone() } else { format!("{}/{}", folder.join("/"), self.name) }
     }
 
+    /// The file as `of` reads it back: a partial's manifest names the files of its job after it so.
+    pub fn said(&self) -> Value {
+        json!({"path": self.path, "name": self.name, "destDir": self.dest_dir, "size": self.size})
+    }
+
     /// A name that is one name: it cannot leave the folder it lands in.
     pub fn is_plain_name(name: &str) -> bool {
         !name.is_empty() && name != "." && name != ".." && !name.contains('/')
+    }
+
+    /// A folder under the models folder: not from the root, and no step out of it.
+    pub fn folder_stays_inside(dest_dir: &str) -> bool {
+        !dest_dir.starts_with('/') && !dest_dir.split('/').any(|part| part == "..")
+    }
+
+    /// The file lands under the models folder, by a name that is one name.
+    pub fn lands_inside(&self) -> bool {
+        Self::is_plain_name(&self.name) && Self::folder_stays_inside(&self.dest_dir)
     }
 }
 
@@ -65,5 +80,25 @@ mod tests {
         for bad in ["", ".", "..", "../x", "a/b", "/x"] {
             assert!(!DownloadFile::is_plain_name(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_folder_stays_under_the_models_folder_and_a_file_lands_there_by_one_name() {
+        for inside in ["", ".", "m", "f/acme/Q4", "./f//acme/", "a..b", "f/..x"] {
+            assert!(DownloadFile::folder_stays_inside(inside), "{inside}");
+        }
+        for outside in ["/m", "..", "../m", "m/..", "f/../../x", "/"] {
+            assert!(!DownloadFile::folder_stays_inside(outside), "{outside}");
+        }
+        let at = |name: &str, dest: &str| DownloadFile::of(&json!({"path": "p", "name": name, "destDir": dest})).lands_inside();
+        assert!(at("x.gguf", "f/acme/Q4"));
+        assert!(!at("../x.gguf", "f") && !at("x.gguf", "/etc") && !at("", "f") && !at("x.gguf", "f/.."));
+    }
+
+    #[test]
+    fn a_file_said_is_read_back_as_itself() {
+        let file =
+            DownloadFile { path: "q/x.gguf".to_string(), name: "x.gguf".to_string(), dest_dir: "f/acme/Q4".to_string(), size: 7 };
+        assert_eq!(DownloadFile::of(&file.said()), file);
     }
 }

@@ -1,9 +1,10 @@
 //! A request on its way to its model: the part of the leg loop in `proxy()` a machine's model
-//! goes through. The machine's entry first, then a running copy on its own port, each once; a cell that says it is still
-//! loading is asked again for as long as the policy allows.
+//! goes through. The machine's entry, waited for while it does not take the request (its scout restarting, `entry_wait`); a cell
+//! that says it is still loading is asked again for as long as the policy allows.
 
 use crate::client::ClientSide;
 use crate::clock::RequestClock;
+use crate::entry_wait::EntryWait;
 use crate::proxy::Proxy;
 use crate::record::RequestRecord;
 use crate::stop::{Ending, UpstreamEnd, Waited};
@@ -40,10 +41,22 @@ impl Answer {
 
 /// What went wrong on the way.
 enum Miss {
-    /// The socket failed: the next way is tried.
+    /// Nobody took the request: refused, or dropped before a byte of the answer came. A machine's entry is waited for.
+    Absent(io::Error),
+    /// The socket failed otherwise.
     Socket(io::Error),
     /// The request ended meanwhile.
     Ended(Ending),
+}
+
+impl Miss {
+    /// The failure of a step taken before a byte of the answer came: nobody took the request, when the socket's words say so.
+    fn unanswered(self) -> Self {
+        match self {
+            Self::Socket(error) if EntryWait::nobody_took(&error) => Self::Absent(error),
+            other => other,
+        }
+    }
 }
 
 impl From<io::Error> for Miss {
@@ -66,7 +79,6 @@ pub struct UpstreamCall<'a> {
     head_fields: Vec<(String, Vec<u8>)>,
     target: String,
     body: Vec<u8>,
-    spares_tried: Vec<u16>,
     loading_retries: u32,
 }
 
@@ -122,7 +134,6 @@ impl<'a> UpstreamCall<'a> {
             head_fields: Self::kept_fields(headers),
             target: target.to_string(),
             body,
-            spares_tried: Vec::new(),
             loading_retries: 0,
         }
     }
@@ -136,12 +147,12 @@ impl<'a> UpstreamCall<'a> {
             .collect()
     }
 
-    /// The bytes of the request to `port`.
-    fn request_bytes(&self, port: u16) -> Vec<u8> {
+    /// The bytes of the request.
+    fn request_bytes(&self) -> Vec<u8> {
         let output = self.output;
         let mut out = Vec::with_capacity(1024 + self.body.len());
         out.extend_from_slice(format!("{} {} HTTP/1.1\r\n", self.record.method, self.target).as_bytes());
-        out.extend_from_slice(format!("Host: {}:{port}\r\n", output.upstream_host).as_bytes());
+        out.extend_from_slice(format!("Host: {}:{}\r\n", output.upstream_host, output.upstream_port).as_bytes());
         let mut says_encoding = false;
         for (name, value) in &self.head_fields {
             says_encoding |= name.eq_ignore_ascii_case("accept-encoding");
@@ -171,25 +182,45 @@ impl<'a> UpstreamCall<'a> {
         client: &mut ClientSide,
         loading_wait: f64,
     ) -> Result<Answer, Ending> {
+        let mut entry = EntryWait::for_way(self.output.kind);
+        let walked = self.walk(&mut entry, clock, watch, client, loading_wait);
+        self.note_entry_wait(&entry, &walked);
+        match walked {
+            Ok(answer) => Ok(answer),
+            Err(Miss::Ended(ending)) => Err(ending),
+            Err(Miss::Absent(error) | Miss::Socket(error)) => Err(self.connect_failed(&error)),
+        }
+    }
+
+    /// The way itself: asked again while the cell says it loads, and while the machine's entry does not take the request.
+    fn walk(
+        &mut self,
+        entry: &mut EntryWait,
+        clock: &mut RequestClock,
+        watch: &mut Watch,
+        client: &mut ClientSide,
+        loading_wait: f64,
+    ) -> Result<Answer, Miss> {
         let deadline = self.proxy.clock.epoch() + loading_wait;
-        let mut port = self.output.upstream_port;
         loop {
-            match self.attempt(port, clock, watch, client) {
+            match self.attempt(clock, watch, client) {
                 Ok(answer) if self.still_loading(&answer) && self.proxy.clock.epoch() < deadline => {
                     self.note_loading_retry(deadline);
-                    watch.sleep(Self::LOADING_RETRY, client)?;
-                    port = self.output.upstream_port;
+                    watch.sleep(Duration::from_secs(Self::LOADING_RETRY), client)?;
                 }
-                Ok(answer) => return Ok(answer),
-                Err(Miss::Ended(ending)) => return Err(ending),
-                Err(Miss::Socket(error)) => match self.next_spare() {
-                    Some(spare) => {
-                        self.note_spare(spare, &error);
-                        port = spare;
-                    }
-                    None => return Err(self.connect_failed(&error)),
-                },
+                Err(Miss::Absent(error)) if entry.again(&error, self.proxy.clock.epoch()) => {
+                    watch.sleep(EntryWait::TURN, client)?;
+                }
+                walked => return walked,
             }
+        }
+    }
+
+    /// The journal's row of a wait for the machine's entry, when there was one: whether the entry took the request in the end.
+    fn note_entry_wait(&self, entry: &EntryWait, walked: &Result<Answer, Miss>) {
+        let took_it = matches!(walked, Ok(_) | Err(Miss::Socket(_)));
+        if let Some(told) = entry.told(&self.output.id, self.proxy.clock.epoch(), took_it) {
+            self.proxy.recorder.event("machine_entry_wait", &self.record.route.label, &self.record.id, None, told);
         }
     }
 
@@ -210,26 +241,9 @@ impl<'a> UpstreamCall<'a> {
         );
     }
 
-    /// The port of a running copy not tried yet.
-    fn next_spare(&mut self) -> Option<u16> {
-        let spare = self.output.copy_ports.iter().copied().find(|port| !self.spares_tried.contains(port))?;
-        self.spares_tried.push(spare);
-        Some(spare)
-    }
-
-    fn note_spare(&self, spare: u16, error: &io::Error) {
-        self.proxy.recorder.event(
-            "machine_entry_spare",
-            &self.record.route.label,
-            &self.record.id,
-            None,
-            json!({"output": self.output.id, "port": spare, "error": Self::short(&error.to_string())}),
-        );
-    }
-
     /// No way left: what the journal says of it, and the failure the request ends with.
     fn connect_failed(&self, error: &io::Error) -> Ending {
-        self.proxy.board.update_active(self.record.route.port, &self.record.id, json!({"phase": "reading", "status": 502}));
+        self.proxy.board.update_active(&self.record.route.id, &self.record.id, json!({"phase": "reading", "status": 502}));
         self.proxy.recorder.event(
             "upstream_response",
             &self.record.route.label,
@@ -240,20 +254,16 @@ impl<'a> UpstreamCall<'a> {
         Ending::Upstream(UpstreamEnd::of(error))
     }
 
-    fn short(words: &str) -> String {
-        rules::Coerce::first_letters(words, 200).to_string()
-    }
-
-    /// One try at one port, up to the answer's head and an error's first bytes.
-    fn attempt(&self, port: u16, clock: &mut RequestClock, watch: &mut Watch, client: &mut ClientSide) -> Result<Answer, Miss> {
+    /// One try, up to the answer's head and an error's first bytes.
+    fn attempt(&self, clock: &mut RequestClock, watch: &mut Watch, client: &mut ClientSide) -> Result<Answer, Miss> {
         clock.leg_started();
         let began = clock.now();
-        let mut socket = self.connect(port, watch, client)?;
+        let mut socket = self.connect(watch, client).map_err(Miss::unanswered)?;
         clock.connected(Some(began), None);
         socket.set_read_timeout(Some(Self::READ_TURN)).map_err(Miss::Socket)?;
         socket.set_write_timeout(Some(Duration::from_secs_f64(Self::SOCKET_LIMIT))).map_err(Miss::Socket)?;
         socket.set_nodelay(true).map_err(Miss::Socket)?;
-        socket.write_all(&self.request_bytes(port)).map_err(Miss::Socket)?;
+        socket.write_all(&self.request_bytes()).map_err(|error| Miss::Socket(error).unanswered())?;
         clock.sent();
         let mut source = BufReader::with_capacity(32 * 1024, Stream::Plain(socket));
         let head = self.read_head(&mut source, watch, client)?;
@@ -263,9 +273,9 @@ impl<'a> UpstreamCall<'a> {
         Ok(Answer { head, body, error_raw })
     }
 
-    fn connect(&self, port: u16, watch: &mut Watch, client: &mut ClientSide) -> Result<TcpStream, Miss> {
+    fn connect(&self, watch: &mut Watch, client: &mut ClientSide) -> Result<TcpStream, Miss> {
         let dial = Dial { turn: Self::CONNECT_TURN, limit: Duration::from_secs_f64(Self::SOCKET_LIMIT) };
-        dial.open::<Miss>(&self.output.upstream_host, port, &mut || watch.turn(client).map_err(Miss::Ended))
+        dial.open::<Miss>(&self.output.upstream_host, self.output.upstream_port, &mut || watch.turn(client).map_err(Miss::Ended))
     }
 
     fn read_head(&self, source: &mut BufReader<Stream>, watch: &mut Watch, client: &mut ClientSide) -> Result<AnswerHead, Miss> {
@@ -276,6 +286,8 @@ impl<'a> UpstreamCall<'a> {
                 Err(error) if Waited::is(&error) => {
                     watch.waited_for_upstream(client)?;
                 }
+                // Dropped before a byte of the head: nobody read the request. Once the head has begun, somebody answered.
+                Err(error) if !reader.began() => return Err(Miss::Socket(error).unanswered()),
                 Err(error) => return Err(Miss::Socket(error)),
             }
         }

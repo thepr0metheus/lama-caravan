@@ -9,6 +9,7 @@ use crate::models::files::{DownloadedFiles, Resolved, SplitGguf};
 use crate::models::folders::Folders;
 use crate::models::relocate::Relocation;
 use crate::models::shelf::{Shelf, ShelfParts};
+use crate::models::space::FreeSpace;
 use crate::models::view::LibraryView;
 use os::clock::Clock;
 use rules::Coerce;
@@ -20,11 +21,11 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
-/// Where the progress of a download goes: the startup state of the cell being started.
-pub type Progress = Arc<dyn Fn(i64, Map<String, Value>) + Send + Sync>;
+/// Where the progress of a download goes: the startup state of the cell being started, by its name.
+pub type Progress = Arc<dyn Fn(&str, Map<String, Value>) + Send + Sync>;
 
-/// Makes room for a copy of this many bytes, called by this name: room now, or the words of why there is none.
-pub type RoomMaker = Arc<dyn Fn(u64, &str) -> Result<(), String> + Send + Sync>;
+/// Makes room for a copy of this many bytes, called by this name; the third argument reads what the disk has free. Room now, or the words of why there is none.
+pub type RoomMaker = Arc<dyn Fn(u64, &str, &dyn Fn() -> Option<u64>) -> Result<(), String> + Send + Sync>;
 
 /// What one fetch is asked.
 #[derive(Debug, Clone, Default)]
@@ -36,7 +37,7 @@ pub struct Fetch {
     /// Whether a copy here is good enough.
     pub use_cache: bool,
     /// The cell it is for.
-    pub port: i64,
+    pub cell: String,
     /// Where the controller reads it.
     pub hint: Option<Value>,
 }
@@ -59,6 +60,8 @@ pub struct ModelFetcher {
     /// The record of what is this scout's.
     pub downloaded: DownloadedFiles,
     pub(super) splits: Arc<SplitGguf>,
+    /// What a disk has free: this shelf's, before a copy, and a new folder's, before a move.
+    pub(super) disks: Arc<dyn FreeSpace>,
     /// Who makes room when a copy would not fit: the keeper, known only once it stands.
     pub(super) room_maker: OnceLock<RoomMaker>,
     /// One fetch per folder or file at a time: two cells of one model starting together would write the same `<folder>.part`.
@@ -89,6 +92,7 @@ impl ModelFetcher {
             http: Arc::clone(&parts.http),
             downloaded: DownloadedFiles::new(cache_dir),
             splits: Arc::clone(&parts.splits),
+            disks: Arc::clone(&parts.disks),
             room_maker: OnceLock::new(),
             copying: Mutex::new(BTreeMap::new()),
             in_flight: Mutex::new(BTreeSet::new()),
@@ -170,19 +174,23 @@ impl ModelFetcher {
     }
 
     /// Where a cell keeps what it makes from its model: `CARAVAN_CELL_SCRATCH`. It lives as the cell's models live.
-    pub fn scratch(&self, port: i64) -> PathBuf {
-        self.scratch_root().join(port.to_string())
+    pub fn scratch(&self, cell: &str) -> PathBuf {
+        self.scratch_root().join(cell)
     }
 
-    /// Removes the cell's scratch folder; true when there was one.
-    pub fn clear_scratch(&self, port: i64) -> bool {
-        let path = self.scratch(port);
-        if !path.is_dir() {
-            return false;
+    /// The cell's scratch folders that are there: its own, and the one a cell of before 2026-11-07 kept under its port.
+    pub fn scratches_of(&self, cell: &str) -> Vec<PathBuf> {
+        self.scratch_folders().into_iter().filter(|(of, _)| of == cell).map(|(_, folder)| folder).collect()
+    }
+
+    /// Removes the cell's scratch folders; true when there was one.
+    pub fn clear_scratch(&self, cell: &str) -> bool {
+        let folders = self.scratches_of(cell);
+        for folder in &folders {
+            // What cannot be removed stays until the next start empties it.
+            drop(fs::remove_dir_all(folder));
         }
-        // What cannot be removed stays until the next start empties it.
-        drop(fs::remove_dir_all(path));
-        true
+        !folders.is_empty()
     }
 
     /// Whether a cell's words say its cached file is truncated or corrupted.
@@ -250,10 +258,11 @@ impl ModelFetcher {
     /// downloaded and never over another. The first part of a
     /// split GGUF brings the other parts: into the cache beside it, or found beside it where it is read in place, refused when one is missing.
     pub fn ensure(&self, raw: &str, fetch: &Fetch) -> Result<PathBuf, AppError> {
+        // Asked before the first byte: a start that asks for parts the split does not have is refused whole.
+        let parts = self.splits.brought(raw, fetch.hint.as_ref())?;
         // A first part of another size is another model: the parts beside it are not joined to it.
         let renewed = self.copy_differs(&self.cache_dir().join(raw), fetch.hint.as_ref()).is_some();
         let first = self.ensure_file(raw, fetch)?;
-        let parts = self.splits.parts(raw);
         let (_, rest) = parts.split_at(1.min(parts.len()));
         if rest.is_empty() || first.is_dir() {
             return Ok(first);

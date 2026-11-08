@@ -3,11 +3,12 @@
 use super::controller_machine::ControllerMachine;
 use super::reports::FleetReads;
 use super::scout::ScoutCall;
-use super::start::ScoutVersion;
+use super::server_cells::ServerCells;
+use super::start::{ScoutStart, ScoutVersion};
 use crate::app::App;
 use crate::domain::runner::VllmRunner;
 use crate::store::topology::Topology;
-use rules::{AppError, Coerce};
+use rules::{AppError, CellId, Coerce};
 use serde_json::{Value, json};
 use wire::Percent;
 
@@ -18,7 +19,6 @@ pub struct LlamaNode<'app> {
 
 impl<'app> LlamaNode<'app> {
     const VLLM_SCOUT: [u32; 3] = [2, 9, 0];
-    const CELL_LOG_SCOUT: [u32; 3] = [2, 36, 0];
 
     /// The servers of `app`.
     pub fn of(app: &'app App) -> Self {
@@ -113,20 +113,25 @@ impl<'app> LlamaNode<'app> {
     }
 
     /// What a cell's server wrote, for the cell window's Log tab.
-    pub fn cell_log(&self, host_id: &str, port: &str, lines: &str, run: &str) -> Result<Value, AppError> {
-        let host_id = Coerce::strip(host_id);
-        let port = Coerce::strip(port).parse::<i64>().map_err(|_| AppError::new("port must be a number"))?;
-        let scout = self.scout(host_id)?;
+    pub fn cell_log(&self, cell: &str, lines: &str, run: &str) -> Result<Value, AppError> {
+        let id = CellId::read(&json!(Coerce::strip(cell))).ok_or_else(|| AppError::new("cell is required"))?;
+        let host_id = ServerCells::of(self.app).host_of(&id);
+        if host_id.is_empty() {
+            return Err(AppError::with_status(format!("no cell {id}"), 404));
+        }
+        let scout = self.scout(&host_id)?;
         let have = self
             .app
             .admin
-            .change(|doc| Coerce::text(Topology::of(doc).hosts().get(host_id).and_then(|host| host.get("scoutVersion"))));
-        if ScoutVersion::older(&have, &Self::CELL_LOG_SCOUT) {
-            let error =
-                format!("{host_id}: its scout {have} is older than 2.36.0, the first to give a cell's log — update the scout");
-            return Ok(json!({"ok": false, "hostId": host_id, "port": port, "error": error}));
+            .change(|doc| Coerce::text(Topology::of(doc).hosts().get(&host_id).and_then(|host| host.get("scoutVersion"))));
+        if ScoutVersion::older(&have, &ScoutStart::LEASES_PORTS) {
+            let [major, minor, patch] = ScoutStart::LEASES_PORTS;
+            let error = format!(
+                "{host_id}: its scout {have} keeps the logs of cells by port — update the scout to {major}.{minor}.{patch}"
+            );
+            return Ok(json!({"ok": false, "hostId": host_id, "cellId": id, "error": error}));
         }
-        let mut query = vec![format!("port={port}")];
+        let mut query = vec![format!("cell={id}")];
         if !Coerce::strip(lines).is_empty() {
             query.push(format!("lines={}", Percent::encode(Coerce::strip(lines))));
         }
@@ -135,7 +140,7 @@ impl<'app> LlamaNode<'app> {
         }
         let mut result = scout.read(&format!("/api/llama-node/log?{}", query.join("&")), 10);
         Coerce::put(&mut result, "hostId", json!(host_id));
-        Coerce::put(&mut result, "port", json!(port));
+        Coerce::put(&mut result, "cellId", json!(id));
         Ok(result)
     }
 

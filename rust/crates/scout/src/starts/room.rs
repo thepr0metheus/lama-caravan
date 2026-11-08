@@ -17,7 +17,7 @@ impl StartRequest {
     /// The refusal when the card cannot hold what the cell reserves the moment it starts; `None` when it can, or when the start reserves nothing up front. How much a runner reserves is the controller's knowledge; it sends it as `vram`
     /// `{device, reserveMiB, who, why, lower}`. What is free is this machine's, read now. Refused rather than started: otherwise the cell dies in a crash loop a minute later. Best effort: no `nvidia-smi`, no such card, no refusal.
     /// The words name the way out for THIS card: a card too small for the reserve is said to be, the holders named are the ones on that card, and another card with the room is named when there is one.
-    pub(crate) fn short_of_vram(&self, port: i64) -> Option<Value> {
+    pub(crate) fn short_of_vram(&self, id: &str) -> Option<Value> {
         let want = self.payload.get("vram").filter(|want| want.is_object())?;
         let device = Coerce::int_or_zero(want.get("device"))?.to_string();
         let reserve = match want.get("reserveMiB").filter(|said| Coerce::truthy(Some(*said))) {
@@ -48,7 +48,7 @@ impl StartRequest {
             );
         }
         let holders: Vec<String> =
-            self.holders_of(port, card).iter().map(|(name, mib)| format!("{name} ({:.1} GiB)", mib / 1024.0)).collect();
+            self.holders_of(id, card).iter().map(|(name, mib)| format!("{name} ({:.1} GiB)", mib / 1024.0)).collect();
         let hint = if holders.is_empty() {
             format!(" — lower {lower}")
         } else {
@@ -59,12 +59,13 @@ impl StartRequest {
         )
     }
 
-    /// Who holds memory on `card` right now, the biggest first: ":22003" for a cell of this scout (what its own process and the processes it started hold there), the executable's name for anything else. Only what is on THIS card: the
-    /// refusal used to name every running cell of the machine, and a machine with two cards sent the operator to stop cells that held nothing there (2026-10-17).
-    fn holders_of(&self, port: i64, card: &Value) -> Vec<(String, f64)> {
+    /// Who holds memory on `card` right now, the biggest first: a cell of this scout by the name its model has at the machine's entry (what its own process and the processes it started hold there), the
+    /// executable's name for anything else. Not by a port: the board shows none. Only what is on THIS card: the refusal used to name every running cell of the machine, and a machine with two cards sent the
+    /// operator to stop cells that held nothing there (2026-10-17).
+    fn holders_of(&self, id: &str, card: &Value) -> Vec<(String, f64)> {
         let uuid = Coerce::text(card.get("uuid"));
         let apps = self.cells.machine.compute_apps();
-        let mut owners: BTreeMap<i64, i64> = BTreeMap::new();
+        let mut owners: BTreeMap<i64, (String, String)> = BTreeMap::new();
         for (other, cell) in self.cells.table.all() {
             let status = cell.process.status();
             if status.get("running") != Some(&Value::Bool(true)) {
@@ -73,21 +74,23 @@ impl StartRequest {
             let Some(pid) = status.get("pid").and_then(Value::as_i64) else {
                 continue;
             };
-            owners.insert(pid, other);
+            let named = cell.facts().name.clone();
+            let shown = if named.is_empty() { other.clone() } else { named };
+            owners.insert(pid, (other.clone(), shown.clone()));
             for child in self.cells.processes.descendants(pid) {
-                owners.insert(child, other);
+                owners.insert(child, (other.clone(), shown.clone()));
             }
         }
         let mut held: BTreeMap<String, f64> = BTreeMap::new();
         for app in apps.iter().filter(|app| !uuid.is_empty() && Coerce::text(app.get("gpuUuid")) == uuid) {
             let pid = app.get("pid").and_then(Value::as_i64);
-            let owner = pid.and_then(|pid| owners.get(&pid)).copied();
+            let owner = pid.and_then(|pid| owners.get(&pid));
             // The cell being started is not what is in its way.
-            if owner == Some(port) {
+            if owner.is_some_and(|(other, _)| other == id) {
                 continue;
             }
             let name = match owner {
-                Some(other) => format!(":{other}"),
+                Some((_, shown)) => shown.clone(),
                 None if Coerce::truthy(app.get("name")) => Coerce::text(app.get("name")),
                 None => format!("pid {}", Coerce::text(app.get("pid"))),
             };
@@ -114,8 +117,8 @@ impl StartRequest {
     }
 
     /// The refusal when the machine's memory cannot hold what the cell keeps resident; `None` when it can, or when the start promises nothing. Strata keeps its 37 GB in RAM: the card's check never saw that.
-    pub(crate) fn short_of_ram(&self, port: i64) -> Option<Value> {
+    pub(crate) fn short_of_ram(&self, id: &str) -> Option<Value> {
         let want = self.payload.get("ram").filter(|want| want.is_object())?;
-        MemoryLedger::new(&self.cells.table, &self.cells.paths.meminfo).short(port, want)
+        MemoryLedger::new(&self.cells.table, &self.cells.paths.meminfo).short(id, want)
     }
 }

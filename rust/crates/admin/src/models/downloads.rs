@@ -1,4 +1,5 @@
-//! Background downloads from the hub with per-job progress. A partial stays beside its destination with a manifest, so a restart can name it and resume it.
+//! Background downloads from the hub with per-job progress. A partial stays beside its destination with a manifest, so a restart can name it and resume it;
+//! the manifest names the files of the job after it too, so the resume is the job's and not its one file.
 
 use super::hub::HubAccess;
 use super::walk::Walker;
@@ -95,8 +96,12 @@ impl<'app> Downloads<'app> {
         partial.with_file_name(name)
     }
 
-    fn write_manifest(&self, partial: &Path, repo: &str, file: &DownloadFile) {
-        let doc = json!({"repo": repo, "path": file.path, "name": file.name, "destDir": file.dest_dir, "size": file.size, "started_at": self.app.now()});
+    /// The manifest of the file in progress, with `rest`, the files of its job after it: the job is held in memory, and a restart leaves only what is on the
+    /// disk. A restart in the instant between two files (the one renamed, the next one's manifest not written yet) still loses them: that instant, not a file's
+    /// minutes.
+    fn write_manifest(&self, partial: &Path, repo: &str, file: &DownloadFile, rest: &[DownloadFile]) {
+        let rest: Vec<Value> = rest.iter().map(DownloadFile::said).collect();
+        let doc = json!({"repo": repo, "path": file.path, "name": file.name, "destDir": file.dest_dir, "size": file.size, "started_at": self.app.now(), "rest": rest});
         // A partial with no manifest still resumes where it stands; only a restart cannot name it.
         drop(std::fs::write(Self::manifest_path(partial), PythonJson::spaced(&doc)));
     }
@@ -180,7 +185,10 @@ impl<'app> Downloads<'app> {
     fn run(&self, job_id: &str, repo: &str, files: &[DownloadFile], models_dir: &str, token: &str) {
         let mut partial = None;
         let mut result = Ok(());
-        for (index, file) in files.iter().enumerate() {
+        let mut left = files;
+        while let Some((file, rest)) = left.split_first() {
+            let index = files.len() - left.len();
+            left = rest;
             if self.cancelled(job_id) {
                 result = Err(Stop::Cancelled);
                 break;
@@ -196,7 +204,7 @@ impl<'app> Downloads<'app> {
             partial = Some(temporary.clone());
             Self::adopt_legacy(&dest_dir, &file.name, &temporary);
             Self::drop_stale_partial(&temporary, repo, file);
-            self.write_manifest(&temporary, repo, file);
+            self.write_manifest(&temporary, repo, file, rest);
             if let Err(stop) = self.fetch(job_id, repo, file, &temporary, &dest, token) {
                 result = Err(stop);
                 break;

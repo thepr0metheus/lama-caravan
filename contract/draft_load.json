@@ -1,0 +1,276 @@
+{
+ "why": "What a start says of speculation: the builder's rule (rust/crates/admin/src/config/args/switches.rs, `speculation` and `last_switches`, read off the command it builds) and the browser's copy (static/js/cell-plan.js CellDraft.start), which the memory estimate, the speculation switch, the board's chip and its command preview read. `loads` is a --model-draft in the command; `spec` its --spec-type; `layers` the --gpu-layers-draft with the draft; `nMax` and `nMin` --spec-draft-n-max and --spec-draft-n-min; `cpuMoe` a --spec-draft-cpu-moe. null: the command says none.",
+ "cases": [
+  {
+   "config": {
+    "SPEC_TYPE": "draft-mtp",
+    "SPEC_DRAFT_MODEL_FILE": "Qwen3.8-27B-GGUF/unsloth/default/mtp-Qwen3.8-27B-Q4_0.gguf"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-mtp",
+    "layers": "999",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive (дефект 2026-10-27): draft-mtp с файлом головы MTP — файл грузится, без SPEC_DRAFT_N_GPU_LAYERS весь на карты (999)"
+  },
+  {
+   "config": {
+    "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-mtp",
+    "layers": "999",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive: тип не сказан — тип самого файла (mtp-), и файл грузится"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "",
+    "SPEC_DRAFT_MODEL_FILE": "m/Qwen3-0.6B-Q8_0.gguf"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-simple",
+    "layers": "999",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive: простой второй файл без типа — draft-simple; поэтому пустой тип при названном файле — не «выключено»"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": " MTP ",
+    "SPEC_DRAFT_MODEL_FILE": " m/mtp-q.gguf "
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-mtp",
+    "layers": "999",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive: «mtp» — это draft-mtp; регистр и пробелы вокруг не важны"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-eagle3",
+    "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-eagle3",
+    "layers": "999",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive: сказанный тип выигрывает у типа файла"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-dflash",
+    "SPEC_DRAFT_MODEL_FILE": "m/dflash-x.gguf",
+    "SPEC_DRAFT_N_GPU_LAYERS": "0"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-dflash",
+    "layers": "0",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive: SPEC_DRAFT_N_GPU_LAYERS 0 — так и сказано: черновик весь в RAM"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-mtp",
+    "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf",
+    "SPEC_DRAFT_N_GPU_LAYERS": " 20 ",
+    "CPU_MOE_DRAFT": "1"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-mtp",
+    "layers": "20",
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": true
+   },
+   "why": "positive: число слоёв — как сказано, без пробелов; CPU_MOE_DRAFT — эксперты черновика в RAM"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-dflash",
+    "SPEC_DRAFT_MODEL_FILE": "m/dflash-x.gguf",
+    "SPEC_DRAFT_N_MAX": "15",
+    "SPEC_DRAFT_N_MIN": "2"
+   },
+   "start": {
+    "loads": true,
+    "spec": "draft-dflash",
+    "layers": "999",
+    "nMax": "15",
+    "nMin": "2",
+    "cpuMoe": false
+   },
+   "why": "positive: глубина черновика — как сказана; negative: у файла своей глубины по умолчанию нет"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-mtp"
+   },
+   "start": {
+    "loads": false,
+    "spec": "draft-mtp",
+    "layers": null,
+    "nMax": "2",
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "positive: draft-mtp без файла — своя голова MTP модели: тип сказан, глубина по умолчанию 2, файла нет"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "mtp",
+    "SPEC_DRAFT_N_MAX": "4",
+    "SPEC_DRAFT_N_MIN": "1"
+   },
+   "start": {
+    "loads": false,
+    "spec": "draft-mtp",
+    "layers": null,
+    "nMax": "4",
+    "nMin": "1",
+    "cpuMoe": false
+   },
+   "why": "positive: своя голова с глубиной, сказанной ячейкой"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "none",
+    "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf"
+   },
+   "start": {
+    "loads": false,
+    "spec": null,
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "negative (выключатель, 2026-11-07): тип none — то, что пишет выключенная спекуляция: файл назван, но не грузится, и ни --spec-type, ни головы"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "none"
+   },
+   "start": {
+    "loads": false,
+    "spec": null,
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "negative: none без файла — спекуляции нет"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "ngram-simple",
+    "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf",
+    "SPEC_DRAFT_N_MAX": "4"
+   },
+   "start": {
+    "loads": false,
+    "spec": "ngram-simple",
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "ngram-* черновик берёт из самого запроса: тип сказан, файла не грузит, глубины черновика не говорит"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-eagle3"
+   },
+   "start": {
+    "loads": false,
+    "spec": null,
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "as_is: тип черновика без файла и не draft-mtp — сборщик не говорит ничего"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-mtp",
+    "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf",
+    "ENABLE_EMBEDDINGS": "1",
+    "CPU_MOE_DRAFT": "1"
+   },
+   "start": {
+    "loads": false,
+    "spec": null,
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "negative: ячейка эмбеддингов — без спекуляции, и флага экспертов черновика тоже нет"
+  },
+  {
+   "config": {
+    "SPEC_TYPE": "draft-mtp",
+    "SPEC_DRAFT_MODEL_FILE": "   "
+   },
+   "start": {
+    "loads": false,
+    "spec": "draft-mtp",
+    "layers": null,
+    "nMax": "2",
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "файл из одних пробелов — не файл: draft-mtp остаётся своей головой модели"
+  },
+  {
+   "config": {},
+   "start": {
+    "loads": false,
+    "spec": null,
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": false
+   },
+   "why": "negative: ничего не сказано — ничего не грузится"
+  },
+  {
+   "config": {
+    "CPU_MOE_DRAFT": "1"
+   },
+   "start": {
+    "loads": false,
+    "spec": null,
+    "layers": null,
+    "nMax": null,
+    "nMin": null,
+    "cpuMoe": true
+   },
+   "why": "as_is: флаг экспертов черновика пишется и без черновика — двигать ему нечего"
+  }
+ ]
+}

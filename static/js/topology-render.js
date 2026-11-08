@@ -2,6 +2,7 @@
 import { ADD_MODEL } from "./add-model.js";
 import { BOARD_VIEW } from "./board-view.js";
 import { CARD_FOLD } from "./card-fold.js";
+import { CellMemory } from "./cell-memory.js";
 import { CellSpeed } from "./cell-speed.js";
 import { CELL_LOG } from "./cell-log.js";
 import { CELL_SETTINGS } from "./cell-settings.js";
@@ -25,13 +26,13 @@ import { ModelDisk } from "./model-disk.js";
 import { ScoutRelease } from "./scout-release.js";
 import { MACHINE_HEAD_LIVE, MachinePanes } from "./machine-head.js";
 import { MACHINE_MODELS } from "./machine-models.js";
+import { MACHINE_BUILD } from "./machine-build.js";
 import { MACHINE_DRAG } from "./machine-plan.js";
 import { ModelCopy, ModelLoad } from "./model-copy.js";
 import { StartStrip } from "./start-strip.js";
 import { MODEL_LIST } from "./model-list.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
 import {
-  formatCtxTokens,
   formatTps,
   startTopologyMonitor,
   stopTopologyMonitor,
@@ -44,13 +45,11 @@ import {
   actOnEngineButton,
   reserveEngineButton,
   serveEngineButton,
-  clearPendingRemoteStart,
   deleteTopologyClientAgent,
   openHostPowerScheduleModal,
   remoteStartupInFlight,
   renderNvidiaSmiSourceButtons,
   startRemoteStartWatch,
-  submitLlamaStop,
   disconnectScout,
   editRouteModel,
   editRouteWait,
@@ -73,6 +72,7 @@ import {
   drawRouteTokenHistory,
   refreshTopologyActivityState,
   topologyRouteDetailHtml,
+  topologyServerGroup,
   topologyStatusPill,
   sortedLaneCards,
   sortedTopologyClients,
@@ -92,6 +92,7 @@ import {
   _collapsedNodes,
   applyNodesViewMode,
   engineRamText,
+  engineRunnerOf,
   engineVramText,
   gpuOutsideBar,
   gpuWhoHtml,
@@ -109,7 +110,6 @@ import {
   topologyNodesViewOn,
 } from "./topology-nodes.js";
 import {
-  renderTopologyProxyForm,
   topologyBoardAssignmentsForHost,
   clientLaneAgentCards,
   clientNeedsCaption,
@@ -232,7 +232,6 @@ export function renderTopology() {
     renderTopologyCloudPicker(),
     renderTopologyCloudAccountModal(),
     topologyRouteDetailHtml(),
-    renderTopologyProxyForm(),
     // Routing page is the pools' board (pool-board.js; the owner, 2026-10-12): clients, pools
     // and models joined by cables. The main board keeps its router card.
     window.ROUTER_STANDALONE ? POOL_BOARD.html(topology) : renderTopologyRouterDetail(),
@@ -251,6 +250,9 @@ export function renderTopology() {
   if (llamaServersEl) MachinePanes.replace(llamaServersEl, BOARD_VIEW.isMachine ? nodesLaneHtml(BOARD_VIEW.machine) : machinesLaneHtml());
   if (BOARD_VIEW.isMachine) {
     MACHINE_MODELS.readOnce();
+    // The launch builder's saved sets: read once a page, as the texts of the list are; its shelf where it was swiped to, its ends said.
+    MACHINE_BUILD.readOnce();
+    MACHINE_BUILD.mounted(document);
     // The rack's figures and little charts come with the drawing, not with the next tick of the monitor.
     drawNodeTelemetry();
   }
@@ -270,13 +272,6 @@ export function renderTopology() {
     }
   }
   mountNodeTelemetry();  // relocate live controller charts into the controller node
-  // Dismiss buttons on terminal (timeout/error) pending-start cards
-  document.querySelectorAll("[data-pending-remote-dismiss]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      clearPendingRemoteStart(btn.dataset.pendingRemoteDismiss);
-      renderTopology();
-    });
-  });
   // The limit and the switch on the route's context line, edited in place.
   document.querySelectorAll("[data-route-ctx]").forEach((chip) => {
     chip.addEventListener("click", (e) => {
@@ -374,14 +369,8 @@ export function renderTopology() {
   SERVER_ORDER.apply();
   bindTopologyDragAndDrop();
 
-  // Bind stop buttons on remote llama-server cards (re-bind each render)
-  document.querySelectorAll("[data-llama-stop]").forEach((btn) => {
-    btn.addEventListener("click", () => submitLlamaStop(btn.dataset.llamaStop));
-  });
-  // Node-view server stop buttons (node mode uses data-node-stop)
-  $("topologyLlamaServers")?.querySelectorAll("[data-node-stop]").forEach((btn) => {
-    btn.addEventListener("click", () => submitLlamaStop(btn.dataset.nodeStop));
-  });
+  // No machine-wide stop door is bound here (2026-11-08): `[data-llama-stop]` and `[data-node-stop]` posted {hostId}, which the
+  // controller reads as a stop of every cell of the machine, and nothing draws them; a cell is stopped by its own ⏹ (data-cell-id).
   // Node collapse/expand
   $("topologyLlamaServers")?.querySelectorAll("[data-node-collapse]").forEach((btn) => {
     btn.addEventListener("click", () => toggleNodeCollapsed(btn.dataset.nodeCollapse));
@@ -587,7 +576,7 @@ export function patchMachinePage() {
 }
 
 export function topologyInteractionActive() {
-  if (topologyPointerDrag || ui.topologyProxyFormOpen || _cvDrag || POOL_BOARD.busy || MACHINE_DRAG.busy) return true;
+  if (topologyPointerDrag || _cvDrag || POOL_BOARD.busy || MACHINE_DRAG.busy || MACHINE_BUILD.busy) return true;
   // A focused select/text field anywhere on the poll-rebuilt page defers the
   // rebuild too: a full render replaces the DOM under the user's cursor —
   // closing an open dropdown mid-choice (a port-registry router select) or
@@ -604,15 +593,19 @@ export function topologyInteractionActive() {
 }
 
 // Exact phase string — used as a structural key. The fast-moving bits inside a
-// phase (download %, t/s, ctx) are NOT in the phase, so they stay live-patched;
-// any phase transition (downloading→loading→running) is structural → full render.
+// phase (download %, t/s, what the cell holds) are NOT in the phase, so they stay
+// live-patched; any phase transition (downloading→loading→running) is structural
+// → full render.
 export function topologyServerPhase(s) {
   return (s.phase) || (s.status && s.status.phase) || "stopped";
 }
 
 // Identity of the graph: anything that changes which cards/handles/cables exist
-// or how they connect. Deliberately EXCLUDES fast-moving numbers (t/s, VRAM,
-// ageSeconds, ctxUsed, download %), which syncTopologyLive() patches in place.
+// or how they connect. Deliberately EXCLUDES fast-moving numbers — t/s, download
+// and load %, ageSeconds, a GPU's VRAM and what a cell's processes hold in RAM and
+// on the cards (cell-memory.js) — which syncTopologyLive() patches in place. A
+// number in neither is drawn once and then shown frozen as if it were live: a
+// cell's badge said "GPU 0.3G" for minutes while it held 2.4 (2026-11-07).
 export function topologyStructureFingerprint() {
   return Object.values(topologyStructureParts()).join("||");
 }
@@ -665,13 +658,19 @@ export function topologyStructureParts() {
   // Autostart is a setting of the card like the model: while ↟ was not here,
   // pressing it left the button spinning until something else changed — the
   // server had done it, the board still said "working" (2026-09-24).
+  // A cell is in it by its id (the row's `id` carries it, slot:<cellId> or
+  // remote:<cellId>), not by a port: a cell holds one only while it runs, the
+  // board draws none, and a run on another port changes nothing it draws. The
+  // queue its card's slots panel is drawn for is: it is its machine's model's
+  // (topologyServerGroup), and a model listing the cell later — or another —
+  // moves the panel to that queue.
   const classicSrv = (server.llamaServers || [])
-    .map((s) => `${s.id}:${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`
+    .map((s) => `${s.id}:${s.model || ""}:${topologyServerPhase(s)}`
                 + `:${s.bootEnabled ? 1 : 0}${s.bootSupported ? 1 : 0}`)
     .sort().join(",");
   const nodeSrv = (topology.nodes || [])
     .flatMap((n) => (n.servers || []).map((s) =>
-      `${n.id}/${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`
+      `${n.id}/${s.cellId}>${topologyServerGroup(s)}:${s.model || ""}:${topologyServerPhase(s)}`
       + `:${s.bootEnabled ? 1 : 0}${s.bootSupported ? 1 : 0}`))
     .sort().join(",");
   const gpus = (topology.nodes || [])
@@ -752,7 +751,7 @@ export function topologyStructureParts() {
   // In-flight cell actions are structural: adding/clearing one must re-render
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
-  const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
+  const modals = `${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
   // The order of the server cards: Routing's Servers panel is built in that
   // order, and a new order — from this page or another — rebuilds it (server-order.js).
   const order = SERVER_ORDER.current().join(",");
@@ -801,9 +800,6 @@ export function _liveSet(root, sel, text) {
   const el = root ? root.querySelector(sel) : document.querySelector(sel);
   if (el && el.textContent !== text) el.textContent = text;
   return el;
-}
-export function _liveShow(el, show) {
-  if (el) el.style.display = show ? "" : "none";
 }
 
 // The load line of a cell on its way (scout 2.43, model-copy.js ModelLoad): its words, and its bar — at the share while the scout
@@ -868,19 +864,24 @@ export function syncTopologyLive() {
       }
     });
 
-    // Server cards: token speed, context usage, download progress.
+    // Server cards: token speed, download and load progress, what the cell holds.
     (n.servers || []).forEach((s) => {
+      // A cell is found by its id (data-cell-id), the one address the board gives it: it holds a port only while it runs, and
+      // a parked cell's card was looked for by a port it does not have. A row that names no cell has no card to patch.
+      const id = String(s.cellId || "");
+      if (!id) return;
+      const at = CSS.escape(id);
       // A folded cell's window holds its live figures where the full card held them (cell-window.js): the slots' panel, the
       // copy's line, and its own speed on the band and in the overview.
-      const card = nodeEl.querySelector(`.node-server[data-llama-port="${CSS.escape(String(s.port))}"]`)
-        || nodeEl.querySelector(`[data-cell-window-live][data-llama-port="${CSS.escape(String(s.port))}"]`);
+      const card = nodeEl.querySelector(`.node-server[data-cell-id="${at}"]`)
+        || nodeEl.querySelector(`[data-cell-window-live][data-cell-id="${at}"]`);
       if (!card) return;
       const running = topologyServerPhase(s) === "running";
       // A folded cell's line carries the one live number it shows — generation
       // speed — and breathes while the cell answers a request; the card behind
       // it is patched below as always, for the moment it floats open. The
       // builder asks the same class (cell-speed.js), so the two cannot disagree.
-      const line = nodeEl.querySelector(`.cell-row[data-llama-port="${CSS.escape(String(s.port))}"]`);
+      const line = nodeEl.querySelector(`.cell-row[data-cell-id="${at}"]`);
       if (line) {
         const speed = new CellSpeed(s, running);
         const tpsEl = _liveSet(line, "[data-live-rowtps]", speed.words(formatTps));
@@ -901,21 +902,21 @@ export function syncTopologyLive() {
           if (words) _liveSet(line, "[data-live-rowdl]", StartStrip.words(copy, s.downloadingFile || t("topologyRemoteDownloading"), words.dataset.stripName));
         }
       }
+      // What the cell's processes hold moves while they hold any — a model can load after its server answers — and the card is not
+      // drawn again for it: the badges of the line and of the card or window, the window's two tiles and its cards' figures are
+      // written again here, from the class and the reading of the report the builder draws them with (cell-memory.js), so the two
+      // cannot disagree. A cell in an engine keeps what it was drawn with: its figures are the engine's, told when the engine loads
+      // the model (Ollama's size and size_vram), and a load is structure — the engines' part of the fingerprint.
+      if (!engineRunnerOf(s)) {
+        const memory = CellMemory.of({ live: CellMemory.holds(topologyServerPhase(s)), ...CellMemory.measured(s, n) });
+        memory.patch(line);
+        memory.patch(card);
+      }
       if (running) {
         const cellSpeed = new CellSpeed(s, running);
         _liveSet(card, "[data-live-cwtps]", cellSpeed.words(formatTps) || "—");
         _liveSet(card, "[data-live-cwband]", CellWindow.speedWords(cellSpeed, formatTps));
         _liveSet(card, "[data-live-cwtpssub]", CellWindow.speedSub(cellSpeed, s.promptTps, formatTps));
-        const tpsEl = card.querySelector("[data-live-tps]");
-        if (tpsEl) {
-          tpsEl.textContent = `${formatTps(s.promptTps || 0)} / ${formatTps(s.genTps || 0)} t/s`;
-          _liveShow(tpsEl, !!(s.promptTps || s.genTps));
-        }
-        const ctxEl = card.querySelector("[data-live-ctx]");
-        if (ctxEl) {
-          ctxEl.textContent = `ctx ${s.ctxUsed != null ? formatCtxTokens(s.ctxUsed) : "—"} / ${formatCtxTokens(s.ctxMax || 0)}`;
-          _liveShow(ctxEl, !!s.ctxMax);
-        }
       } else if (topologyServerPhase(s) === "downloading") {
         const copy = ModelCopy.now(s);
         // The bar of the card's status line is `.msl-bar` (the old `.remote-dl-bar` is the progress panel's): the words moved live
@@ -955,10 +956,10 @@ export function syncTopologyLive() {
           outsides.dataset.key = outsideKey;
         }
       }
-      // Who holds the card: fleet ports and everyone else by name, or idle.
+      // Who holds the card: the fleet's cells and everyone else by name, or idle.
       const whoEl = row.querySelector("[data-live-gpuwho]");
       if (whoEl) {
-        const html = gpuWhoHtml(g);
+        const html = gpuWhoHtml(n, g);
         if (whoEl.innerHTML !== html) whoEl.innerHTML = html;
       }
       const sparkEl = row.querySelector("[data-live-gpuspark]");

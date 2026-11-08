@@ -968,28 +968,6 @@ input[type="checkbox"] {
 .ctx-native-btn { font-variant-numeric: tabular-nums; font-weight: 500; }
 .ctx-native-btn.active { color: var(--accent); border-color: var(--accent); }
 
-.port-chip {
-  padding: 5px 10px;
-  font-size: 12px;
-  font-family: ui-monospace, Menlo, monospace;
-  font-weight: 600;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  cursor: pointer;
-  color: var(--muted);
-  transition: border-color 0.1s, color 0.1s, background 0.1s;
-}
-.port-chip:hover {
-  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
-  color: var(--accent);
-}
-.port-chip.active {
-  background: color-mix(in srgb, var(--accent) 16%, var(--field));
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 .field-note {
   display: flex;
   flex-wrap: wrap;
@@ -1213,10 +1191,12 @@ button {
   transform: rotate(180deg);
 }
 
+/* It hangs from the end of its button, toward the page's middle: `right` opened it off the left edge of a page written right to
+   left, where the language stands first from the left (45 px of it gone at 1440 px, 2026-11-07). */
 .lang-menu {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  inset-inline-end: 0;
   z-index: 60;
   min-width: 140px;
   max-height: min(70vh, 420px);
@@ -1325,7 +1305,7 @@ button.danger {
 .topbar-machines { position: relative; display: inline-flex; }
 button.topbar-page { min-height: 0; cursor: pointer; }
 .topbar-machines-menu {
-  position: absolute; left: 0; top: calc(100% + 6px); z-index: 60; display: grid; gap: 2px; min-width: 220px; max-height: min(70vh, 420px);
+  position: absolute; inset-inline-start: 0; top: calc(100% + 6px); z-index: 60; display: grid; gap: 2px; min-width: 220px; max-height: min(70vh, 420px);
   overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
 .topbar-machine {
@@ -1338,6 +1318,28 @@ button.topbar-page { min-height: 0; cursor: pointer; }
 .topbar-machine-dot.on { background: var(--good); }
 .topbar-machine-off { margin-left: auto; padding-left: 14px; color: var(--muted); font-size: 11.5px; }
 .topbar-machines-note { max-width: 320px; padding: 8px 10px; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+
+/* The bar folds where its three groups do not fit side by side (2026-11-07). It did not, and a phone lays a page out as wide as
+   its widest box: every page came out 880–1200 px wide on a 390 px screen, shrunk, with the end of the bar cut off. Measured on
+   the stand in the six languages, with the pages' words gone (below 1430 px), the widest bar needs 1107 px: Spanish, /hf and a
+   machine's page, an account of five letters. So from 1180 px down the groups wrap: the brand and the page's name, then the
+   actions, at the end of the same line or of the next. On a phone the actions wrap among themselves too, and the bar, three or
+   four lines high there, goes up with the page rather than covering a fifth of it; the long name under the brand goes, as in a
+   machine's window (topology-board.css): beside the logo it stood five lines high. The machines' menu hangs there from the end
+   of its button, as the account's and the language's do: from its start it ran off the screen. Every side here is logical, so a
+   page written right to left folds the same way. The main board's bar is as wide as its board and keeps one line until the
+   board itself folds (topology-board.css). */
+@media (max-width: 1180px) {
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; }
+  .topbar .actions { margin-inline-start: auto; }
+}
+@media (max-width: 720px) {
+  .topbar { position: static; gap: 8px 12px; padding: 14px; }
+  .topbar-brand, .brand-title { flex-wrap: wrap; row-gap: 8px; }
+  .topbar .brand-acronym { display: none; }
+  .topbar .actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+  .topbar-machines-menu { inset-inline-start: auto; inset-inline-end: 0; }
+}
 
 .summary {
   display: grid;

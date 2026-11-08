@@ -5,8 +5,7 @@ pub struct ConfigFields;
 
 impl ConfigFields {
     /// Every field a config may hold.
-    pub const ALL: [&'static str; 152] = [
-        "HOST",
+    pub const ALL: [&'static str; 153] = [
         "PORT",
         "LLAMA_MODELS_DIR",
         "MODEL_FILE",
@@ -150,6 +149,8 @@ impl ConfigFields {
         "STRATA_KV",
         "STRATA_DRAFT_VOCAB",
         "STRATA_VRAM_RESERVE_MIB",
+        "STRATA_ENGRAM_FILE",
+        "STRATA_META_FILE",
         "GR00T_BACKBONE",
         "GR00T_EMBODIMENT",
         "GR00T_DENOISING_STEPS",
@@ -159,8 +160,8 @@ impl ConfigFields {
         "ENGINE_PORT",
         "MODEL_NAME",
     ];
-    /// Where the fields of llama.cpp itself end.
-    pub const LLAMA_END: usize = 117;
+    /// Where the fields of llama.cpp itself end: at the runner's, `RUNNER` (the test holds the two together).
+    pub const LLAMA_END: usize = 116;
     /// What the board's help says of each field.
     pub const HELP: &'static str = include_str!("field_help.json");
 
@@ -172,5 +173,19 @@ impl ConfigFields {
     /// The fields of llama.cpp itself.
     pub fn llama() -> &'static [&'static str] {
         Self::ALL.get(..Self::LLAMA_END).unwrap_or(&Self::ALL)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_fields_of_llama_cpp_end_where_the_runner_s_begin() {
+        // A field taken out before the end moves the end: 2026-11-08 HOST went, and RUNNER fell among llama.cpp's own until the
+        // number followed.
+        assert_eq!(ConfigFields::ALL.get(ConfigFields::LLAMA_END), Some(&"RUNNER"));
+        assert_eq!(ConfigFields::llama().last(), Some(&"EXTRA_ARGS"));
+        assert!(!ConfigFields::holds("HOST"), "negative: where a cell listens is the caravan's word, no field of a config");
     }
 }

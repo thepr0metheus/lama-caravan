@@ -1,10 +1,8 @@
 //! The agents' roles on the proxy's ports: the assignments.
 
-use super::board_proxy::BoardProxies;
 use crate::app::App;
-use crate::domain::client_proxy::{AgentAssignment, PROXY_ID_PREFIX, ProxyRoute};
+use crate::domain::client_proxy::{AgentAssignment, ProxyRoute};
 use crate::fleet::reports::FleetReads;
-use crate::proxies::config::ProxiesConfig;
 use crate::proxies::entry_settings::ConsumerAddress;
 use crate::store::topology::Topology;
 use rules::{AppError, Coerce};
@@ -87,50 +85,13 @@ impl<'app> Assignments<'app> {
         Ok((host_id, agent_id, role))
     }
 
-    /// One agent pointed at one proxy port, by hand, and kept there.
-    pub fn bind(&self, payload: &Value) -> Result<Value, AppError> {
-        let (host_id, agent_id, role) = Self::required(payload, Some("primary"))?;
-        let client = self.app.admin.change(|doc| Topology::of(doc).clients().get(&host_id).cloned());
-        let client = client.ok_or_else(|| AppError::with_status(format!("client not found: {host_id}"), 404))?;
-        let agents = client.get("agents").and_then(Value::as_array).into_iter().flatten();
-        if !agents.into_iter().any(|agent| Coerce::text(agent.get("id")) == agent_id) {
-            return Err(AppError::with_status(format!("agent not found: {agent_id}"), 404));
-        }
-        let mut rows = self.rows_of(&host_id);
-        let at = rows.iter().position(|row| row.get("agentId").and_then(Value::as_str) == Some(agent_id.as_str()));
-        let at = at.unwrap_or_else(|| {
-            rows.push(json!({"agentId": agent_id, "routes": []}));
-            rows.len() - 1
-        });
-        if !matches!(role.as_str(), "primary" | "fallback") {
-            return Err(AppError::new(format!("role must be \"primary\" or \"fallback\", got \"{role}\"")));
-        }
-        let raw_port = payload.get("port").filter(|port| !port.is_null() && **port != json!("") && **port != json!(0));
-        let raw_port = raw_port.ok_or_else(|| AppError::new("port is required — a role is removed with its own action"))?;
-        let port = Coerce::int(raw_port).ok_or_else(|| AppError::new("port must be a number"))?;
-        let config = ProxiesConfig::of(self.app).load()?;
-        let known = config
-            .get("routes")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .any(|route| Coerce::int_or_zero(route.get("port")) == Some(port));
-        if !known {
-            return Err(AppError::new(format!("no proxy route on port {port}")));
-        }
-        let holders = BoardProxies::of(self.app).holders();
-        let id = format!("{PROXY_ID_PREFIX}{port}");
-        let holder = holders.get(&id).into_iter().flatten().find(|(host, agent, _)| !(*host == host_id && *agent == agent_id));
-        if let Some((_, agent, held_role)) = holder {
-            return Err(AppError::with_status(format!("port {port} is already bound to agent {agent} ({held_role})"), 409));
-        }
-        let Some(row) = rows.get_mut(at) else {
-            return Err(AppError::with_status("the assignment went away", 500));
-        };
-        let mut assignment = AgentAssignment::from_raw(row)?;
-        assignment.set_route(ProxyRoute::for_port(&role, port, &self.app.paths.topology_server_ip));
-        *row = assignment.to_json();
-        self.apply(&json!({"hostId": host_id, "assignments": rows}))
+    /// An agent pointed at a proxy port by hand: gone with the ports themselves. A client has no port of its own since 2026-11-02 and no
+    /// number since 2026-11-07 (the owner): an agent calls the entry with its own key, as a client of it.
+    pub fn bind(&self, _payload: &Value) -> Result<Value, AppError> {
+        Err(AppError::with_status(
+            "an agent is pointed at no port: it calls the entry with its own key — make it a client with ＋ in the Clients column",
+            410,
+        ))
     }
 
     fn edit_route(

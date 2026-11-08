@@ -163,6 +163,107 @@
    }
   },
   {
+   "id": "strata-ds",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "🪨",
+   "labelKey": "runnerStrataDs",
+   "benefitsKey": "runnerStrataDsBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "deepseek41-gguf"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": true,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [
+    "deepseek41"
+   ],
+   "stArchs": [],
+   "contextField": "STRATA_CONTEXT",
+   "vramPlan": {
+    "takesFree": true,
+    "everyCard": true
+   },
+   "keepsRam": true,
+   "minusKey": "runnerStrataDsMinus",
+   "needsKey": "runnerNeedsStrataDsGguf",
+   "gpuOnly": true,
+   "workFolder": true,
+   "ownCompanions": [
+    "STRATA_ENGRAM_FILE",
+    "STRATA_META_FILE",
+    "SPEC_DRAFT_MODEL_FILE",
+    "MMPROJ_FILE"
+   ],
+   "talk": {
+    "modes": [
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   }
+  },
+  {
+   "id": "inferssd",
+   "sharedPicker": "source",
+   "modelField": "MODEL_FILE",
+   "icon": "💽",
+   "labelKey": "runnerInferssd",
+   "benefitsKey": "runnerInferssdBenefits",
+   "formats": [
+    "gguf"
+   ],
+   "artifacts": [
+    "deepseek41-gguf"
+   ],
+   "health": "/health",
+   "api": "openai",
+   "minCompute": null,
+   "tokenContext": false,
+   "commandPath": true,
+   "llamaConfig": false,
+   "editorTab": true,
+   "engineCell": false,
+   "ggufArchs": [
+    "deepseek41"
+   ],
+   "stArchs": [],
+   "contextField": "CTX_SIZE",
+   "vramPlan": {
+    "fixedMiB": 31744
+   },
+   "keepsRam": false,
+   "minusKey": "runnerInferssdMinus",
+   "needsKey": "runnerNeedsInferssdGguf",
+   "gpuOnly": true,
+   "oneCard": true,
+   "workFolder": true,
+   "talk": {
+    "modes": [
+     "text-chat"
+    ],
+    "system": "",
+    "voices": {},
+    "turns": 8
+   },
+   "launcher": "run_inferssd.sh",
+   "launcherArgs": [
+    "--context",
+    "32768",
+    "{model}"
+   ],
+   "folderRule": "picked"
+  },
+  {
    "id": "gr00t",
    "sharedPicker": "source",
    "modelField": "MODEL_FILE",
@@ -887,10 +988,6 @@
   }
  ],
  "pagePattern": "https://(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?::[0-9]{1,5})?(?:/[!-~]*)?",
- "standingPhases": [
-  "reserved",
-  "stopped"
- ],
  "windowKinds": [
   "list",
   "props",

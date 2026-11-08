@@ -1,5 +1,6 @@
 //! Why a request's work ends before its answer does.
 
+use rules::EntryRefusal;
 use std::io;
 
 /// What ends a request early. Each carries what the record and the client are told.
@@ -18,6 +19,9 @@ pub enum Ending {
         /// The kind the board branches on.
         kind: &'static str,
     },
+    /// The caravan refused it on the way in words of its own, which the client is told as they are: the board's reader did
+    /// not read a picture, or a picture is not inside the request. The words say what to do, so they are not the dialect's.
+    Refused(EntryRefusal),
     /// The upstream failed.
     Upstream(UpstreamEnd),
     /// Its patience with a full model is over, and its pool has a row ready: the milliseconds it waited.

@@ -7,7 +7,7 @@ use crate::common::cloud_pools::CloudPools;
 use crate::common::cloud_sources::CloudSources;
 use crate::common::misc::ProxyHeartbeat;
 use rules::usage_limits::{UsageReserve, UsageWindow};
-use rules::{AppError, Coerce};
+use rules::{AppError, ClientDeny, Coerce, EntryModels};
 use serde_json::{Map, Value, json};
 
 impl PoolDesk<'_> {
@@ -123,5 +123,50 @@ impl PoolDesk<'_> {
             out.push(row);
         }
         Ok(Value::Array(out))
+    }
+
+    /// The board's reader as the reader block draws it (`top.reader`): the name the operator named, and the word the rule gave
+    /// for that name. The page does not work a state out, so the answer is read here, from `Reader::word()`, with the
+    /// operator's view (`ClientDeny::clean(None)`) — the board is not one client's view of what is closed.
+    ///
+    /// `named` is the reading the board's answer is built from (`topology::cloud_part`), so the block and the entry read the
+    /// same reading, and the topology does not read the files a second time for one row. Asked with no pool: the reader is
+    /// one fact for the whole board, so a name here cannot be the board itself, and the word `itself` cannot come from this
+    /// row. It comes from a request, whose pool is named.
+    pub fn reader(named: &EntryModels) -> Value {
+        let operator = ClientDeny::clean(None);
+        let answer = named.wired(&operator, None).promise(EntryModels::READER_WORD);
+        json!({"name": named.reader(), "answer": answer.word()})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rules::{Credentials, ModelCatalogue};
+
+    /// The board's reading of a cloud file with one signed-in subscription that offers `gpt-6-luna`, whose facts say it takes
+    /// `image` (the case `contract/media_reader.json` names for the door), and `reader` as the file says it.
+    fn reading(reader: Option<&str>) -> EntryModels {
+        let mut cloud = json!({
+            "accounts": [{"id": "chatgpt-subscription", "accountType": "openai-subscription"}],
+            "pools": [{"id": "pool-1", "name": "coder-auto", "steps": []}],
+            "addedModels": {"chatgpt-subscription": ["gpt-6-luna"]},
+        });
+        if let Some(reader) = reader {
+            Coerce::put(&mut cloud, EntryModels::READER_FIELD, json!(reader));
+        }
+        let secrets = json!({"chatgpt-subscription": "key"});
+        EntryModels::read(Some(&json!([])), Some(&cloud), &Credentials::read(Some(&secrets)), ModelCatalogue::default())
+    }
+
+    #[test]
+    fn the_board_s_reader_is_the_name_the_file_holds_and_the_rule_s_word_for_it() {
+        assert_eq!(PoolDesk::reader(&reading(Some("gpt-6-luna"))), json!({"name": "gpt-6-luna", "answer": "reads"}));
+        // Negative: nothing named is said as nothing, with the name absent rather than empty — the block draws "not named"
+        // from the absence, and an empty name would read as a reader named nothing.
+        assert_eq!(PoolDesk::reader(&reading(None)), json!({"name": null, "answer": "nothing"}));
+        // Negative: a name the board has no facts about is drawn as what the rule says of it, not as a reader.
+        assert_eq!(PoolDesk::reader(&reading(Some("gpt-9-mira"))), json!({"name": "gpt-9-mira", "answer": "unknown"}));
     }
 }

@@ -25,6 +25,9 @@ pub struct CheckpointConfig {
     pub window: i64,
     /// What a token of KV cache weighs, in bytes, when the file states what that takes.
     pub kv_per_token: Option<i64>,
+    /// The experts a layer routes among: 0 for a model with none, which reads all its weights for every token; none when no config.json was read, which says
+    /// neither.
+    pub experts: Option<i64>,
 }
 
 /// The view.
@@ -61,12 +64,30 @@ impl<'app> ModelCheckpoints<'app> {
         0
     }
 
+    /// The part of a config.json that describes the language model: a multimodal checkpoint nests it.
+    fn text_of(doc: &Value) -> &Value {
+        const TEXT: [&[&str]; 4] = [&["text_config"], &["thinker_config", "text_config"], &["llm_config"], &["language_config"]];
+        // absent-ok: a checkpoint of a language model alone states it at the top.
+        TEXT.iter().find_map(|keys| keys.iter().try_fold(doc, |value, key| value.get(*key))).unwrap_or(doc)
+    }
+
+    /// The experts a layer routes among, by the names the makers give the figure; 0 when the file names none: a model of experts says so, and one that does not reads all its
+    /// weights for every token (the board's estimate of the speed reads this).
+    fn experts_of(doc: &Value) -> i64 {
+        const NAMES: [&str; 4] = ["num_experts", "n_routed_experts", "num_local_experts", "moe_num_experts"];
+        let text = Self::text_of(doc);
+        NAMES
+            .iter()
+            .find_map(|name| text.get(*name).or_else(|| doc.get(*name)).and_then(Value::as_i64).filter(|said| *said > 1))
+            // absent-ok: a config that names no experts is a model of none: the makers state the figure for a model of experts.
+            .unwrap_or(0)
+    }
+
     /// The bytes of KV cache one token takes, as vLLM counts them: a key and a value on each layer, each `kv_heads × head_dim` numbers. It refuses to start when one request of
     /// the longest length does not fit what the weights leave (the owner's check, 2026-11-01: 0.88 GiB at a length of 8192 on a card the form called enough). Any figure the
     /// file does not state leaves this unknown.
     fn kv_per_token(doc: &Value) -> Option<i64> {
-        const TEXT: [&[&str]; 4] = [&["text_config"], &["thinker_config", "text_config"], &["llm_config"], &["language_config"]];
-        let text = TEXT.iter().find_map(|keys| keys.iter().try_fold(doc, |value, key| value.get(*key))).unwrap_or(doc);
+        let text = Self::text_of(doc);
         let whole = |key: &str| text.get(key).and_then(Value::as_i64).filter(|said| *said > 0);
         let layers = whole("num_hidden_layers")?;
         let heads = whole("num_attention_heads")?;
@@ -110,7 +131,12 @@ impl<'app> ModelCheckpoints<'app> {
         let first_arch = doc.get("architectures").and_then(Value::as_array).and_then(|list| list.first());
         let kind =
             if Coerce::truthy(doc.get("model_type")) { Coerce::text(doc.get("model_type")) } else { Coerce::text(first_arch) };
-        CheckpointConfig { kind, window: Self::window_of(&doc), kv_per_token: Self::kv_per_token(&doc) }
+        CheckpointConfig {
+            kind,
+            window: Self::window_of(&doc),
+            kv_per_token: Self::kv_per_token(&doc),
+            experts: Some(Self::experts_of(&doc)),
+        }
     }
 
     /// The snapshot an HF cache's `refs/main` names, or none.
@@ -139,6 +165,9 @@ impl<'app> ModelCheckpoints<'app> {
         }
         if let Some(bytes) = config.kv_per_token {
             out.insert("kvPerToken".to_string(), json!(bytes));
+        }
+        if let Some(experts) = config.experts {
+            out.insert("expertCount".to_string(), json!(experts));
         }
         out
     }
@@ -211,6 +240,9 @@ impl<'app> ModelCheckpoints<'app> {
             }
             if let Some(bytes) = config.kv_per_token {
                 row.insert("kvPerToken".to_string(), json!(bytes));
+            }
+            if let Some(experts) = config.experts {
+                row.insert("expertCount".to_string(), json!(experts));
             }
             row.insert("format".to_string(), json!(format));
             row.insert("files".to_string(), json!(files));

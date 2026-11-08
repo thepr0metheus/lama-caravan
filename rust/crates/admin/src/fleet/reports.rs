@@ -6,8 +6,9 @@ use super::machine_rows::MachineRows;
 use super::model_cache::ModelCacheFacts;
 use super::remote_cells::RemoteCells;
 use super::scout::ScoutAuth;
+use super::scout_follow::ScoutFollow;
 use super::scout_poll::Rerun;
-use super::server_cells::KeptCells;
+use super::server_cells::{KeptCells, ServerCells};
 use crate::app::App;
 use crate::domain::client::FleetClient;
 use crate::domain::driver_outlook::DriverOutlook;
@@ -18,7 +19,7 @@ use crate::proxies::config::ProxiesConfig;
 use crate::store::admin::AdminStore;
 use crate::store::topology::Topology;
 use plumbing::log::Log;
-use rules::{AppError, Coerce};
+use rules::{AppError, CellId, Coerce};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -34,7 +35,9 @@ mod proxy_meta;
 pub struct CellsFollow;
 
 impl CellsFollow {
-    fn phases(record: &Value) -> Vec<(String, bool, String)> {
+    /// Each cell a report names: its name, the port its run holds ("" for none), whether it runs, its phase. A cell that starts again on
+    /// another port changes the machine's outputs (`copyPorts`), so the port counts as well.
+    fn phases(record: &Value) -> Vec<(String, String, bool, String)> {
         let single;
         let nodes: &[Value] = match record.get("llamaNodes").and_then(Value::as_array) {
             Some(nodes) => nodes,
@@ -43,15 +46,17 @@ impl CellsFollow {
                 &single
             }
         };
-        let mut said: Vec<(String, bool, String)> = nodes
+        let mut said: Vec<(String, String, bool, String)> = nodes
             .iter()
             .filter(|node| node.is_object())
             .map(|node| {
+                // absent-ok: a node that names no cell, by name or port, compares as one of none.
+                let cell = ServerCells::node_cell(node).unwrap_or_default();
                 let port = node
                     .get("port")
                     .filter(|port| Coerce::truthy(Some(*port)))
                     .map_or_else(String::new, |port| Coerce::str_of(Some(port)));
-                (port, Coerce::truthy(node.get("running")), Coerce::text(node.get("phase")))
+                (cell, port, Coerce::truthy(node.get("running")), Coerce::text(node.get("phase")))
             })
             .collect();
         said.sort();
@@ -65,11 +70,15 @@ impl CellsFollow {
             .filter(|model| model.is_object())
             .map(|model| {
                 let copies = model.get("copies").and_then(Value::as_array).into_iter().flatten().filter(|copy| copy.is_object());
-                // absent-ok: `int(c.get("port") or 0)`: a copy with no port compares as one.
-                let mut ports: Vec<(i64, String)> =
-                    copies.map(|copy| (Coerce::whole(copy.get("port")), Coerce::text(copy.get("state")))).collect();
-                ports.sort();
-                (Coerce::text(model.get("id")), Coerce::text(model.get("state")), ports)
+                let mut copies: Vec<(String, i64, String)> = copies
+                    .map(|copy| {
+                        // absent-ok: a copy that names no cell, or holds no port, compares as one of none.
+                        let cell = ServerCells::node_cell(copy).unwrap_or_default();
+                        (cell, Coerce::whole(copy.get("port")), Coerce::text(copy.get("state")))
+                    })
+                    .collect();
+                copies.sort();
+                (Coerce::text(model.get("id")), Coerce::text(model.get("state")), copies)
             })
             .collect();
         said.sort();
@@ -93,28 +102,43 @@ impl<'app> FleetReads<'app> {
         Self { app }
     }
 
-    /// Stores what a scout says about its machine; `None` for a machine this controller does not hold when `only_known`.
+    /// How long a scout's report may wait for the file (`AdminStore::save_later`), seconds. It is live in memory at once, and the next
+    /// heartbeat brings the same figures again within seconds: after a restart the board reads a report at most this old until then.
+    pub const REPORT_SAVE_WITHIN: f64 = 300.0;
+
+    /// Stores what a scout says about its machine; `None` for a machine this controller does not hold when `only_known`. A machine first
+    /// heard of, or a change of its settings, goes to the file at once; the rest of a report waits for it (`REPORT_SAVE_WITHIN`).
     pub fn record(&self, payload: &Value, only_known: bool) -> Result<Option<Value>, AppError> {
         let now = self.app.now_whole();
         let mut report = HostReport::of(payload, now)?;
         let id = Coerce::text(report.get("id"));
-        let previous = self.app.admin.saving(|doc| {
+        let held = self.app.admin.change(|doc| {
             let mut topology = Topology::of(doc);
             let hosts = topology.hosts();
             if only_known && !hosts.contains_key(&id) {
                 return None;
             }
+            let known = hosts.contains_key(&id);
             let previous = hosts.get(&id).cloned().unwrap_or_else(|| json!({}));
             if let Some(first) = previous.get("firstSeen").filter(|first| Coerce::truthy(Some(*first))) {
                 Coerce::put(&mut report, "firstSeen", first.clone());
             }
             hosts.insert(id.clone(), report.clone());
-            MachineSettings::remember(&mut topology, &id, &report);
-            Some(previous)
+            let settings = MachineSettings::remember(&mut topology, &id, &report);
+            Some((previous, !known || settings))
         });
-        let Some(previous) = previous else {
+        let Some((previous, at_once)) = held else {
             return Ok(None);
         };
+        let admin = &self.app.admin;
+        if at_once {
+            if let Err(error) = admin.save() {
+                Log::line(&format!("admin state not saved: {error}"));
+            }
+        } else {
+            admin.save_later(self.app.now());
+            admin.save_if_waited(self.app.now(), Self::REPORT_SAVE_WITHIN);
+        }
         if CellsFollow::changed(&previous, &report)
             && let Some(app) = self.app.shared()
         {
@@ -127,6 +151,7 @@ impl<'app> FleetReads<'app> {
         if let Err(error) = KeptCells::of(self.app).adopt(&id, payload.get("autostartRequests")) {
             Log::line(&format!("[cells] {id}: the cells its scout keeps were not read: {}", error.message));
         }
+        ScoutFollow::heard(self.app, &id, &report);
         Ok(Some(report))
     }
 
@@ -249,6 +274,75 @@ impl<'app> FleetReads<'app> {
 mod tests {
     use super::*;
 
+    /// When the file says the machine was last heard of: what a restart starts from.
+    fn seen_on_disk(app: &App) -> Value {
+        let doc: Value = serde_json::from_slice(&std::fs::read(app.admin.store().path()).unwrap()).unwrap();
+        doc["topology"]["hosts"]["box"]["lastSeen"].clone()
+    }
+
+    #[test]
+    fn a_machine_first_heard_of_goes_to_the_file_at_once_though_its_report_says_no_settings() {
+        let folder = crate::tests::TestFolder::new("reports-first-heard");
+        let clock = crate::tests::HandClock::at(1_000);
+        let app = crate::tests::TestApp::with_clock(&folder.path, &[], clock.clone());
+        let reads = FleetReads::of(&app);
+        reads.record(&json!({"host": {"id": "box", "name": "Box"}}), false).unwrap();
+        assert_eq!((seen_on_disk(&app), app.admin.waiting()), (json!(1_000), false));
+        clock.pass(10);
+        reads.record(&json!({"host": {"id": "box", "name": "Box"}}), false).unwrap();
+        assert_eq!((seen_on_disk(&app), app.admin.waiting()), (json!(1_000), true), "negative: its next report waits");
+    }
+
+    #[test]
+    fn a_report_waits_for_the_file_and_a_new_machine_or_a_change_of_its_settings_does_not() {
+        let folder = crate::tests::TestFolder::new("reports-save-later");
+        let clock = crate::tests::HandClock::at(1_000);
+        let app = crate::tests::TestApp::with_clock(&folder.path, &[], clock.clone());
+        let reads = FleetReads::of(&app);
+        let report =
+            |dir: &str| json!({"host": {"id": "box", "name": "Box"}, "modelCache": {"keep": 1, "dir": dir, "dirChosen": true}});
+        reads.record(&report("/a"), false).unwrap();
+        assert_eq!(seen_on_disk(&app), json!(1_000), "a machine first heard of goes to the file at once");
+        clock.pass(10);
+        reads.record(&report("/a"), false).unwrap();
+        assert_eq!(seen_on_disk(&app), json!(1_000), "the figures of a heartbeat wait for the file");
+        let live = app.admin.read(|doc| Value::Object(doc.clone())["topology"]["hosts"]["box"]["lastSeen"].clone());
+        assert_eq!((live, app.admin.waiting()), (json!(1_010), true), "and are live in memory at once");
+        clock.pass(FleetReads::REPORT_SAVE_WITHIN as u64 - 10);
+        reads.record(&report("/a"), false).unwrap();
+        assert_eq!(seen_on_disk(&app), json!(1_000), "negative: not before the first of them waited its time");
+        clock.pass(10);
+        reads.record(&report("/a"), false).unwrap();
+        assert_eq!(
+            (seen_on_disk(&app), app.admin.waiting()),
+            (json!(1_310), false),
+            "a heartbeat after it takes them all to the file"
+        );
+        clock.pass(10);
+        reads.record(&report("/b"), false).unwrap();
+        assert_eq!(seen_on_disk(&app), json!(1_320), "a change of the machine's settings goes to the file at once");
+        clock.pass(10);
+        reads.record(&report("/b"), false).unwrap();
+        app.admin.saving(|doc| doc.insert("note".to_string(), json!("x")));
+        assert_eq!(
+            (seen_on_disk(&app), app.admin.waiting()),
+            (json!(1_330), false),
+            "a save of anything takes what waited with it"
+        );
+        clock.pass(10);
+        reads.record(&report("/b"), false).unwrap();
+        clock.pass(FleetReads::REPORT_SAVE_WITHIN as u64);
+        assert!(
+            app.admin.save_if_waited(app.now(), FleetReads::REPORT_SAVE_WITHIN),
+            "a machine gone quiet: the minute's tick saves it"
+        );
+        assert_eq!(seen_on_disk(&app), json!(1_340));
+        assert!(
+            !app.admin.save_if_waited(app.now(), FleetReads::REPORT_SAVE_WITHIN),
+            "negative: nothing waits, nothing is written"
+        );
+    }
+
     #[test]
     fn a_report_is_cleaned_for_its_record() {
         let record = HostReport::of(
@@ -268,9 +362,28 @@ mod tests {
         assert_eq!(record["llamaNode"]["pids"], json!([2]));
         assert_eq!(record["llamaNode"]["ctxMax"], 9);
         assert_eq!(record["llamaNodes"][0]["port"], 5);
-        assert_eq!(record["autostart"], json!([5, 6]));
+        assert_eq!(record["autostart"], json!(["c5", "c6"]), "a scout of before said ports: they name the cells c<port>");
+        assert_eq!(record["llamaNodes"][0]["id"], Value::Null, "and named no cell: its port does (ServerCells::node_cell)");
         assert_eq!(record["firstSeen"], 100);
         assert_eq!(record["entryModels"], Value::Null);
+        // A scout of 2.46 names its cells, and a cell that does not run holds no port.
+        let named = HostReport::of(
+            &json!({
+                "host": {"id": "box"},
+                "llamaNodes": [{"id": "c3f9a02b1", "running": true, "port": 22004}, {"id": "c22011", "port": null}, {"id": "C-1", "port": 7}],
+                "autostart": ["c3f9a02b1", "c22011", "nobody's"],
+            }),
+            100,
+        )
+        .unwrap();
+        let ids: Vec<&Value> = named["llamaNodes"].as_array().unwrap().iter().map(|node| &node["id"]).collect();
+        assert_eq!(
+            ids,
+            [&json!("c3f9a02b1"), &json!("c22011"), &Value::Null],
+            "negative: a word that is no cell's name is not kept as one"
+        );
+        assert_eq!(named["llamaNodes"][1]["port"], Value::Null);
+        assert_eq!(named["autostart"], json!(["c22011", "c3f9a02b1"]));
     }
 
     #[test]
@@ -301,6 +414,10 @@ mod tests {
         assert!(!CellsFollow::changed(&a, &b));
         let c = json!({"llamaNodes": [{"port": 2}, {"port": 1, "running": false, "phase": "x"}], "entryModels": [{"id": "m", "state": "s", "copies": [{"port": 2, "state": "r"}]}]});
         assert!(CellsFollow::changed(&a, &c));
+        // A cell by its name: the same cell started again on another port changes what the machine's model reaches.
+        let ran = |port: i64| json!({"llamaNodes": [{"id": "c3f9a02b1", "port": port, "running": true, "phase": "running"}], "entryModels": [{"id": "m", "state": "running", "copies": [{"id": "c3f9a02b1", "port": port, "state": "running"}]}]});
+        assert!(!CellsFollow::changed(&ran(22001), &ran(22001)));
+        assert!(CellsFollow::changed(&ran(22001), &ran(22002)), "negative: a new port of the same cell is a change");
     }
 
     #[test]

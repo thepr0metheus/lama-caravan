@@ -650,6 +650,7 @@ fn a_resume_reads_what_it_resumes_from_the_manifest_and_stays_inside_the_models_
     let id = downloads.resume_interrupted(&root, "", "m", "m.gguf").unwrap();
     let job = finished(&app, &id);
     assert_eq!(job["status"], json!("done"), "{job}");
+    assert_eq!(job["total_files"], json!(1), "a manifest of an older controller names no other files: its job is its one file");
     assert_eq!(ranges(&hub), [Some(400)]);
     assert_eq!(std::fs::read(app.models_dir().join("m/m.gguf")).unwrap(), the_file());
     // A manifest waits outside the models folder: a resume that went there would start a download that lands there.
@@ -673,6 +674,149 @@ fn a_resume_reads_what_it_resumes_from_the_manifest_and_stays_inside_the_models_
     let refused = downloads.resume_interrupted(&root, "", "m", "half.gguf").err().unwrap();
     assert!(refused.message.contains("missing the repo or file path"), "{}", refused.message);
     assert_eq!(hub.asked().len(), 1, "a refusal starts nothing");
+}
+
+/// A hub with several files, each answered from where it is asked; the file `cut` names gives no byte past its `limit`, though its length says the whole.
+fn hub_with(files: Vec<(&'static str, Vec<u8>)>, cut: Option<(&'static str, usize)>) -> StandIn {
+    StandIn::serving(move |head| {
+        let target = head.split_whitespace().nth(1).unwrap_or_default().to_string();
+        let Some((name, body)) = files.iter().find(|(name, _)| target.ends_with(&format!("/{name}"))) else {
+            return b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec();
+        };
+        let start = range_of(head).unwrap_or(0).min(body.len());
+        let rest = &body[start..];
+        let give = match cut {
+            Some((short, limit)) if short == *name => limit.saturating_sub(start).min(rest.len()),
+            _ => rest.len(),
+        };
+        let status = if start > 0 { "206 Partial Content" } else { "200 OK" };
+        let mut out = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", rest.len()).into_bytes();
+        out.extend_from_slice(&rest[..give]);
+        out
+    })
+}
+
+/// A file of the job in the folder `m`, named as the hub has it.
+fn in_m(name: &str, size: usize) -> DownloadFile {
+    DownloadFile { path: name.to_string(), name: name.to_string(), dest_dir: "m".to_string(), size: size as i64 }
+}
+
+fn fetched(hub: &StandIn) -> Vec<String> {
+    hub.targets().iter().map(|target| target.rsplit('/').next().unwrap().to_string()).collect()
+}
+
+#[test]
+fn a_job_cut_off_in_its_middle_keeps_the_files_after_it_and_its_resume_after_a_restart_brings_them_all() {
+    let (a, b, c) = (bytes(1500, 1), bytes(SIZE, 2), bytes(2500, 3));
+    let files = || vec![("a.gguf", a.clone()), ("b.gguf", b.clone()), ("c.gguf", c.clone())];
+    let broken = hub_with(files(), Some(("b.gguf", 1000)));
+    let (folder, app) = controller("whole-job", broken.address());
+    let job = download(&app, vec![in_m("a.gguf", 1500), in_m("b.gguf", SIZE), in_m("c.gguf", 2500)]);
+    assert_eq!(job["status"], json!("error"), "{job}");
+    assert_eq!(fetched(&broken), ["a.gguf", "b.gguf", "b.gguf"], "the file after the broken one is never asked for");
+    let manifest: Value = serde_json::from_slice(&std::fs::read(app.models_dir().join("m/b.gguf.part.json")).unwrap()).unwrap();
+    assert_eq!(
+        manifest["rest"],
+        json!([in_m("c.gguf", 2500).said()]),
+        "the partial's manifest names the file of the job after it"
+    );
+    // The restart: a controller with no memory of the job, over the same folder.
+    let whole = hub_with(files(), None);
+    let again = TestApp::over(&folder.path, &[("CARAVAN_HUB_URL", whole.address())]);
+    let downloads = Downloads::of(&again);
+    let rows = downloads.scan_interrupted(&models(&again));
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let row = &rows[0];
+    assert_eq!(
+        (&row["total_files"], &row["fileNames"], &row["filePaths"], &row["current_file"]),
+        (&json!(2), &json!(["b.gguf", "c.gguf"]), &json!(["m/b.gguf", "m/c.gguf"]), &json!("b.gguf")),
+        "the row is the job still to fetch: the partial's file and the one after it"
+    );
+    assert_eq!(
+        (&row["total_bytes"], &row["total_bytes_done"], &row["file_bytes_total"], &row["resumable"]),
+        (&json!(SIZE + 2500), &json!(1000), &json!(SIZE), &json!(true))
+    );
+    let id = downloads.resume_interrupted(&models(&again), "", "m", "b.gguf").unwrap();
+    let resumed = finished(&again, &id);
+    assert_eq!((&resumed["status"], &resumed["total_files"]), (&json!("done"), &json!(2)), "{resumed}");
+    assert_eq!(fetched(&whole), ["b.gguf", "c.gguf"], "what is on the disk is not asked for again");
+    assert_eq!(ranges(&whole), [Some(1000), None], "the partial goes on from its bytes, the next file from its start");
+    for (name, body) in [("a.gguf", &a), ("b.gguf", &b), ("c.gguf", &c)] {
+        assert_eq!(&std::fs::read(again.models_dir().join("m").join(name)).unwrap(), body, "{name}");
+    }
+}
+
+#[test]
+fn a_resume_leaves_out_the_files_of_its_job_on_the_disk_or_written_by_a_running_job() {
+    let (b, e) = (bytes(SIZE, 2), bytes(800, 5));
+    let hub =
+        hub_with(vec![("b.gguf", b.clone()), ("c.gguf", bytes(10, 3)), ("d.gguf", bytes(10, 4)), ("e.gguf", e.clone())], None);
+    let (_folder, app) = controller("whole-left", hub.address());
+    let (downloads, root) = (Downloads::of(&app), models(&app));
+    let folder = app.models_dir().join("m");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("b.gguf.part"), &b[..1000]).unwrap();
+    let rest = json!([in_m("c.gguf", 10).said(), in_m("d.gguf", 10).said(), in_m("e.gguf", 800).said()]);
+    let said = json!({"repo": REPO, "path": "b.gguf", "name": "b.gguf", "destDir": "m", "size": SIZE, "rest": rest});
+    std::fs::write(folder.join("b.gguf.part.json"), said.to_string()).unwrap();
+    std::fs::write(folder.join("c.gguf"), bytes(10, 3)).unwrap();
+    downloads
+        .jobs()
+        .insert("writing".to_string(), json!({"status": "running", "done": false, "repo": REPO, "filePaths": ["m/d.gguf"]}));
+    let rows = downloads.scan_interrupted(&root);
+    assert_eq!(
+        (&rows[0]["total_files"], &rows[0]["fileNames"], &rows[0]["total_bytes"]),
+        (&json!(2), &json!(["b.gguf", "e.gguf"]), &json!(SIZE + 800)),
+        "{rows:?}"
+    );
+    let id = downloads.resume_interrupted(&root, "", "m", "b.gguf").unwrap();
+    assert_eq!(finished(&app, &id)["status"], json!("done"));
+    assert_eq!(fetched(&hub), ["b.gguf", "e.gguf"], "a file on the disk is done, and a running job's file is that job's");
+    assert_eq!(std::fs::read(folder.join("e.gguf")).unwrap(), e);
+    assert!(!folder.join("d.gguf").exists(), "nothing of the running job's file is written by the resume");
+}
+
+#[test]
+fn a_size_one_file_of_the_job_does_not_say_leaves_the_whole_unknown() {
+    let (_folder, app) = controller("whole-size", "http://127.0.0.1:9");
+    let folder = app.models_dir().join("m");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("b.gguf.part"), b"0123").unwrap();
+    let said = json!({"repo": REPO, "path": "b.gguf", "size": SIZE, "rest": [in_m("c.gguf", 0).said()]});
+    std::fs::write(folder.join("b.gguf.part.json"), said.to_string()).unwrap();
+    let rows = Downloads::of(&app).scan_interrupted(&models(&app));
+    assert_eq!(
+        (&rows[0]["total_files"], &rows[0]["total_bytes"], &rows[0]["file_bytes_total"]),
+        (&json!(2), &json!(0), &json!(SIZE)),
+        "a sum without the unsaid size would be drawn as the whole"
+    );
+}
+
+#[test]
+fn a_manifest_whose_other_files_cannot_be_read_is_refused_and_not_guessed() {
+    let hub = hub_giving(the_file(), vec![usize::MAX]);
+    let (_folder, app) = controller("whole-unread", hub.address());
+    let (downloads, root) = (Downloads::of(&app), models(&app));
+    let file = |name: &str, dest: &str| json!([{"path": "c.gguf", "name": name, "destDir": dest, "size": 1}]);
+    for (rest, words) in [
+        (json!("c.gguf"), "is not a list"),
+        (json!({"c.gguf": 1}), "is not a list"),
+        (file("../c.gguf", "m"), "cannot fetch into the models folder"),
+        (file("c.gguf", "/etc"), "cannot fetch into the models folder"),
+        (file("c.gguf", "m/../.."), "cannot fetch into the models folder"),
+        (json!([{"name": "c.gguf", "destDir": "m", "size": 1}]), "cannot fetch into the models folder"),
+        (json!([7]), "cannot fetch into the models folder"),
+    ] {
+        let part = partial(&app, &the_file()[..400], SIZE);
+        let said = json!({"repo": REPO, "path": "m.gguf", "name": "m.gguf", "destDir": "m", "size": SIZE, "rest": rest});
+        std::fs::write(part.with_file_name("m.gguf.part.json"), said.to_string()).unwrap();
+        *app.downloads.scan.lock().unwrap() = None;
+        let rows = downloads.scan_interrupted(&root);
+        assert_eq!((&rows[0]["resumable"], &rows[0]["total_files"]), (&json!(false), &json!(1)), "{rest}");
+        let refused = downloads.resume_interrupted(&root, "", "m", "m.gguf").err().unwrap();
+        assert!(refused.message.contains(words), "{rest}: {}", refused.message);
+    }
+    assert_eq!(hub.asked(), Vec::<String>::new(), "a refusal starts nothing");
 }
 
 #[test]

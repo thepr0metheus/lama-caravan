@@ -61,6 +61,8 @@ hierarchy". A runner is a row or a class in `rust/crates/admin/src/domain/runner
 | TLS is named in `net` alone | one opinion on a provider's certificate | guard |
 | Every public name is described | the reason stays with the code | compiler |
 | One compiler: `rust/rust-toolchain.toml` | what CI checked is what runs | guard |
+| A test binary runs under a time limit and ends with the run that started it | two hung tests of an abandoned `cargo test` spun a Mac for three days | runner, guard |
+| A test that asks a reader again after a wait stops asking: `Patience` in `wire` | a test source that waited for ever met a loop with no end | test |
 
 ## Little foreign code
 
@@ -98,3 +100,18 @@ machine paired from the board, a model, a cell, a client's request through the e
 
 A comparison sees only what it was asked. So a rule that can lose data has a permanent test beside
 its code, and every such test has been seen to go red on a broken copy of the rule.
+
+## A test that hangs is red, not quiet
+
+On 2026-11-04 a source of bytes in the tests of `wire` waited for ever after its last piece, and the
+test asked again at once after every wait. libtest only warned after 60 seconds, cargo has no time
+limit, and the agent that had started `cargo test` in the background left it: the binary spun two
+cores of a Mac for three days. Two things stand against that now:
+
+- The readers of `wire` are tested against one source, `wire/src/stutter.rs`: `Stutter` waits
+  before every read, keeps the rest of a long piece for the next read and ends after its last piece,
+  and `Patience` asks a reader again after a wait but fails the test after 10,000 waits in a row.
+- cargo starts every test binary through `scripts/rust_test_runner.py` (the root
+  `.cargo/config.toml`): 300 seconds, then the binary and everything it started are stopped and the
+  run fails with exit 124 and a line naming it. The same happens when the run that started it is gone
+  — cargo killed, or the runner itself killed outright. `docs/operations.md` has the details.

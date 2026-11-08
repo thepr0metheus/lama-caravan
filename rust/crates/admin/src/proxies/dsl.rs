@@ -4,7 +4,7 @@ use super::queues::ModelQueues;
 use crate::common::entry::{ClientFields, ClientNameWord};
 use crate::common::misc::SharedQueuePolicy;
 use crate::common::model_kinds::ModelFacts;
-use rules::{AppError, Coerce};
+use rules::{AppError, Coerce, RouteId};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -184,22 +184,21 @@ impl RouterDsl {
         !host.is_empty() && host.chars().all(|letter| letter.is_ascii_alphanumeric() || matches!(letter, '_' | '.' | ':' | '-'))
     }
 
-    /// One route, or a refusal.
+    /// One client's record, or a refusal. A client is known by its id and has no number: it comes in through the entry with its key
+    /// (the owner, 2026-11-07).
     pub fn route(route: &Value) -> Result<Value, AppError> {
         let label = Word::cut(route.get("label"), 80);
-        let port = route
-            .get("port")
-            .filter(|port| !port.is_null())
-            .and_then(Coerce::int)
-            .ok_or_else(|| Self::bad_int(route.get("port")))?;
+        let id = Word::of(route.get("id"));
         let host =
             if Coerce::truthy(route.get("upstreamHost")) { Word::of(route.get("upstreamHost")) } else { "127.0.0.1".to_string() };
         let upstream_port = Self::int_or(route.get("upstreamPort"), 8080)?;
+        if !RouteId::acceptable(&id) {
+            return Err(AppError::new(
+                "a client's record needs its id: a client is made with ＋ in the Clients column, which gives it one",
+            ));
+        }
         if label.is_empty() {
             return Err(AppError::new("label is required"));
-        }
-        if !(1024..=65535).contains(&port) {
-            return Err(AppError::new("proxy port must be 1024..65535"));
         }
         if !(1..=65535).contains(&upstream_port) {
             return Err(AppError::new("upstream port must be 1..65535"));
@@ -213,17 +212,20 @@ impl RouterDsl {
         if kind == "service" {
             return Err(AppError::new("a pool's own port is gone: a client comes in through the entry with its own key"));
         }
-        let kind = if kind == "consumer" { "consumer" } else { "" };
+        if kind != "consumer" {
+            return Err(AppError::new(
+                "a route of the old kind has no way in: the entry serves clients alone — make one with ＋ in the Clients column",
+            ));
+        }
+        let kind = "consumer";
         let mode =
             if Coerce::truthy(route.get("mode")) { Word::of(route.get("mode")).to_lowercase() } else { "open".to_string() };
         let on = |key: &str, default: bool| route.get(key).map_or(default, |flag| Coerce::truthy(Some(flag)));
         let mut row = Map::new();
+        row.insert("id".to_string(), json!(id));
         row.insert("label".to_string(), json!(label));
-        row.insert("port".to_string(), json!(port));
         row.insert("kind".to_string(), json!(kind));
-        if kind == "consumer" {
-            row.extend(ClientFields::of(route));
-        }
+        row.extend(ClientFields::of(route));
         row.insert("upstreamHost".to_string(), json!(host));
         row.insert("upstreamPort".to_string(), json!(upstream_port));
         row.insert("upstreamType".to_string(), json!(upstream_type));
@@ -231,17 +233,14 @@ impl RouterDsl {
         row.insert("enabled".to_string(), json!(on("enabled", true)));
         row.insert("mode".to_string(), json!(mode));
         row.insert("apiKey".to_string(), json!(Word::cut(route.get("apiKey"), 128)));
-        if Coerce::truthy(route.get("portClosed")) {
-            row.insert("portClosed".to_string(), json!(true));
-        }
         row.insert("priority".to_string(), json!(Self::int_or(route.get("priority"), 0)?));
         row.insert("preemptible".to_string(), json!(on("preemptible", true)));
         row.insert("clientTimeoutSeconds".to_string(), json!(Self::int_or(route.get("clientTimeoutSeconds"), 0)?.max(0)));
-        Self::route_tail(route, kind, &mut row)?;
+        Self::route_tail(route, &mut row)?;
         Ok(Value::Object(row))
     }
 
-    fn route_tail(route: &Value, kind: &str, row: &mut Map<String, Value>) -> Result<(), AppError> {
+    fn route_tail(route: &Value, row: &mut Map<String, Value>) -> Result<(), AppError> {
         let window = Word::of(route.get("contextLength"));
         let digits = window.trim_start_matches('-');
         if !digits.is_empty() && digits.chars().all(|letter| letter.is_ascii_digit()) {
@@ -267,14 +266,8 @@ impl RouterDsl {
                 row.insert(key.to_string(), json!(Coerce::int(said).ok_or_else(|| Self::bad_int(Some(said)))?.clamp(0, 100)));
             }
         }
-        let router_id = if kind == "consumer" {
-            String::new()
-        } else if route.get("routerId").is_none_or(Value::is_null) {
-            Self::DEFAULT_ROUTER_ID.to_string()
-        } else {
-            Coerce::strip(&Coerce::str_of(route.get("routerId"))).to_string()
-        };
-        row.insert("routerId".to_string(), json!(router_id));
+        // A client of the entry calls a pool or a model by its name: it feeds no router.
+        row.insert("routerId".to_string(), json!(""));
         let role = Word::of(route.get("role")).to_lowercase();
         row.insert(
             "role".to_string(),
@@ -366,17 +359,20 @@ mod tests {
     #[test]
     fn a_route_is_refused_by_what_is_wrong_with_it() {
         let words = |route: Value| RouterDsl::route(&route).unwrap_err().message;
-        assert_eq!(words(json!({"label": "", "port": 2000})), "label is required");
-        assert_eq!(words(json!({"label": "a", "port": 80})), "proxy port must be 1024..65535");
+        assert_eq!(words(json!({"label": "", "id": "c1", "kind": "consumer"})), "label is required");
+        assert!(words(json!({"label": "a", "port": 23001, "kind": "consumer"})).starts_with("a client's record needs its id"));
+        assert!(words(json!({"label": "a", "id": "a b", "kind": "consumer"})).starts_with("a client's record needs its id"));
         assert_eq!(
-            words(json!({"label": "a", "port": 2000, "upstreamHost": "a b"})),
+            words(json!({"label": "a", "id": "c1", "kind": "consumer", "upstreamHost": "a b"})),
             "upstream host contains unsupported characters"
         );
-        assert!(words(json!({"label": "a", "port": 2000, "kind": "service"})).starts_with("a pool's own port is gone"));
+        assert!(words(json!({"label": "a", "id": "c1", "kind": "service"})).starts_with("a pool's own port is gone"));
+        assert!(words(json!({"label": "a", "id": "c1"})).starts_with("a route of the old kind has no way in"));
         let row = RouterDsl::route(
-            &json!({"label": "x fallback", "port": "2000", "contextLength": "0", "kind": "consumer", "deny": ["pool:a", "nope"]}),
+            &json!({"label": "x fallback", "id": " c1 ", "port": "2000", "portClosed": true, "contextLength": "0", "kind": "consumer", "deny": ["pool:a", "nope"]}),
         )
         .unwrap();
+        assert_eq!((row.get("id"), row.get("port"), row.get("portClosed")), (Some(&json!("c1")), None, None));
         assert_eq!(row.get("role"), Some(&json!("fallback")));
         assert_eq!(row.get("routerId"), Some(&json!("")));
         assert_eq!(row.get("deny"), Some(&json!(["pool:a"])));

@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Snapshot of static/js/output-cells.js — the cell behind each local row of Routing.
+"""Snapshot of static/js/output-cells.js — the model behind each local row of Routing.
 
-What a Servers row says of its cell (2026-10-04, after a look at the live Routing): its state,
-in words and never guessed — 24 of 30 rows were stopped and drew the same grey "idle" dot as
-the 6 that ran; its name as the cell itself is named — a moonshine cell read "en"; what sets
-two cells of one model apart; and which stopped cells nothing leads to, so the panel can fold
-them. The cables into a cell that is not serving read the same state (canvas.js).
+What a Servers row says of what stands behind it (2026-10-04, after a look at the live Routing): its
+state, in words and never guessed — 24 of 30 rows were stopped and drew the same grey "idle" dot as
+the 6 that ran; its name as the model is named; what it does; and which stopped models nothing leads
+to, so the panel can fold them. The cables into a model that is not serving read the same state
+(canvas.js).
 
-The module is loaded FOR REAL with its real neighbours that carry the board's rules —
-topology-nodes (machineAt, cellRunnerId, cellJobs), model-jobs, model-meta — so a pin here
-breaks when the board's own rule moves. Only the DOM-heavy modules are stubbed, as in
+Since 2026-11-07 (Papyrus caravan-scout-port-lease, step 3) a cell is no output of its own: it holds a
+port only while it runs, and a request reaches it through its machine's model (`mm:`), of which it is a
+copy. So a row is a model of a machine's entry or of an engine, found on the machine its output names
+(`hostId`), and no row is found by a port.
+
+The module is loaded FOR REAL with its real neighbour that carries the board's rule — model-jobs —
+so a pin here breaks when the board's own rule moves. Only the DOM-heavy modules are stubbed, as in
 test_js_topology_nodes.
 
 Run: python3 scripts/test_js_output_cells.py
@@ -36,11 +40,18 @@ const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/output-cells.js").href);
 const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
 const { OutputCells } = m;
-// Two machines: the controller's (reached at loopback and at its LAN address) and another.
+// Two machines: the controller's and another. A machine's cells are known by their names (cellId); a cell holds a port only
+// while it runs.
 const CTL = (servers = [], extra = {}) => ({ id: "ctl", name: "ctl-box", ip: "10.0.0.5", controllerMachine: true, servers, ...extra });
 const BOX = (servers = [], extra = {}) => ({ id: "b", name: "box-b", ip: "10.0.0.9", servers, ...extra });
-const OUT = (port, host = "127.0.0.1", extra = {}) => ({ id: `srv:${port}`, upstreamHost: host, upstreamPort: port, upstreamType: "llama", ...extra });
-// machineAt reads the board's topology (state.js): every pin sets the one it builds cells from.
+// A model of a machine's entry as the controller makes its output (rust/crates/admin/src/fleet/machine_models.rs): on its
+// scout's address and port, named by the model, its machine's id beside it, and the ports its running copies leased.
+const MM = (model, hostId = "b", extra = {}) => ({ id: `mm:${model}`, upstreamType: "machine", upstreamHost: hostId === "ctl" ? "10.0.0.5" : "10.0.0.9",
+  upstreamPort: 8092, upstreamModel: model, label: model, hostId, copyPorts: [], ...extra });
+// A model of an engine next to the cells (rust/crates/admin/src/fleet/engine_outputs.rs): on the engine's own port.
+const ENG = (kind, hostId = "b", extra = {}) => ({ id: `eng:${kind}`, upstreamType: "engine", hostId, engine: kind, upstreamHost: "10.0.0.9", upstreamPort: 11434, ...extra });
+// A copy of a model as its scout says it: its cell by name, the port it leased while it runs, none while it stands.
+const COPY = (id, port = null, state = port ? "running" : "stopped") => ({ id, port, state, slots: null, busy: null });
 const cells = (nodes, router = {}) => { st.setTopology({ server: { ip: "10.0.0.5" }, nodes, proxies: [], routers: [] });
   return new OutputCells(st.topology, router); };
 const reset = () => { st.setState({ config: {}, runners: [] }); st.setTopology({ nodes: [], proxies: [], routers: [] }); };
@@ -49,141 +60,115 @@ const out = {};
 
 PINS = [
     # ── state ──
-    ("state_standing_twin",
-     "",
-     'Object.entries(OutputCells.PHASES).filter(([, word]) => word === "stopped").map(([phase]) => phase).sort()',
-     json.dumps(Contract.table("controller")["standingPhases"]),
-     "одна таблица (1.3.645): фазы, которые строка называет «остановлена», — те же, что контроллер пишет в выход ячейки "
-     "словом stopped (proxies_config.STANDING_PHASES), и по ним пул проходит мимо; разойдутся — пул спросит ячейку, "
-     "которую доска рисует стоящей, или пропустит ту, что работает"),
-    ("state_by_phase",
+    ("state_by_the_scouts_word",
      '',
-     '(() => { const c = cells([CTL([{ port: 22001, phase: "running" }, { port: 22002, phase: "stopped" }, { port: 22003, phase: "reserved" },'
-     ' { port: 22004, phase: "loading" }, { port: 22005, phase: "broken" }, { port: 22006, phase: "error" }, { port: 22007, phase: "stopping" },'
-     ' { port: 22008, status: { phase: "warming" } }, { port: 22009, phase: "sleeping" }])]);'
-     ' return [22001, 22002, 22003, 22004, 22005, 22006, 22007, 22008, 22009, 22010].map((p) => c.state(OUT(p))); })()',
-     '["running","stopped","stopped","starting","failed","failed","stopping","starting","unknown","unknown"]',
-     "состояние строки — слово записи ячейки: работает / остановлена (и reserved) / стартует (loading, warming — в том числе "
-     "из status) / отказ (broken, error) / останавливается; negative: незнакомое слово и ячейка, которой доска не знает, — "
-     "«unknown», а не stopped и не idle"),
+     '(() => { const c = cells([BOX([], { entryModels: [{ id: "gemma", state: "running", copies: [COPY("c22001", 22001)] },'
+     ' { id: "ear", state: "stopped", copies: [COPY("c3f9a02b1")] }, { id: "big", state: "starting", copies: [] },'
+     ' { id: "bad", state: "failed", copies: [] }, { id: "odd", state: "melting", copies: [] }] })]);'
+     ' return ["gemma", "ear", "big", "bad", "odd", "nope"].map((x) => c.state(MM(x))); })()',
+     '["running","stopped","starting","failed","unknown","unknown"]',
+     "состояние строки — слово скаута о модели (entryModels её машины): работает / остановлена / стартует / отказ; "
+     "negative: незнакомое слово и модель, которой скаут не называет, — «unknown», а не stopped и не idle"),
+    ("no_row_is_found_by_a_port",
+     '',
+     '(() => { const c = cells([CTL([{ cellId: "c22001", port: 22001, phase: "running", cellLabel: "moonshine en", model: "en",'
+     ' slotConfig: { RUNNER: "moonshine" } }])]);'
+     ' const old = { id: "srv:22001", upstreamType: "llama", upstreamHost: "10.0.0.5", upstreamPort: 22001, label: "en" };'
+     ' return [c.state(old), c.name(old), c.jobs(old), c.marks(old), c.copies(old), c.state({ ...old, upstreamType: undefined })]; })()',
+     '["unknown","en",[],"",0,"unknown"]',
+     "с 2026-11-07 ячейка — не выход: выход старого вида (srv:<порт>) не находит ячейку по порту — состояние «unknown», имя — его "
+     "подпись, ни работ, ни копий; negative: работающая ячейка на том же порту строке ничего не одалживает — ни «running», ни "
+     "фразы «moonshine en», ни значков"),
     ("state_of_cloud_and_engine_outputs",
      '',
      '(() => { const c = cells([BOX([], { engines: [{ kind: "ollama", state: "ok" }, { kind: "lmstudio", state: "stopped" }, { kind: "x", state: "auth" }] })]);'
-     ' const eng = (kind, hostId = "b") => ({ id: `eng:${kind}`, upstreamType: "engine", hostId, engine: kind, upstreamHost: "10.0.0.9", upstreamPort: 11434 });'
-     ' return [c.state({ id: "cb:a", upstreamType: "cloud" }), c.state(eng("ollama")), c.state(eng("lmstudio")), c.state(eng("x")),'
-     ' c.state(eng("y")), c.state(eng("ollama", "zz"))]; })()',
+     ' return [c.state({ id: "cb:a", upstreamType: "cloud" }), c.state(ENG("ollama")), c.state(ENG("lmstudio")), c.state(ENG("x")),'
+     ' c.state(ENG("y")), c.state(ENG("ollama", "zz"))]; })()',
      '["","running","stopped","failed","unknown","unknown"]',
      "облако — без слова (его машины нет во флоте); модель движка — по состоянию движка её машины: ok — работает (модель "
      "грузится первым запросом), stopped — остановлен, auth/unreachable — отказ; negative: движка или машины нет — unknown"),
-    ("cell_is_found_by_machine_then_port",
+    ("model_is_found_on_the_machine_its_output_names",
      '',
-     '(() => { const c = cells([CTL([{ port: 22001, phase: "running" }]), BOX([{ port: 22001, phase: "stopped" }])]);'
-     ' return [c.state(OUT(22001, "10.0.0.9")), c.state(OUT(22001, "127.0.0.1")), c.state(OUT(22001, "10.0.0.5"))]; })()',
-     '["stopped","running","running"]',
-     "ячейка ищется так же, как панель называет машину: машина по адресу (machineAt), затем порт; петля и LAN-адрес "
-     "контроллера — одна машина; negative: тот же порт на другой машине — другая ячейка"),
+     '(() => { const c = cells([CTL([], { entryModels: [{ id: "gemma", state: "running", copies: [COPY("c22001", 22001)] }] }),'
+     ' BOX([], { entryModels: [{ id: "gemma", state: "stopped", copies: [COPY("c22002")] }] })]);'
+     ' return [c.state(MM("gemma", "b")), c.state(MM("gemma", "ctl")), c.state(MM("gemma", "b", { upstreamHost: "10.0.0.5" })),'
+     ' c.state(MM("gemma", "zz", { upstreamHost: "10.0.0.5" })), c.state(MM("gemma", ""))]; })()',
+     '["stopped","running","stopped","unknown","unknown"]',
+     "модель ищется на машине, которую называет её выход (hostId): одна модель на двух машинах — две строки, каждая со словом "
+     "своего скаута; адрес выхода машину не выбирает; negative: машины с таким id нет или id пуст — unknown, даже когда адрес — "
+     "известной машины"),
     # ── name ──
-    ("name_is_what_the_cell_runs",
+    ("name_of_a_model",
      '',
-     '(() => { const c = cells([CTL([{ port: 22014, model: "en", cellLabel: "moonshine en" }, { port: 22002, model: "/m/gemma-4-12B-it-Q8_0.gguf" }])]);'
-     ' return [c.name(OUT(22014)), c.name(OUT(22002)), c.name(OUT(22009, "127.0.0.1", { label: "raw.gguf :22009" })), c.name(OUT(22011))]; })()',
-     '["moonshine en","gemma-4-12B-it","raw.gguf",""]',
-     "имя — собственная фраза ячейки (cell_artifact_label: «moonshine en», не «en»), иначе короткое имя модели, как на "
-     "карточке ячейки; negative: ячейки нет — label выхода без порта; нет ничего — пусто, не выдумка"),
-    # ── marks ──
-    ("marks_are_the_card_jobs",
+     '(() => { const c = cells([]); const names = [c.name(MM("gemma-4-12B")), c.name(MM("", "b", { label: "fallback" })), c.name(MM("", "b", { label: "" })),'
+     ' c.name(ENG("ollama", "b", { label: "qwen3:8b · Ollama", upstreamModel: "qwen3:8b" })), c.name(ENG("ollama", "b", { upstreamModel: "qwen3:8b" })),'
+     ' c.name(ENG("ollama", "b", { engine: "" })), c.name({ id: "o1", label: "plain" }), c.name({ id: "o1" })];'
+     ' return [names, names.some((n) => /:(8092|11434)/.test(n))]; })()',
+     '[["gemma-4-12B","fallback","","qwen3:8b · Ollama","qwen3:8b · ollama","","plain",""],false]',
+     "имя строки — имя модели (модель входа машины), подпись, что контроллер дал модели движка («qwen3:8b · Ollama»), иначе "
+     "модель и движок; у выхода иного вида — его подпись; negative: назвать нечем — пусто, не выдумка; порта в имени нет — ни "
+     "входа машины, ни движка"),
+    # ── what it does ──
+    ("jobs_and_marks_are_what_the_output_says",
      '',
-     '(() => { const c = cells([CTL([{ port: 22001, slotConfig: { RUNNER: "llama-server" } }, { port: 22002, slotConfig: { RUNNER: "llama-server", ENABLE_EMBEDDINGS: "1" } },'
-     ' { port: 22003, slotConfig: { RUNNER: "moonshine" } }, { port: 22004, slotConfig: { RUNNER: "custom" } },'
-     ' { port: 22005, slotConfig: { RUNNER: "custom" }, cellMeta: { kinds: ["tts"] } }, { port: 22006, slotConfig: { RUNNER: "seamless" } }])]);'
-     ' return [22001, 22002, 22003, 22004, 22005, 22006, 22007].map((p) => c.marks(OUT(p))); })()',
-     '["💬","🧬","🎧🔊","","🔊","🎧🌐",""]',
-     "значки — работы ячейки, тот же список, что фишки на карточке (cellJobs): LLM, эмбеддинги по ENABLE_EMBEDDINGS, "
-     "moonshine — распознавание и речь, команда — по живому kinds; negative: работу не назвать (команда без kinds) или "
-     "ячейки нет — без значка"),
-    ("jobs_are_the_marks_names",
+     '(() => { const c = cells([]); const outs = [MM("a", "b", { jobs: ["llm"] }), MM("e", "b", { jobs: ["embed"] }), MM("m", "b", { jobs: ["asr", "tts"] }),'
+     ' MM("s", "b", { jobs: ["speech-translate"] }), MM("n", "b", { jobs: [] }), MM("x"), ENG("ollama"), MM("w", "b", { jobs: "llm" })];'
+     ' return [outs.map((o) => c.jobs(o)), outs.map((o) => c.marks(o))]; })()',
+     '[[["llm"],["embed"],["asr","tts"],["speech-translate"],[],[],[],[]],["💬","🧬","🎧🔊","🎧🌐","","","",""]]',
+     "работы модели — то, что контроллер говорит на её выходе (jobs, из её копий), значки — те же работы (marks): строка модели "
+     "в Маршрутизации берёт из имён и значок, и подсказку; negative: работы не сказано (пустой список, ничего, не список) или это "
+     "модель движка — пустой список и без значка, а не «💬» по умолчанию"),
+    ("a_cell_lends_its_model_nothing",
      '',
-     '(() => { const c = cells([CTL([{ port: 22001, slotConfig: { RUNNER: "llama-server" } }, { port: 22003, slotConfig: { RUNNER: "moonshine" } },'
-     ' { port: 22006, slotConfig: { RUNNER: "seamless" } }, { port: 22004, slotConfig: { RUNNER: "custom" } }])]);'
-     ' const mm = { id: "mm:a1", upstreamType: "machine", upstreamHost: "127.0.0.1", upstreamPort: 8092, upstreamModel: "gemma", hostId: "ctl", jobs: ["llm", "asr"] };'
-     ' return [[22001, 22003, 22006, 22004, 22007].map((p) => c.jobs(OUT(p))), c.jobs(mm), c.marks(mm), [22001, 22003, 22006].map((p) => c.marks(OUT(p)))'
-     ' .every((x, i) => x === c.jobs(OUT([22001, 22003, 22006][i])).map((j) => ({ llm: "💬", asr: "🎧", tts: "🔊", "speech-translate": "🎧🌐" })[j]).join(""))]; })()',
-     '[[["llm"],["asr","tts"],["speech-translate"],[],[]],["llm","asr"],"💬🎧",true]',
-     "работы ячейки — именами (jobs), значки — те же работы (marks): строка модели в Маршрутизации берёт из имён и значок, и подсказку («Chat, …»); "
-     "модель входа машины говорит свои работы на выходе; negative: работу не назвать или ячейки нет — пустой список, а не «llm» по умолчанию"),
-    ("a_cell_with_no_settings_on_record",
-     '',
-     '(() => { const c = cells([CTL([{ port: 22005, model: "large-v3-turbo", cellMeta: { engine: "faster-whisper", kinds: ["asr", "stt.whisper"] } },'
-     ' { port: 22001, model: "Qwen3-Embedding-0.6B-Q8_0.gguf" }, { port: 22007, model: "gemma-4-12B-it-Q8_0.gguf", slotConfig: {} }])]);'
-     ' return [c.name(OUT(22005)), c.marks(OUT(22005)), c.marks(OUT(22001)), c.marks(OUT(22007))]; })()',
-     '["large-v3-turbo","🎧","",""]',
-     "ячейка, настроек которой у контроллера нет (её сделал контроллер, что жил на машине раньше): имя и работа — "
-     "с её слов (/health: модель и kinds); negative: она ничего о себе не сказала — без значка, а не «💬» по умолчанию "
-     "(2026-10-12: распознаватель и эмбеддинги носили значок чата)"),
+     '(() => { const c = cells([BOX([{ cellId: "c22003", port: 22003, phase: "running", cellLabel: "moonshine en", model: "en", slotConfig: { RUNNER: "moonshine" } }],'
+     ' { entryModels: [{ id: "en", state: "stopped", copies: [COPY("c22003", 22003, "running")] }] })]);'
+     ' return [c.state(MM("en")), c.name(MM("en")), c.jobs(MM("en")), c.copies(MM("en"))]; })()',
+     '["stopped","en",[],1]',
+     "строка говорит слово скаута о модели, а не о ячейке за ней: копия работает, скаут сказал о модели «stopped» — строка stopped; "
+     "имя — модели; работы — со слов выхода; negative: ячейка-копия (moonshine) не одалживает строке ни своей фразы, ни значков"),
     # ── what is reached ──
     ("reached_outputs",
      '',
-     '(() => { const c = cells([], { rules: { default: "cb:x", audioOutput: "srv:22030", embeddingsOutput: "srv:22001", failover: ["srv:22011"],'
-     ' schedule: [{ output: "srv:22012" }], bySource: [{ output: "srv:22013" }] },'
-     ' graph: { edges: [{ to: "out:srv:22020" }, { to: "rule:q" }, { to: "out:cb:y" }] } });'
+     '(() => { const c = cells([], { rules: { default: "cb:x", audioOutput: "mm:ear", embeddingsOutput: "mm:emb", failover: ["mm:f"],'
+     ' schedule: [{ output: "mm:s" }], bySource: [{ output: "eng:o" }] },'
+     ' graph: { edges: [{ to: "out:mm:g" }, { to: "rule:q" }, { to: "out:cb:y" }] } });'
      ' return [[...c.reached()].sort(), [...cells([], {}).reached()]]; })()',
-     '[["cb:x","cb:y","srv:22001","srv:22011","srv:22012","srv:22013","srv:22020","srv:22030"],[]]',
+     '[["cb:x","cb:y","eng:o","mm:ear","mm:emb","mm:f","mm:g","mm:s"],[]]',
      "к выходу ведёт: канат (ребро out:), выход по умолчанию, выходы аудио и эмбеддингов, старые списки правил; ребро к "
      "узлу правила — не выход; negative: пустая Маршрутизация — ничего"),
     # ── the quiet fold ──
-    ("split_folds_stopped_cells_nothing_leads_to",
+    ("split_folds_stopped_models_nothing_leads_to",
      '',
-     '(() => { const srv = [{ port: 22001, phase: "running" }, { port: 22002, phase: "stopped" }, { port: 22003, phase: "stopped" },'
-     ' { port: 22004, phase: "stopped" }, { port: 22005, phase: "broken" }]; const router = { graph: { edges: [{ to: "out:srv:22002" }] } };'
+     '(() => { const models = [{ id: "a", state: "running" }, { id: "b", state: "stopped" }, { id: "c", state: "stopped" },'
+     ' { id: "d", state: "stopped" }, { id: "e", state: "failed" }]; const router = { graph: { edges: [{ to: "out:mm:b" }] } };'
      ' const ids = (r) => [r.shown.map((o) => o.id), r.quiet.map((o) => o.id)];'
-     ' const outs = [22001, 22002, 22003, 22004, 22005, 22006].map((p) => OUT(p));'
-     ' const both = ids(cells([CTL(srv)], router).split(outs));'
-     ' const one = ids(cells([CTL(srv.filter((s) => s.port !== 22004))], router).split(outs.filter((o) => o.upstreamPort !== 22004)));'
+     ' const outs = ["a", "b", "c", "d", "e", "f"].map((x) => MM(x));'
+     ' const both = ids(cells([BOX([], { entryModels: models })], router).split(outs));'
+     ' const one = ids(cells([BOX([], { entryModels: models.filter((x) => x.id !== "d") })], router).split(outs.filter((o) => o.upstreamModel !== "d")));'
      ' return [both, one]; })()',
-     '[[["srv:22001","srv:22002","srv:22005","srv:22006"],["srv:22003","srv:22004"]],[["srv:22001","srv:22002","srv:22003","srv:22005","srv:22006"],[]]]',
-     "сворачиваются остановленные ячейки, к которым ничего не ведёт, — когда их две и больше; остановленная с канатом, "
+     '[[["mm:a","mm:b","mm:e","mm:f"],["mm:c","mm:d"]],[["mm:a","mm:b","mm:c","mm:e","mm:f"],[]]]',
+     "сворачиваются остановленные модели, к которым ничего не ведёт, — когда их две и больше; остановленная с канатом, "
      "отказавшая и неизвестная остаются на виду; negative: одна такая — не сворачивается (строка вместо строки ничего не экономит)"),
-    # ── twins ──
-    ("twins_say_what_sets_them_apart",
-     '',
-     '(() => { const c = cells([CTL(['
-     ' { port: 22006, model: "seamless-m4t-v2-large", slotConfig: { RUNNER: "seamless", PORT: "22006", SEAMLESS_TGT_LANG: "eng" } },'
-     ' { port: 22007, model: "seamless-m4t-v2-large", slotConfig: { RUNNER: "seamless", PORT: "22007", SEAMLESS_TGT_LANG: "rus" } },'
-     ' { port: 22003, model: "g.gguf", slotConfig: { PORT: "22003", X: "1" } }, { port: 22004, model: "g.gguf", slotConfig: { PORT: "22004", X: "1" } },'
-     ' { port: 22010, model: "s.gguf", slotConfig: { PORT: "22010", API_KEY: "aaa" } }, { port: 22011, model: "s.gguf", slotConfig: { PORT: "22011", API_KEY: "bbb" } },'
-     ' { port: 22020, model: "u.gguf", slotConfig: { PORT: "22020" } }, { port: 22021, model: "u.gguf" },'
-     ' { port: 22030, model: "solo.gguf", slotConfig: {} }])]);'
-     ' const notes = Object.fromEntries(c.twins([22006, 22007, 22003, 22004, 22010, 22011, 22020, 22021, 22030].map((p) => OUT(p))));'
-     ' return [notes, /aaa|bbb/.test(JSON.stringify(notes))]; })()',
-     '[{"srv:22006":{"keys":["SEAMLESS_TGT_LANG"],"differ":[["SEAMLESS_TGT_LANG","eng"]]},'
-     '"srv:22007":{"keys":["SEAMLESS_TGT_LANG"],"differ":[["SEAMLESS_TGT_LANG","rus"]]},'
-     '"srv:22003":{"same":22004},"srv:22004":{"same":22003},'
-     '"srv:22010":{"keys":["API_KEY"],"differ":[["API_KEY",null]]},"srv:22011":{"keys":["API_KEY"],"differ":[["API_KEY",null]]}},false]',
-     "две ячейки одной модели на машине говорят, чем отличаются: каждая — своё значение («eng» рядом с «rus»); одинаковые "
-     "во всём, кроме порта, — чья это копия; настройка, где может быть секрет, — только именем, значения нет нигде; "
-     "negative: у близнеца нет настроек — молчат оба (сравнить не с чем — не «одинаковы»); без близнеца — ничего"),
     # ── a model of a machine's entry (1.3.506) ──
     ("machine_model_from_its_machine",
      '',
-     '(() => { const models = [{ id: "gemma", state: "running", copies: [{ port: 22001 }, { port: 22002 }] },'
-     ' { id: "ear", state: "stopped", copies: [{ port: 22005 }] }, { id: "odd", state: "melting", copies: [] }];'
-     ' const c = cells([BOX([{ port: 22001, phase: "stopped" }], { entryModels: models }), CTL([])]);'
-     ' const mm = (model, hostId = "b", extra = {}) => ({ id: `mm:${model}`, upstreamType: "machine", hostId, upstreamModel: model,'
-     ' upstreamHost: "10.0.0.9", upstreamPort: 8092, ...extra });'
-     ' const g = mm("gemma", "b", { jobs: ["llm", "embed"] });'
-     ' return [[c.state(g), c.name(g), c.marks(g), c.copies(g), c.cellOf(g)],'
-     ' [c.state(mm("ear")), c.copies(mm("ear"))], c.state(mm("odd")), c.state(mm("nope")), c.state(mm("gemma", "zz")),'
-     ' cells([BOX([])]).state(mm("gemma")), c.name(mm("", "b", { label: "fallback" })), OutputCells.named(g),'
-     ' OutputCells.named({ upstreamType: "engine" }), OutputCells.named({ upstreamType: "llama" })]; })()',
-     '[["running","gemma","💬🧬",2,null],["stopped",1],"unknown","unknown","unknown","unknown","fallback",true,true,false]',
+     '(() => { const models = [{ id: "gemma", state: "running", copies: [COPY("c22001", 22001), COPY("c3f9a02b1")] },'
+     ' { id: "ear", state: "stopped", copies: [COPY("c22005")] }, { id: "odd", state: "melting", copies: [] }];'
+     ' const c = cells([BOX([{ cellId: "c22001", port: 22001, phase: "stopped" }], { entryModels: models }), CTL([])]);'
+     ' const g = MM("gemma", "b", { jobs: ["llm", "embed"] });'
+     ' return [[c.state(g), c.name(g), c.marks(g), c.copies(g)],'
+     ' [c.state(MM("ear")), c.copies(MM("ear"))], c.state(MM("odd")), c.state(MM("nope")), c.state(MM("gemma", "zz")),'
+     ' cells([BOX([])]).state(MM("gemma")), c.copies(ENG("ollama")), c.modelOf(ENG("ollama"))]; })()',
+     '[["running","gemma","💬🧬",2],["stopped",1],"unknown","unknown","unknown","unknown",0,null]',
      "модель входа машины — по слову скаута о ней (entryModels её машины, по hostId): состояние, имя модели, значки — из "
-     "сведений выхода (копий), число копий; одной ячейки за ней нет; negative: незнакомое слово, модели нет в списке, "
-     "чужая машина, старый скаут без списка — unknown, а не stopped"),
+     "сведений выхода, копий — и работающих, и стоящих (у стоящей порта нет); фаза ячейки на карточке машины слова скаута не "
+     "меняет; negative: незнакомое слово, модели нет в списке, чужая машина, старый скаут без списка — unknown, а не stopped; "
+     "у модели движка копий нет"),
     ("queue_name_is_the_proxys",
      '',
      f'{json.dumps([row["upstream"] for row in Contract.table("controller")["routeGroups"]])}.map((o) => OutputCells.upstream(o))',
      json.dumps([row["group"] for row in Contract.table("controller")["routeGroups"]]),
-     "имя очереди выхода на доске — то же, что прокси ставит на запрос (route_group_key): ячейка и движок — "
+     "имя очереди выхода на доске — то же, что прокси ставит на запрос (route_group_key): движок и выход иного вида — "
      "«адрес:порт», модель машины — «адрес:порт/модель»; одна таблица для обоих двойников"),
     ("every_state_word_is_a_string",
      '',

@@ -155,10 +155,22 @@ impl<'config> LlamaArgs<'config> {
         }
     }
 
+    /// The operator's own flags, as written, but for the two the caravan writes itself: where the cell listens is its machine's
+    /// loopback at the port its run leased, and a `--host` or `--port` of the operator's would come after the caravan's and win.
     pub(super) fn extra_args(&mut self) {
         if self.has("EXTRA_ARGS") {
             let extra = ShellSplit::words(&self.value("EXTRA_ARGS"));
-            self.args.extend(extra);
+            let mut words = extra.into_iter();
+            while let Some(word) = words.next() {
+                let flag = word.split_once('=').map_or(word.as_str(), |(flag, _)| flag);
+                if Self::CARAVANS_OWN.contains(&flag) {
+                    if !word.contains('=') {
+                        words.next();
+                    }
+                    continue;
+                }
+                self.args.push(word);
+            }
         }
     }
 

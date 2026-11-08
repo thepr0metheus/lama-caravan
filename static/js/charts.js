@@ -247,7 +247,10 @@ export function drawTopologyGpuHistory() {
 // llama upstream points at one of the node's llama-server endpoints. (Grouping
 // by "agents hosted here" was misleading: an agent's route can go to the cloud
 // or another GPU. This view matches the node's GPU/Token panels.)
-// The node's own serving endpoints (host:port of its cells). The cells of the
+// The node's own serving endpoints: host:port of its cells that run. A cell holds a
+// port only while it runs (its scout leases one at the start, 2026-11-07) — one that
+// stands serves nothing, its port is null, and it has no endpoint: never "host:null",
+// never a port 0. The cells of the
 // controller's own machine are reachable both by LAN IP and 127.0.0.1 — the
 // proxy on that machine reaches them over loopback, and requests log that.
 // (It was the controller's own node that had them; since step 6.9 its machine
@@ -256,7 +259,7 @@ export function nodeEndpointSet(node) {
   const endpoints = new Set();
   (node?.servers || []).forEach((s) => {
     const host = s.clientIp || node.ip;
-    if (host && s.port != null) {
+    if (host && Number.isInteger(s.port) && s.port > 0) {
       endpoints.add(`${host}:${s.port}`);
       if (node.controllerMachine) endpoints.add(`127.0.0.1:${s.port}`);
     }
@@ -345,7 +348,7 @@ export function nodeRouteLabels(nodeId) {
   const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
   if (!node) return [];
   const endpoints = nodeEndpointSet(node);
-  // Routers whose router outputs point at this node's cells: their routes can
+  // Routers whose router outputs are this node's models (its entry's queues, nodeEndpointSet): their routes can
   // land here even when the route's STATIC upstream says otherwise (the graph
   // resolves per request) — this is what makes client cards show traffic.
   const routersTouching = new Set();
@@ -378,10 +381,10 @@ export function _routeBuckets(samples, canvas) {
 // `cards: false` — a machine's own page, whose rack says each card's figures on its row: here only what is the machine's as a whole.
 export function nodeTelemetryRowsHtml(n, { cards: cardRows = true } = {}) {
   const g0 = cardRows ? (n.gpus || [])[0] : null;
-  const srv = (n.servers || []).find((s) => s.port);
+  const speeds = NodeTokenTelemetry.drawn(n);
   const id = String(n.id);
   const hasRoutes = nodeRouteLabels(id).length > 0;
-  if (!g0 && !srv && !hasRoutes) return "";
+  if (!g0 && !speeds && !hasRoutes) return "";
   const oc = (key) => `data-open-chart="${escapeHtml(`node:${id}:${key}`)}"`;
   const spark = (key) => `<span class="gpu-metric-spark" data-node-metric-spark="${escapeHtml(`${id}:${key}`)}"></span>`;
   const val = (key) => `<span class="topology-history-meta" data-node-metric-val="${escapeHtml(`${id}:${key}`)}">—</span>`;
@@ -415,7 +418,7 @@ export function nodeTelemetryRowsHtml(n, { cards: cardRows = true } = {}) {
     <canvas class="topology-route-history-chart" data-node-route-canvas="${escapeHtml(id)}" data-open-route-activity data-route-node="${escapeHtml(id)}" width="320" height="74"></canvas>` : "";
   return `<div class="node-ctrl-gpu-telemetry node-telemetry">
     ${g0 ? metric("gpu", t("topologyGpuHistoryHead"), t("util"), "topology-gpu-history-chart", 86, true) : ""}
-    ${srv ? metric("tokens", t("topologyTokenSpeedHead"), t("topologyPromptGen"), "topology-token-speed-chart", 74) : ""}
+    ${speeds ? metric("tokens", t("topologyTokenSpeedHead"), t("topologyPromptGen"), "topology-token-speed-chart", 74) : ""}
     ${g0 ? metric("vram", t("vram"), t("topologyUsedTotal"), "topology-stat-chart", 56, true) : ""}
     ${g0 ? metric("power", t("power"), t("topologyGpuPowerDraw"), "topology-stat-chart topology-power-chart", 160, true) : ""}
     ${routeBlock}
@@ -562,6 +565,13 @@ export class NodeGpuTelemetry {
 export class NodeTokenTelemetry {
   constructor(node) { this.servers = node?.servers || []; }
 
+  // Whether a machine has a token speed chart — its row (nodeTelemetryRowsHtml) and its drawing (drawNodeTelemetry) ask this
+  // one question: any cell of it. A stopped cell's history outlives its run (samples), and a cell holds a port only while it
+  // runs, so a port is no sign of a cell: asked by its port, a machine whose cells all stand lost its chart and their history.
+  static drawn(node) {
+    return (node?.servers || []).length > 0;
+  }
+
   static number(value) {
     if (value == null || value === "" || typeof value === "boolean") return null;
     const n = Number(value);
@@ -693,7 +703,7 @@ export function drawNodeTelemetry() {
     setSpark("cpu", host.map((row) => said(row.cpuPct)).filter((v) => v != null), "rgba(105, 208, 144, 0.9)", 100);
     setVal("ram", CardFigures.memory(said(n.cpu?.ram?.usedGb), said(n.cpu?.ram?.totalGb)));
     setSpark("ram", host.map((row) => said(row.ram?.usedGb)).filter((v) => v != null), "rgba(125, 211, 252, 0.9)", said(n.cpu?.ram?.totalGb) || 1);
-    if ((n.servers || []).some((s) => s.port)) {
+    if (NodeTokenTelemetry.drawn(n)) {
       const telemetry = new NodeTokenTelemetry(n);
       const tokS = telemetry.samples();
       const current = telemetry.current();
@@ -988,9 +998,8 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
     const time = eventTime
       ? new Date(Number(eventTime) * 1000).toLocaleTimeString()
       : "";
-    // What was asked, and the exit it reached: the port alone (:23001) named
-    // the way in, never the cell that refused (2026-09-28). The query string
-    // stays out — it is the client's, and it can carry a key.
+    // What was asked, and the exit it reached — the cell that refused, not only the way in (2026-09-28); a client has no
+    // number to name it by (2026-11-07). The query string stays out — it is the client's, and it can carry a key.
     const path = String(item.path || "").split("?")[0];
     const asked = item.method && path ? `${item.method} ${path}` : "";
     const reached = item.exit ? `→ ${item.exit}` : "";
@@ -999,7 +1008,7 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
       item.client || "",
       asked,
       item.status ? `status ${item.status}` : "",
-      [item.port ? `:${item.port}` : "", reached].filter(Boolean).join(" "),
+      reached,
       item.correlation || "",
     ].filter(Boolean).join(" · ");
     return `

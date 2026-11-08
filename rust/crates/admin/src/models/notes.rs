@@ -1,5 +1,6 @@
 //! What the owner keeps on each model, whatever its quants. Keyed by the model's folder: the first folder of its path.
 
+use super::defaults::ModelDefaults;
 use crate::store::topology::Topology;
 use rules::{AppError, Coerce};
 use serde_json::{Map, Value, json};
@@ -120,6 +121,8 @@ impl ModelFields {
         let limits: Map<String, Value> =
             Self::TABLE.iter().map(|(field, _, limit, _)| ((*field).to_string(), json!(limit))).collect();
         out.insert("limits".to_string(), Value::Object(limits));
+        // What the makers stated once: the program's own table, read here and written nowhere.
+        out.insert("defaults".to_string(), ModelDefaults::answer());
         Value::Object(out)
     }
 }

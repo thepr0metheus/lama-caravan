@@ -6,11 +6,11 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-/// One route's requests.
+/// One client's requests, under its record's id.
 #[derive(Debug, Default)]
 struct AgentRow {
     label: String,
-    port: i64,
+    route_id: String,
     active: Vec<Value>,
     recent: VecDeque<Value>,
 }
@@ -56,25 +56,25 @@ impl Board {
     }
 
     /// A request has begun.
-    pub fn add_active(&self, label: &str, port: i64, item: Value) {
+    pub fn add_active(&self, label: &str, route_id: &str, item: Value) {
         {
             let mut state = self.lock();
-            let row = state.agents.entry(port.to_string()).or_default();
+            let row = state.agents.entry(route_id.to_string()).or_default();
             row.label = label.to_string();
-            row.port = port;
+            row.route_id = route_id.to_string();
             row.active.push(item);
         }
         self.touched();
     }
 
     /// Fields of a running request changed.
-    pub fn update_active(&self, port: i64, id: &str, patch: Value) {
+    pub fn update_active(&self, route_id: &str, id: &str, patch: Value) {
         let Value::Object(patch) = patch else {
             return;
         };
         {
             let mut state = self.lock();
-            let row = state.agents.entry(port.to_string()).or_default();
+            let row = state.agents.entry(route_id.to_string()).or_default();
             let found = row.active.iter_mut().find(|item| item.get("id").and_then(Value::as_str) == Some(id));
             if let Some(Value::Object(item)) = found {
                 item.extend(patch);
@@ -84,10 +84,10 @@ impl Board {
     }
 
     /// A request has ended, with its record.
-    pub fn finish_active(&self, port: i64, id: &str, result: Value) {
+    pub fn finish_active(&self, route_id: &str, id: &str, result: Value) {
         {
             let mut state = self.lock();
-            let row = state.agents.entry(port.to_string()).or_default();
+            let row = state.agents.entry(route_id.to_string()).or_default();
             row.active.retain(|item| item.get("id").and_then(Value::as_str) != Some(id));
             row.recent.push_back(result);
             while row.recent.len() > Self::RECENT {
@@ -104,9 +104,9 @@ impl Board {
     }
 
     /// One running request's record as it stands.
-    pub fn active_item(&self, port: i64, id: &str) -> Option<Value> {
+    pub fn active_item(&self, route_id: &str, id: &str) -> Option<Value> {
         let state = self.lock();
-        let row = state.agents.get(&port.to_string())?;
+        let row = state.agents.get(route_id)?;
         row.active.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(id)).cloned()
     }
 
@@ -132,14 +132,15 @@ impl Board {
         self.lock().state_failures += 1;
     }
 
-    /// The state file's document: `agents`, and the counts beside them.
+    /// The state file's document: `agents` by the clients' ids, and the counts beside them.
     pub fn state_json(&self, now: f64, started_at: f64, pid: u32, commit: &str) -> Value {
         let state = self.lock();
         let agents: BTreeMap<&String, Value> = state
             .agents
             .iter()
-            .map(|(port, row)| {
-                (port, json!({"label": row.label, "port": row.port, "active": row.active, "recent": row.recent, "upstreamType": "cloud"}))
+            .map(|(route_id, row)| {
+                let shown = json!({"label": row.label, "routeId": row.route_id, "active": row.active, "recent": row.recent, "upstreamType": "cloud"});
+                (route_id, shown)
             })
             .collect();
         json!({
@@ -164,17 +165,18 @@ mod tests {
     #[test]
     fn a_request_goes_from_running_to_recent() {
         let board = Board::default();
-        board.add_active("hermes", 23001, json!({"id": "r1", "phase": "queued"}));
+        board.add_active("hermes", "client-h", json!({"id": "r1", "phase": "queued"}));
         assert!(board.take_dirty());
         assert!(!board.take_dirty());
-        board.update_active(23001, "r1", json!({"phase": "upstream", "bytes": 5}));
+        board.update_active("client-h", "r1", json!({"phase": "upstream", "bytes": 5}));
         assert!(board.take_dirty());
-        assert_eq!(board.active_item(23001, "r1"), Some(json!({"id": "r1", "phase": "upstream", "bytes": 5})));
-        board.finish_active(23001, "r1", json!({"id": "r1", "status": 200}));
+        assert_eq!(board.active_item("client-h", "r1"), Some(json!({"id": "r1", "phase": "upstream", "bytes": 5})));
+        board.finish_active("client-h", "r1", json!({"id": "r1", "status": 200}));
         let state = board.state_json(100.0, 50.0, 7, "abc");
-        assert_eq!(state["agents"]["23001"]["active"], json!([]));
-        assert_eq!(state["agents"]["23001"]["recent"], json!([{"id": "r1", "status": 200}]));
-        assert_eq!(state["agents"]["23001"]["label"], json!("hermes"));
+        assert_eq!(state["agents"]["client-h"]["active"], json!([]));
+        assert_eq!(state["agents"]["client-h"]["recent"], json!([{"id": "r1", "status": 200}]));
+        assert_eq!(state["agents"]["client-h"]["label"], json!("hermes"));
+        assert_eq!(state["agents"]["client-h"]["routeId"], json!("client-h"));
         assert_eq!(state["counts"]["served"], json!(1));
         assert_eq!(
             (state["time"].clone(), state["pid"].clone(), state["sourceCommit"].clone()),
@@ -186,10 +188,10 @@ mod tests {
     fn a_route_keeps_its_last_twenty() {
         let board = Board::default();
         for at in 0..25 {
-            board.finish_active(1, "x", json!({"at": at}));
+            board.finish_active("c1", "x", json!({"at": at}));
         }
         let state = board.state_json(0.0, 0.0, 0, "");
-        let recent = state["agents"]["1"]["recent"].as_array().unwrap();
+        let recent = state["agents"]["c1"]["recent"].as_array().unwrap();
         assert_eq!((recent.len(), recent[0]["at"].clone()), (20, json!(5)));
     }
 

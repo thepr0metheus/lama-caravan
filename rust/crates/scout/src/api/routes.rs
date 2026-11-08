@@ -20,6 +20,8 @@ pub enum RouteKind {
     Own,
     /// A path of the machine's entry by OpenAI's API.
     Entry,
+    /// The controller's way into a cell: the request passed on to the cell as it came (cells/door.rs).
+    Door,
 }
 
 /// A row.
@@ -74,6 +76,8 @@ impl RouteRow {
     pub fn kind(&self) -> RouteKind {
         if self.says("page") {
             RouteKind::Page
+        } else if self.says("door") {
+            RouteKind::Door
         } else if self.says("entry") {
             RouteKind::Entry
         } else if self.method() == "POST" {
@@ -92,9 +96,14 @@ impl RouteRow {
         self.says("page") || self.says("public") || self.says("entry")
     }
 
-    /// Whether the route's own code reads a body.
+    /// Whether the route's own code reads a body. The door's passes it on unread.
     pub fn reads_a_body(&self) -> bool {
         self.method() == "POST" && (self.says("body") || self.says("body_more"))
+    }
+
+    /// Whether it is the door to a cell.
+    pub fn is_door(&self) -> bool {
+        self.says("door")
     }
 
     /// Whether the body's fields are a floor and not the whole.

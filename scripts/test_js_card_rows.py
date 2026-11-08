@@ -36,22 +36,26 @@ import { pathToFileURL } from "node:url";
 const root = process.env.JS_ROOT;
 const { CellRow, AgentRow, FoldSlot, CellEye, CellFilter, EngineStrip, ShelfLine } = await import(pathToFileURL(root + "/card-rows.js").href);
 const en = (await import(pathToFileURL(root + "/i18n/en.js").href)).default;
-const A = '<span class="topology-handle server-input" data-topology-llama-input="1" data-llama-port="22002"></span>';
-const L = 'data-node-cell-launch="controller" data-node-cell-port="22002" data-node-cell-runner="llama-server"';
-const S = 'data-node-cell-stop="controller" data-node-cell-port="22002"';
+// A cell is known by its id (2026-11-08): the line's hook and its address in the DOM are the id, and it names no port.
+const A = '<span class="topology-handle server-input" data-topology-llama-input="1" data-cell-id="c3f9a02b1"></span>';
+const L = 'data-node-cell-launch="controller" data-cell-id="c3f9a02b1" data-node-cell-runner="llama-server"';
+const S = 'data-node-cell-stop="controller" data-cell-id="c3f9a02b1"';
 const C = '<span class="mbadge mbadge-vram-est">≈16.2G</span>';
-const base = { key: "controller:22002", port: 22002, name: "gemma-4-31B-it", chip: C, anchor: A };
+// `port`: the old field, still handed here so that a line drawing it again would turn the negative check red.
+const base = { cellId: "c3f9a02b1", port: 22002, name: "gemma-4-31B-it", chip: C, anchor: A };
 const facts = (html) => ({
   cls: (html.match(/^<div class="([^"]+)"/) || [])[1] || null,
   hook: [(html.match(/data-t="([^"]+)"/) || [])[1], (html.match(/data-t-id="([^"]+)"/) || [])[1]],
   anchors: (html.match(/data-topology-llama-input/g) || []).length,
-  anchorFirst: html.indexOf("topology-handle") < html.indexOf("fr-port"),
+  anchorFirst: html.indexOf("topology-handle") < html.indexOf("fr-switch"),
   sw: (html.match(/<button type="button" class="fr-switch" role="switch" aria-checked="(true|false)" ([^>]*)><span class="fr-knob" aria-hidden="true"><\/span><\/button>/) || []).slice(1),
   name: (html.match(/<span class="fr-name">([^<]*)<\/span>/) || [])[1] ?? null,
   warn: html.includes("fr-warn"),
   tps: (html.match(/<span class="fr-tps" data-live-rowtps>([^<]*)<\/span>/) || [])[1] ?? null,
   chipLast: html.endsWith(C + "</div>"),
-  port: html.includes('data-llama-port="22002"') && html.includes(">:22002<"),
+  // The line's address and what it shows: data-cell-id on the line itself; no port anywhere in its words, and no port's span or mark.
+  address: (html.match(/^<div class="[^"]+" role="button" tabindex="0" data-t="cell-row"(?: data-t-state="failed")? data-t-id="([^"]*)" data-cell-id="([^"]*)"/) || []).slice(1),
+  noPort: !/:\d{2,5}\b/.test(html.replace(/<[^>]*>/g, " ")) && !html.includes("fr-port") && !html.includes("data-llama-port"),
 });
 // The speed span of a line: its classes, its title attribute (null when there is none at all) and its words.
 const speedOf = (html) => { const m = html.match(/<span class="(fr-tps[^"]*)" data-live-rowtps( title="([^"]*)")?>([^<]*)<\/span>/) || [];
@@ -110,18 +114,18 @@ const H = (role) => `<span class="topology-handle output ${role}" data-topology-
 const ok = { cls: "route-confirmed-tag", glyph: "✓", tip: "taTitleConfirmedRoute" };
 const q = { cls: "route-unverified-tag", glyph: "?", tip: "taTitleUnverifiedRoute" };
 const hotel = new AgentRow({ key: "agent:c1:hotel", name: "hotel", kind: "manual", routes: [
-  { role: "primary", port: "23001", address: "http://10.0.0.20:23001/v1", face: ok, model: "hemi-proxy", locked: true, waitSec: 1800, limit: 256000, anchor: H("primary") },
-  { role: "fallback", port: "23002", face: q, anchor: H("fallback"), muted: true },  // an old field: ignored
+  { role: "primary", address: "https://caravan-api.example.org/v1", face: ok, model: "hemi-proxy", locked: true, waitSec: 1800, limit: 256000, anchor: H("primary") },
+  { role: "fallback", port: "23002", face: q, anchor: H("fallback"), muted: true },  // old fields (a number, muted): ignored
 ] }).html();
 const bare = new AgentRow({ key: "agent:c1:scribe", name: "scribe", kind: "manual", routes: [
-  { role: "primary", port: "23101", face: ok, anchor: H("primary") }, null, { role: "fallback", port: "" },
+  { role: "primary", face: ok, anchor: H("primary") }, null, { port: "23102" },
 ] }).html();
 const agent = {
   hook: [(hotel.match(/data-t="([^"]+)"/) || [])[1], (hotel.match(/data-t-id="([^"]+)"/) || [])[1]],
   routes: (hotel.match(/class="ar-route /g) || []).length,
   anchors: (hotel.match(/data-topology-route-handle/g) || []).length,
-  fallbackMark: hotel.includes(">↪ :23002<"),
-  primaryPort: hotel.includes(">:23001<") && hotel.includes('title="http://10.0.0.20:23001/v1"'),
+  fallbackMark: hotel.includes(">↪ fallback<") && !hotel.includes("23002"),
+  primaryRole: hotel.includes('<span class="ar-role" title="https://caravan-api.example.org/v1">primary</span>'),
   model: hotel.includes('<span class="ar-model">hemi-proxy 🔒</span>'),
   wait: hotel.includes(`<span class="ar-meta">${en.routeWaitLabel.replace("{sec}", "1800")}</span>`),
   limit: hotel.includes(`<span class="ar-meta">${en.routeCtxLimit.replace("{value}", "256000")}</span>`),
@@ -133,7 +137,7 @@ const agent = {
   bareRoutes: (bare.match(/class="ar-route /g) || []).length,
   bareEmpty: [bare.includes("ar-model"), bare.includes("ar-meta"), bare.includes("—")],
   escaped: new AgentRow({ key: "k", name: '"><b>x', kind: "<i>", routes: [] }).html(),
-  noFace: new AgentRow({ key: "k", name: "n", routes: [{ role: "primary", port: "1" }] }).html().includes('class="route-confirmed-tag"'),
+  noFace: new AgentRow({ key: "k", name: "n", routes: [{ role: "primary" }] }).html().includes('class="route-confirmed-tag"'),
   dot: (() => {
     const NOW = new Date(2026, 9, 8, 15, 0, 0).getTime();
     const today = new Date(2026, 9, 8, 9, 30, 0).getTime() / 1000, earlier = new Date(2026, 9, 5, 9, 30, 0).getTime() / 1000;
@@ -230,7 +234,7 @@ print("строка ячейки:")
 check(c["parked"]["cls"] == "fold-row cell-row parked", "стоящая — класс parked, без cpu и busy")
 check(c["failed"]["cls"] == "fold-row cell-row parked failed" and c["failedBroken"]["cls"] == "fold-row cell-row running failed",
       "упавшая — тот же класс строки и failed: красная, но тонкая; сломанная (процесс жив) — running failed")
-check('data-t="cell-row" data-t-state="failed" data-t-id="controller:22002"' in c["failedHtml"]
+check('data-t="cell-row" data-t-state="failed" data-t-id="c3f9a02b1"' in c["failedHtml"]
       and f'<span class="fr-fail" data-t="cell-row-failed" title="a&quot;&gt;&lt;b&gt;x">{c["failedWord"]}</span>' in c["failedHtml"]
       and c["failedHtml"].index("fr-name") < c["failedHtml"].index("fr-fail") < c["failedHtml"].index("fr-tps"),
       "упавшая говорит словом «failed» (en.js) между именем и скоростью, причина — в подсказке слова, экранирована; "
@@ -242,23 +246,23 @@ check(c["failed"]["sw"][0] == "false" and "data-node-cell-launch" in c["failed"]
       "переключатель упавшей работает как обычно: стоящая включается (повторный запуск), сломанная выключается (стоп)")
 check("fr-fail" not in c["notFailed"] and "failed" not in c["notFailed"].split(">")[0] and "data-t-state" not in c["notFailed"],
       "negative: у не упавшей ни слова, ни класса, ни data-t-state, даже если причина передана")
-check(c["parked"]["hook"] == ["cell-row", "controller:22002"], "у строки свой хук cell-row с ключом ячейки")
+check(c["parked"]["hook"] == ["cell-row", "c3f9a02b1"], "у строки свой хук cell-row с именем ячейки (cellId)")
 check(c["parked"]["anchors"] == 1 and c["parked"]["anchorFirst"],
       "ручка каната ровно одна и стоит первой — канат найдёт её, как находил на карточке")
 check(c["noAnchor"]["anchors"] == 0, "строка без переданной ручки своей не выдумывает")
-check(c["parked"]["sw"] == ["false", 'data-node-cell-launch="controller" data-node-cell-port="22002" data-node-cell-runner="llama-server" '
-                                     'data-t="cell-row-start" data-t-id="controller:22002" title="Start" aria-label="Start"'],
+check(c["parked"]["sw"] == ["false", 'data-node-cell-launch="controller" data-cell-id="c3f9a02b1" data-node-cell-runner="llama-server" '
+                                     'data-t="cell-row-start" data-t-id="c3f9a02b1" title="Start" aria-label="Start"'],
       "стоящая — тумблер выключен и несёт атрибуты ▶ карточки (тот же старт, то же подтверждение), хук cell-row-start; "
       "атрибуты ⏹ ей не нужны, даже если переданы")
-check(c["running"]["sw"] == ["true", 'data-node-cell-stop="controller" data-node-cell-port="22002" '
-                                      'data-t="cell-row-stop" data-t-id="controller:22002" title="Stop" aria-label="Stop"'],
+check(c["running"]["sw"] == ["true", 'data-node-cell-stop="controller" data-cell-id="c3f9a02b1" '
+                                      'data-t="cell-row-stop" data-t-id="c3f9a02b1" title="Stop" aria-label="Stop"'],
       "работающая — тумблер включён и несёт атрибуты ⏹ карточки, хук cell-row-stop; атрибуты ▶ ей не нужны")
 check(c["parkedNoLaunch"]["sw"] == ["false", 'disabled title="Not stopped" aria-label="Not stopped"'],
       "negative: запустить нельзя — тумблер выключен и недоступен, с причиной, а не кнопка, ведущая в отказ")
 check(c["runningNoStop"]["sw"] == ["true", 'disabled title="Not running" aria-label="Not running"'],
       "negative: остановить нельзя — тумблер включён, недоступен, с причиной; атрибуты ▶ не подставлены вместо ⏹")
-check(c["reserved"]["sw"] == ["false", 'data-node-cell-launch="controller" data-node-cell-port="22002" data-node-cell-runner="llama-server" '
-                                       'data-t="cell-row-start" data-t-id="controller:22002" title="Configure first" aria-label="Configure first"'],
+check(c["reserved"]["sw"] == ["false", 'data-node-cell-launch="controller" data-cell-id="c3f9a02b1" data-node-cell-runner="llama-server" '
+                                       'data-t="cell-row-start" data-t-id="c3f9a02b1" title="Configure first" aria-label="Configure first"'],
       "зарезервированная — выключен; запускать ли, решает переданное (у доски его не передают — см. снимок карточки)")
 check('"><b>w' not in c["whyEscaped"] and "&quot;&gt;&lt;b&gt;w" in c["whyEscaped"], "причина экранируется")
 check(c["strip"].endswith('<span class="fr-tps" data-live-rowtps>1 t/s</span><span class="mbadge mbadge-vram-est">≈16.2G</span>'
@@ -291,7 +295,12 @@ check(c["reserved"]["name"] == c["reservedWords"] and c["reserved"]["cls"] == "f
 check(c["unknownState"]["cls"] == "fold-row cell-row parked", "неизвестное состояние — как стоящая, а не пустой класс")
 check(c["warned"]["warn"] and not c["parked"]["warn"], "⚠ только когда карточке есть что показать (устаревший исходник, модель, диск)")
 check(c["warnWords"], "подсказка ⚠ — из en.js: cellRowWarnTitle")
-check(c["parked"]["chipLast"] and c["parked"]["port"], "чип карточки стоит последним как есть; порт и data-llama-port на месте")
+check(c["parked"]["chipLast"], "чип карточки стоит последним как есть")
+check(all(c[k]["address"] == ["c3f9a02b1", "c3f9a02b1"] for k in ("parked", "running", "reserved", "failed")),
+      "строку находят по её адресу data-cell-id — имени ячейки, тому же, что в data-t-id (живой тик ищет её так); у упавшей тоже")
+check(all(c[k]["noPort"] for k in ("parked", "running", "reserved", "failed", "warned")),
+      "negative (2026-11-08): строка не называет порта — ни «:22002» в словах, ни fr-port, ни data-llama-port: порт есть у ячейки "
+      "только пока она работает; ни у стоящей, ни у работающей, ни у зарезервированной, ни у упавшей")
 check("<b>x" not in c["escaped"] and "&lt;b&gt;x" in c["escaped"] and "<i>t" not in c["escaped"],
       "имя и подсказка экранируются")
 check(c["titleDefault"] == "gemma-4-31B-it", "без переданной подсказки подсказка — имя")
@@ -315,7 +324,8 @@ check(cx["none"] is None and cx["junk"] is None, "negative: ничего не и
 print("строка агента:")
 check(a["hook"] == ["agent-row", "agent:c1:hotel"], "у строки агента свой хук agent-row с ключом агента")
 check(a["routes"] == 2 and a["anchors"] == 2, "две ветки — две строки маршрута и ровно две ручки каната")
-check(a["primaryPort"] and a["fallbackMark"], "основной — «:23001» с полным адресом в подсказке; запасной — «↪ :23002»")
+check(a["primaryRole"] and a["fallbackMark"], "основной назван ролью «primary», адрес входа — в подсказке; запасной — «↪ fallback»; "
+      "номера у маршрута нет (2026-11-07): старое поле port ничего не рисует")
 check(a["model"], "заданная модель с закрытым замком — «hemi-proxy 🔒»")
 check(a["wait"] and a["limit"], "таймаут и лимит — теми же словами, что чипы карточки (routeWaitLabel, routeCtxLimit)")
 check(a["faces"] == [True, True], "значки ✓ и ? — те же лица, что у карточки, с подсказками из en.js")
@@ -323,7 +333,7 @@ check(a["noStateHook"], "хука route-state у строки нет — он о
 check(not a["muted"], "negative: «приглушённого» маршрута больше нет — это было слово агента через скаута; "
       "старое поле muted на входе ничего не рисует")
 check(a["kind"], "вид агента («manual») виден и в свёрнутом")
-check(a["bareRoutes"] == 1, "несуществующий маршрут и маршрут без порта не рисуются вовсе")
+check(a["bareRoutes"] == 1, "несуществующий маршрут и запись без роли не рисуются вовсе; номер без роли маршрута не делает")
 check(a["bareEmpty"] == [False, False, False],
       "незаданного нет: ни пустой модели, ни прочерков — отсутствие не рисуется нормой")
 check("<b>x" not in a["escaped"] and "&lt;i&gt;" in a["escaped"], "имя и вид агента экранируются")

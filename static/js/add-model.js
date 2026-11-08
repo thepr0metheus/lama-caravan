@@ -4,32 +4,35 @@
 // "and on the model, at once, the largest context it takes". Then "А2 with the stars of А3": the settings that move the memory
 // stand beside the map, all the others fold under them, and a star at any field brings it up among the main ones.
 //
-// Nothing here is a second form. The wizard drives the cell editor's own form (remote-cells.js CellForm), filled for the next free
-// port without its dialog: the model it picks, the runner, every field are written there, so the checks, the companions, the
+// Nothing here is a second form. The wizard drives the cell editor's own form (remote-cells.js CellForm), filled for a new cell of
+// the machine without its dialog: the model it picks, the runner, every field are written there, so the checks, the companions, the
 // command and the Apply stay the dialog's. The list of the models is the picker's (form.js ModelChoices); the map is the cell
 // window's (cell-settings.js over memory.js's placement map); the full list of the settings is the cell window's editor of that
 // form; what a model weighs and where it would go is the machine page's rule (machine-head.js CellFit, MachineMap's words). Its
 // own are the order of the questions, the jobs and the abilities to narrow the list by, the eight main fields, and the window it
 // offers for a model as a tip — the largest of the usual windows the cards hold whole; none is written by itself (WindowPick).
 //
-// The port is the caravan's to take and the wizard does not say it (1.3.655): a model is called by its name — the pools' rows name
-// "machine + model" since step 3 of the owner's plan (2026-10-26) — and its cell's port stands in the cell's window.
+// A new cell has no name and no port while the wizard asks about it: the form holds it under the key of a cell not made yet on its
+// machine (CellForm.newKey). Create saves it, and the save makes the cell — the controller names it, and the form holds it by that
+// name from then on (CellForm.cellId), the name its start is asked by. Its port is its scout's to lease at each start, and nothing
+// here says one: a model is called by its name — the pools' rows name "machine + model" since step 3 of the owner's plan (2026-10-26).
 import { AskedWindow } from "./asked-window.js";
 import { CELL_SETTINGS, CellSettings } from "./cell-settings.js";
 import { toggleFields } from "./constants.js";
 import { getFavFields } from "./favorites.js";
 import { mcSelectItem, ModelChoices, modelsByPath } from "./form.js";
 import { ModelRating } from "./model-rating.js";
+import { RunnerOffer } from "./runner-offer.js";
 import { t } from "./i18n.js";
 import { chooseRunner, effectiveRunnerId, runnerAvailability, runnerNaming, runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
 import { CellFit, MachineMap } from "./machine-head.js";
 import { applyComputeMode, estimateKvCacheGb, shortGpuName } from "./memory.js";
 import { ModelFacts } from "./model-facts.js";
 import { JOBS, JOB_LABELS, JOB_MARKS, jobRunners, jobsForArtifact } from "./model-jobs.js";
-import { CELL_FORM, cellServiceAction, nextTopologyCellPort } from "./remote-cells.js";
+import { CELL_FORM, CellForm, cellServiceAction } from "./remote-cells.js";
 import { state, topology } from "./state.js";
 import { Band, Button, Pill, Seg, Switch } from "./ui-parts.js";
-import { $, escapeHtml } from "./utils.js";
+import { $, escapeHtml, toast } from "./utils.js";
 
 const GIB = 2 ** 30;
 
@@ -77,7 +80,8 @@ export class AddModel {
       choices: () => ModelChoices.items("tr-").filter((c) => c && c.value && !c.missing),
       rows: () => modelsByPath(),
       node: (hostId) => (topology?.nodes || []).find((n) => String(n.id) === String(hostId)) || null,
-      nextPort: () => String(nextTopologyCellPort() || ""),
+      // The key the form holds a cell not made yet on a machine under: the form's own rule.
+      newKey: (hostId) => CellForm.newKey(hostId),
       pickModel: (value) => mcSelectItem($("tr-MODEL_FILE"), value),
       picked: () => $("tr-MODEL_FILE")?.value || "",
       runner: () => effectiveRunnerId("tr-"),
@@ -89,7 +93,8 @@ export class AddModel {
       compute: (sel) => applyComputeMode("tr-", sel),
       kvGb: (row) => estimateKvCacheGb(row, "tr-"),
       favorites: () => getFavFields(),
-      start: (hostId, port) => cellServiceAction(hostId, port, "start"),
+      start: (cellId) => cellServiceAction(cellId, "start"),
+      notify: (words) => toast(words),
       defaults: () => state.config || {},
       doc: () => globalThis.document,
       later: (fn) => setTimeout(fn, 0),
@@ -111,7 +116,6 @@ export class AddModel {
 
   reset() {
     this.hostId = "";
-    this.port = "";
     this.step = 0;
     this.job = "llm";
     this.abilities = new Set();
@@ -121,28 +125,30 @@ export class AddModel {
     this.opened = false;
     // What the list says of each model, worked out once an opening: value -> {window, runner, size, fit, tone, verdict}.
     this.figured = new Map();
-    // The form as it was filled for the new port: the config every model of the list is weighed with.
+    // The form as it was filled for the new cell: the config every model of the list is weighed with.
     this.base = {};
   }
 
+  /** The key the form and the settings' editor hold the new cell under while it is not made: its machine's (CellForm.newKey); "" before
+   *  an opening. No cellId — the cell has none until Create saves it — and no port. */
   get key() {
-    return `${this.hostId}:${this.port}`;
+    return this.hostId ? this.deps.newKey(this.hostId) : "";
   }
 
   // ── opening and closing ─────────────────────────────────────────────────────────────────────────────────
 
-  /** Opens the wizard for a new cell on machine `hostId`, at the next free port. The form is filled for it without its dialog —
-   *  unless the cell window keeps edits of another cell the operator does not let go. False when it did not open. */
-  /** The wizard for a new cell on the next free port. `value` a model to start from, past the first question; `query` the words its list opens
-   *  narrowed by and `job` the work it opens on, for a model of several builds. */
+  /** Opens the wizard for a new cell on machine `hostId`. The form is filled for it without its dialog — unless the cell window keeps
+   *  edits of another cell the operator does not let go. `value` a model to start from, past the first question; `query` the words its
+   *  list opens narrowed by and `job` the work it opens on, for a model of several builds. False when it did not open. */
   async open(hostId, { value = "", query = "", job = "" } = {}) {
-    const port = this.deps.nextPort();
-    if (!hostId || !port) return false;
-    if (!(await this.deps.form.mayFill(hostId, port))) return false;
+    if (!hostId) return false;
+    if (!(await this.deps.form.mayFill(this.deps.newKey(String(hostId))))) return false;
     this.reset();
     this.hostId = String(hostId);
-    this.port = String(port);
-    this.deps.form.fill(this.hostId, this.port, { pickModel: true, hidden: true });
+    if (!this.deps.form.fill(this.key, { pickModel: true, hidden: true })) {
+      this.reset();
+      return false;
+    }
     this.deps.settings.adopt(this.key, { onlySet: false });
     this.base = { ...this.deps.form.read() };
     this.opened = true;
@@ -191,12 +197,12 @@ export class AddModel {
     return jobsForArtifact(choice.kind, choice.sttVariant, choice.stArch, choice.detectedFamily);
   }
 
-  /** The cells of this machine that already run this model, by port. */
+  /** The cells of this machine that already run this model, by their cellIds. */
   cellsOf(value) {
     return (this.node().servers || []).filter((s) => {
       const cfg = s.slotConfig || s.config || {};
       return String(cfg.MODEL_FILE || "") === value || String(s.modelPath || "").endsWith(`/${value}`);
-    }).map((s) => String(s.port)).filter(Boolean);
+    }).map((s) => MachineMap.idOf(s)).filter(Boolean);
   }
 
   /** The runner a model is made for: the one that names its kind, else llama.cpp's (the form's own jump, runnerNaming). */
@@ -221,7 +227,8 @@ export class AddModel {
     let fit;
     let window = null;
     if (this.deps.llama(runner)) {
-      const config = { ...this.base, MODEL_FILE: choice.value, MMPROJ_FILE: "", RUNNER: runner };
+      // The model alone: the form's projector and draft are another model's (or none), and a pick brings the model's own (form.js).
+      const config = { ...this.base, MODEL_FILE: choice.value, MMPROJ_FILE: "", SPEC_DRAFT_MODEL_FILE: "", RUNNER: runner };
       window = AskedWindow.of(config.CTX_SIZE, choice.window);
       fit = CellFit.of(CellFit.facts({ how: "spread", config, defaults: this.deps.defaults(), row, models: this.deps.rows() }));
     } else {
@@ -395,10 +402,8 @@ export class AddModel {
     if (!choice) return "";
     const id = this.deps.runner();
     const row = this.runnerRow(id);
-    // A runner that takes nothing from the model list (sharedPicker "ignored": a voice engine that fetches its own weights, a
-    // command) runs no model of it: offered here, a voice clone stood among the runners of a 70B chat model (2026-10-26).
-    const others = (this.deps.runners() || []).filter((r) => r.id !== id && r.editorTab !== false && r.sharedPicker !== "ignored"
-      && this.deps.available(r));
+    // Which runners are offered at all is RunnerOffer's (runner-offer.js), the rule the launch builder of a machine's page offers by too.
+    const others = (this.deps.runners() || []).filter((r) => r.id !== id && RunnerOffer.offered(r) && this.deps.available(r));
     const alts = others.map((r) => `<div class="am-alt"><b>${escapeHtml(`${r.icon || ""} ${t(r.labelKey || r.id)}`.trim())}</b>`
       + `<span>${escapeHtml(r.benefitsKey ? t(r.benefitsKey) : "")}</span>`
       + `${new Button({ text: t("amRunnerPick"), attrs: `data-am-runner="${escapeHtml(r.id)}" data-t="add-model-runner" data-t-id="${escapeHtml(r.id)}"` }).html()}</div>`).join("");
@@ -774,7 +779,24 @@ export class AddModel {
     return true;
   }
 
-  /** Create, and Create and start: the dialog's own Apply — its checks, its save — and, asked for, the cell's own start. */
+  /** What a new cell of `hostId` is saved with when it runs `file` on `runner` with `fields` written: the cell form filled for a new cell of
+   *  that machine as this wizard fills it, without a window — for the launch builder's Start (machine-build.js), so that a launch built on a
+   *  machine's page is saved as one made here, with the form's defaults and its companions; its checks are the form's too (remote-cells.js
+   *  `cellConfigChecked`). Nothing is saved here: the Start's own save makes the cell. {config, cacheModels}, or null when the form is held by
+   *  edits of another cell the operator keeps. */
+  async formConfig({ hostId, file, runner, fields = {} }) {
+    if (!hostId || !file || !runner) return null;
+    const key = this.deps.newKey(String(hostId));
+    if (!(await this.deps.form.mayFill(key))) return null;
+    if (!this.deps.form.fill(key, { pickModel: true, hidden: true })) return null;
+    this.deps.pickModel(file);
+    this.deps.chooseRunner(runner);
+    for (const [field, value] of Object.entries(fields || {})) this.deps.form.set(field, value);
+    return { config: { ...this.deps.form.read() }, cacheModels: !!this.deps.form.checked("cacheModels") };
+  }
+
+  /** Create, and Create and start: the dialog's own Apply — its checks, its save, which makes the cell — and, asked for, the cell's own
+   *  start, by the name the save gave it (CellForm.cellId). A save that names no cell is said, and nothing is started by a guess. */
   async create(start = false) {
     if (this.busy || !this.choice()) return false;
     this.busy = true;
@@ -789,9 +811,14 @@ export class AddModel {
       this.repaint();
       return false;
     }
-    const { hostId, port } = this;
+    const made = String(this.deps.form.cellId() ?? "").trim();
     this.close();
-    if (start) await this.deps.start(hostId, port);
+    if (!start) return true;
+    if (!made) {
+      this.deps.notify(t("machinePlanNoCell"));
+      return true;
+    }
+    await this.deps.start(made);
     return true;
   }
 

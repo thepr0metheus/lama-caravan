@@ -2,7 +2,9 @@
 """Snapshot of static/js/cable-flow.js and static/js/pool-flow.js — the drops on the cables that carry a request now (1.3.549).
 
 The owner, 2026-10-14: "the connections on the main board — make them like Routing's, keep how an active one is shown, dashes or
-a drop, and carry that to Routing too". Two small modules stand behind it, both loaded FOR REAL (no neighbour stubbed: they have none):
+a drop, and carry that to Routing too". Two small modules stand behind it, both loaded FOR REAL. `cable-flow.js` has no neighbour;
+`pool-flow.js` has one since 2026-11-06 — `reader-block.js`, whose prefix names the reader cable — and that neighbour's two
+neighbours (the language and the escaping) are stubs, so a word here is the key it was given, not a sentence:
 
   cable-flow.js — `CableFlow`: the twin of a cable, the markup the drops run along. What is pinned: the markup (a pair of paths of
     their own, one for each way, the cable's own line, the classes a hover finds them by, a lap and a delay of their own), where in
@@ -42,8 +44,8 @@ const { PoolFlow } = await import(pathToFileURL(process.env.JS_ROOT + "/pool-flo
 const NOW = 1000000;   // ms: 1000 s on the clock
 const POOLS = [{ id: "P" }, { id: "Q" }];
 const BOARD = { pools: POOLS };
-const run = (item, port = 23001) => ({ [String(port)]: { port, active: [{ phase: "streaming", port, ...item }], recent: [] } });
-const saw = (item, port = 23001) => ({ [String(port)]: { port, active: [], recent: [{ port, ...item }] } });
+const run = (item, id = "c23001") => ({ [id]: { routeId: id, active: [{ phase: "streaming", routeId: id, ...item }], recent: [] } });
+const saw = (item, id = "c23001") => ({ [id]: { routeId: id, active: [], recent: [{ routeId: id, ...item }] } });
 const list = (set) => [...set].sort();
 const read = (agents, board = BOARD) => { const f = PoolFlow.of(board, agents, NOW); return { active: list(f.active), recent: list(f.recent), signature: f.signature }; };
 // The rows of «Напрямую» a reading makes: each model called straight, by its pool of one row, with its clients.
@@ -148,36 +150,48 @@ PINS = [
      '(() => { CableFlow.reset(); return [CableFlow.seen.size, CableFlow.drawn.size, CableFlow.serial]; })()', '[0,0,0]', "reset: памяти нет, номеров нет — страница начинается заново"),
     # ── PoolFlow: the way of a request ──
     ("a_request_lights_its_way", '', 'read(run({ cloudPoolId: "P", poolStepId: "sub-1" }))',
-     json.dumps({"active": ["client:23001/P", "row:P/sub-1"], "recent": [], "signature": "client:23001/P|row:P/sub-1~"}),
+     json.dumps({"active": ["client:c23001/P", "row:P/sub-1"], "recent": [], "signature": "client:c23001/P|row:P/sub-1~"}),
      "запрос клиента 23001, что служит пул P строкой sub-1, зажигает два каната: клиента к пулу и строки к модели; подпись — активные, потом «~», потом недавние"),
     ("a_request_to_a_model_straight_lights_its_row_of_direct", '', '[read(run({ cloudPoolId: "live:mm:x", poolStepId: "r1" })), straight(run({ cloudPoolId: "live:mm:x", poolStepId: "r1" }))]',
-     json.dumps([{"active": ["client:23001/live:mm:x", "direct:live:mm:x"], "recent": [], "signature": "client:23001/live:mm:x|direct:live:mm:x~"},
-                 [["live:mm:x", [{"port": 23001, "active": True}]]]]),
+     json.dumps([{"active": ["client:c23001/live:mm:x", "direct:live:mm:x"], "recent": [], "signature": "client:c23001/live:mm:x|direct:live:mm:x~"},
+                 [["live:mm:x", [{"id": "c23001", "active": True}]]]]),
      "запрос к модели напрямую (пул из одной строки, live:…) зажигает канат клиента к её строке «Напрямую» и канат строки к модели, а сама строка — "
      "в `direct`, с клиентом, чей запрос идёт (владелец, 2026-10-27, В2); negative: строки пула у такого запроса нет — он идёт мимо пулов"),
-    ("a_port_lights_its_own_cable_whoever_it_is", '', 'read(run({ cloudPoolId: "P", poolStepId: "sub-1" }, 23999))',
-     json.dumps({"active": ["client:23999/P", "row:P/sub-1"], "recent": [], "signature": "client:23999/P|row:P/sub-1~"}),
+    ("a_port_lights_its_own_cable_whoever_it_is", '', 'read(run({ cloudPoolId: "P", poolStepId: "sub-1" }, "c23999"))',
+     json.dumps({"active": ["client:c23999/P", "row:P/sub-1"], "recent": [], "signature": "client:c23999/P|row:P/sub-1~"}),
      "канат клиента назван по порту запроса, кто бы это ни был: рисует ли его доска, решает она (карточки такого клиента может не быть — канат тогда «тихий»)"),
     ("a_request_with_no_pool_yet_lights_nothing", '', '[read(run({})), read(run({ cloudPoolId: "", poolStepId: "sub-1" })), read(run({ cloudPoolId: "P" }))]',
      json.dumps([{"active": [], "recent": [], "signature": "~"}, {"active": [], "recent": [], "signature": "~"},
-                 {"active": ["client:23001/P"], "recent": [], "signature": "client:23001/P~"}]),
+                 {"active": ["client:c23001/P"], "recent": [], "signature": "client:c23001/P~"}]),
      "пул назван, а строка ещё нет — горит канат клиента к пулу; negative: запрос ещё не назвал пул (его выбирают) — куда идёт, не известно, и ничего не горит; "
      "строка без пула ничего не зажигает"),
     ("a_pool_the_board_does_not_draw_lights_nothing", '', 'read(run({ cloudPoolId: "ghost", poolStepId: "x" }))',
      json.dumps({"active": [], "recent": [], "signature": "~"}),
      "negative: пула, которого на доске нет, нет и в каналах: ничего не горит"),
-    ("the_row_may_be_named_by_a_number", '', 'read(run({ cloudPoolId: "P", poolStepId: 0 }, 23002)).active',
-     '["client:23002/P","row:P/0"]', "id строки — строка, но 0 не пропадает за «ничего»: ноль — это тоже имя"),
-    ("the_port_of_the_item_or_of_its_row", '', '[read({ "23001": { port: 23001, active: [{ phase: "streaming", cloudPoolId: "P", poolStepId: "a" }], recent: [] } }).active,'
-     ' read({ "x": { port: 23003, active: [{ phase: "streaming", cloudPoolId: "Q", poolStepId: "b" }], recent: [] } }).active,'
-     ' read({ "x": { port: 23003, active: [{ phase: "streaming", port: 23001, cloudPoolId: "Q", poolStepId: "b" }], recent: [] } }).active]',
-     json.dumps([["client:23001/P", "row:P/a"], ["client:23003/Q", "row:Q/b"], ["client:23001/Q", "row:Q/b"]]),
+    ("the_row_may_be_named_by_a_number", '', 'read(run({ cloudPoolId: "P", poolStepId: 0 }, "c23002")).active',
+     '["client:c23002/P","row:P/0"]', "id строки — строка, но 0 не пропадает за «ничего»: ноль — это тоже имя"),
+    ("a_request_names_its_reader_and_that_lights_the_reader", '',
+     '[read(run({ cloudPoolId: "P", poolStepId: "sub-1", readerName: "qwen-vl" })), read(run({ cloudPoolId: "P", poolStepId: "sub-1" }))]',
+     json.dumps([{"active": ["client:c23001/P", "reader", "row:P/sub-1"], "recent": [], "signature": "client:c23001/P|reader|row:P/sub-1~"},
+                 {"active": ["client:c23001/P", "row:P/sub-1"], "recent": [], "signature": "client:c23001/P|row:P/sub-1~"}]),
+     "запрос зажигает канат читателя только когда сам называет, кто его прочитал (`readerName`, его пишет прокси, когда читатель "
+     "прочёл картинки для строки, что отвечает); negative: тот же запрос без имени — канат нарисован, но по нему запрос не шёл, "
+     "и ничего не горит"),
+    ("the_reader_s_own_request_lights_the_reader_alone", '',
+     '[read(run({ cloudPoolId: "P", poolStepId: "sub-1", readerFor: "r-1" })), straight(run({ cloudPoolId: "live:mm:x", readerFor: "r-1" }))]',
+     json.dumps([{"active": ["reader"], "recent": [], "signature": "reader~"}, []]),
+     "собственный запрос читателя (`readerFor` — запрос, для которого он читает) зажигает только канат читателя: клиент пул читателя "
+     "не называл, и его канат туда не горит; negative: читатель — модель напрямую, но строки «Напрямую» с этим клиентом нет — клиент её не звал"),
+    ("the_port_of_the_item_or_of_its_row", '', '[read({ "c23001": { routeId: "c23001", active: [{ phase: "streaming", cloudPoolId: "P", poolStepId: "a" }], recent: [] } }).active,'
+     ' read({ "x": { routeId: "c23003", active: [{ phase: "streaming", cloudPoolId: "Q", poolStepId: "b" }], recent: [] } }).active,'
+     ' read({ "x": { routeId: "c23003", active: [{ phase: "streaming", routeId: "c23001", cloudPoolId: "Q", poolStepId: "b" }], recent: [] } }).active]',
+     json.dumps([["client:c23001/P", "row:P/a"], ["client:c23003/Q", "row:Q/b"], ["client:c23001/Q", "row:Q/b"]]),
      "порт запроса — его собственный, а нет — порт строки монитора (строки лежат по портам); negative: собственный порт запроса сильнее порта строки"),
     ("the_rows_of_direct_name_each_client_once", '',
-     '[straight({ "23001": { port: 23001, active: [{ phase: "streaming", port: 23001, cloudPoolId: "live:mm:x" }], recent: [{ port: 23001, finishedAt: (NOW - 1000) / 1000, cloudPoolId: "live:mm:x" }] },'
-     ' "23002": { port: 23002, active: [], recent: [{ port: 23002, finishedAt: (NOW - 1000) / 1000, cloudPoolId: "live:mm:x" }] } }),'
+     '[straight({ "c23001": { routeId: "c23001", active: [{ phase: "streaming", routeId: "c23001", cloudPoolId: "live:mm:x" }], recent: [{ routeId: "c23001", finishedAt: (NOW - 1000) / 1000, cloudPoolId: "live:mm:x" }] },'
+     ' "c23002": { routeId: "c23002", active: [], recent: [{ routeId: "c23002", finishedAt: (NOW - 1000) / 1000, cloudPoolId: "live:mm:x" }] } }),'
      ' straight(run({ cloudPoolId: "P", poolStepId: "a" })), straight(run({ phase: "queued", cloudPoolId: "live:mm:x" })), straight(run({ cloudPoolId: "live:mm:x" }, 0))]',
-     json.dumps([[["live:mm:x", [{"port": 23001, "active": True}, {"port": 23002, "active": False}]]], [], [], []]),
+     json.dumps([[["live:mm:x", [{"id": "c23001", "active": True}, {"id": "c23002", "active": False}]]], [], [], []]),
      "строка «Напрямую» — одна на модель, её клиенты — каждый один раз: тот, чей запрос идёт, — «идёт», даже если другой его запрос уже кончился; "
      "кончившийся минуту назад — нет; negative: запрос через пул строки не даёт, запрос в очереди и запрос без порта — тоже"),
     # ── PoolFlow: when ──
@@ -185,18 +199,18 @@ PINS = [
      json.dumps({"active": [], "recent": [], "signature": "~"}), "negative: запрос в очереди ещё не идёт — ничего не горит"),
     ("a_finished_request_lights_its_way_for_8_s", '',
      '[7999, 8000, 2000, 0].map((age) => read(saw({ cloudPoolId: "P", poolStepId: "a", finishedAt: (NOW - age) / 1000 })).recent)',
-     json.dumps([["client:23001/P", "row:P/a"], [], ["client:23001/P", "row:P/a"], ["client:23001/P", "row:P/a"]]),
+     json.dumps([["client:c23001/P", "row:P/a"], [], ["client:c23001/P", "row:P/a"], ["client:c23001/P", "row:P/a"]]),
      "закончившийся запрос зажигает свой путь на 8 с (то же окно, что у главной доски); negative: ровно 8 с назад и дальше — уже нет"),
     ("a_finished_request_with_no_time_lights_nothing", '', '[read(saw({ cloudPoolId: "P", poolStepId: "a" })), read(saw({ cloudPoolId: "P", poolStepId: "a", finishedAt: 0 })), read(saw({ cloudPoolId: "P", poolStepId: "a", finishedAt: "x" }))]',
      json.dumps([{"active": [], "recent": [], "signature": "~"}] * 3),
      "negative: у закончившегося запроса нет времени конца (или оно не число) — возраста не измерить, и путь не зажигается: «недавно» без срока — не новость"),
     ("a_lit_cable_is_not_also_recent", '',
-     'read({ "23001": { port: 23001, active: [{ phase: "streaming", port: 23001, cloudPoolId: "P", poolStepId: "a" }], recent: [{ port: 23001, finishedAt: (NOW - 1000) / 1000, cloudPoolId: "P", poolStepId: "b" }] } })',
-     json.dumps({"active": ["client:23001/P", "row:P/a"], "recent": ["row:P/b"],
-                 "signature": "client:23001/P|row:P/a~row:P/b"}),
+     'read({ "c23001": { routeId: "c23001", active: [{ phase: "streaming", routeId: "c23001", cloudPoolId: "P", poolStepId: "a" }], recent: [{ routeId: "c23001", finishedAt: (NOW - 1000) / 1000, cloudPoolId: "P", poolStepId: "b" }] } })',
+     json.dumps({"active": ["client:c23001/P", "row:P/a"], "recent": ["row:P/b"],
+                 "signature": "client:c23001/P|row:P/a~row:P/b"}),
      "канат, по которому идёт запрос, не назван ещё и недавним: горят оба запроса — путь активного целиком, у недавнего — своя строка (b)"),
     # ── PoolFlow: no reading ──
-    ("nothing_to_read", '', '[read(undefined), read(null), read({}), read({ "23001": null }), read({ "23001": { port: 23001 } }), read({ "23001": { port: 23001, active: null, recent: "x" } }),'
+    ("nothing_to_read", '', '[read(undefined), read(null), read({}), read({ "c23001": null }), read({ "c23001": { routeId: "c23001" } }), read({ "c23001": { routeId: "c23001", active: null, recent: "x" } }),'
      ' PoolFlow.of({}, run({ cloudPoolId: "P" }), NOW).signature, PoolFlow.of(undefined, undefined, NOW).signature]',
      json.dumps([{"active": [], "recent": [], "signature": "~"}] * 6 + ["~", "~"]),
      "negative: монитора нет, строки пусты или кривые, а у доски нет пулов — пусто и «~», и не падает: «не знаю» — не «горит»"),
@@ -240,7 +254,7 @@ def main():
     path = ROOT / "scripts" / ".probe_js_cable_flow.tmp.mjs"
     path.write_text(probe)
     try:
-        env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": "",
+        env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": "i18n,utils",
                "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
         run = subprocess.run(
             probe_args(node, harness, path), capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)

@@ -51,7 +51,7 @@ impl Activity {
         by_proxy.insert(
             label.clone(),
             json!({
-                "label": label, "port": row.get("port"), "upstream": row.get("upstream"),
+                "label": label, "routeId": row.get("routeId"), "upstream": row.get("upstream"),
                 "upstreamType": row.get("upstreamType").cloned().unwrap_or_else(|| json!("llama")),
                 "active": route_active, "recent": tail, "last": last,
             }),
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn a_sample_says_what_runs_and_where() {
-        let sample = json!({"time": 5, "gpu": {"utilPct": 7}, "agentProxies": {"agents": {"1": {"label": "L", "port": 1, "upstreamType": "cloud",
+        let sample = json!({"time": 5, "gpu": {"utilPct": 7}, "agentProxies": {"agents": {"c1": {"label": "L", "routeId": "c1", "upstreamType": "cloud",
             "active": [{"id": "a", "client": "c"}], "recent": [{"id": "b", "finishedAt": 1}, {"id": "d", "finishedAt": 2, "upstreamType": "llama"}]}}}});
         let shown = Activity::correlate(&sample);
         assert_eq!(shown["activeRequests"][0]["isCloud"], true);
@@ -127,5 +127,6 @@ mod tests {
         assert_eq!(shown["llamaServer"]["activeRequestCount"], 0);
         assert_eq!(shown["gpu"]["utilPct"], 7);
         assert_eq!(shown["byProxy"]["L"]["last"]["id"], "a");
+        assert_eq!(shown["byProxy"]["L"]["routeId"], "c1");
     }
 }

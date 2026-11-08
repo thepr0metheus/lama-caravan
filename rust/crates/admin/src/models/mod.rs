@@ -1,6 +1,7 @@
 //! The models: what is on the disk and in the libraries, what their headers say, and where they come from.
 
 pub mod checkpoints;
+pub mod defaults;
 pub mod downloads;
 pub mod folder;
 pub mod gc;

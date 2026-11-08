@@ -81,6 +81,8 @@ struct Stand {
     pool: Pool,
     /// The machine's models with no place free.
     busy: Vec<&'static str>,
+    /// Whether the board's reader reads the request's pictures for a row that cannot (`PoolQuestion::reads`).
+    reads: bool,
 }
 
 impl Stand {
@@ -93,8 +95,14 @@ impl Stand {
             json!({"id": format!("mm:{name}"), "upstreamType": "machine", "upstreamModel": name, "name": name, "hostId": "box",
                    "upstreamHost": "box", "upstreamPort": 1, "jobs": ["llm"], "stopped": stopped})
         };
+        // A model that promised pictures, and one that says nothing of its inputs: the row that serves a picture is chosen
+        // between them, and a row that said it cannot read it is no candidate.
+        let seer = json!({"id": "mm:seer", "upstreamType": "machine", "upstreamModel": "seer", "name": "seer", "hostId": "box",
+                          "upstreamHost": "box", "upstreamPort": 1, "jobs": ["llm"], "inputs": ["text", "image"]});
+        let quiet = json!({"id": "mm:quiet", "upstreamType": "machine", "upstreamModel": "quiet", "name": "quiet", "hostId": "box",
+                           "upstreamHost": "box", "upstreamPort": 1});
         let proxies = json!({"routes": [], "policy": policy, "routers": [{"id": "router:default",
-            "outputs": [output("free", false), output("full", false), output("still", true)]}]});
+            "outputs": [output("free", false), output("full", false), output("still", true), seer, quiet]}]});
         let cloud = json!({
             "accounts": [account("key", "custom"), account("other", "custom"), account("out", "custom"), account("listed", "custom"),
                          account("api", "openai"), account("sub", "openai-subscription")],
@@ -121,7 +129,7 @@ impl Stand {
         let steps =
             PoolSteps::new(Arc::clone(&clock) as Arc<dyn Clock>, Arc::new(UtcZone), Box::new(SharedPage(Arc::clone(&page))));
         let pool = CloudPools::read(&cloud).all()[0].clone();
-        Self { clock, page, steps, settings, pool, busy: Vec::new() }
+        Self { clock, page, steps, settings, pool, busy: Vec::new(), reads: false }
     }
 
     fn resolve_on(&self, path: &str, body: &[u8], excluded: &[&str]) -> (RowChoice, Option<Value>) {
@@ -134,6 +142,7 @@ impl Stand {
             path,
             excluded: &excluded,
             free: &free,
+            reads: self.reads,
         })
     }
 
@@ -168,6 +177,7 @@ impl Stand {
                 path: CHAT,
                 excluded: &excluded,
                 free: &free,
+                reads: self.reads,
             },
             ready,
         )
@@ -216,6 +226,58 @@ fn a_row_that_can_serve_goes_with_what_it_needs() {
     let stand = Stand::new(json!([on_machine("r", "free")]));
     let RowChoice::Machine(row) = stand.resolve_on(CHAT, b"{}", &[]).0 else { panic!("a machine's row") };
     assert_eq!((row.row_id.as_str(), row.output.name.as_str()), ("r", "free"));
+}
+
+#[test]
+fn a_picture_goes_to_the_row_that_reads_it() {
+    let picture = br#"{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"x"}}]}]}"#;
+    // The first row is a text model and the second reads pictures: the request goes to the second, not to the first.
+    let stand = Stand::new(json!([on_machine("text", "free"), on_machine("seer", "seer")]));
+    let RowChoice::Machine(row) = stand.resolve_on(CHAT, picture, &[]).0 else { panic!("a machine's row") };
+    assert_eq!(row.row_id, "seer");
+    assert_eq!(stand.rows_said()[0]["reason"], json!("media_unsupported"));
+    assert_eq!(stand.rows_said()[0]["eligible"], json!(false));
+    // A chat with no picture still goes to the first row.
+    assert_eq!(stand.served(&[]), "text");
+    // A row that says nothing of its inputs is not a refusal: it stays a candidate, and the provider decides.
+    let stand = Stand::new(json!([on_machine("quiet", "quiet"), on_machine("seer", "seer")]));
+    let RowChoice::Machine(row) = stand.resolve_on(CHAT, picture, &[]).0 else { panic!("a machine's row") };
+    assert_eq!(row.row_id, "quiet");
+    // When no row reads the picture, the pool refuses and says which row was passed over and why.
+    let stand = Stand::new(json!([on_machine("text", "free")]));
+    let (choice, _) = stand.resolve_on(CHAT, picture, &[]);
+    let RowChoice::Refused(refusal) = choice else { panic!("no row reads the picture") };
+    assert_eq!(refusal.status, 503);
+    assert!(refusal.message.contains("media_unsupported"), "{}", refusal.message);
+}
+
+#[test]
+fn a_picture_is_read_for_the_row_that_serves_when_the_board_s_reader_reads() {
+    let picture =
+        br#"{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]}]}"#;
+    // The pool's own order decides who serves: the first row cannot read the picture, so it serves with the picture read for
+    // it first, and the row that reads pictures is not taken out of its turn (the owner, 2026-11-06: only the model that has
+    // to answer now is looked at).
+    let mut stand = Stand::new(json!([on_machine("text", "free"), on_machine("seer", "seer")]));
+    stand.reads = true;
+    let RowChoice::Machine(row) = stand.resolve_on(CHAT, picture, &[]).0 else { panic!("a machine's row") };
+    assert_eq!((row.row_id.as_str(), row.read_first), ("text", true));
+    assert_eq!(stand.rows_said()[0]["reason"], json!("ready"));
+    assert_eq!(stand.rows_said()[0]["readFirst"], json!(true), "the pool's state says the row is read for");
+    // Negative: a row that reads pictures gets them as they came — never read for.
+    let mut stand = Stand::new(json!([on_machine("seer", "seer"), on_machine("text", "free")]));
+    stand.reads = true;
+    let RowChoice::Machine(row) = stand.resolve_on(CHAT, picture, &[]).0 else { panic!("a machine's row") };
+    assert_eq!((row.row_id.as_str(), row.read_first), ("seer", false));
+    assert!(stand.rows_said()[0].get("readFirst").is_none(), "{}", stand.rows_said()[0]);
+    // Negative: a chat with no picture is read for no row.
+    let mut stand = Stand::new(json!([on_machine("text", "free")]));
+    stand.reads = true;
+    let RowChoice::Machine(row) = stand.resolve_on(CHAT, b"{}", &[]).0 else { panic!("a machine's row") };
+    assert!(!row.read_first);
+    // Negative: without the board's reader the same row is no candidate (`a_picture_goes_to_the_row_that_reads_it`).
+    stand.reads = false;
+    assert!(matches!(stand.resolve_on(CHAT, picture, &[]).0, RowChoice::Refused(_)));
 }
 
 #[test]

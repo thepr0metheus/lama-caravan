@@ -1,4 +1,4 @@
-//! The process of one cell: a `llama-server`, or whatever a command cell runs. It knows nothing of ports or phases, only its process. Started or adopted, then
+//! The process of one cell: a `llama-server`, or whatever a command cell runs. It knows nothing of ports or phases, only its process and the cell it carries the mark of. Started or adopted, then
 //! running, then stopped or crashed. All state is behind its lock.
 
 use crate::process::held::{Held, Inner};
@@ -31,6 +31,8 @@ pub struct ProcessParts {
 /// One cell's process.
 pub struct CellProcess {
     parts: ProcessParts,
+    /// The name of the cell whose mark it carries.
+    cell: String,
     inner: Mutex<Inner>,
     /// One start or stop at a time. Apart from `inner`: a stop takes up to 15 seconds, every reading of a cell waits on `inner`, and `/api/state` reads them all.
     changes: Mutex<()>,
@@ -41,9 +43,9 @@ impl CellProcess {
     const LAUNCH_FILES: [(&'static str, &'static str); 3] =
         [("modelPath", "model"), ("mmprojPath", "mmproj"), ("specPath", "draft")];
 
-    /// A process of nothing yet.
-    pub fn new(parts: ProcessParts) -> Self {
-        Self { parts, inner: Mutex::new(Inner::default()), changes: Mutex::new(()) }
+    /// A process of nothing yet, of the cell named `cell`.
+    pub fn new(parts: ProcessParts, cell: &str) -> Self {
+        Self { parts, cell: cell.to_string(), inner: Mutex::new(Inner::default()), changes: Mutex::new(()) }
     }
 
     fn inner(&self) -> MutexGuard<'_, Inner> {
@@ -162,7 +164,7 @@ impl CellProcess {
         extra: &Map<String, Value>,
         ram_mib: f64,
     ) -> Value {
-        match Launcher::new(&self.parts).spawned(&argv, config.get("port"), extra, log_path.as_deref(), ram_mib) {
+        match Launcher::new(&self.parts).spawned(&argv, (&self.cell, config.get("port")), extra, log_path.as_deref(), ram_mib) {
             Ok(child) => {
                 let spec = Launcher::spec_of(&argv, extra, log_path.as_deref(), ram_mib);
                 config.insert("cmd".to_string(), json!(argv));
@@ -200,7 +202,7 @@ impl CellProcess {
         // absent-ok: a launch that promised no memory has no raised scope to size.
         let ram_mib = spec.get("ramMiB").and_then(Value::as_f64).unwrap_or(0.0);
         let port = inner.config.get("port").cloned();
-        match Launcher::new(&self.parts).spawned(&argv, port.as_ref(), &extra, log_path.as_deref(), ram_mib) {
+        match Launcher::new(&self.parts).spawned(&argv, (&self.cell, port.as_ref()), &extra, log_path.as_deref(), ram_mib) {
             Ok(child) => {
                 let pid = child.id();
                 inner.held = Held::Child(child);

@@ -60,13 +60,14 @@ const tick = (server, running, kept) => {
   const keep = document.querySelector;
   document.querySelector = (sel) => (sel.includes('data-node-id="h1"') ? nodeEl : null);
   st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [],
-    servers: [{ port: 22001, isSlot: true, phase: running ? "running" : "stopped", ...server }] }] });
+    servers: [{ cellId: "c22001", port: 22001, isSlot: true, phase: running ? "running" : "stopped", ...server }] }] });
   try { m.syncTopologyLive(); } finally { document.querySelector = keep; }
   return line;
 };
 const said = (l) => ({ busy: !!l.classes.busy, held: !!l.span.classes.held, text: l.span.textContent, title: l.span.attrs.title || "" });
-// A folded cell's window as the browser holds it (cell-window.js): the live part carries data-cell-live and the port, the tile's figure and
-// the band's words are the two spans the patch writes. The full card is not there — the window stands where it stood.
+// A folded cell's window as the browser holds it (cell-window.js): the live part carries data-cell-window-live and the cell's id
+// (data-cell-id — a cell holds a port only while it runs), the tile's figure and the band's words are the two spans the patch writes.
+// The full card is not there — the window stands where it stood. Found by the id alone: a window asked for by a port is not this one.
 const WIN = () => { const tile = SPAN(), band = SPAN(), sub = SPAN();
   tile.textContent = "drawn"; band.textContent = "drawn"; sub.textContent = "drawn";
   return { tile, band, sub, querySelectorAll: () => [],
@@ -74,11 +75,12 @@ const WIN = () => { const tile = SPAN(), band = SPAN(), sub = SPAN();
 const tickWin = (server, running, kept) => {
   const win = kept || WIN();
   const nodeEl = { querySelector: (sel) => (sel.startsWith(".node-server[") ? null
-    : sel.startsWith("[data-cell-window-live][") && sel.includes('data-llama-port="22001"') ? win : sel.startsWith(".cell-row[") ? LINE() : null) };
+    : sel.startsWith("[data-cell-window-live][") && sel.includes('data-cell-id="c22001"') && !sel.includes("port") ? win
+      : sel.startsWith(".cell-row[") ? LINE() : null) };
   const keep = document.querySelector;
   document.querySelector = (sel) => (sel.includes('data-node-id="h1"') ? nodeEl : null);
   st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [],
-    servers: [{ port: 22001, isSlot: true, phase: running ? "running" : "stopped", ...server }] }] });
+    servers: [{ cellId: "c22001", port: running ? 22001 : null, isSlot: true, phase: running ? "running" : "stopped", ...server }] }] });
   try { m.syncTopologyLive(); } finally { document.querySelector = keep; }
   return win;
 };
@@ -98,7 +100,7 @@ const tickLoad = (server) => {
   const keep = document.querySelector;
   document.querySelector = (sel) => (sel.includes('data-node-id="h1"') ? nodeEl : null);
   st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [],
-    servers: [{ port: 22001, isSlot: true, slotConfig: {}, ...server }] }] });
+    servers: [{ cellId: "c22001", port: 22001, isSlot: true, slotConfig: {}, ...server }] }] });
   try { m.syncTopologyLive(); } finally { document.querySelector = keep; }
   return { card: saidLoad(card), line: saidLoad(strip) };
 };
@@ -224,7 +226,7 @@ HEAD = ("(page => { const map = { innerHTML: '' }; const title = { textContent: 
         " querySelector: (sel) => ({ '[data-machine-map]': map, '[data-machine-band]': band }[sel] || null) };"
         " const keep = document.querySelector; document.querySelector = (sel) => (sel.includes('data-node-id=\"h1\"') ? nodeEl : null);"
         " st.setTopology({ ...st.topology, nodes: [{ id: 'h1', role: 'host', online: true, gpus: [], cpu: { ram: { totalGb: 16, usedGb: 4 } },"
-        " servers: [{ port: 22001, isSlot: true, phase: 'running', ramBytes: 2 ** 31 }] }] });"
+        " servers: [{ cellId: 'c22001', port: 22001, isSlot: true, phase: 'running', ramBytes: 2 ** 31 }] }] });"
         " try { m.syncTopologyLive(); } finally { document.querySelector = keep; }"
         " return [map.innerHTML.includes('data-t=\"machine-map-lane\" data-t-id=\"ram\"'), title.textContent]; })")
 PINS += [

@@ -6,7 +6,7 @@ import { escapeHtml, formatSizeGb } from "./utils.js";
 
 /**
  * What a card has free for a start, MiB: nvidia-smi's memory.free, else its total less what is used — null when the card says
- * neither, which is not known and not "nothing free". The form counts such a card as giving nothing (memory.js gpuFreeMiB);
+ * neither, which is not known and not "nothing free". The form omits a free-memory start's estimate when a card is unknown;
  * the machine page's bench says it does not know (machine-head.js, CellFit). Until 1.3.634 the form's rule read a card with a
  * total and no use as wholly free.
  */
@@ -24,7 +24,7 @@ export class CardRoom {
     if (free > 0) return free;
     const total = CardRoom.said(card?.memoryTotalMiB);
     const used = CardRoom.said(card?.memoryUsedMiB);
-    return total && used !== null ? Math.max(0, total - used) : null;
+    return total && used !== null ? Math.max(0, total - used) : free;
   }
 }
 
@@ -114,8 +114,13 @@ export class FreeVramStart {
   static device(env) { return CardPin.card(env); }
 
   /** The start, or null where the server reserves nothing: no such card, or a
-   *  reserve that is not a number of MiB (its Apply is refused, by name). */
+   *  reserve that is not a number of MiB (its Apply is refused, by name). A runner
+   *  that takes the free memory of EVERY card (the registry's `everyCard`: Strata's
+   *  DeepSeek engine, strata_ds.rs vram_plan) starts on all of them, whatever a
+   *  pin says (FreeVramEvery); the form and the board drew it on one card until
+   *  2026-11-03, "fits on GPU 0" for a cell that filled both. */
   static of(plan, { env = "", reserve = "", gpus = [] } = {}) {
+    if (plan?.everyCard) return (gpus || []).length ? new FreeVramEvery(plan, gpus) : null;
     const device = FreeVramStart.device(env);
     const card = device ? (gpus || []).find((g) => String(g.index) === device) : null;
     const raw = String(reserve ?? "").trim();
@@ -135,10 +140,38 @@ export class FreeVramStart {
   /** What the bar plans for it: what it will take, or — when it will not
    *  start — what it needs free. */
   get addGb() { return (this.fits ? this.freeMiB - this.reserveMiB : this.needMiB) / 1024; }
+  /** Whether its card says what it has free: a card that does not is no place anyone can tell. */
+  get known() { return CardRoom.freeMiB(this.card) !== null; }
+  /** The cards it lies on and what it takes on each. */
+  get places() { return [{ index: String(this.card.index), gb: this.addGb }]; }
   /** How the bar draws it: on its card alone, overflowing exactly, saying how. */
   bar() {
     return { hard: true, cards: [Number(this.card.index)],
              vramNote: t("vramTakesFree", { gb: formatSizeGb(this.needMiB / 1024) }) };
+  }
+}
+
+// A start that takes what EVERY card of the machine has free (FreeVramStart.of
+// with `everyCard`): Strata's DeepSeek engine lays its layers over all of them
+// and sizes its expert cache to what each has free. No pin chooses a card, and
+// no reserve is left: the runner names no such field. Its questions are
+// FreeVramStart's, asked of every card.
+export class FreeVramEvery {
+  constructor(plan, gpus) {
+    this.cards = gpus;
+    this.floorMiB = Math.max(0, Number(plan?.floorMiB) || 0);
+    this.freeMiB = gpus.reduce((sum, card) => sum + (CardRoom.freeMiB(card) ?? 0), 0);
+  }
+
+  get needMiB() { return this.floorMiB; }
+  get fits() { return this.freeMiB >= this.needMiB; }
+  get addGb() { return (this.fits ? this.freeMiB : this.needMiB) / 1024; }
+  /** Whether every card says what it has free: one that does not leaves the whole start untold. */
+  get known() { return this.cards.every((card) => CardRoom.freeMiB(card) !== null); }
+  get places() { return this.cards.map((card) => ({ index: String(card.index), gb: (CardRoom.freeMiB(card) ?? 0) / 1024 })); }
+  /** How the bar draws it: on every card, saying so. */
+  bar() {
+    return { hard: true, cards: this.cards.map((card) => Number(card.index)), vramNote: t("vramTakesFreeEvery") };
   }
 }
 
@@ -172,6 +205,13 @@ export class FreeVramStart {
  * first card, as this class first had it. Figures are GB as the rest of the form counts them (GiB), from the model's files,
  * its layer count and the KV and batch estimates of memory.js. The cards come in llama.cpp's order (ascending index,
  * CUDA_DEVICE_ORDER=PCI_BUS_ID). RAM the machine has not reported is not known (null), and no shortage is claimed of it.
+ *
+ * A speculative draft (cell-plan.js CellDraft: `draftCardsGb`, `draftRamGb` of the model) is no part of the fitting: llama-server
+ * loads the model first, fitted as above, and the draft after it, as a model of its own whose layers --gpu-layers-draft fixes. So
+ * the draft's part on the cards comes on top of what the model takes, dealt over the cards by the room each has left then (a
+ * model's layers go to the cards by their free memory), and a card it overfills is over; its part in RAM is in RAM. A fitted
+ * model that fills its cards to their handles leaves the draft only the margin — 1 GB by default, short of a 1.28 GB draft —
+ * and the map says "does not fit" until a handle leaves it room, which the margin the map writes then keeps for it.
  */
 export class PlacementPlan {
   /** What llama.cpp leaves free on a card when --fit-target says nothing, MiB. */
@@ -187,8 +227,9 @@ export class PlacementPlan {
   static HELD = ["off", "layers", "split", "moe"];
 
   /**
-   * @param model {weightsGb, kvGb, batchGb, layers, experts, expertsGb} — the files, the KV cache, the compute buffers, the
-   *   layer count, the experts of an MoE model (0 for a dense one) and what they weigh (0 when not known)
+   * @param model {weightsGb, kvGb, batchGb, layers, experts, expertsGb, draftCardsGb, draftRamGb} — the files, the KV cache, the
+   *   compute buffers, the layer count, the experts of an MoE model (0 for a dense one) and what they weigh (0 when not known), and
+   *   a speculative draft's part on the cards and in RAM (0 without one, cell-plan.js CellModel)
    * @param cards [{index, name, freeGb}] — the cards the cell uses and the room each has for it
    * @param limits [GB] — fitted: the most of each card the model may take
    * @param parts [number] — the split (--tensor-split) of a held or tensor plan; none: the cards' room (held) or equal (tensor)
@@ -200,7 +241,8 @@ export class PlacementPlan {
                 kvOnCards = true, ramFreeGb = 0, cores = 1 } = {}) {
     const pos = PlacementPlan.positive;
     this.model = { weightsGb: pos(model.weightsGb), kvGb: pos(model.kvGb), batchGb: pos(model.batchGb),
-      layers: Math.floor(pos(model.layers)), experts: Math.floor(pos(model.experts)), expertsGb: pos(model.expertsGb) };
+      layers: Math.floor(pos(model.layers)), experts: Math.floor(pos(model.experts)), expertsGb: pos(model.expertsGb),
+      draftCardsGb: pos(model.draftCardsGb), draftRamGb: pos(model.draftRamGb) };
     this.cards = (cards || []).map((c) => ({ index: Number(c.index), name: String(c.name || ""), freeGb: pos(c.freeGb) }))
       .sort((a, b) => a.index - b.index);
     this.mode = PlacementPlan.MODES.includes(mode) ? mode : "layer";
@@ -276,16 +318,16 @@ export class PlacementPlan {
   }
 
   /**
-   * Where the model lands: {cards: [{index, name, freeGb, limitGb, layers, weightsGb, kvGb, buffersGb, totalGb, over}],
-   * ram: {layers, expertLayers, weightsGb, kvGb, totalGb, freeGb, short}, layersOnCards, verdict} — `ram.layers` are the
-   * layers there whole, `ram.expertLayers` the layers whose experts alone are there; verdict "unknown", "fits", "spill"
-   * (a part of the model in RAM), "kvRam" (every layer on the cards, the cache in RAM), "ramShort" (more in RAM than the
-   * machine has free) or "over" (a card given more than its room).
+   * Where the model lands: {cards: [{index, name, freeGb, limitGb, layers, weightsGb, kvGb, buffersGb, draftGb, totalGb, over}],
+   * ram: {layers, expertLayers, weightsGb, kvGb, draftGb, totalGb, freeGb, short}, layersOnCards, verdict} — `ram.layers` are the
+   * layers there whole, `ram.expertLayers` the layers whose experts alone are there, `draftGb` a speculative draft's part (in
+   * `totalGb`); verdict "unknown", "fits", "spill" (a part of the model in RAM), "kvRam" (every layer on the cards, the cache in
+   * RAM), "ramShort" (more in RAM than the machine has free) or "over" (a card given more than its room).
    */
   placed() {
     if (!this.counted) {
       return { cards: [],
-        ram: { layers: 0, expertLayers: 0, weightsGb: 0, kvGb: 0, totalGb: 0, freeGb: this.ramFreeGb, short: false },
+        ram: { layers: 0, expertLayers: 0, weightsGb: 0, kvGb: 0, draftGb: 0, totalGb: 0, freeGb: this.ramFreeGb, short: false },
         layersOnCards: 0, verdict: "unknown" };
     }
     const { layers, full } = this.mode === "tensor" ? PlacementPlan.whole(this.tensorLayers())
@@ -297,21 +339,27 @@ export class PlacementPlan {
     const rest = m.weightsGb / m.layers - experts;
     const perKv = this.kvOnCards ? m.kvGb / m.layers : 0;
     const computing = layers.filter((n) => n > 0).length;
-    const cards = this.cards.map((c, i) => {
+    const parts = this.cards.map((c, i) => {
       // In a tensor split every card holds a part of every layer: its share of the weights and of the cache.
       const share = this.mode === "tensor" ? this.shares()[i] : null;
       const weightsGb = share !== null ? share * m.weightsGb : layers[i] * rest + full[i] * experts;
       const kvGb = share !== null ? share * (this.kvOnCards ? m.kvGb : 0) : layers[i] * perKv;
       const buffersGb = layers[i] > 0 ? m.batchGb / computing : 0;
-      const totalGb = weightsGb + kvGb + buffersGb;
+      return { weightsGb, kvGb, buffersGb };
+    });
+    const draft = this.draftDealt(parts.map((p) => p.weightsGb + p.kvGb + p.buffersGb));
+    const cards = this.cards.map((c, i) => {
+      const { weightsGb, kvGb, buffersGb } = parts[i];
+      const totalGb = weightsGb + kvGb + buffersGb + draft[i];
       return { index: c.index, name: c.name, freeGb: c.freeGb, limitGb: this.limits[i], layers: layers[i], weightsGb, kvGb,
-        buffersGb, totalGb, over: totalGb > PlacementPlan.ceiling(c) + 1e-9 };
+        buffersGb, draftGb: draft[i], totalGb, over: totalGb > PlacementPlan.ceiling(c) + 1e-9 };
     });
     const left = this.mode === "tensor" ? 0 : m.layers - layers.reduce((a, b) => a + b, 0);
     const expertLayers = layers.reduce((a, n, i) => a + n - full[i], 0);
     const weightsGb = left * (rest + experts) + expertLayers * experts;
     const kvGb = this.kvOnCards ? left * perKv : m.kvGb;
-    const ram = { layers: left, expertLayers, weightsGb, kvGb, totalGb: weightsGb + kvGb, freeGb: this.ramFreeGb, short: false };
+    const ram = { layers: left, expertLayers, weightsGb, kvGb, draftGb: m.draftRamGb, totalGb: weightsGb + kvGb + m.draftRamGb,
+                  freeGb: this.ramFreeGb, short: false };
     ram.short = this.ramFreeGb !== null && ram.totalGb > this.ramFreeGb;
     // The cache in RAM is no fit either: the cards hold every layer, but the CPU computes the attention over it.
     const verdict = cards.some((c) => c.over) ? "over" : ram.short ? "ramShort" : ram.weightsGb > 0 ? "spill"
@@ -322,6 +370,18 @@ export class PlacementPlan {
   /** Layers as a dense model's are held: each card keeps the whole of every layer it has. */
   static whole(layers) {
     return { layers, full: layers };
+  }
+
+  /** A speculative draft's part on the cards, GB a card: dealt by the room each card has left once the model is on it (`taken`,
+   *  GB a card) — llama-server loads the draft after the model, and a model's layers go to the cards by their free memory. Cards
+   *  with no room left share it by their room, and it overfills them. */
+  draftDealt(taken) {
+    const gb = this.model.draftCardsGb;
+    if (!(gb > 0) || !this.cards.length) return this.cards.map(() => 0);
+    const left = this.cards.map((c, i) => Math.max(0, PlacementPlan.ceiling(c) - taken[i]));
+    const by = left.some((x) => x > 0) ? left : this.cards.map((c) => c.freeGb);
+    const sum = by.reduce((a, b) => a + b, 0);
+    return by.map((x) => (sum > 0 ? (gb * x) / sum : gb / by.length));
   }
 
   /** Whether the layers, dealt as `layers` at `per` GB each, leave every card within its limit with its part of the buffers
@@ -735,12 +795,13 @@ export class PlacementPanel {
     return `<span class="place-word">${escapeHtml(name)}</span><span class="place-word">${escapeHtml(size)}</span>`;
   }
 
-  /** What fills a card's lane, left to right: other processes, the model's weights, its KV, the buffers; the rest is free. */
+  /** What fills a card's lane, left to right: other processes, the model's weights, its KV, the buffers, a speculative draft (weights
+   *  too, named as the draft); the rest is free. */
   segsHtml(dev, c) {
     const whole = PlacementPanel.span(dev, c.totalGb);
     const seg = (cls, gb, name) => PlacementPanel.segHtml(cls, gb, name, whole);
     return seg("others", dev.othersGb, t("placeLegendOthers")) + seg("weights", c.weightsGb, t("placeLegendWeights"))
-      + seg("kv", c.kvGb, "KV") + seg("buffers", c.buffersGb, t("placeLegendBuffers"))
+      + seg("kv", c.kvGb, "KV") + seg("buffers", c.buffersGb, t("placeLegendBuffers")) + seg("weights", c.draftGb, t("draftSize"))
       + PlacementPanel.pastHtml(dev, whole, c.totalGb - PlacementPlan.ceiling(c));
   }
 
@@ -749,7 +810,8 @@ export class PlacementPanel {
       : t("placeCardLayers", { n: c.layers, gb: PlacementPanel.gb(c.totalGb) });
     const parts = [t("placeWeights", { gb: PlacementPanel.gb(c.weightsGb) }),
       c.kvGb > 0.05 ? t("placeKvPart", { gb: PlacementPanel.gb(c.kvGb) }) : "",
-      c.buffersGb > 0.05 ? t("placeBuffers", { gb: PlacementPanel.gb(c.buffersGb) }) : ""].filter(Boolean).join(" · ");
+      c.buffersGb > 0.05 ? t("placeBuffers", { gb: PlacementPanel.gb(c.buffersGb) }) : "",
+      c.draftGb > 0.05 ? t("placeDraft", { gb: PlacementPanel.gb(c.draftGb) }) : ""].filter(Boolean).join(" · ");
     const over = c.over ? ` — ${t("placeOverBy", { gb: PlacementPanel.gb(c.totalGb - PlacementPlan.ceiling(c)) })}` : "";
     return `${what} — ${parts}${over}`;
   }
@@ -771,6 +833,7 @@ export class PlacementPanel {
           : ram.expertLayers > 0 ? t("placeRamExperts", { n: ram.expertLayers, gb })
             : ram.kvGb > 0.05 ? t("placeRamKvOnly") : t("placeRamNone");
     const kvPart = ram.kvGb > 0.05 ? ` · ${t("placeKvPart", { gb: PlacementPanel.gb(ram.kvGb) })}` : "";
+    const draftPart = ram.draftGb > 0.05 ? ` · ${t("placeDraft", { gb: PlacementPanel.gb(ram.draftGb) })}` : "";
     const few = ram.totalGb > 0.05 && threads < plan.cores;
     const cpu = ram.totalGb > 0.05 ? ` · ${t(few ? "placeCpuFew" : "placeCpuThreads", { n: threads, cores: plan.cores })}` : "";
     const cores = few
@@ -781,12 +844,13 @@ export class PlacementPanel {
     const track = reported
       ? `<div class="place-track${ram.short ? " bad" : ""}"><div class="place-segs" data-place-segs>`
         + seg("others", othersGb, t("placeLegendOthers")) + seg("weights", ram.weightsGb, t("placeLegendWeights")) + seg("kv", ram.kvGb, "KV")
+        + seg("weights", ram.draftGb, t("draftSize"))
         + PlacementPanel.pastHtml(device, whole, ram.totalGb - (ram.freeGb ?? 0))
         + `</div></div>`
       : "";
     return `<div class="place-lane-head"><span class="place-lane-name">🧠 RAM</span>`
       + `<span class="place-lane-size">${escapeHtml(size)}</span></div>${track}`
-      + `<div class="place-lane-foot"><span class="place-lane-text" data-place-text>${escapeHtml(what + kvPart + cpu)}</span>${cores}</div>`;
+      + `<div class="place-lane-foot"><span class="place-lane-text" data-place-text>${escapeHtml(what + kvPart + draftPart + cpu)}</span>${cores}</div>`;
   }
 
   verdictHtml(plan, placed) {
@@ -797,9 +861,11 @@ export class PlacementPanel {
       : "placeSpillLayers";
     const key = { fits: "placeFits", spill, kvRam: "placeKvInRam",
       ramShort: "placeRamShort", over: plan.mode === "tensor" ? "placeOver" : "placeOverHeld", unknown: "placeUnknown" }[placed.verdict];
+    // The words name the model's layers and cache in RAM, and the GB are theirs: a draft there is the RAM lane's to say. The shortage
+    // is of everything RAM is asked to hold.
     return `<span class="place-pill ${placed.verdict}" data-t="${PlacementPanel.HOOKS.verdict}" data-t-state="${placed.verdict}">`
       + `${escapeHtml(t(key, { n: spill === "placeSpillExperts" ? ram.expertLayers : ram.layers, total: plan.model.layers,
-        gb: PlacementPanel.gb(ram.totalGb),
+        gb: PlacementPanel.gb(ram.totalGb - ram.draftGb),
         short: PlacementPanel.gb(Math.max(0, ram.totalGb - (ram.freeGb ?? 0))), layer: t("splitLayer"), fit: t("placeFitByLimits") }))}</span>`;
   }
 

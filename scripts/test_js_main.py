@@ -114,34 +114,69 @@ PINS = [
     # 1.3.632: the machine's page chooses a cell on its map (machine-head.js, MachinePick): the entry binds the choice once, on the
     # document. Its flag is the module's, so the pin lets it bind again after the reset took the document's listeners.
     ("board_binds_the_map_choice", '',
-     'await (async () => { const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href); mh.MACHINE_PICK.bound = false; mh.MACHINE_PICK.port = ""; await bootBoard();'
-     ' docFire("click", { target: { closest: (sel) => (sel === "[data-machine-pick]" ? { dataset: { machinePick: "22001" } } : null) }, preventDefault() {} });'
-     ' const chosen = mh.MACHINE_PICK.port; mh.MACHINE_PICK.port = ""; return [chosen, mh.MACHINE_PICK.bound]; })()',
-     '["22001",true]',
-     "вход доски привязывает выбор ячейки на карте страницы машины: щелчок по блоку выбирает её"),
+     'await (async () => { const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href); mh.MACHINE_PICK.bound = false; mh.MACHINE_PICK.cellId = ""; await bootBoard();'
+     ' docFire("click", { target: { closest: (sel) => (sel === "[data-machine-pick]" ? { dataset: { machinePick: "c22001" } } : null) }, preventDefault() {} });'
+     ' const chosen = mh.MACHINE_PICK.cellId; mh.MACHINE_PICK.cellId = ""; return [chosen, mh.MACHINE_PICK.bound]; })()',
+     '["c22001",true]',
+     "вход доски привязывает выбор ячейки на карте страницы машины: щелчок по блоку выбирает её — по имени"),
     # 1.3.696: the plan's start as the board wires it. On the stand a refused start cleared the plan: the board's action said nothing back.
     ("board_plan_start_hears_the_action", '',
      'await (async () => { const pl = await import(pathToFileURL(process.env.JS_ROOT + "/machine-plan.js").href); const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href);'
-     ' const node = { id: "box", cpu: { ram: { totalGb: 60, usedGb: 10 } }, gpus: [], servers: [{ port: 22001, phase: "starting", slotConfig: { MODEL_FILE: "m.gguf" }, cacheModels: true }] };'
+     ' const node = { id: "box", cpu: { ram: { totalGb: 60, usedGb: 10 } }, gpus: [], servers: [{ cellId: "c22001", port: 22101, phase: "starting", slotConfig: { MODEL_FILE: "m.gguf" }, cacheModels: true }] };'
      ' const plan = pl.MACHINE_PLAN; const out = {};'
-     ' const press = async (answer) => { await bootBoard(); plan.clear(); mh.MACHINE_PICK.cells = new Map([["22001", { name: "m", host: "box", fit: { how: "free", fields: {} } }]]); plan.set(22001, { how: "free", fields: { DEVICE: "CUDA1" } });'
+     ' const press = async (answer) => { await bootBoard(); plan.clear(); mh.MACHINE_PICK.cells = new Map([["c22001", { name: "m", host: "box", fit: { how: "free", fields: {} } }]]); plan.set("c22001", { how: "free", fields: { DEVICE: "CUDA1" } });'
      '   let room = "none";'
      '   globalThis.__stubReturns["topology-render.machinePageNode"] = () => node; globalThis.__stubReturns["dialogs.appConfirm"] = async () => true;'
-     '   globalThis.__stubReturns["remote-cells.cellServiceAction"] = async (h, p, a) => { globalThis.__calls.push(["act", h, p, a]); room = plan.room; return answer; };'
+     '   globalThis.__stubReturns["remote-cells.cellServiceAction"] = async (id, a) => { globalThis.__calls.push(["act", id, a]); room = plan.room; return answer; };'
      '   docFire("click", { target: { closest: (sel) => (sel === "[data-machine-plan-start]" ? {} : null) }, preventDefault() {} }); await settle(); await settle();'
      '   const r = { on: plan.on, busy: plan.busy, room: room === "none" ? "none" : (room?.id ?? null), acted: globalThis.__calls.filter((c) => c[0] === "act").map((c) => c.slice(1)),'
      '               saved: globalThis.__fetchCalls.filter((c) => c.path.endsWith("/save-config")).map((c) => JSON.parse(c.body)) }; reset(); return r; };'
      ' out.refused = await press(false); out.done = await press(true); plan.clear(); return out; })()',
-     '{"refused":{"on":true,"busy":false,"room":"box","acted":[["box","22001","start"]],"saved":[{"hostId":"box","port":22001,"config":{"MODEL_FILE":"m.gguf","DEVICE":"CUDA1"},"cacheModels":true}]},'
-     '"done":{"on":false,"busy":false,"room":"box","acted":[["box","22001","start"]],"saved":[{"hostId":"box","port":22001,"config":{"MODEL_FILE":"m.gguf","DEVICE":"CUDA1"},"cacheModels":true}]}}',
-     "defect-history (1.3.695, стенд): вход доски: действие говорит, как прошло: отказ — план на месте, принято — снят; настройки сохранены до старта; пока запуск идёт, план рисуется на показанной машине"),
+     '{"refused":{"on":true,"busy":false,"room":"box","acted":[["c22001","start"]],"saved":[{"cellId":"c22001","config":{"MODEL_FILE":"m.gguf","DEVICE":"CUDA1"},"cacheModels":true}]},'
+     '"done":{"on":false,"busy":false,"room":"box","acted":[["c22001","start"]],"saved":[{"cellId":"c22001","config":{"MODEL_FILE":"m.gguf","DEVICE":"CUDA1"},"cacheModels":true}]}}',
+     "defect-history (1.3.695, стенд): вход доски: действие говорит, как прошло: отказ — план на месте, принято — снят; настройки сохранены до старта под именем ячейки, "
+     "и её старт — по имени (ни машины, ни порта); пока запуск идёт, план рисуется на показанной машине"),
+    # 2026-11-08: the launch built under the map is no cell: its Start has the form fill a new cell of the machine, the save with no cellId makes
+    # it and names it, and the start asks for it by that name; the builder lets it go and the page chooses it at once, whatever the start says.
+    ("board_plan_start_makes_the_launch", '',
+     'await (async () => { const pl = await import(pathToFileURL(process.env.JS_ROOT + "/machine-plan.js").href); const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href);'
+     ' const mb = await import(pathToFileURL(process.env.JS_ROOT + "/machine-build.js").href); const am = await import(pathToFileURL(process.env.JS_ROOT + "/add-model.js").href);'
+     ' const node = { id: "box", cpu: { ram: { totalGb: 60, usedGb: 10 } }, gpus: [{ index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [] };'
+     ' const plan = pl.MACHINE_PLAN; const b = mb.MACHINE_BUILD; const out = {}; const was = am.ADD_MODEL.formConfig;'
+     ' const press = async (answer) => { await bootBoard(); plan.clear(); b.reset(); node.servers.length = 0;'
+     '   Object.assign(b, { host: "box", model: "Zeta", picked: { engine: "llama-server", quant: "Zeta/Q4/z.gguf", params: "" }, held: { engine: { name: "llama.cpp" }, quant: { name: "Q4", sizeGb: 1 }, params: null } });'
+     '   mh.MACHINE_PICK.cellId = "new"; mh.MACHINE_PICK.cells = new Map([["new", { name: "Zeta · Q4", host: "box", fit: { how: "card", bytes: 2 ** 30, fields: { ENV: "" }, oneCard: true } }]]);'
+     '   plan.set("new", { how: "card", fields: { ENV: "CUDA_VISIBLE_DEVICES=0" } });'
+     '   const filled = []; am.ADD_MODEL.formConfig = async (o) => { filled.push(o); return { config: { MODEL_FILE: o.file, RUNNER: o.runner }, cacheModels: true }; };'
+     '   globalThis.__stubReturns["topology-render.machinePageNode"] = () => node;'
+     '   globalThis.__stubReturns["dialogs.appConfirm"] = async (q) => { globalThis.__calls.push(["confirm", q]); return true; };'
+     '   globalThis.__stubReturns["remote-cells.cellConfigChecked"] = (config) => ({ config, refused: "" });'
+     # A start that went through is seen on the topology, under the cell's new name, with the port its run leased.
+     '   globalThis.__stubReturns["remote-cells.cellServiceAction"] = async (id, a) => { globalThis.__calls.push(["act", id, a]);'
+     '     if (answer && a === "start") node.servers.push({ cellId: id, port: 22101, phase: "starting" }); return answer; };'
+     '   globalThis.__fetchReply["/api/topology/server-cell/save-config"] = { ok: true, hostId: "box", cellId: "c3f9a02b1" };'
+     '   docFire("click", { target: { closest: (sel) => (sel === "[data-machine-plan-start]" ? {} : null) }, preventDefault() {} }); await settle(); await settle();'
+     '   const r = { filled, saved: globalThis.__fetchCalls.filter((c) => c.path.endsWith("/save-config")).map((c) => JSON.parse(c.body)),'
+     '               asked: globalThis.__calls.filter((c) => c[0] === "confirm").map((c) => c[1]), acted: globalThis.__calls.filter((c) => c[0] === "act").map((c) => c.slice(1)),'
+     '               launch: b.launch(), chosen: mh.MACHINE_PICK.cellId, plan: [plan.on, plan.cellId] };'
+     '   am.ADD_MODEL.formConfig = was; reset(); return r; };'
+     ' out.started = await press(true); out.refused = await press(false); plan.clear(); b.reset(); mh.MACHINE_PICK.cellId = ""; return out; })()',
+     '{"started":{"filled":[{"hostId":"box","file":"Zeta/Q4/z.gguf","runner":"llama-server","fields":{}}],'
+     '"saved":[{"hostId":"box","config":{"MODEL_FILE":"Zeta/Q4/z.gguf","RUNNER":"llama-server","ENV":"CUDA_VISIBLE_DEVICES=0"},"cacheModels":true}],'
+     '"asked":["Make cell Zeta · Q4 and start it on GPU 0?"],"acted":[["c3f9a02b1","start"]],"launch":null,"chosen":"c3f9a02b1","plan":[false,""]},'
+     '"refused":{"filled":[{"hostId":"box","file":"Zeta/Q4/z.gguf","runner":"llama-server","fields":{}}],'
+     '"saved":[{"hostId":"box","config":{"MODEL_FILE":"Zeta/Q4/z.gguf","RUNNER":"llama-server","ENV":"CUDA_VISIBLE_DEVICES=0"},"cacheModels":true}],'
+     '"asked":["Make cell Zeta · Q4 and start it on GPU 0?"],"acted":[["c3f9a02b1","start"]],"launch":null,"chosen":"c3f9a02b1","plan":[true,"c3f9a02b1"]}}',
+     "запуск сборки: форма заполнена для новой ячейки машины (без порта), сохранение без имени ячейки её создаёт, старт — по имени, которое дал контроллер; "
+     "вопрос называет запуск его моделью; сборка отпускает места, страница выбирает новую ячейку; negative: старт отказан — ячейка уже есть, и план остаётся на ней, "
+     "а не на сборке: второй Start не создаст вторую ячейку"),
     # A working cell dragged down to the list stops by its own button, which is on its row in the list: a name nobody draws would stop nothing, in silence.
     ("board_drag_down_presses_the_rows_own_stop", '',
      'await (async () => { const pl = await import(pathToFileURL(process.env.JS_ROOT + "/machine-plan.js").href); pl.MACHINE_DRAG.bound = false; await bootBoard();'
      ' globalThis.CSS ??= {}; globalThis.CSS.escape ??= String; const asked = []; const was = document.querySelector;'
      ' document.querySelector = (sel) => { asked.push(sel); return { click() { asked.push("clicked"); } }; };'
-     ' try { pl.MACHINE_DRAG.stop(22001); } finally { document.querySelector = was; } return asked; })()',
-     '["[data-t=\\"machine-model-stop\\"][data-t-id=\\"22001\\"]","clicked"]',
+     ' try { pl.MACHINE_DRAG.stop("c22001"); } finally { document.querySelector = was; } return asked; })()',
+     '["[data-t=\\"machine-model-stop\\"][data-t-id=\\"c22001\\"]","clicked"]',
      "вход доски: перетащенная вниз работающая ячейка жмёт «Остановить» своей строки в списке моделей; negative: не имя, которого больше нигде нет (тогда ничего бы не остановилось, молча)"),
     # 1.3.636: the machine's side column opens the board's incidents with the bar's own opener (machine-head.js, SideIncidents).
     ("board_binds_the_side_incidents", '',

@@ -70,11 +70,13 @@ PINS = [
      '["#llamaRemoteEditForm .model-file-field","#llamaRemoteEditStart"]', "удалённый редактор (tr) — те же шаги с префиксом tr и своей кнопкой"),
     ("machine_tour_on_a_machines_page", 'globalThis.__view.isMachine = true;',
      '(() => { m.initOnboarding(); buttons.onClick(); const st = steps(); return [st.length, typeof st[0].onRender, st.map((x) => x.center ? null : x.anchor), autos[0].key]; })()',
-     json.dumps([10, "function", [None, ".machine-tools", "[data-machine-map]", '[data-t="machine-models"]', '[data-t="machine-add"]',
+     json.dumps([11, "function", [None, ".machine-tools", "[data-machine-map]", '[data-t="machine-chosen"]', '[data-t="machine-models"]',
+                 '[data-t="machine-add"]',
                  '[data-t="machine-side-engines"]', '[data-t="machine-side-disk"]', '[data-t="machine-side-incidents"]', '[data-t="machine-side-activity"]', None],
                 "machine"]),
-     "страница машины — свой тур из 10 шагов по её частям (владелец, 2026-10-27: «проверь работу тура на этой странице»: там шёл тур главной "
-     "доски — клиенты и Маршрутизация, которых на ней нет, и кольцо вокруг всей страницы); свой ключ автостарта"),
+     "страница машины — свой тур из 11 шагов по её частям (владелец, 2026-10-27: «проверь работу тура на этой странице»: там шёл тур главной "
+     "доски — клиенты и Маршрутизация, которых на ней нет, и кольцо вокруг всей страницы); свой ключ автостарта. Шаг о блоке выбранной модели "
+     "стоит перед шагом о списке: блок — над списком (2026-11-05)"),
     ("machine_tour_anchors_are_drawn", '',
      '(() => { const node = { id: "h1", name: "h1", role: "host", online: true, platform: "linux", ip: "10.0.0.5", cpu: { ram: { totalGb: 64, usedGb: 8 } },'
      ' gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576, memoryUsedMiB: 2000 }], servers: [{ port: 22001, phase: "running", gpuMem: { "0": 2048 } }, { port: 22002, phase: "stopped" }] };'
@@ -82,9 +84,11 @@ PINS = [
      ' ["22002", { key: "h1:22002", name: "b", window: true, group: "bench", stop: "", launch: "y", jobs: ["llm"], runner: "llama.cpp", fit: {} }]]);'
      ' const side = new MH.MachineSide({ engines: "<div>e</div>", disk: "<div>d</div>", incidents: 2, activity: "<div>a</div>" }).html();'
      ' const html = new MH.MachineHead(node, { cells, side }).html();'
-     ' return [m.TOURS.machine().filter((x) => x.anchor && !drawn(html, x.anchor)).map((x) => x.anchor), drawn(html, \'[data-t="machine-nope"]\'), drawn(html, "#topologyClients")]; })()',
-     '[[],false,false]',
-     "каждый якорь тура страницы машины она и рисует (шапка, карта, панель, список моделей, «Добавить модель», колонка справа); "
+     ' return [m.TOURS.machine().filter((x) => x.anchor && !drawn(html, x.anchor)).map((x) => x.anchor), drawn(html, \'[data-t="machine-chosen"]\'), '
+     ' drawn(html, \'[data-t="machine-chosen-none"]\'), html.includes("T:machineChosenNone"), drawn(html, \'[data-t="machine-nope"]\'), drawn(html, "#topologyClients")]; })()',
+     '[[],true,true,true,false,false]',
+     "каждый якорь тура страницы машины она и рисует (шапка, карта, блок выбранной модели, список моделей, «Добавить модель», колонка справа); "
+     "блок рисуется всегда, даже когда ничего не выбрано, и говорит об этом словами; "
      "negative: якорь, которого страница не рисует (выдуманный, клиенты главной доски), не находится"),
     ("machine_auto_start_ready", 'globalThis.__view.isMachine = true;',
      '(() => { m.initOnboarding(); const a = autos[0]; const before = a.ready(); globalThis.__fields = { appLoader: null }; globalThis.__q["[data-machine-head]"] = {}; return [a.key, before, a.ready()]; })()',

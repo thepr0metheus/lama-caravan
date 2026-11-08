@@ -2,11 +2,13 @@
 
 use crate::app::App;
 use crate::domain::runner::{Runner, TalkSpec};
+use crate::fleet::cell_doorway::CellDoorway;
+use crate::fleet::server_cells::ServerCells;
 use crate::store::topology::Topology;
 use net::Base64Std;
 use plumbing::http_client::HttpError;
 use regex::Regex;
-use rules::{AppError, Coerce, PyRepr, PythonJson};
+use rules::{AppError, CellId, Coerce, PyRepr, PythonJson};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -49,56 +51,47 @@ impl<'app> CellTalk<'app> {
         Self { app, timeout: Duration::from_secs(seconds) }
     }
 
-    /// A port read from a request.
-    pub fn port_of(raw: Option<&Value>) -> Result<i64, AppError> {
-        let port = Coerce::strip(&Coerce::str_of(raw)).parse::<i64>().map_err(|_| AppError::new("port must be a number"))?;
-        if !(1..=65535).contains(&port) {
-            return Err(AppError::new("port must be 1..65535"));
-        }
-        Ok(port)
-    }
-
-    fn node(host: &Value, port: i64) -> Option<Value> {
-        let word = port.to_string();
-        let matches = |node: &&Value| node.is_object() && Coerce::str_of(node.get("port")) == word;
+    /// The node of cell `id` in a machine's report.
+    fn node(host: &Value, id: &str) -> Option<Value> {
+        let matches = |node: &&Value| node.is_object() && ServerCells::node_cell(node).as_deref() == Some(id);
         match host.get("llamaNodes").and_then(Value::as_array) {
             Some(nodes) => nodes.iter().find(matches).cloned(),
             None => host.get("llamaNode").filter(|node| matches(node)).cloned(),
         }
     }
 
-    /// `(machine, running)` of the cell on `port`; `None` when no machine reports one there.
-    pub fn place(&self, port: i64) -> Option<(String, bool)> {
+    /// The cell that runs at `port` on some machine, by its id: what a pool's row of before names when it names a port. `None` when
+    /// no machine reports a running cell there.
+    pub fn running_at(&self, port: i64) -> Option<String> {
         let hosts = self.app.admin.change(|doc| Topology::of(doc).hosts().clone());
-        hosts
-            .iter()
-            .find_map(|(host_id, host)| Self::node(host, port).map(|node| (host_id.clone(), Coerce::truthy(node.get("running")))))
+        hosts.values().find_map(|host| {
+            host.get("llamaNodes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .find(|node| node.get("port").and_then(Value::as_i64) == Some(port) && Coerce::truthy(node.get("running")))
+                .and_then(ServerCells::node_cell)
+        })
     }
 
-    /// `(address, its slot's config)` of the cell on `port` of the machine `host_id`, refused when it is not running.
-    pub fn cell(&self, host_id: &str, port: i64) -> Result<(String, Value), AppError> {
-        let host_id = Coerce::strip(host_id);
-        let host = self.app.admin.change(|doc| Topology::of(doc).hosts().get(host_id).filter(|host| host.is_object()).cloned());
-        let host = host.ok_or_else(|| AppError::with_status(format!("no machine {} on the board", PyRepr::of(host_id)), 404))?;
-        let ip = Coerce::stripped(host.get("ip"));
-        if ip.is_empty() {
-            return Err(AppError::with_status(format!("machine {host_id} has not said its address"), 409));
-        }
-        if !Self::node(&host, port).is_some_and(|node| Coerce::truthy(node.get("running"))) {
-            return Err(AppError::with_status(format!("no cell is running on {host_id}:{port}: start it first"), 409));
-        }
-        let slot = self.app.admin.change(|doc| Topology::of(doc).find_slot(host_id, port).cloned());
-        let slot = slot.filter(|slot| slot.is_object());
+    /// `(the way to it, its slot's config)` of cell `id`, refused when it is not running: the way goes through its machine's scout, as
+    /// the cell listens on the machine's loopback (`cell_doorway.rs`).
+    pub fn cell(&self, id: &str) -> Result<(CellDoorway, Value), AppError> {
+        let id = CellId::read(&json!(Coerce::strip(id))).ok_or_else(|| AppError::new("cell is required"))?;
+        let slot = self.app.admin.change(|doc| Topology::of(doc).find_slot(&id).cloned()).filter(|slot| slot.is_object());
         let slot = slot.ok_or_else(|| {
-            AppError::with_status(
-                format!("the board has no config of the cell on {host_id}:{port}: it does not know what runs there"),
-                409,
-            )
+            AppError::with_status(format!("the board has no config of cell {id}: it does not know what runs there"), 409)
         })?;
-        Ok((
-            format!("{ip}:{port}"),
-            slot.get("config").filter(|config| Coerce::truthy(Some(*config))).cloned().unwrap_or_else(|| json!({})),
-        ))
+        let host_id = Coerce::stripped(slot.get("hostId"));
+        let host = self.app.admin.change(|doc| Topology::of(doc).hosts().get(&host_id).filter(|host| host.is_object()).cloned());
+        let host = host.ok_or_else(|| AppError::with_status(format!("no machine {} on the board", PyRepr::of(&host_id)), 404))?;
+        let running = Self::node(&host, &id).filter(|node| Coerce::truthy(node.get("running")));
+        if running.is_none() {
+            return Err(AppError::with_status(format!("cell {id} is not running on {host_id}: start it first"), 409));
+        }
+        let way = CellDoorway::of(self.app, &host, &id)
+            .ok_or_else(|| AppError::with_status(format!("machine {host_id} has not said its scout's address"), 409))?;
+        Ok((way, slot.get("config").filter(|config| Coerce::truthy(Some(*config))).cloned().unwrap_or_else(|| json!({}))))
     }
 
     /// The runner of a config.
@@ -111,19 +104,21 @@ impl<'app> CellTalk<'app> {
         if id.is_empty() { "command" } else { id }
     }
 
-    /// The cell's answer to a request of `path`: a POST of `data` when there is one, else a GET.
-    pub fn ask(&self, address: &str, path: &str, data: Option<(&[u8], &str)>) -> Result<CellAnswer, AppError> {
+    /// The cell's answer to a request of `path`: a POST of `data` when there is one, else a GET. It goes through the cell's machine's
+    /// scout, whose refusal (no such cell, a cell that does not take the connection) comes back as the answer's status and words.
+    pub fn ask(&self, way: &CellDoorway, path: &str, data: Option<(&[u8], &str)>) -> Result<CellAnswer, AppError> {
         let mut fields = vec![("Accept", "*/*".to_string())];
         if let Some((_, ctype)) = data.filter(|(_, ctype)| !ctype.is_empty()) {
             fields.push(("Content-Type", ctype.to_string()));
         }
+        fields.extend(way.fields().iter().cloned());
         let (method, body): (&str, &[u8]) = match data {
             Some((body, _)) => ("POST", body),
             None => ("GET", &[]),
         };
-        let url = format!("http://{address}{path}");
+        let url = way.url(path);
         let started = self.app.clock.monotonic();
-        let failed = |error: String| AppError::with_status(format!("the cell on {address} did not answer: {error}"), 502);
+        let failed = |error: String| AppError::with_status(format!("the {} did not answer: {error}", way.named()), 502);
         let answer = self
             .app
             .http
@@ -152,8 +147,7 @@ impl<'app> CellTalk<'app> {
             let ids: Vec<&str> = TalkMode::ALL.iter().map(|mode| mode.id).collect();
             AppError::new(format!("mode must be one of {}", ids.join(", ")))
         })?;
-        let port = Self::port_of(body.get("port"))?;
-        let (address, config) = self.cell(&Coerce::text(body.get("hostId")), port)?;
+        let (way, config) = self.cell(&Coerce::text(body.get("cellId")))?;
         let runner = self.runner_of(&config);
         let spec = &runner.row().talk;
         if !spec.modes.contains(&mode.id) {
@@ -164,7 +158,7 @@ impl<'app> CellTalk<'app> {
             return Err(AppError::new(format!("a {} cell does not speak in the voice of a sample", Self::who(runner))));
         }
         let (data, ctype) = mode.request(&ask, spec)?;
-        let answer = self.ask(&address, mode.path, Some((&data, &ctype)))?;
+        let answer = self.ask(&way, mode.path, Some((&data, &ctype)))?;
         let mut out = json!({"mode": mode.id, "status": answer.status, "bytes": answer.raw.len(), "text": "", "audio": "", "audioType": "", "error": "", "ms": answer.ms});
         if answer.status >= 400 {
             Coerce::put(&mut out, "error", json!(Self::refusal(answer.status, &answer.raw)));
@@ -176,20 +170,20 @@ impl<'app> CellTalk<'app> {
         Ok(out)
     }
 
-    /// `(address, runner)` of a running cell whose server says its voices.
-    fn keeper(&self, host_id: &str, port: Option<&Value>) -> Result<(String, &'app dyn Runner), AppError> {
-        let (address, config) = self.cell(host_id, Self::port_of(port)?)?;
+    /// `(the way to it, runner)` of a running cell whose server says its voices.
+    fn keeper(&self, id: &str) -> Result<(CellDoorway, &'app dyn Runner), AppError> {
+        let (way, config) = self.cell(id)?;
         let runner = self.runner_of(&config);
         if runner.row().talk.voices_path.is_empty() {
             return Err(AppError::new(format!("a {} cell does not say its voices", Self::who(runner))));
         }
-        Ok((address, runner))
+        Ok((way, runner))
     }
 
     /// The voices the cell has, for the window's list.
-    pub fn voices(&self, host_id: &str, port: Option<&Value>) -> Result<Value, AppError> {
-        let (address, runner) = self.keeper(host_id, port)?;
-        let answer = self.ask(&address, runner.row().talk.voices_path, None)?;
+    pub fn voices(&self, id: &str) -> Result<Value, AppError> {
+        let (way, runner) = self.keeper(id)?;
+        let answer = self.ask(&way, runner.row().talk.voices_path, None)?;
         let mut out = json!({"status": answer.status, "voices": [], "stored": [], "error": "", "ms": answer.ms});
         if answer.status >= 400 {
             Coerce::put(&mut out, "error", json!(Self::refusal(answer.status, &answer.raw)));
@@ -203,7 +197,7 @@ impl<'app> CellTalk<'app> {
 
     /// A voice kept on the cell under a name, from a sample and the words it says.
     pub fn store_voice(&self, body: &Value) -> Result<Value, AppError> {
-        let (address, runner) = self.keeper(&Coerce::text(body.get("hostId")), body.get("port"))?;
+        let (way, runner) = self.keeper(&Coerce::text(body.get("cellId")))?;
         let spec = &runner.row().talk;
         if !spec.clone {
             return Err(AppError::new(format!("a {} cell keeps no voice from a sample", Self::who(runner))));
@@ -226,7 +220,7 @@ impl<'app> CellTalk<'app> {
             form.field("ref_text", &words)?;
         }
         let (data, ctype) = form.done();
-        let answer = self.ask(&address, spec.voices_path, Some((&data, &ctype)))?;
+        let answer = self.ask(&way, spec.voices_path, Some((&data, &ctype)))?;
         let mut out = json!({"status": answer.status, "name": name, "error": "", "ms": answer.ms});
         if answer.status >= 400 {
             Coerce::put(&mut out, "error", json!(Self::refusal(answer.status, &answer.raw)));

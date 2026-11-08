@@ -1,5 +1,6 @@
 //! The models of a machine as its scout's entry lists them, and the router outputs they become.
 
+use super::server_cells::ServerCells;
 use crate::common::model_kinds::ModelFacts;
 use net::Sha1;
 use rules::{BaseUrl, Coerce};
@@ -41,8 +42,11 @@ impl MachineModels {
                 .flatten()
                 .take(Self::COPIES)
                 .filter_map(|copy| {
-                    let port = Self::count(copy.get("port")).filter(|port| *port != 0)?;
-                    Some(json!({"port": port, "state": Self::state(copy.get("state")), "slots": Self::count(copy.get("slots")), "busy": Self::count(copy.get("busy"))}))
+                    // A copy is its cell: by its id, or by the port a scout of before named it with. Its port is the one it is leased
+                    // while it runs, and none while it stands — said as none, never as 0.
+                    let id = ServerCells::node_cell(copy)?;
+                    let port = Self::count(copy.get("port")).filter(|port| *port != 0);
+                    Some(json!({"id": id, "port": port, "state": Self::state(copy.get("state")), "slots": Self::count(copy.get("slots")), "busy": Self::count(copy.get("busy"))}))
                 })
                 .collect();
             models.push(json!({"id": name, "state": Self::state(at("state")), "slots": Self::count(at("slots")), "busy": Self::count(at("busy")), "copies": copies}));
@@ -70,25 +74,22 @@ impl MachineOutputs {
         (!place.host.is_empty() && has_port).then(|| (place.host.clone(), place.port))
     }
 
-    fn cell_facts(server_obj: &Value) -> BTreeMap<(String, i64), Map<String, Value>> {
+    /// What each cell of the board says of its model, by the cell's id.
+    fn cell_facts(server_obj: &Value) -> BTreeMap<String, Map<String, Value>> {
         let rows = server_obj.get("llamaServers").and_then(Value::as_array).into_iter().flatten();
         let mut found = BTreeMap::new();
-        for row in rows.filter(|row| row.is_object() && Coerce::truthy(row.get("clientId")) && Coerce::truthy(row.get("port"))) {
-            if let Some(port) = row.get("port").and_then(Coerce::int) {
-                found.insert((Coerce::str_of(row.get("clientId")), port), ModelFacts::cell_facts(row));
+        for row in rows.filter(|row| row.is_object()) {
+            if let Some(id) = row.get("cellId").and_then(rules::CellId::read) {
+                found.insert(id, ModelFacts::cell_facts(row));
             }
         }
         found
     }
 
-    fn facts(host_id: &str, model: &Value, cells: &BTreeMap<(String, i64), Map<String, Value>>) -> Map<String, Value> {
+    fn facts(model: &Value, cells: &BTreeMap<String, Map<String, Value>>) -> Map<String, Value> {
         let copies = model.get("copies").and_then(Value::as_array).into_iter().flatten();
-        let said: Vec<&Map<String, Value>> = copies
-            .filter_map(|copy| {
-                let port = copy.get("port").and_then(Coerce::int)?;
-                cells.get(&(host_id.to_string(), port))
-            })
-            .collect();
+        let said: Vec<&Map<String, Value>> =
+            copies.filter_map(|copy| ServerCells::node_cell(copy).and_then(|id| cells.get(&id))).collect();
         let first = said.iter().find(|facts| Coerce::truthy(facts.get("jobs")));
         let mut out: Map<String, Value> = first.map_or_else(Map::new, |facts| {
             facts.iter().filter(|(key, _)| *key != "contextLength").map(|(key, value)| (key.clone(), value.clone())).collect()
@@ -131,7 +132,7 @@ impl MachineOutputs {
                 if model.get("state").and_then(Value::as_str) == Some("stopped") {
                     Coerce::put(&mut row, "stopped", json!(true));
                 }
-                for (key, value) in Self::facts(&host_id, model, &cells) {
+                for (key, value) in Self::facts(model, &cells) {
                     Coerce::put(&mut row, &key, value);
                 }
                 outs.push(row);
@@ -148,14 +149,22 @@ mod tests {
     #[test]
     fn a_report_says_each_model_and_its_copies() {
         let cleaned = MachineModels::clean(Some(&json!([
-            {"id": " m ", "caravan": {"state": "running", "slots": 2, "busy": 1, "copies": [{"port": 5, "state": "odd"}, {"port": 0}, {"state": "running"}]}},
+            {"id": " m ", "caravan": {"state": "running", "slots": 2, "busy": 1, "copies": [{"port": 5, "state": "odd"}, {"port": 0}, {"state": "running"}, {"id": "c7b", "port": null, "state": "stopped"}]}},
             {"id": ""},
             5,
         ])))
         .unwrap();
         assert_eq!(
             cleaned,
-            json!([{"id": "m", "state": "running", "slots": 2, "busy": 1, "copies": [{"port": 5, "state": "unknown", "slots": null, "busy": null}]}])
+            json!([{"id": "m", "state": "running", "slots": 2, "busy": 1, "copies": [
+                {"id": "c5", "port": 5, "state": "unknown", "slots": null, "busy": null},
+                {"id": "c7b", "port": null, "state": "stopped", "slots": null, "busy": null},
+            ]}]),
+            "a copy of a scout of before is the cell of its port; a stopped one of now holds no port and is kept; negative: one naming no cell is not"
+        );
+        assert_eq!(
+            MachineModels::clean(Some(&json!([{"id": "m", "caravan": {"copies": [{"port": 0}]}}]))).unwrap()[0]["copies"],
+            json!([])
         );
         assert_eq!(MachineModels::clean(None), None);
     }
@@ -176,7 +185,7 @@ mod tests {
     #[test]
     fn a_model_becomes_an_output_with_what_its_copies_say() {
         let hosts = [json!({"id": "h", "agentUrl": "http://a:1", "entryModels": [
-            {"id": "m", "state": "stopped", "copies": [{"port": 7, "state": "running"}, {"port": 8, "state": "stopped"}]},
+            {"id": "m", "state": "stopped", "copies": [{"id": "c1", "port": 7, "state": "running"}, {"id": "c2", "port": null, "state": "stopped"}]},
         ]})];
         let outs = MachineOutputs::outputs(&hosts, &json!({}));
         assert_eq!(outs[0]["copyPorts"], json!([7]));

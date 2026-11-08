@@ -1,14 +1,16 @@
 //! What a cell's router output says of the model behind it, as the file may keep it the proxy does not read.
 
 use super::model_jobs::ModelJobs;
-use rules::Coerce;
+use rules::{Coerce, MediaParts};
 use serde_json::{Map, Value, json};
 
 /// The facts.
 pub struct ModelFacts;
 
 impl ModelFacts {
-    const INPUTS: [&'static str; 3] = ["text", "image", "audio"];
+    /// The board's copy is the vocabulary itself, not a list of the same words: what the board accepts for a cell is what
+    /// the entry decides a request against, and the second list is where a word gets added to one side only.
+    const INPUTS: [&'static str; 3] = MediaParts::WORDS;
 
     fn whole_size(value: Option<&Value>) -> Option<&Value> {
         value.filter(|value| value.as_i64().is_some_and(|size| size > 0))

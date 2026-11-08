@@ -14,6 +14,11 @@ That decision survives only as a comment and a note. This makes it a rule.
 
 Eighteen places build or parse the prefix by hand. They agree today; what this
 prevents is the tidy-minded change that makes them agree on something new.
+
+Since 2026-11-07 a client of the entry is known by its record's id
+(rust/crates/admin/src/proxies/client_ids.rs), and the board builds no such id
+any more: the prefix lives on in the agents' assignments an old controller
+wrote (rust/crates/admin/src/domain/client_proxy.rs), and they must still read.
 """
 import re
 import sys

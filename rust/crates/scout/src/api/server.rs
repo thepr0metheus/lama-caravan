@@ -3,6 +3,7 @@
 use crate::api::handlers::{Handlers, Query};
 use crate::api::routes::{RouteKind, RouteRow};
 use crate::api::spec::ApiSpec;
+use crate::cells::door::Door;
 use crate::entry::body::{BodyError, EntryBody};
 use crate::entry::machine_entry::{Forwarded, MachineEntry};
 use crate::errors::AppError;
@@ -10,7 +11,7 @@ use crate::log::Log;
 use crate::report::Report;
 use crate::scout::Scout;
 use net::{Closing, Sha256};
-use rules::Coerce;
+use rules::{CellDoor, Coerce};
 use serde_json::{Map, Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -41,15 +42,18 @@ impl Api {
         self.routes.iter().find(|route| route.path() == path && route.method() == method).map(RouteRow::kind)
     }
 
-    /// Accepts for good, one thread to a connection.
+    /// Accepts for good, one thread to a connection. Each is counted from here to its close: a release in place ends this process only
+    /// once none is left (own_release.rs).
     pub fn serve(self: Arc<Self>, listener: &TcpListener) {
         loop {
             match listener.accept() {
                 Ok((stream, peer)) => {
                     let api = Arc::clone(&self);
-                    let started = std::thread::Builder::new()
-                        .name("request".to_string())
-                        .spawn(move || api.answer_connection(stream, peer));
+                    let answering = self.scout.answering.connections.begin();
+                    let started = std::thread::Builder::new().name("request".to_string()).spawn(move || {
+                        let _answering = answering;
+                        api.answer_connection(stream, peer);
+                    });
                     if let Err(error) = started {
                         Log::line(&format!("a connection not answered: {error}"));
                     }
@@ -68,16 +72,32 @@ impl Api {
         match RequestHead::read(&mut reader) {
             Ok(head) => {
                 Log::line(&format!("{} - \"{} {}\"", peer.ip(), head.method, head.target));
-                match head.method.as_str() {
-                    "GET" => self.get(&head, &mut client),
-                    "POST" => self.post(&head, &mut reader, &mut client),
-                    other => client.json(&json!({"error": format!("Unsupported method ({other})")}), 501),
+                if head.target.starts_with(CellDoor::PREFIX) {
+                    self.door(&head, reader, &mut client);
+                } else {
+                    match head.method.as_str() {
+                        "GET" => self.get(&head, &mut client),
+                        "POST" => self.post(&head, &mut reader, &mut client),
+                        other => client.json(&json!({"error": format!("Unsupported method ({other})")}), 501),
+                    }
                 }
             }
             Err(HeadError::Malformed(words)) => client.json(&json!({"error": words}), 400),
             Err(HeadError::Closed | HeadError::Io(_)) => {}
         }
         Closing::of(&client.writer);
+    }
+
+    /// The controller's way into a cell (cells/door.rs), behind the token as the scout's own paths are: any method, the body and the
+    /// answer passed on as they come.
+    fn door(&self, head: &RequestHead, reader: BufReader<TcpStream>, client: &mut Client) {
+        if !self.token_ok(head, None) {
+            client.refuse();
+            return;
+        }
+        if let Err((payload, status)) = Door::of(&self.scout.cells).pass(head, reader, &client.writer) {
+            client.json(&payload, status);
+        }
     }
 
     fn token_ok(&self, head: &RequestHead, body: Option<&Map<String, Value>>) -> bool {
@@ -195,7 +215,9 @@ impl Api {
     }
 
     /// A request to the machine's entry: its body read whole, by its length or its chunks, never past the limit, and handed on. A client gone mid-answer ends it.
+    /// It is counted from its head to its answer's last byte: what a release in place waits for, and says it waits for.
     fn entry_request(&self, head: &RequestHead, reader: &mut BufReader<TcpStream>, client: &mut Client) {
+        let _passing = self.scout.answering.entry.begin();
         let transfer = head.headers.get("Transfer-Encoding");
         let length = head.headers.get("Content-Length");
         let refused = |words: String| MachineEntry::refusal(&words, "invalid_request_error", None, None);
@@ -288,7 +310,7 @@ mod tests {
     #[test]
     fn every_row_has_its_handler_and_every_handler_its_row() {
         let rows = RouteRow::table().unwrap();
-        assert_eq!(rows.len(), 53);
+        assert_eq!(rows.len(), 55);
         let of = |kinds: &[RouteKind]| -> BTreeSet<String> {
             rows.iter().filter(|row| kinds.contains(&row.kind())).map(RouteRow::path).collect()
         };
@@ -302,6 +324,20 @@ mod tests {
         let posts: BTreeSet<String> = Handlers::POSTS.iter().map(|(path, _)| (*path).to_string()).collect();
         assert_eq!(posts, of(&[RouteKind::Post]));
         assert_eq!(of(&[RouteKind::Own]).into_iter().collect::<Vec<_>>(), ["/api/controller-url"]);
+        // The door has no handler of its own: the server passes every method under its prefix to the cell (cells/door.rs).
+        let doors: Vec<(String, String)> =
+            rows.iter().filter(|row| row.kind() == RouteKind::Door).map(|row| (row.method(), row.path())).collect();
+        assert_eq!(
+            doors,
+            [
+                ("GET".to_string(), "/api/cell/{cell}/{path}".to_string()),
+                ("POST".to_string(), "/api/cell/{cell}/{path}".to_string())
+            ]
+        );
+        assert!(
+            doors.iter().all(|(_, path)| path.starts_with(rules::CellDoor::PREFIX)),
+            "the table names the prefix the server answers"
+        );
     }
 
     #[test]

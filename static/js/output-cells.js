@@ -1,77 +1,44 @@
-// The cell behind each local row of Routing's Servers panel, and what the row says of it
+// The model behind each local row of Routing's Servers panel and of its Models column, and what the row says of it
 // (2026-10-04: the operator's points 2, 6 and 7 after a look at the live Routing).
 //
-// A row said only the traffic: one grey dot, "idle", for a cell that serves and for one that
-// is not running at all — 24 of the 30 rows on the live Routing were stopped and looked exactly
-// like the 6 that ran (absence drawn as normality), and the cables into two stopped cells
-// looked live. Its name was the output's own label, which the server makes from the model
-// file: a moonshine cell read "en", and two cells of one model on one machine read the same.
-// And the stopped cells nothing leads to filled two screens of the panel.
+// A row said only the traffic: one grey dot, "idle", for a cell that serves and for one that is not running at all — 24 of the
+// 30 rows on the live Routing were stopped and looked exactly like the 6 that ran (absence drawn as normality), and the cables
+// into two stopped cells looked live. And the stopped cells nothing leads to filled two screens of the panel.
 //
-// The cell is found the way the panel names its machine — machineAt(the output's address) is
-// the node — and then by its port; an engine's model by its machine and its engine. The state
-// is the record's own word. A record the board does not have, or a word this table does not
-// know, is "unknown": never stopped, never idle.
+// Since 2026-11-07 (Papyrus caravan-scout-port-lease, step 3) a cell is no output of its own: it holds a port only while it runs,
+// and a request reaches it through its machine's model (`mm:`), of which it is a copy. So a local row is a model of a machine's
+// entry or of an engine, found on the machine its output names (`hostId`): a machine's model in its scout's list of them, an
+// engine's by its engine. The state is the scout's or the engine's own word. A model the board does not have, or a word these
+// tables do not know, is "unknown": never stopped, never idle.
 import { JOB_MARKS } from "./model-jobs.js";
-import { parseModelName } from "./model-meta.js";
-import { cellJobs, cellRunnerId, machineAt } from "./topology-nodes.js";
 
 export class OutputCells {
-  // A cell's phase → what its row says. Only "running" serves.
-  static PHASES = {
-    running: "running",
-    stopped: "stopped", reserved: "stopped",
-    starting: "starting", loading: "starting", warming: "starting", downloading: "starting",
-    stopping: "stopping",
-    error: "failed", broken: "failed",
-  };
-  // An engine's state (rust/crates/admin/src/domain/engine.rs) → the same words. A model of a running engine
-  // is served: the engine loads it on the first request.
+  // An engine's state (rust/crates/admin/src/domain/engine.rs) → the row's words. A model of a running engine is served: the
+  // engine loads it on the first request.
   static ENGINE = { ok: "running", stopped: "stopped", auth: "failed", unreachable: "failed" };
   // A model of a machine's entry (its scout, 1.3.506): the scout's own words, the same four.
   static MACHINE = { running: "running", starting: "starting", failed: "failed", stopped: "stopped" };
-  // The outputs whose port serves many models, each named in the request: an engine's and a
-  // machine's entry (rust/crates/rules/src/upstream_type.rs, NAMED). A model is told by its output's id.
-  static NAMED = new Set(["engine", "machine"]);
   // The word a row says beside its name (i18n keys). A running row says none — its dot speaks.
   static WORDS = { stopped: "stopped", starting: "starting", stopping: "rtCellStopping", failed: "failed", unknown: "unknown" };
-  // Settings whose values never go on a row: they may carry a key or a token. A twin that
-  // differs there is said to differ by the setting's name alone.
-  static SECRET = /KEY|TOKEN|SECRET|PASS|AUTH|CRED|ENV|ARGS|COMMAND|CMD/i;
-  // Settings that differ between any two cells by nature, so they tell no twin from another.
-  static OWN = new Set(["PORT"]);
 
   constructor(topology, router = {}) {
     this.nodes = topology?.nodes || [];
     this.router = router || {};
   }
 
-  static named(out) {
-    return OutputCells.NAMED.has(String(out?.upstreamType || ""));
-  }
-
   // The queue a local output's requests stand in, as the proxy names it on each request
-  // (rust/crates/proxy/src/places.rs route_group_key):
-  // "host:port" for a cell or an engine, "host:port/model" for a model of a machine's entry — its
-  // port serves every model of the machine, each with places of its own (1.3.506).
+  // (rust/crates/rules/src/router_outputs.rs, MachineOutput::group): "host:port/model" for a model of a machine's entry — its
+  // port serves every model of the machine, each with places of its own (1.3.506) — and "host:port" for an output of any other
+  // kind, an engine's.
   static upstream(out) {
     const base = `${out?.upstreamHost || ""}:${out?.upstreamPort || ""}`;
     return String(out?.upstreamType || "") === "machine" ? `${base}/${out.upstreamModel || ""}` : base;
   }
 
-  // The machine an output stands on: an engine's or a machine's model says its machine, a cell
-  // its address.
+  // The machine an output names (`hostId`, an engine's model and a machine's alike); null when the board has none of that id.
   nodeAt(out) {
-    const key = OutputCells.named(out)
-      ? String(out.hostId || "") : String(machineAt(out.upstreamHost || "127.0.0.1").key);
-    return this.nodes.find((n) => String(n.id) === key) || null;
-  }
-
-  // The record of the cell behind a local output; null when the board has none — and for a model
-  // of a machine's entry, which no one cell is (its copies are).
-  cellOf(out) {
-    if (String(out?.upstreamType || "") === "machine") return null;
-    return (this.nodeAt(out)?.servers || []).find((s) => Number(s.port) === Number(out.upstreamPort)) || null;
+    const id = String(out?.hostId || "");
+    return id ? this.nodes.find((n) => String(n.id) === id) || null : null;
   }
 
   // A model of a machine's entry as its scout last said it: {id, state, slots, busy, copies}; null
@@ -90,36 +57,32 @@ export class OutputCells {
   // running | stopped | starting | stopping | failed | unknown for a local output, "" for a
   // cloud one — no machine of the fleet serves it, and its own card says how it is.
   state(out) {
-    const type = String(out.upstreamType || "llama");
+    const type = String(out?.upstreamType || "");
     if (type === "cloud") return "";
     if (type === "engine") {
       const engine = (this.nodeAt(out)?.engines || []).find((e) => String(e?.kind || "") === String(out.engine || ""));
       return OutputCells.ENGINE[String(engine?.state || "")] || "unknown";
     }
     if (type === "machine") return OutputCells.MACHINE[String(this.modelOf(out)?.state || "")] || "unknown";
-    const cell = this.cellOf(out);
-    return OutputCells.PHASES[String(cell?.phase || cell?.status?.phase || "")] || "unknown";
+    // An output of no kind the board draws (the controller's out-of-the-box one): nothing says what stands behind it.
+    return "unknown";
   }
 
-  // What a row calls a cell: the server's own short phrase for what the cell runs
-  // (cell_artifact_label — "moonshine en", "run_tts.sh xtts"), else the model's short name as
-  // the cell card says it, else the output's label without its port.
+  // What a row calls its model: a machine's model by its name, an engine's by the label the controller gave it ("qwen3:8b ·
+  // Ollama", else its model and engine), any other output by its label — "" when nothing names it, never a guess. No port: a
+  // machine's entry and an engine serve many models on one, and a cell holds one only while it runs.
   name(out) {
-    if (String(out?.upstreamType || "") === "machine") return String(out.upstreamModel || out.label || "");
-    const cell = this.cellOf(out);
-    const own = String(cell?.cellLabel || "").trim() || parseModelName(cell?.model)?.label || "";
-    return own || String(out.label || "").replace(/\s*:\d+\s*$/, "").trim();
+    const type = String(out?.upstreamType || "");
+    if (type === "machine") return String(out.upstreamModel || out.label || "");
+    if (type === "engine") return String(out.label || [out.upstreamModel, out.engine].filter(Boolean).join(" · "));
+    return String(out?.label || "");
   }
 
-  // What the cell does, as job names — the list the cell card's job chips draw (cellJobs). A cell
-  // whose job cannot be named has none.
+  // What the model does, as job names — the list the cell card's job chips draw. The controller says it on a machine's model's
+  // output, from its copies (rust/crates/admin/src/fleet/machine_models.rs); an output that says none — an engine's — does
+  // none that can be named.
   jobs(out) {
-    // A machine's model says what it does on its output, from its copies (machine_models.py).
-    if (String(out?.upstreamType || "") === "machine") return out.jobs || [];
-    const cell = this.cellOf(out);
-    if (!cell) return [];
-    const cfg = cell.slotConfig || {};
-    return cellJobs(cellRunnerId(cfg), cell.cellMeta, cfg);
+    return Array.isArray(out?.jobs) ? out.jobs : [];
   }
 
   // The same, as marks.
@@ -128,7 +91,7 @@ export class OutputCells {
   }
 
   // The outputs something of this router leads to: a cable, the default, the fleet-wide audio
-  // and embeddings outputs and the older rule lists. A stopped cell among them stays in sight —
+  // and embeddings outputs and the older rule lists. A stopped model among them stays in sight —
   // it is where requests go.
   reached() {
     const rules = this.router.rules || {};
@@ -142,7 +105,7 @@ export class OutputCells {
     return ids;
   }
 
-  // One machine's rows for its group: the ones kept in sight, and the stopped cells nothing leads
+  // One machine's rows for its group: the ones kept in sight, and the stopped models nothing leads
   // to, folded under one row while there are two or more of them — a row that hides one row
   // saves nothing. The order of each part is the order given.
   split(outs) {
@@ -150,37 +113,5 @@ export class OutputCells {
     const quiet = outs.filter((o) => this.state(o) === "stopped" && !reached.has(String(o.id)));
     if (quiet.length < 2) return { shown: outs, quiet: [] };
     return { shown: outs.filter((o) => !quiet.includes(o)), quiet };
-  }
-
-  // Rows of one machine that read the same — two cells of one model — say what sets them apart:
-  // each the values of the settings that differ between them ("eng" beside "rus"); a setting
-  // that may hold a secret by its name alone. Twins that differ in nothing but the port say whose
-  // copy they are. A twin whose settings are not known says nothing: nothing to compare is not
-  // "the same". Output id → { same: port } or { differ: [[setting, value | null]], keys: [...] }.
-  twins(outs) {
-    const notes = new Map();
-    const byName = new Map();
-    for (const o of outs) {
-      if (String(o.upstreamType || "llama") !== "llama") continue;
-      const name = this.name(o);
-      if (!byName.has(name)) byName.set(name, []);
-      byName.get(name).push(o);
-    }
-    for (const group of byName.values()) {
-      if (group.length < 2) continue;
-      const cfgs = group.map((o) => this.cellOf(o)?.slotConfig);
-      if (cfgs.some((c) => !c || typeof c !== "object")) continue;
-      const keys = [...new Set(cfgs.flatMap((c) => Object.keys(c)))]
-        .filter((k) => !OutputCells.OWN.has(k) && new Set(cfgs.map((c) => String(c[k] ?? ""))).size > 1).sort();
-      group.forEach((o, i) => {
-        if (!keys.length) {
-          const other = group.filter((x) => x !== o).map((x) => Number(x.upstreamPort)).sort((a, b) => a - b)[0];
-          notes.set(o.id, { same: other });
-        } else {
-          notes.set(o.id, { keys, differ: keys.map((k) => [k, OutputCells.SECRET.test(k) ? null : String(cfgs[i][k] ?? "")]) });
-        }
-      });
-    }
-    return notes;
   }
 }

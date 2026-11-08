@@ -843,7 +843,10 @@ details.topology-server-stats-card > .topology-processes-details {
    page gains a horizontal scrollbar, and a narrow window means scrolling
    sideways through an intact board rather than reading a broken one. This is a
    dense control panel on a desktop, not an article: sideways is the honest
-   trade. Three 340px columns + the two 64px gutters above = 1148. */
+   trade. Three 340px columns + the two 64px gutters above = 1148.
+   A phone is the exception (2026-11-07): it does not scroll a page sideways, it
+   shrinks it until it fits, and three columns of 340px are three of its screens.
+   There the board folds into one column (the end of this file). */
 .topology-board,
 .topology-view {
   min-width: var(--board-min);
@@ -861,6 +864,11 @@ details.topology-server-stats-card > .topology-processes-details {
    scrollbar because this one needs it. */
 body:has(.topology-view) .topbar {
   min-width: calc(var(--board-min) + 48px);   /* 48 = main's 24px padding, both sides */
+}
+/* So the main board's bar always has room for its three groups on one line: it keeps the grid where the bar of a narrow page
+   folds (cards.css), centred title and all, and folds with the board, on a phone (the end of this file). */
+@media (min-width: 721px) {
+  html:not([data-board-view="machine"]) body:has(.topology-view) .topbar { display: grid; }
 }
 
 /* ＋ Add scout, under the Machines head: the one way a machine that lends its GPU
@@ -1195,3 +1203,19 @@ html:not([data-board-view="machine"]) .topology-column > .board-scroll { display
 html:not([data-board-view="machine"]) .topology-cables { overflow: hidden; clip-path: inset(var(--board-head) 0 0 0); }
 /* A machine's GPU panel keeps in view while its lane scrolls, now under the header, not under the page's. */
 html:not([data-board-view="machine"]) .lane-servers .node-gpus { top: 8px; max-height: calc(100vh - 150px); }
+
+/* ── On a phone the board folds (2026-11-07) ──
+   The board kept its width at any window (`--board-min`, above), and a phone shows a page whole: it drew the board 1196 px wide,
+   shrunk to a third, its bar among it. Below 721 px the board has no width to keep, its columns stand one under another in the
+   order they have across — the clients, Routing's card, the machines with the cloud providers — and it is a page again, not a
+   window: the page scrolls, and no column scrolls by itself (on a touch screen a finger cannot tell two scrollers apart). The
+   cables still run from card to card. The monitor's drawer goes, as in a machine's window: fixed at the screen's edge, it lay over
+   the bar's last buttons and then over the end of every card. A machine's own window is one column already (above). */
+@media (max-width: 720px) {
+  :root { --board-min: 0px; }
+  html:not([data-board-view="machine"]):has(.topology-view) { overflow-y: visible; }
+  html:not([data-board-view="machine"]) body:has(.topology-view) { display: block; height: auto; }
+  html:not([data-board-view="machine"]) .topology-view > .topology-board { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  html:not([data-board-view="machine"]) .topology-board .board-scroll { overflow: visible; }
+  html:not([data-board-view="machine"]) .monitor-drawer { display: none; }
+}

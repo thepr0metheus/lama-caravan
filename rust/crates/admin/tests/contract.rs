@@ -8,17 +8,17 @@ use admin::common::freshness::ModelFreshness;
 use admin::common::misc::SharedQueuePolicy;
 use admin::common::model_jobs::ModelJobs;
 use admin::common::window::Windows;
-use admin::config::args::LlamaArgs;
+use admin::config::args::{ArgPaths, LlamaArgs, ModelHeaders};
 use admin::domain::runner::{Config, PageSpec, RunnerDefaults, RunnerRegistry, StrataRunner};
 use admin::fleet::cell_talk::TalkMode;
 use admin::fleet::remote_cells::TokenRates;
+use admin::models::defaults::ModelDefaults;
 use admin::models::gguf_header::GgufHeader;
 use admin::models::headers::ModelHeader;
 use admin::models::hf::HubMemory;
 use admin::models::listing::ModelListing;
 use admin::models::notes::ModelNotes;
 use admin::models::verify::CheckpointLayout;
-use admin::proxies::config::ProxiesConfig;
 use admin::routes::AllRoutes;
 use rules::{AskedWindow, Coerce, KvCache, MachineOutput, Policy, WeekWindows};
 use serde_core::Serialize;
@@ -84,13 +84,6 @@ fn what_the_page_is_told_of_the_runners_and_the_talks() {
     assert_eq!(registry().registry_json(), data["runners"]);
     assert_eq!(TalkMode::all_json(), data["talkModes"]);
     assert_eq!(json!(PageSpec::PATTERN), data["pagePattern"]);
-}
-
-#[test]
-fn the_phases_of_a_cell_that_stands() {
-    let mut phases = ProxiesConfig::STANDING_PHASES.to_vec();
-    phases.sort_unstable();
-    assert_eq!(json!(phases), table("controller")["standingPhases"]);
 }
 
 #[test]
@@ -218,6 +211,43 @@ fn which_kind_of_draft_a_file_is() {
     }
     assert_eq!(ModelListing::gguf_kind("g/q4/mmproj-F16.gguf", ""), Some("mmproj"));
     assert_eq!(ModelListing::gguf_kind("vocabs/ggml-vocab-llama.gguf", ""), None);
+}
+
+/// A builder's reader that reads no model's header: what a command says of its draft does not hang on one.
+struct NoHeaders;
+
+impl ModelHeaders for NoHeaders {
+    fn model_header(&self, _config: &Config, _model_path: &str) -> Value {
+        json!({})
+    }
+}
+
+#[test]
+fn what_a_start_says_of_speculation_and_its_draft() {
+    let data = table("draft_load");
+    let paths = ArgPaths {
+        model: "/m.gguf",
+        mmproj: "/p.gguf",
+        spec: "/d.gguf",
+        local_paths: true,
+        over_network: false,
+        header_path: "",
+        port: "",
+    };
+    for row in rows(&data, "cases") {
+        let settings = config(&row["config"]);
+        let words = LlamaArgs::build(&settings, &paths, &NoHeaders);
+        let after = |flag: &str| words.iter().position(|word| word == flag).and_then(|at| words.get(at + 1)).cloned();
+        let start = json!({
+            "loads": after("--model-draft").is_some(),
+            "spec": after("--spec-type"),
+            "layers": after("--gpu-layers-draft"),
+            "nMax": after("--spec-draft-n-max"),
+            "nMin": after("--spec-draft-n-min"),
+            "cpuMoe": words.iter().any(|word| word == "--spec-draft-cpu-moe"),
+        });
+        assert_eq!(start, row["start"], "{}", row["why"]);
+    }
 }
 
 #[test]
@@ -359,4 +389,26 @@ fn every_route_is_in_the_document_and_nothing_else_is() {
     assert!(undescribed.is_empty(), "routes the document does not describe: {undescribed:?}");
     let unanswered: Vec<_> = described.difference(&table).filter(|(_, path)| !path.contains('{')).collect();
     assert!(unanswered.is_empty(), "in the document, and no route answers them: {unanswered:?}");
+}
+
+#[test]
+fn a_makers_number_is_read_back_out_of_the_sentence_that_said_it() {
+    let data = table("model_defaults");
+    assert_eq!(json!(ModelDefaults::FIELDS), data["fields"], "the fields a row has the right to hold");
+    for row in rows(&data, "rows") {
+        let model = text(&row["model"]);
+        let said = text(&row["said"]);
+        let stated = row["values"].as_object().unwrap();
+        assert!(!stated.is_empty(), "{model}: a row that states nothing is not a row");
+        assert_eq!(
+            json!(ModelDefaults::values(model)),
+            row["values"],
+            "{model}: the program states other numbers than the table"
+        );
+        for (field, value) in stated {
+            let word = text(value);
+            assert!(word.parse::<f64>().is_ok(), "{model}: {field} — {word} is not a number");
+            assert!(said.contains(word), "{model}: {field} — {word} is not in the sentence it came from");
+        }
+    }
 }

@@ -26,7 +26,8 @@
       display: flex;
       flex-direction: column;
     }
-    .topbar { position: sticky; top: 0; z-index: 30; }
+    /* Over the page's own heads. Where the bar sticks is its own rule, the same on every page (base.css; not on a phone, cards.css). */
+    .topbar { z-index: 30; }
 
     /* No frames (the owner, 2026-11-01: "the interface looks as if in a window; better as on /hf"): the tabs and the page's name are a
        rail, the chosen panel a pane, from edge to edge with a line between them, each scrolling by itself. On a narrow screen the tabs

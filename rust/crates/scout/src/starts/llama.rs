@@ -12,14 +12,14 @@ use crate::paths::ScoutPaths;
 use crate::starts::StartRequest;
 use crate::starts::artifacts::{CellArtifacts, LaunchWords};
 use rules::Coerce;
+use sent_args::SentArgs;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Variant 2: the controller is the single command builder. It sends `args` with these placeholders for host-local paths; this scout swaps them for the files it actually has.
-const PLACEHOLDER_MODEL: &str = "{{MODEL_PATH}}";
-const PLACEHOLDER_MMPROJ: &str = "{{MMPROJ_PATH}}";
-const PLACEHOLDER_SPEC: &str = "{{SPEC_PATH}}";
+mod sent_args;
+#[cfg(test)]
+mod tests;
 
 /// The start on the request.
 pub(super) struct LlamaStart {
@@ -50,7 +50,7 @@ impl LlamaStart {
         let start = &mut self.start;
         if start.config.is_empty() {
             start.config.insert("MODEL_FILE".to_string(), json!(model));
-            for (key, field) in [("PORT", "port"), ("N_GPU_LAYERS", "gpuLayers"), ("CTX_SIZE", "ctxSize")] {
+            for (key, field) in [("N_GPU_LAYERS", "gpuLayers"), ("CTX_SIZE", "ctxSize")] {
                 start.config.insert(key.to_string(), start.payload.get(field).cloned().unwrap_or(Value::Null));
             }
         }
@@ -63,35 +63,34 @@ impl LlamaStart {
         if model.is_empty() {
             return Err(AppError::new("modelPath is required"));
         }
-        let environment = self.start.process_env()?;
+        // A malformed environment is refused before a port is leased: a refusal leaves the cell holding nothing.
+        self.start.process_env()?;
         self.fill_legacy_config(&model);
-        let start = self.start;
-        let mut config = start.config.clone();
-        let port = start.port()?;
-        config.insert("PORT".to_string(), json!(port));
-        config.entry("HOST".to_string()).or_insert_with(|| json!("0.0.0.0"));
-        if let Some(refusal) = start.busy(port) {
+        let mut start = self.start;
+        let id = start.cell_id()?;
+        let cell = start.cells.table.at(&id);
+        if let Some(refusal) = start.busy(&cell) {
             return Ok(refusal);
         }
-        let cell = start.cells.table.at(port);
-        let name = ModelName::of(Some(&Value::Object(config.clone())), &model, port);
+        let port = start.lease_port(&cell)?;
+        let environment = start.process_env()?;
+        let config = start.config.clone();
+        let name = ModelName::of(Some(&Value::Object(config.clone())), &model, &id);
         cell.facts().name.clone_from(&name);
-        let mmproj = StartRequest::word_of(&config, "MMPROJ_FILE");
-        let spec = StartRequest::word_of(&config, "SPEC_DRAFT_MODEL_FILE");
+        // The projector and the draft are this start's only when the command it was sent loads them: what follows, from the cache's word to the cell's report, reads these two.
+        let args = SentArgs::of(&start.payload);
+        let mmproj = args.wanted(SentArgs::PROJECTOR, StartRequest::word_of(&config, "MMPROJ_FILE"));
+        let spec = args.wanted(SentArgs::DRAFT, StartRequest::word_of(&config, "SPEC_DRAFT_MODEL_FILE"));
         // The cache is told what this start asks of it before the first byte is copied: a trim that another start's end triggers must find these files wanted, whole or half copied. A llama cell's
         // models are the model cache's: no runner of one needs the folder for Strata's files.
-        start.cells.asks(port, &[model.clone(), mmproj.clone(), spec.clone()], &start.cells.keeper);
+        start.cells.asks(&cell, &[model.clone(), mmproj.clone(), spec.clone()], &start.cells.keeper);
         let cache_models = start.cache_models();
         cell.facts().cache_models = cache_models;
-        let args = start
-            .payload
-            .get("args")
-            .and_then(Value::as_array)
-            .map(|args| args.iter().map(|word| Coerce::text(Some(word))).collect());
         let now = start.cells.clock.epoch() as i64;
-        start.cells.table.say(port, &json!({"phase": "resolving", "modelPath": model, "downloadedBytes": 0, "totalBytes": 0, "error": "", "startedAt": now}));
+        start.cells.table.say(&id, &json!({"phase": "resolving", "modelPath": model, "downloadedBytes": 0, "totalBytes": 0, "error": "", "startedAt": now}));
         let launch = LlamaLaunch {
             cells: Arc::clone(&start.cells),
+            id: id.clone(),
             port,
             cell,
             binary,
@@ -106,8 +105,8 @@ impl LlamaStart {
             name,
             runner,
         };
-        start.in_background(port, move || launch.run());
-        Ok(json!({"ok": true, "status": "starting", "phase": "resolving", "port": port}))
+        start.in_background(&id, move || launch.run());
+        Ok(json!({"ok": true, "status": "starting", "phase": "resolving", "cellId": id, "port": port}))
     }
 }
 
@@ -122,6 +121,9 @@ struct Fetched {
 /// The slow half of a llama cell's start, off the request thread: fetches the model files, writes the cell's artifacts, starts `llama-server` and registers it, or gives up cleanly when the cell was stopped meanwhile.
 struct LlamaLaunch {
     cells: Arc<Cells>,
+    /// The cell's own name.
+    id: String,
+    /// The port its run was leased.
     port: i64,
     /// The cell the request made: a stop drops it, so a later lookup no longer returns it: the cancel token.
     cell: Arc<Cell>,
@@ -131,7 +133,7 @@ struct LlamaLaunch {
     mmproj: String,
     spec: String,
     cache_models: bool,
-    args: Option<Vec<String>>,
+    args: SentArgs,
     hints: Option<Value>,
     environment: Map<String, Value>,
     name: String,
@@ -140,20 +142,22 @@ struct LlamaLaunch {
 
 impl LlamaLaunch {
     fn holds(&self) -> bool {
-        self.cells.table.holds(self.port, &self.cell)
+        self.cells.table.holds(&self.id, &self.cell)
     }
 
+    /// A start that failed says why, and gives its port back: no run of it holds the port.
     fn fail(&self, words: &str) {
-        self.cells.table.say(self.port, &json!({"phase": "error", "error": words}));
+        self.cells.table.say(&self.id, &json!({"phase": "error", "error": words}));
+        self.cells.table.release(&self.cell);
     }
 
     fn cancelled(&self) {
-        Log::line(&format!("[llama-node] :{} start cancelled — the cell was stopped mid-download", self.port));
+        Log::line(&format!("[llama-node] {} start cancelled — the cell was stopped mid-download", self.id));
     }
 
     fn fetch(&self, use_cache: bool) -> Result<Fetched, AppError> {
         let (model, mmproj, spec) =
-            self.cells.models.download_all(&self.model, &self.mmproj, &self.spec, use_cache, self.port, self.hints.as_ref())?;
+            self.cells.models.download_all(&self.model, &self.mmproj, &self.spec, use_cache, &self.id, self.hints.as_ref())?;
         Ok(Fetched { model, mmproj, spec })
     }
 
@@ -162,38 +166,18 @@ impl LlamaLaunch {
         if self.runner != "prism" {
             return Ok(());
         }
-        let (table, port, cell) = (Arc::clone(&self.cells.table), self.port, Arc::clone(&self.cell));
+        let (table, id, cell) = (Arc::clone(&self.cells.table), self.id.clone(), Arc::clone(&self.cell));
         let progress = move |downloaded: u64, total: u64, file: &str| {
-            if table.holds(port, &cell) {
+            if table.holds(&id, &cell) {
                 table.say(
-                    port,
+                    &id,
                     &json!({"phase": "downloading", "downloadedBytes": downloaded, "totalBytes": total, "downloadingFile": file}),
                 );
             }
         };
         self.binary = self.cells.prism.ensure(&progress)?;
         self.environment.extend(crate::runtimes::prism::PrismRuntime::environment(&self.binary));
-        // absent-ok: no args is refused further on, in its own words.
-        self.cells.prism.validate_args(&self.binary, self.args.as_deref().unwrap_or_default())
-    }
-
-    /// The controller builds the arg list; this scout only substitutes the paths of files it has. It used to carry its own builder as a fallback, already 23 flags behind: a cell started through it looked configured on the board and ran
-    /// without half of that config. Refusing is the honest answer.
-    fn resolved_args(&self, files: &Fetched) -> Result<Vec<String>, AppError> {
-        let args = self.args.as_ref().filter(|args| !args.is_empty()).ok_or_else(|| {
-            AppError::new(
-                "controller sent no args for this llama cell — it is older than this agent (needs lama-caravan v1.3.115+)",
-            )
-        })?;
-        Ok(args
-            .iter()
-            .map(|word| match word.as_str() {
-                PLACEHOLDER_MODEL => files.model.clone(),
-                PLACEHOLDER_MMPROJ => files.mmproj.clone(),
-                PLACEHOLDER_SPEC => files.spec.clone(),
-                _ => word.clone(),
-            })
-            .collect())
+        self.cells.prism.validate_args(&self.binary, self.args.as_sent())
     }
 
     /// What the process's status shows. Bookkeeping only: the real `-ngl` comes from the args the controller sends. A string field: an exact count, or "auto" or "all".
@@ -211,7 +195,8 @@ impl LlamaLaunch {
                 .ok_or_else(|| AppError::new(format!("CTX_SIZE is not a number: {}", Coerce::text(Some(said)))))?,
             None => 4096,
         };
-        // Exposed in the heartbeat so that the UI can show the MTP badge even for built-in MTP, where the path is empty.
+        // The operator's word, whether a draft file is loaded or not: that is the path's to say, empty unless the command loads one (SentArgs). Exposed in the heartbeat so that the UI can show the MTP badge
+        // for built-in MTP, where the path is empty; and speculation switched off says "none", true of the start, which the board's chip (cell-plan.js CellDraft) reads, with no path, as no draft.
         let spec_type = StartRequest::word_of(&self.config, "SPEC_TYPE").to_lowercase();
         let spec_type = if spec_type == "mtp" { "draft-mtp".to_string() } else { spec_type };
         let mut runtime = Map::new();
@@ -235,9 +220,10 @@ impl LlamaLaunch {
 
     /// Writes what stands next to the cell, and starts the process.
     fn launched(&self, files: &Fetched, log_path: &Path) -> Result<(Map<String, Value>, Value), AppError> {
-        let args = self.resolved_args(files)?;
+        let args = self.args.resolved(files)?;
         let mut runtime = self.runtime_of(files)?;
         let written = self.artifacts().write(
+            &self.id,
             self.port,
             &LaunchWords {
                 binary: &self.binary,
@@ -279,9 +265,10 @@ impl LlamaLaunch {
         }
         // What its files weigh here: what the board counts its reading against while it loads.
         let weight = self.cells.table.splits().bytes_of(&[files.model.clone(), files.mmproj.clone(), files.spec.clone()]);
-        self.cells.table.say(self.port, &json!({"phase": "loading", "modelBytes": weight}));
-        // Per PORT, not one file for the whole host: every llama cell used to write to one log and each new start renamed it away, so a crashed cell's card quoted whichever cell had spawned last.
-        let log_path = self.cells.logs.path("llama-server", self.port);
+        self.cells.table.say(&self.id, &json!({"phase": "loading", "modelBytes": weight}));
+        // Per CELL, not one file for the whole host: every llama cell used to write to one log and each new start renamed it away, so a crashed cell's card quoted whichever cell had spawned last.
+        // By its name, not its port: a cell's logs follow it whatever port each run held.
+        let log_path = self.cells.logs.path("llama-server", &self.id);
         let (mut runtime, mut result) = match self.launched(&files, &log_path) {
             Ok(done) => done,
             Err(error) => {
@@ -330,11 +317,11 @@ impl LlamaLaunch {
             }
         }
         self.cells.table.say(
-            self.port,
+            &self.id,
             &json!({"phase": "downloading", "downloadedBytes": 0, "totalBytes": 0, "downloadingFile": "re-downloading…"}),
         );
         let done = self.fetch(false).and_then(|fresh| {
-            self.cells.table.say(self.port, &json!({"phase": "loading"}));
+            self.cells.table.say(&self.id, &json!({"phase": "loading"}));
             self.launched(&fresh, log_path)
         });
         match done {
@@ -357,13 +344,14 @@ impl LlamaLaunch {
         }
         if !self.holds() {
             // Stopped between the start and here (the corruption retry keeps this window open for a re-download). Registering would re-add the cell the stop just deleted; letting the process live would orphan it.
-            Log::line(&format!("[llama-node] :{} stopped during startup — terminating the fresh process", self.port));
+            Log::line(&format!("[llama-node] {} stopped during startup — terminating the fresh process", self.id));
             self.cell.process.stop();
             return;
         }
-        self.cells.table.say(self.port, &json!({"phase": "running", "error": ""}));
+        self.cells.table.say(&self.id, &json!({"phase": "running", "error": ""}));
         let record = NewRecord {
             kind: "llama",
+            port: Some(self.port),
             // absent-ok: `result.get("pid") or 0`: a start that says no pid is found by its marker.
             pid: result.get("pid").and_then(Value::as_i64).unwrap_or(0),
             marker: self.binary.clone(),
@@ -375,10 +363,10 @@ impl LlamaLaunch {
             name: self.name.clone(),
             ram_mib: 0,
         };
-        self.cells.records.add(self.port, record);
+        self.cells.records.add(&self.id, record);
         // Caching on: the cache keeps the last models the operator set, this one among them, and deletes the older ones; what the neighbours run stays whatever its age. Caching off: files get purged on stop anyway.
         if self.cache_models {
-            self.cells.keeper.commit(self.port);
+            self.cells.keeper.commit(&self.id);
         }
     }
 }

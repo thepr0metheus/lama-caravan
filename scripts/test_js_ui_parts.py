@@ -50,8 +50,8 @@ out.button = {
   noText: err(() => new P.Button({ kind: "plain" }))
 };
 out.switch = {
-  off: new P.Switch({ label: "Cell :22001" }).html(),
-  busy: new P.Switch({ label: "Cell :22002", on: true, busy: true, title: "Starting…", attrs: "data-s", disabled: true }).html(),
+  off: new P.Switch({ label: "Cell gemma" }).html(),
+  busy: new P.Switch({ label: "Cell Hermes", on: true, busy: true, title: "Starting…", attrs: "data-s", disabled: true }).html(),
   noLabel: err(() => new P.Switch({}))
 };
 out.seg = new P.Seg({ label: "State", options: [{ text: "All", count: 28, on: true, attrs: "data-a" }, { text: "Running", count: 0 }, { text: "<b>" }] }).html();
@@ -71,8 +71,8 @@ const lane = (o) => new P.Lane(Object.assign({ label: "GPU 1" }, o));
 out.lane = {
   html: lane({ side: "RTX 5090 · 31.8 GB", free: "9.1 GB free", total: 32,
                blocks: [{ value: 1, kind: "other", name: "Xorg", figure: "1.0 GB", title: "Xorg · 1.0 GB" },
-                        { value: 16, series: 2, name: ":22020 Hermes", figure: "16.0 GB", title: ":22020 Hermes — click to choose", pick: 'data-machine-pick="22020"', on: true },
-                        { value: 8, series: 3, name: ":22007 gemma", figure: "8.0 GB", title: "t", pick: 'data-machine-pick="22007"' }] }).html(),
+                        { value: 16, series: 2, name: "Hermes", figure: "16.0 GB", title: "Hermes — click to choose", pick: 'data-machine-pick="c22020"', on: true },
+                        { value: 8, series: 3, name: "gemma", figure: "8.0 GB", title: "t", pick: 'data-machine-pick="c22007"' }] }).html(),
   narrow: lane({ total: 100, blocks: [{ value: 11.99, series: 1, name: "n", figure: "f", title: "t", pick: "data-p" },
                                       { value: 12, kind: "estimate", name: "would go", figure: "≈9.0 GB" }] }).html(),
   clamp: lane({ total: 10, blocks: [{ value: 8, name: "a" }, { value: 8, series: 2, name: "b" }, { value: 1, name: "c" }] }).html(),
@@ -101,15 +101,15 @@ out.legend = {
     { name: "new <one>", figure: "≈49.9 GB", where: "GPU 0–5 + RAM", owner: "9", title: "t", kind: "estimate", pick: "data-p" },
     { name: "Hermes", figure: "64.0 GB", where: "GPU 1–4", owner: "8", title: "u", series: 3, on: true, pick: "data-q" },
     { name: "Xorg", figure: "1.0 GB", where: "GPU 0", title: "v", kind: "other", attrs: "data-r" }] }).html(),
-  empty: new P.RackLegend({ empty: "Nothing <holds>", heads: ["GB", "t/s"] }).html(),
-  headed: new P.RackLegend({ heads: ["GB", "t/s"], rows: [{ name: "n", figure: "1.0", where: "RAM", speed: "38", owner: "9", series: 2, pick: "data-p" }] }).html(),
+  empty: new P.RackLegend({ empty: "Nothing <holds>", heads: ["GB", "what it is doing"] }).html(),
+  headed: new P.RackLegend({ heads: ["GB", "what it is doing"], rows: [{ name: "n", figure: "1.0", where: "RAM", doing: "38", owner: "9", series: 2, pick: "data-p" }] }).html(),
   bad: err(() => new P.RackLegend({ rows: [{ name: "n", series: 9 }] }).html()),
 };
 
 out.cut = [P.Meter.cut(10, [{ value: 4 }, { value: 0 }, { value: 8 }]).map((c) => c.width), P.Meter.cut(0, [{ value: 1 }]), P.Meter.cut("x", [])];
 out.row = {
-  open: new P.Row({ state: "<i>s</i>", title: "Hermes-4-70B", facts: ":22020 · llama.cpp", value: "≈ 39,6 ГБ", note: "part goes to RAM",
-                    tail: "<em>t</em>", live: true, open: 'data-open="22020"', label: "Open the cell", attrs: 'data-t="r"', cols: "48px 1fr" }).html(),
+  open: new P.Row({ state: "<i>s</i>", title: "Hermes-4-70B", facts: "LLM · llama.cpp", value: "≈ 39,6 ГБ", note: "part goes to RAM",
+                    tail: "<em>t</em>", live: true, open: 'data-open="c22020"', label: "Open the cell", attrs: 'data-t="r"', cols: "48px 1fr" }).html(),
   plain: new P.Row({ title: "large-v3-turbo", note: "not measured" }).html(),
   warn: new P.Row({ title: "x", note: "will not fit", noteTone: "busy" }).html(),
   noNote: err(() => new P.Row({ title: "x", noteTone: "warn" })),
@@ -118,13 +118,13 @@ out.row = {
 };
 const meter = (o) => new P.Meter(Object.assign({ label: "GPU 0" }, o));
 out.meter = {
-  parts: meter({ value: "12,0", unit: "of 24,0 GB", total: 24, side: "51 °C", foot: "held by :22020",
-                 parts: [{ value: 6, series: 1, title: ":22020" }, { value: 3, series: 2 }, { value: 1.2, kind: "other" }, { value: 2.4, kind: "estimate", title: "would go" }] }).segments(),
+  parts: meter({ value: "12,0", unit: "of 24,0 GB", total: 24, side: "51 °C", foot: "held by Hermes",
+                 parts: [{ value: 6, series: 1, title: "Hermes" }, { value: 3, series: 2 }, { value: 1.2, kind: "other" }, { value: 2.4, kind: "estimate", title: "would go" }] }).segments(),
   clamp: meter({ total: 10, parts: [{ value: 6 }, { value: 6, series: 3 }, { value: 2 }] }).segments(),
   skip: meter({ total: 10, parts: [{ value: 0 }, { value: -2 }, { value: "x" }, { value: 5 }] }).segments(),
   unknown: meter({ total: null, parts: [{ value: 5 }] }).segments(),
   zero: meter({ total: 0, parts: [{ value: 5 }] }).segments(),
-  html: meter({ value: "12,0", unit: "of 24,0 GB", total: 24, parts: [{ value: 6, title: ":22020" }] }).html(),
+  html: meter({ value: "12,0", unit: "of 24,0 GB", total: 24, parts: [{ value: 6, title: "Hermes" }] }).html(),
   noBar: meter({ value: "—", foot: "the scout does not report it", total: null }).html(),
   bare: meter({ tile: false }).html(),
   badSeries: err(() => meter({ total: 1, parts: [{ value: 1, series: 7 }] }).segments()),
@@ -133,7 +133,7 @@ out.meter = {
 };
 out.tabs = [new P.Tabs({ label: "Machine", cls: "ui-win-tabs", tabs: [{ text: "Cells", count: 28, on: true, attrs: 'data-tab="cells"' }, { text: "Disk", count: "" }] }).html(),
             err(() => new P.Tabs({ tabs: [] }))];
-out.addr = [new P.Addr({ text: "10.0.0.5:22020", label: "Copy the address", attrs: 'data-copy="1"' }).html(), err(() => new P.Addr({}))];
+out.addr = [new P.Addr({ text: "10.0.0.5", label: "Copy the address", attrs: 'data-copy="1"' }).html(), err(() => new P.Addr({}))];
 out.frame = {
   full: new P.Frame({ title: "Hermes <4>", facts: "chat · llama.cpp", addr: "<a1>", tools: "<b1>", band: "<band>", tabs: "<tabs>", body: "<body>", foot: "", label: "Cell window", attrs: 'data-t="w"' }).html(),
   noFoot: new P.Frame({ title: "Machine", tag: "div" }).html(),
@@ -206,9 +206,9 @@ def main():
 
     print("переключатель, выбор, фильтр:")
     s = got["switch"]
-    check(s["off"] == '<button type="button" class="ui-switch" role="switch" aria-checked="false" aria-label="Cell :22001"></button>',
+    check(s["off"] == '<button type="button" class="ui-switch" role="switch" aria-checked="false" aria-label="Cell gemma"></button>',
           "переключатель говорит своё состояние и чьё оно")
-    check(s["busy"] == '<button type="button" class="ui-switch is-busy" role="switch" aria-checked="true" aria-label="Cell :22002" title="Starting…" data-s disabled></button>',
+    check(s["busy"] == '<button type="button" class="ui-switch is-busy" role="switch" aria-checked="true" aria-label="Cell Hermes" title="Starting…" data-s disabled></button>',
           "в пути — свой класс, подсказка, закрыт")
     check(s["noLabel"] == "Switch: needs a label", "negative: переключатель без подписи — отказ")
     check(got["seg"] == '<div class="ui-seg" role="group" aria-label="State">'
@@ -243,8 +243,8 @@ def main():
     print("строка:")
     r = got["row"]
     check(r["open"] == '<div class="ui-row ui-row--live" style="--ui-row-cols: 48px 1fr" data-t="r"><div class="ui-row-state"><i>s</i></div>'
-          '<button type="button" class="ui-row-name" aria-label="Open the cell" data-open="22020"><span class="ui-row-title">Hermes-4-70B</span>'
-          '<span class="ui-row-facts">:22020 · llama.cpp</span></button><div class="ui-row-figure"><span class="ui-row-value">≈ 39,6 ГБ</span>'
+          '<button type="button" class="ui-row-name" aria-label="Open the cell" data-open="c22020"><span class="ui-row-title">Hermes-4-70B</span>'
+          '<span class="ui-row-facts">LLM · llama.cpp</span></button><div class="ui-row-figure"><span class="ui-row-value">≈ 39,6 ГБ</span>'
           '<span class="ui-row-note">part goes to RAM</span></div><div class="ui-row-tail"><em>t</em></div></div>',
           "строка: состояние, имя-кнопка с подписью, факты, цифра и примечание справа, хвост; работает — подкрашена; столбцы — своей переменной")
     check('<div class="ui-row-name"><span class="ui-row-title">large-v3-turbo</span></div>' in r["plain"]
@@ -256,7 +256,7 @@ def main():
 
     print("шкала:")
     m = got["meter"]
-    check(m["parts"] == [{"cls": "ui-meter-seg", "width": 25, "title": ":22020"}, {"cls": "ui-meter-seg ui-meter-seg--s2", "width": 12.5, "title": ""},
+    check(m["parts"] == [{"cls": "ui-meter-seg", "width": 25, "title": "Hermes"}, {"cls": "ui-meter-seg ui-meter-seg--s2", "width": 12.5, "title": ""},
                          {"cls": "ui-meter-seg ui-meter-seg--other", "width": 5, "title": ""},
                          {"cls": "ui-meter-seg ui-meter-seg--estimate", "width": 10, "title": "would go"}],
           "доли — в процентах итога: цвет ячейки, штриховка чужих, пунктир оценки")
@@ -266,7 +266,7 @@ def main():
     check(m["unknown"] is None and m["zero"] is None, "negative: итог не известен — долей нет")
     check(m["html"] == '<div class="ui-meter ui-tile"><div class="ui-meter-head"><span class="ui-meter-label">GPU 0</span></div>'
           '<div class="ui-meter-figure"><span class="ui-meter-value">12,0</span><span class="ui-meter-unit">of 24,0 GB</span></div>'
-          '<div class="ui-meter-bar" role="img" aria-label="GPU 0 12,0 of 24,0 GB"><span class="ui-meter-seg" style="width: 25%" title=":22020"></span></div></div>',
+          '<div class="ui-meter-bar" role="img" aria-label="GPU 0 12,0 of 24,0 GB"><span class="ui-meter-seg" style="width: 25%" title="Hermes"></span></div></div>',
           "шкала: подпись, цифра, полоса с подписью для чтеца, доля с подсказкой")
     check("ui-meter-bar" not in m["noBar"] and '<span class="ui-meter-foot">the scout does not report it</span>' in m["noBar"],
           "negative: итог не известен — полосы нет вовсе (пустая читалась бы как свободная карта), причина — в подписи под ней")
@@ -280,10 +280,10 @@ def main():
     check(ln["html"] == '<div class="ui-lane"><div class="ui-lane-head"><span class="ui-lane-label">GPU 1</span>'
           '<span class="ui-lane-side">RTX 5090 · 31.8 GB</span><span class="ui-lane-free">9.1 GB free</span></div><div class="ui-lane-bar">'
           '<span class="ui-lane-blk ui-lane-blk--other" style="width: 3.13%" title="Xorg · 1.0 GB"></span>'
-          '<button type="button" class="ui-lane-blk ui-lane-blk--s2 is-on" style="width: 50%" aria-pressed="true" aria-label=":22020 Hermes — click to choose"'
-          ' title=":22020 Hermes — click to choose" data-machine-pick="22020"><strong>:22020 Hermes</strong><span>16.0 GB</span></button>'
-          '<button type="button" class="ui-lane-blk ui-lane-blk--s3" style="width: 25%" aria-pressed="false" aria-label="t" title="t" data-machine-pick="22007">'
-          '<strong>:22007 gemma</strong><span>8.0 GB</span></button></div></div>',
+          '<button type="button" class="ui-lane-blk ui-lane-blk--s2 is-on" style="width: 50%" aria-pressed="true" aria-label="Hermes — click to choose"'
+          ' title="Hermes — click to choose" data-machine-pick="c22020"><strong>Hermes</strong><span>16.0 GB</span></button>'
+          '<button type="button" class="ui-lane-blk ui-lane-blk--s3" style="width: 25%" aria-pressed="false" aria-label="t" title="t" data-machine-pick="c22007">'
+          '<strong>gemma</strong><span>8.0 GB</span></button></div></div>',
           "полоса: подпись, карта, свободно справа; блок ячейки — кнопка своего цвета с именем и цифрой внутри, выбранная — is-on и "
           "aria-pressed; чужой процесс — штриховкой и не кнопка; узкий (3%) — без слов, слова в подсказке")
     check('<button type="button" class="ui-lane-blk" style="width: 11.99%" aria-pressed="false" aria-label="t" title="t" data-p></button>' in ln["narrow"]
@@ -326,12 +326,13 @@ def main():
     check(ln["linkBad"].startswith('Lane link part: no kind "ghost"'), "negative: незнакомый вид линии — отказ")
     lg = got["legend"]
     check('<div class="ui-legend"><button type="button" class="ui-legend-row ui-lane-c ui-lane-c--estimate" aria-pressed="false" title="t" data-lane-owner="9" data-p><span class="ui-lane-dot" aria-hidden="true"></span>'
-          '<strong class="ui-legend-name">new &lt;one&gt;</strong><span class="ui-legend-figure">≈49.9 GB</span><span class="ui-legend-where">GPU 0–5 + RAM</span><span class="ui-legend-speed"></span></button>' in lg["rows"],
-          "строка списка: точка её цвета, имя (экранировано), сколько в сумме, где; кнопка, связанная со своими кусками")
+          '<strong class="ui-legend-name">new &lt;one&gt;</strong><span class="ui-legend-figure">≈49.9 GB</span><span class="ui-legend-where">GPU 0–5 + RAM</span><span class="ui-legend-doing"></span></button>' in lg["rows"],
+          "строка списка: точка её цвета, имя (экранировано), сколько в сумме, где и что делает — пусто, когда делать нечего; кнопка, связанная со своими кусками")
     check('class="ui-legend-row ui-lane-c ui-lane-c--s3 is-on" aria-pressed="true" title="u" data-lane-owner="8" data-q>' in lg["rows"], "выбранная ячейка помечена")
     check('<div class="ui-legend-row ui-lane-c ui-lane-c--other" title="v" data-r>' in lg["rows"] and lg["rows"].count("<button") == 2, "negative: чужой процесс — не кнопка и ни с чем не связан")
-    check('<div class="ui-legend"><div class="ui-legend-row ui-legend-heads"><span></span><span></span><span class="ui-legend-figure">GB</span><span></span><span class="ui-legend-speed">t/s</span></div><button' in lg["headed"] and '<span class="ui-legend-speed">38</span>' in lg["headed"],
-          "над списком единицы его столбцов, в строке скорость модели")
+    check('<div class="ui-legend"><div class="ui-legend-row ui-legend-heads"><span></span><span></span><span class="ui-legend-figure">GB</span><span></span><span class="ui-legend-doing">what it is doing</span></div><button' in lg["headed"]
+          and '<span class="ui-legend-doing">38</span>' in lg["headed"],
+          "над списком единицы его столбцов; negative: строка заголовков — слова над колонками, у неё нет data-t, и патч пишет только строки, у которых он есть")
     check(lg["empty"] == '<div class="ui-legend"><p class="ui-legend-empty">Nothing &lt;holds&gt;</p></div>', "negative: никто ничего не держит: так и сказано, слова экранированы")
     check(lg["bad"] == 'Legend row part: no series "9" (1–6)', "negative: незнакомый цвет строки — отказ")
     check(ln["badSeries"] == 'Lane part: no series "9" (1–6)' and ln["badKind"].startswith('Lane part: no kind "ghost"')
@@ -344,7 +345,7 @@ def main():
           '<button type="button" role="tab" class="ui-tab" aria-selected="false">Disk</button></div>' and got["tabs"][1] == "Tabs: needs a label",
           "вкладки — список с подписью, выбранная говорит aria-selected, счёт — рядом; negative: без подписи — отказ")
     a = got["addr"]
-    check(a[0].startswith('<button type="button" class="ui-addr" title="Copy the address" data-copy="1"><span>10.0.0.5:22020</span><svg width="12"')
+    check(a[0].startswith('<button type="button" class="ui-addr" title="Copy the address" data-copy="1"><span>10.0.0.5</span><svg width="12"')
           and a[1] == "Addr: needs the address", "адрес — кнопка, что копирует себя; negative: без адреса — отказ")
     f = got["frame"]
     check(f["full"] == '<section class="ui-win" aria-label="Cell window" data-t="w"><div class="ui-win-head"><div class="ui-win-id"><div class="ui-win-title-row">'

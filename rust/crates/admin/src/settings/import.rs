@@ -24,11 +24,11 @@ impl<'app> SettingsBundle<'app> {
                 if route.get("apiKey").and_then(Value::as_str) != Some(Self::REDACTED) {
                     continue;
                 }
-                let port = Coerce::str_of(route.get("port"));
+                let id = Coerce::stripped(route.get("id"));
                 let key = held
                     .into_iter()
                     .flatten()
-                    .find(|row| row.is_object() && Coerce::str_of(row.get("port")) == port)
+                    .find(|row| row.is_object() && !id.is_empty() && Coerce::stripped(row.get("id")) == id)
                     .and_then(|row| row.get("apiKey").cloned())
                     .unwrap_or_else(|| json!(""));
                 Coerce::put(route, "apiKey", key);

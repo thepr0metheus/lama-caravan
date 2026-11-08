@@ -21,10 +21,15 @@ struct ScoutCellConfig {
 
 impl ScoutCellConfig {
     const KEY: &'static str = "LLAMA_MODELS_DIR";
+    /// What a config sent to a scout never says: its port is the one the scout leases at the start.
+    const LEASED: &'static str = "PORT";
 
     fn new(config: Option<&Value>, models_dir: &str) -> Self {
         let raw = config.map_or_else(Map::new, Coerce::fields);
-        Self { sent: raw.into_iter().filter(|(key, _)| key != Self::KEY).collect(), models_dir: models_dir.to_string() }
+        Self {
+            sent: raw.into_iter().filter(|(key, _)| key != Self::KEY && key != Self::LEASED).collect(),
+            models_dir: models_dir.to_string(),
+        }
     }
 
     fn located(&self, model_path: &str) -> Config {
@@ -113,8 +118,7 @@ impl<'app> ScoutStart<'app> {
         let command = self.app.runners.for_config(&run).command(&run)?;
         Coerce::put(payload, "command", json!(command));
         Coerce::put(payload, "healthPath", json!(runner.health_path(&config)));
-        let port = payload.get("port").and_then(Value::as_i64);
-        Coerce::put(payload, "shellLine", json!(LaunchScript::of(self.app).command_cell_shell_line(&run, port)?));
+        Coerce::put(payload, "shellLine", json!(LaunchScript::of(self.app).command_cell_shell_line(&run)?));
         if command.is_empty() {
             return Err(AppError::new("command is required for a command cell"));
         }
@@ -129,14 +133,27 @@ impl<'app> ScoutStart<'app> {
         Ok(())
     }
 
+    /// The scout that leases a cell's port at its start: one older does not know the names of cells, and would run a command
+    /// with the port's placeholder in it.
+    pub const LEASES_PORTS: [u32; 3] = [2, 46, 0];
+    /// The scout with a door to its cells (`rules::CellDoor`): a cell listens on its machine's loopback since 2026-11-08, and one
+    /// started by an older scout would answer nobody — not its health, not the Talk tab — while its scout had no way in.
+    pub const OPENS_ITS_CELLS: [u32; 3] = [2, 48, 0];
+
     /// The request that starts a cell on a scout's machine: sent by a start, and kept by the scout for a cell that starts with the machine.
+    /// It names the cell, and the range its port is leased from; no port: the scout leases one (Papyrus `caravan-scout-port-lease`).
     pub fn payload(&self, body: &Value) -> Result<Value, AppError> {
         let models_dir = self.app.models_dir().to_string_lossy().into_owned();
         let cell = ScoutCellConfig::new(body.get("config"), &models_dir);
         let model_path = Coerce::stripped(body.get("modelPath"));
+        let id = ServerCells::asked_id(body)?;
+        self.needs_scout(body, Self::LEASES_PORTS, "holds a port for every cell; a cell now gets one when it starts")?;
+        self.needs_scout(body, Self::OPENS_ITS_CELLS, "has no door to its cells, which listen on its loopback now")?;
+        let range = &self.app.paths.cell_ports;
         let mut payload = json!({
+            "cellId": id,
+            "ports": {"base": range.base, "upper": range.upper},
             "modelPath": model_path,
-            "port": Self::number_or(body.get("port"), 8180)?,
             "gpuLayers": ConfigText::gpu_layers_int(body.get("gpuLayers"), 999),
             "ctxSize": Self::number_or(body.get("ctxSize"), 4096)?,
             "cacheModels": Coerce::truthy(body.get("cacheModels")),
@@ -145,14 +162,7 @@ impl<'app> ScoutStart<'app> {
         let runner = self.app.runners.for_config(&cell.sent);
         let row = runner.row();
         if let Some((major, minor, patch)) = row.min_scout {
-            let host = self.host_record(body);
-            let have = Coerce::str_of(host.get("scoutVersion"));
-            if ScoutVersion::older(&have, &[major, minor, patch]) {
-                return Err(AppError::new(format!(
-                    "this scout ({have}) cannot start a {} cell — it needs caravan-scout {major}.{minor}.{patch}: update the scout",
-                    row.id
-                )));
-            }
+            self.needs_scout(body, [major, minor, patch], &format!("cannot start a {} cell", row.id))?;
         }
         if row.work_folder {
             ModelCache::refuse_without_work(&self.host_record(body), row.id)?;
@@ -186,11 +196,40 @@ impl<'app> ScoutStart<'app> {
             }
         }
         let hints: Map<String, Value> = found.iter().filter_map(|(_, at)| at.hint().map(|hint| (at.rel.clone(), hint))).collect();
-        Coerce::put(&mut payload, "inPlace", Value::Object(hints));
+        Coerce::put(&mut payload, "inPlace", Value::Object(Self::with_parts(runner, &cell.sent, hints)));
         Ok(payload)
     }
 
-    /// A start forwarded to the machine's scout.
+    /// Refuses a start on a scout older than `need`, in words that say what it cannot do (`cannot`) and which scout it needs.
+    fn needs_scout(&self, body: &Value, need: [u32; 3], cannot: &str) -> Result<(), AppError> {
+        let have = Coerce::str_of(self.host_record(body).get("scoutVersion"));
+        if !ScoutVersion::older(&have, &need) {
+            return Ok(());
+        }
+        let [major, minor, patch] = need;
+        Err(AppError::new(format!(
+            "this scout ({have}) {cannot} — it needs caravan-scout {major}.{minor}.{patch}: update the scout"
+        )))
+    }
+
+    /// The hints of a start's files, with how many first parts the scout brings of a split the runner does not bring whole: an IST-DAS set's sixth part is the Engram, named apart, and
+    /// Unsloth's metadata part is read alone (2026-11-03). A file the library gave no hint gets one that says only that.
+    fn with_parts(
+        runner: &dyn crate::domain::runner::Runner,
+        config: &Map<String, Value>,
+        mut hints: Map<String, Value>,
+    ) -> Map<String, Value> {
+        for (field, value) in runner.model_file_values(config) {
+            if let Some(count) = runner.parts_brought(&field, &value)
+                && let Value::Object(hint) = hints.entry(value).or_insert_with(|| json!({}))
+            {
+                hint.insert("parts".to_string(), json!(count));
+            }
+        }
+        hints
+    }
+
+    /// A start forwarded to the machine's scout. The scout answers with the port it leased; the slot keeps none.
     pub fn start(&self, body: &Value) -> Result<Value, AppError> {
         let host_id = Coerce::stripped(body.get("hostId"));
         if host_id.is_empty() {
@@ -198,27 +237,16 @@ impl<'app> ScoutStart<'app> {
         }
         let scout = ScoutCall::of_host(self.app, &host_id)?;
         let payload = self.payload(body)?;
-        // absent-ok: `payload` wrote its port above.
-        let port = Coerce::i64_or_zero(payload.get("port"));
-        let cells = ServerCells::of(self.app);
-        let (config, model) = (payload.get("config"), payload.get("modelPath"));
-        let key = ServerCells::slot_key(&host_id, port);
-        match body.get("cellPort").filter(|said| !said.is_null() && **said != json!("")).and_then(Coerce::int) {
-            Some(old) if old != port => {
-                cells.move_cell(&host_id, old, port, config, model)?;
-            }
-            Some(_) => cells.assert_port_available(port, Some(&key))?,
-            None => {
-                let held = self.app.admin.change(|doc| Topology::of(doc).has_slot(&host_id, port));
-                cells.assert_port_available(port, held.then_some(key.as_str()))?;
-            }
-        }
+        let id = Coerce::text(payload.get("cellId"));
+        let (config, model) = (body.get("config"), payload.get("modelPath"));
         let result = scout.post("/api/llama-node/start", &payload, 10)?;
         if Coerce::truthy(result.get("ok")) {
             // The cell runs: a record that was not kept is the next report's to make.
-            drop(cells.upsert_slot(&host_id, port, config, model, None));
+            drop(ServerCells::of(self.app).upsert_slot(&host_id, &id, config, model, None));
         }
-        Ok(json!({"ok": Coerce::truthy(result.get("ok")), "hostId": host_id, "result": result}))
+        Ok(
+            json!({"ok": Coerce::truthy(result.get("ok")), "hostId": host_id, "cellId": id, "port": result.get("port"), "result": result}),
+        )
     }
 
     /// A scout cell's autostart turned on or off.
@@ -228,19 +256,18 @@ impl<'app> ScoutStart<'app> {
             return Err(AppError::new("hostId is required"));
         }
         let scout = ScoutCall::of_host(self.app, &host_id)?;
-        // absent-ok: `int(body.get("port") or 0)`: the scout refuses a port of none in its own words.
-        let port = Coerce::whole(body.get("port"));
+        let id = ServerCells::asked_id(body)?;
         let payload = if enabled { self.payload(body)? } else { Value::Null };
         let result =
-            scout.post("/api/llama-node/autostart", &json!({"port": port, "enabled": enabled, "payload": payload}), 10)?;
-        if let Some(ports) = result.get("autostart").filter(|ports| ports.is_array()) {
+            scout.post("/api/llama-node/autostart", &json!({"cellId": id, "enabled": enabled, "payload": payload}), 10)?;
+        if let Some(kept) = result.get("autostart").filter(|kept| kept.is_array()) {
             self.app.admin.saving(|doc| {
                 if let Some(host) = Topology::of(doc).hosts().get_mut(&host_id).filter(|host| host.is_object()) {
-                    Coerce::put(host, "autostart", ports.clone());
+                    Coerce::put(host, "autostart", kept.clone());
                 }
             });
         }
-        Ok(json!({"ok": Coerce::truthy(result.get("ok")), "hostId": host_id, "port": port, "result": result}))
+        Ok(json!({"ok": Coerce::truthy(result.get("ok")), "hostId": host_id, "cellId": id, "result": result}))
     }
 
     /// A stop forwarded to the machine's scout.
@@ -250,8 +277,8 @@ impl<'app> ScoutStart<'app> {
             return Err(AppError::new("hostId is required"));
         }
         let mut stop_body = json!({});
-        if let Some(port) = body.get("port").filter(|port| Coerce::truthy(Some(*port))).and_then(Coerce::int) {
-            Coerce::put(&mut stop_body, "port", json!(port));
+        if let Some(id) = body.get("cellId").and_then(rules::CellId::read) {
+            Coerce::put(&mut stop_body, "cellId", json!(id));
         }
         // A process has 15 s to end and what it left 10 more: a shorter wait said "unreachable" of a stop that went on.
         let result = ScoutCall::of_host(self.app, &host_id)?.post("/api/llama-node/stop", &stop_body, 40)?;
@@ -263,6 +290,33 @@ impl<'app> ScoutStart<'app> {
 mod tests {
     use super::*;
     use crate::tests::{HandClock, TestApp, TestFolder};
+
+    #[test]
+    fn a_split_the_runner_does_not_bring_whole_is_said_in_its_file_s_hint() {
+        let folder = TestFolder::new("start-parts");
+        let app = TestApp::with_clock(&folder.path, &[], HandClock::at(1000));
+        let set = "D/ISTA-DASLab/IQ1_M/DeepSeek-V4.1-Flash-1017-GSQ-RCO-IQ1_M-00001-of-00006.gguf";
+        let meta = "U/unsloth/Q8_K_XL/DeepSeek-V4.1-Flash-1017-UD-Q8_K_XL-00001-of-00009.gguf";
+        let config: Map<String, Value> = Coerce::fields(
+            &json!({"RUNNER": "strata-ds", "MODEL_FILE": set, "STRATA_META_FILE": meta, "STRATA_ENGRAM_FILE": "D/e.gguf"}),
+        );
+        let library = json!({"path": "/lib/x", "library": "main", "size": 5});
+        let hints = Coerce::fields(&json!({set: library.clone(), "D/e.gguf": library.clone()}));
+        let said = ScoutStart::with_parts(app.runners.get("strata-ds"), &config, hints);
+        assert_eq!(
+            said[set],
+            json!({"path": "/lib/x", "library": "main", "size": 5, "parts": 5}),
+            "five of six: the sixth is the Engram"
+        );
+        assert_eq!(said[meta], json!({"parts": 1}), "a file of no hint gets one that says only that");
+        assert_eq!(said["D/e.gguf"], library, "a file brought whole is not touched");
+        let plain = Coerce::fields(&json!({"RUNNER": "strata", "MODEL_FILE": "Q/x-00001-of-00002.gguf"}));
+        assert_eq!(
+            ScoutStart::with_parts(app.runners.get("strata"), &plain, Map::new()),
+            Map::new(),
+            "another runner brings every part"
+        );
+    }
 
     #[test]
     fn a_version_reads_up_to_its_suffix() {
@@ -281,7 +335,7 @@ mod tests {
         std::fs::create_dir_all(app.models_dir().join("Qwen/nvidia/NVFP4")).unwrap();
         let start = ScoutStart::of(&app);
         let payload = |model: &str| {
-            start.payload(&json!({"hostId": "h", "port": 22100, "config": {"RUNNER": "vllm", "VLLM_MODEL": model}})).unwrap()
+            start.payload(&json!({"hostId": "h", "cellId": "c22100", "config": {"RUNNER": "vllm", "VLLM_MODEL": model}})).unwrap()
         };
         let serves = |payload: &Value, word: &str| {
             let command = Coerce::text(payload.get("command"));
@@ -314,7 +368,7 @@ mod tests {
     fn a_strata_cell_does_not_start_where_no_folder_is_chosen_for_its_files() {
         let folder = TestFolder::new("start-work");
         let app = TestApp::with_clock(&folder.path, &[], HandClock::at(1000));
-        let body = json!({"hostId": "h", "port": 22009, "config": {"RUNNER": "strata", "MODEL_FILE": "q/q-IQ2_XS.gguf", "SPEC_DRAFT_MODEL_FILE": "mtp-q2_0.gguf"}});
+        let body = json!({"hostId": "h", "cellId": "c22009", "config": {"RUNNER": "strata", "MODEL_FILE": "q/q-IQ2_XS.gguf", "SPEC_DRAFT_MODEL_FILE": "mtp-q2_0.gguf"}});
         let with = |work: Value| {
             app.admin.saving(|doc| {
                 Topology::of(doc)
@@ -333,9 +387,69 @@ mod tests {
         let payload = ScoutStart::of(&app).payload(&body).unwrap();
         assert_eq!(payload["workFolder"], true, "the scout keeps its models in that folder");
         let vllm = ScoutStart::of(&app)
-            .payload(&json!({"hostId": "nowhere", "port": 22100, "config": {"RUNNER": "vllm", "VLLM_MODEL": "a/b"}}));
+            .payload(&json!({"hostId": "nowhere", "cellId": "c22100", "config": {"RUNNER": "vllm", "VLLM_MODEL": "a/b"}}));
         assert!(vllm.is_ok(), "a runner that writes nothing of its own at a start needs no folder");
         assert_eq!(vllm.unwrap().get("workFolder"), None, "and its models stay the cache's");
+    }
+
+    /// The speculation switch of the cell form and of the new-cell wizard writes "none" when it is off (static/js/cell-plan.js
+    /// CellDraft.OFF), and keeps the draft file: the start the controller sends a scout carries no draft then. It wrote an empty type
+    /// until 2026-11-07, and an empty type with a file named launches the file by the file's own type.
+    #[test]
+    fn a_start_whose_speculation_is_switched_off_sends_no_draft() {
+        let folder = TestFolder::new("start-draft-off");
+        let app = TestApp::with_clock(&folder.path, &[], HandClock::at(1000));
+        let start = ScoutStart::of(&app);
+        let args = |spec_type: &str| -> Vec<String> {
+            let config = json!({"MODEL_FILE": "m/q.gguf", "SPEC_TYPE": spec_type, "SPEC_DRAFT_MODEL_FILE": "m/mtp-q.gguf"});
+            let payload =
+                start.payload(&json!({"hostId": "h", "cellId": "c22100", "modelPath": "m/q.gguf", "config": config})).unwrap();
+            Coerce::list(payload.get("args")).iter().map(|word| Coerce::text(Some(word))).collect()
+        };
+        let off = args("none");
+        assert!(!off.iter().any(|word| word == "--model-draft" || word == "--spec-type"), "switched off: {off:?}");
+        let empty = args("");
+        assert!(empty.windows(2).any(|pair| pair == ["--spec-type", "draft-mtp"]), "{empty:?}");
+        assert!(empty.iter().any(|word| word == "--model-draft"), "an empty type with a file named loads it: {empty:?}");
+    }
+
+    #[test]
+    fn a_start_names_its_cell_and_the_range_and_no_port() {
+        let folder = TestFolder::new("start-lease");
+        let app = TestApp::with_clock(&folder.path, &[], HandClock::at(1000));
+        let start = ScoutStart::of(&app);
+        let body = json!({"hostId": "h", "cellId": "c3f9a02b1", "modelPath": "m/q.gguf", "config": {"MODEL_FILE": "m/q.gguf", "PORT": "22007"}});
+        let payload = start.payload(&body).unwrap();
+        assert_eq!(payload["cellId"], "c3f9a02b1");
+        assert_eq!(payload["ports"], json!({"base": app.paths.cell_ports.base, "upper": app.paths.cell_ports.upper}));
+        assert_eq!(payload.get("port"), None, "negative: no port is sent — the scout leases one");
+        assert_eq!(payload["config"].get("PORT"), None, "nor in the config");
+        let args: Vec<String> = Coerce::list(payload.get("args")).iter().map(|word| Coerce::text(Some(word))).collect();
+        assert!(args.windows(2).any(|pair| pair == ["--port", "{{PORT}}"]), "{args:?}");
+        assert!(
+            start.payload(&json!({"hostId": "h", "port": 22007, "config": {}})).is_err(),
+            "negative: a start by port names no cell"
+        );
+        app.admin.saving(|doc| {
+            Topology::of(doc).hosts().insert("h".to_string(), json!({"scoutVersion": "2.45.0"}));
+        });
+        let old = start.payload(&body).map_or_else(|error| error.message, |_| String::new());
+        assert!(old.contains("update the scout"), "a scout that holds a port for every cell is told to update: {old}");
+        app.admin.saving(|doc| {
+            Topology::of(doc).hosts().insert("h".to_string(), json!({"scoutVersion": "2.47.1"}));
+        });
+        let old = start.payload(&body).map_or_else(|error| error.message, |_| String::new());
+        assert!(
+            old.contains("has no door to its cells") && old.contains("2.48.0"),
+            "negative: a scout with no door would start a cell nobody reaches: {old}"
+        );
+        app.admin.saving(|doc| {
+            Topology::of(doc).hosts().insert("h".to_string(), json!({"scoutVersion": "2.48.0"}));
+        });
+        assert!(start.payload(&body).is_ok(), "the scout that leases and opens its cells starts it");
+        let args: Vec<String> =
+            Coerce::list(start.payload(&body).unwrap().get("args")).iter().map(|word| Coerce::text(Some(word))).collect();
+        assert!(args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]), "on its machine's loopback: {args:?}");
     }
 
     #[test]

@@ -50,6 +50,15 @@ impl ScoutState {
         self.path.parent().unwrap_or(Path::new("."))
     }
 
+    /// The file as it is on disk, copied beside it as `<name>.<suffix>` with its own permissions — it holds the cells' start requests:
+    /// the way back past a move of what it keeps. Where the copy is.
+    pub fn keep_copy(&self, suffix: &str) -> std::io::Result<PathBuf> {
+        let name = self.path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        let copy = self.path.with_file_name(format!("{name}.{suffix}"));
+        std::fs::copy(&self.path, &copy)?;
+        Ok(copy)
+    }
+
     /// Reads under the lock.
     pub fn read<T>(&self, reader: impl FnOnce(&Map<String, Value>) -> T) -> T {
         reader(&self.doc())

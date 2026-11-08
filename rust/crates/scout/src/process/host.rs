@@ -4,6 +4,7 @@
 use crate::commands::Commands;
 use crate::machine::Listeners;
 use os::{Cpu, Signals};
+use rules::CellId;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -35,12 +36,16 @@ pub struct HostProcesses {
 }
 
 impl HostProcesses {
-    /// Every cell this scout starts carries it in its environment, and keeps it through `bash -lc … exec python`. A process without it was not started by a scout: it is never adopted
-    /// and never killed.
+    /// Every cell this scout starts carries its name in its environment, and keeps it through `bash -lc … exec python`. A process without it was not started by a scout: it is never adopted
+    /// and never killed. Until 2026-11-07 the mark was the cell's port, and a process of then is the cell of that port's name (`CellId::read`).
     pub const CELL_ENV: &'static str = "CARAVAN_SCOUT_CELL";
+    /// Beside it, the port its start leased: a cell found again with no record of it still says where it listens, while it loads its model and listens nowhere yet.
+    pub const PORT_ENV: &'static str = "CARAVAN_SCOUT_PORT";
     /// Beside it, whose: the folder of the scout that started it. A machine may hold another scout, a test's or one being replaced, and a scout that took its cells for its own kept them on its
     /// board as crashed the moment the other let them go (2026-11-03).
     pub const HOME_ENV: &'static str = "CARAVAN_SCOUT_HOME";
+    /// The marks: the scout's own to set, and no start's.
+    pub const MARKS: [&'static str; 3] = [Self::CELL_ENV, Self::PORT_ENV, Self::HOME_ENV];
     /// How many processes a cell's tree may name: a runaway fork is not walked.
     const TREE_LIMIT: usize = 64;
     const QUICK: Duration = Duration::from_secs(5);
@@ -111,17 +116,26 @@ impl HostProcesses {
             .then(|| CellScope { procs: self.groups_root.join(group.trim_start_matches('/')).join("cgroup.procs") })
     }
 
-    /// The port this scout started `pid` for, or 0: a cell of no word on whose was started before scouts said it. This, not the command line, is how a cell is known again: a launcher is often an `exec` chain, each link rewriting argv, while the
-    /// environment is kept through every exec and every child.
-    pub fn port_of(&self, pid: i64) -> i64 {
-        let Ok(raw) = fs::read(self.of(pid, "environ")) else {
-            return 0;
-        };
-        if Self::value_in(&raw, Self::HOME_ENV).is_some_and(|home| home != self.home.as_bytes()) {
-            return 0;
-        }
-        // absent-ok: no mark, or a mark that is no number, is 0: this function's word for "not a scout's".
-        Self::variable_in(&raw).and_then(|value| std::str::from_utf8(value).ok()?.parse().ok()).unwrap_or(0)
+    /// What `pid`'s environment says, when this scout's: a process another scout started is its own (a cell of no word on whose was started before scouts said it, and is this one's).
+    fn own_environment(&self, pid: i64) -> Option<Vec<u8>> {
+        let raw = fs::read(self.of(pid, "environ")).ok()?;
+        let others = Self::value_in(&raw, Self::HOME_ENV).is_some_and(|home| home != self.home.as_bytes());
+        (!others).then_some(raw)
+    }
+
+    /// The cell this scout started `pid` for, by the mark it carries; `None` for a process of no mark, or of another scout's. This, not the command line, is how a cell is known again: a launcher
+    /// is often an `exec` chain, each link rewriting argv, while the environment is kept through every exec and every child.
+    pub fn cell_of(&self, pid: i64) -> Option<String> {
+        let raw = self.own_environment(pid)?;
+        let mark = std::str::from_utf8(Self::variable_in(&raw)?).ok()?;
+        CellId::read(&Value::String(mark.to_string()))
+    }
+
+    /// The port the cell `pid` runs was leased, as its environment keeps it; for a process started before 2026-11-07, the port its mark is. `None` when it says neither.
+    pub fn port_said(&self, pid: i64) -> Option<i64> {
+        let raw = self.own_environment(pid)?;
+        let said = Self::value_in(&raw, Self::PORT_ENV).or_else(|| Self::variable_in(&raw))?;
+        std::str::from_utf8(said).ok()?.parse::<i64>().ok().filter(|port| (1..=65535).contains(port))
     }
 
     /// The fields of `/proc/<pid>/stat` after its name, which may hold anything.
@@ -137,25 +151,24 @@ impl HostProcesses {
         self.stat_fields(pid).and_then(|fields| fields.get(1)?.parse().ok()).unwrap_or(0)
     }
 
-    /// The cells of this machine a scout started, by the mark their processes carry: port to the pids at the root of the cell's tree. A cell is a tree, and its root is the one whose
+    /// The cells of this machine a scout started, by the mark their processes carry: a cell's name to the pids at the root of its tree. A cell is a tree, and its root is the one whose
     /// parent does not carry it. Nothing where `/proc` does not say.
-    pub fn tagged_cells(&self) -> BTreeMap<i64, Vec<i64>> {
+    pub fn tagged_cells(&self) -> BTreeMap<String, Vec<i64>> {
         let me = i64::from(std::process::id());
         let Ok(entries) = fs::read_dir(&self.proc_root) else {
             return BTreeMap::new();
         };
-        let mut trees: BTreeMap<i64, BTreeMap<i64, i64>> = BTreeMap::new();
+        let mut trees: BTreeMap<String, BTreeMap<i64, i64>> = BTreeMap::new();
         for pid in entries.flatten().filter_map(|entry| entry.file_name().to_str()?.parse::<i64>().ok()) {
-            let port = if pid == me { 0 } else { self.port_of(pid) };
-            if port != 0 {
-                trees.entry(port).or_default().insert(pid, self.parent_of(pid));
+            if let Some(cell) = Some(pid).filter(|pid| *pid != me).and_then(|pid| self.cell_of(pid)) {
+                trees.entry(cell).or_default().insert(pid, self.parent_of(pid));
             }
         }
         trees
             .into_iter()
-            .map(|(port, tree)| {
+            .map(|(cell, tree)| {
                 let roots: Vec<i64> = tree.iter().filter(|(_, parent)| !tree.contains_key(parent)).map(|(pid, _)| *pid).collect();
-                (port, roots)
+                (cell, roots)
             })
             .collect()
     }
@@ -172,14 +185,14 @@ impl HostProcesses {
         }
     }
 
-    /// The process a scout started for `port` that still runs, listening or not yet: a cell loading its model does not listen for a minute and more. `prefer` when it is one of them,
-    /// else the first root; 0 when no process carries the mark of that port.
-    pub fn carrier(&self, port: i64, prefer: i64) -> i64 {
-        if prefer > 1 && self.port_of(prefer) == port {
+    /// The process a scout started for the cell `cell` that still runs, listening or not yet: a cell loading its model does not listen for a minute and more. `prefer` when it is one of them,
+    /// else the first root; 0 when no process carries the mark of that cell.
+    pub fn carrier(&self, cell: &str, prefer: i64) -> i64 {
+        if prefer > 1 && self.cell_of(prefer).as_deref() == Some(cell) {
             return prefer;
         }
         // absent-ok: 0 is this function's word for no process.
-        self.tagged_cells().get(&port).and_then(|roots| roots.first().copied()).unwrap_or(0)
+        self.tagged_cells().get(cell).and_then(|roots| roots.first().copied()).unwrap_or(0)
     }
 
     /// The processes `pid` started, and theirs: a cell's server can hand the card to a child, and the card's memory is then the child's.

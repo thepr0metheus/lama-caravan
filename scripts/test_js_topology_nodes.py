@@ -51,6 +51,9 @@ const rc = await import(pathToFileURL(process.env.JS_ROOT + "/remote-cells.js").
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/topology-nodes.js").href);
 const cf = await import(pathToFileURL(process.env.JS_ROOT + "/card-fold.js").href);
 const mh = await import(pathToFileURL(process.env.JS_ROOT + "/machine-head.js").href);
+const mb = await import(pathToFileURL(process.env.JS_ROOT + "/machine-build.js").href);
+const mp = await import(pathToFileURL(process.env.JS_ROOT + "/machine-plan.js").href);
+const mmods = await import(pathToFileURL(process.env.JS_ROOT + "/machine-models.js").href);
 const cst = await import(pathToFileURL(process.env.JS_ROOT + "/constants.js").href);
 const ui = st.ui;
 const norm = (s) => String(s).replace(/\s+/g, " ").trim();
@@ -59,10 +62,13 @@ const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], mode
   ui.latestSystemMonitor = null;
   cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear(); cf.CARD_FOLD.launchers = {};
   cf.CARD_FOLD.windowTabs.clear();
-  mh.MACHINE_PICK.port = ""; mh.MACHINE_PICK.know(new Map());
-  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
+  mh.MACHINE_PICK.cellId = ""; mh.MACHINE_PICK.know(new Map()); mb.MACHINE_BUILD.reset(); mp.MACHINE_PLAN.clear(); mmods.MACHINE_MODELS.picked = "";
+  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingCellActions, rc._reservingCells]) c?.clear?.(); };
 const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "host", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
-const mk = (extra) => ({ port: 22001, isSlot: true, model: "a.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
+// A cell of the board (2026-11-08): known by its id; it holds a port only while it runs (its run's lease) — a parked one has none.
+const RUNS = new Set(["running", "starting", "loading", "warming", "downloading", "broken", "stopping", "resolving"]);
+const mk = (extra) => ({ cellId: "c22001", port: RUNS.has(extra?.phase) ? 22001 : null, isSlot: true, model: "a.gguf",
+  slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
 // The two memory badges of a card or a line (cell-memory.js): [which, class, state, text] each.
 const MEM = (h) => [...String(h).matchAll(/<span class="mbadge mbadge-([\w-]+)" data-t="cell-(ram|gpu)" data-t-state="(\w+)" title="[^"]*">([^<]*)<\/span>/g)].map((x) => [x[2], x[1], x[3], x[4]]);
 // An engine next to the cells (scout 2.12+) and one of its models, as the
@@ -114,7 +120,7 @@ const CW = (html) => {
     foot: (h.match(/<div class="cw-foot" data-cell-window-foot="([^"]*)" data-running="([^"]*)">/) || []).slice(1),
     settings: { rows: pairs(seg("settings")), buttons: buttons(seg("settings")),
                 lead: strip((String(seg("settings") || "").match(/<p class="cw-lead">(.*?)<\/p>/) || [])[1]) },
-    memory: { cards: [...String(seg("memory") || "").matchAll(/<span class="cw-mem-name">([^<]*)<\/span><span class="cw-mem-figure">([^<]*)<\/span><span class="cw-mem-sub">([^<]*)<\/span>/g)].map((m) => [m[1], m[2], m[3]]),
+    memory: { cards: [...String(seg("memory") || "").matchAll(/<span class="cw-mem-name">([^<]*)<\/span><span class="cw-mem-figure"[^>]*>([^<]*)<\/span><span class="cw-mem-sub">([^<]*)<\/span>/g)].map((m) => [m[1], m[2], m[3]]),
               rows: pairs(seg("memory")), buttons: buttons(seg("memory")) },
   };
 };
@@ -128,13 +134,29 @@ PINS = [
     ('card_anchor_stopped_configured_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
-     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" data-node-cell-model=\\"a\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
-     'positive: Якорь: полная карточка остановленной сконфигурированной ячейки (Start активен, кнопка смены порта, ⚙ configure активна)'),
+     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"c22001\\" aria-label=\\"Cell a\\" data-topology-llama=\\"1\\" data-cell-id=\\"c22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-cell-id=\\"c22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"c22001\\" data-node-cell-launch=\\"h1\\" data-cell-id=\\"c22001\\" data-node-cell-runner=\\"llama-server\\" data-node-cell-model=\\"a\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"c22001\\" data-node-slot-del=\\"c22001\\" data-cell-id=\\"c22001\\" data-node-cell-model=\\"a\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">reserved</span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"c22001\\" aria-label=\\"Configure: a\\" data-node-cell-start=\\"h1\\" data-cell-id=\\"c22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"c22001\\" data-cell-id=\\"c22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__cell__:c22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     'positive: Якорь: полная карточка остановленной сконфигурированной ячейки (Start активен, ⚙ configure активна); ячейка названа своим именем — data-t-id, data-cell-id у карточки, ручки и каждой кнопки, aria-label по имени модели; кнопки смены порта и «:22001» нет (2026-11-08)'),
     ('card_anchor_running_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
-     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"c22001\\" aria-label=\\"Cell a\\" data-topology-llama=\\"1\\" data-cell-id=\\"c22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-cell-id=\\"c22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"c22001\\" data-node-cell-stop=\\"h1\\" data-cell-id=\\"c22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">reserved</span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"c22001\\" aria-label=\\"Configure: a\\" data-node-cell-start=\\"h1\\" data-cell-id=\\"c22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"c22001\\" data-cell-id=\\"c22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__cell__:c22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'as-is: Якорь: полная карточка running без gpuIndexes — as-is получает класс cpu-cell и чип 🧮 CPU; uptime в lifecycle-баре не передаётся никогда'),
+    # A model's default cell is no cell since 2026-11-07: the maker's numbers are the launch builder's set, and the controller
+    # retires the slots at its start. A mark an older controller left on a cell changes nothing on its card: it is removed and put
+    # on autostart as any stopped cell is.
+    ('cell_delete_old_default_mark_changes_nothing',
+     'const DEL = (h) => { const b = norm(h).match(/<button class="node-action-btn ([a-z]+)" type="button"([^>]*?)>✕/);'
+     ' return [b[1], (b[2].match(/title="([^"]*)"/) || [, ""])[1], /data-node-slot-del=/.test(b[2])]; };',
+     '[DEL(m.nodeServerCardHtml(node, mk({ phase: "stopped", defaultFor: "Zeta-GGUF" }))), DEL(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))]',
+     '[["del", "Remove cell", true], ["del", "Remove cell", true]]',
+     "positive: остановленную ячейку убрать можно; negative: старая метка дефолтной ячейки ничего не закрывает"),
+    ('cell_autostart_old_default_mark_changes_nothing',
+     'const BOOT = (h) => { const b = norm(h).match(/<button class="node-action-btn ([a-z]+)" type="button"([^>]*?)>↥/);'
+     ' return [b[1], (b[2].match(/title="([^"]*)"/) || [, ""])[1], /data-node-cell-boot=/.test(b[2])]; };',
+     '[BOOT(m.nodeServerCardHtml(node, mk({ phase: "stopped", bootSupported: true, defaultFor: "Zeta-GGUF" }))),'
+     ' BOOT(m.nodeServerCardHtml(node, mk({ phase: "stopped", bootSupported: true })))]',
+     '[["off", "Enable autostart on boot", true], ["off", "Enable autostart on boot", true]]',
+     "positive: переключатель автозапуска работает; negative: старая метка дефолтной ячейки его не закрывает"),
     ('card_cls_stopped_configured',
      'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1];',
      'CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
@@ -142,7 +164,7 @@ PINS = [
      'positive: phase stopped → класс configured-cell (не stopped: isConfiguredCell всегда истинен для stopped)'),
     ('card_cls_reserved',
      'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1];',
-     'CLS(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }))',
+     'CLS(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }))',
      '"node-server stopped reserved-cell"',
      'positive: phase reserved → классы stopped + reserved-cell (единственный путь к классу stopped)'),
     ('card_cls_error',
@@ -171,22 +193,22 @@ PINS = [
      '"node-server stopping"',
      'positive: _stoppingHosts содержит хост → класс stopping (cpu-cell не добавляется: running=false)'),
     ('card_cls_deleting',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._deletingSlots.add("h1:22001");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._deletingSlots.add("c22001");',
      'CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
      '"node-server deleting"',
      'positive: _deletingSlots содержит slotKey → класс deleting'),
     ('card_cls_new_reserved_flash',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._newReservedCells.add("h1:22001");',
-     'CLS(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }))',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._newReservedCells.add("c22001");',
+     'CLS(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }))',
      '"node-server stopped reserved-cell reserved-new"',
      'positive: _newReservedCells содержит slotKey → вспышка reserved-new'),
     ('card_cls_new_reserved_other_port_negative',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._newReservedCells.add("h1:22002");',
-     'CLS(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }))',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._newReservedCells.add("c22002");',
+     'CLS(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }))',
      '"node-server stopped reserved-cell"',
-     'negative: _newReservedCells с другим портом → без reserved-new'),
+     'negative: _newReservedCells с именем другой ячейки → без reserved-new'),
     ('card_cls_cell_stopping_keeps_running_class',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._stoppingCells.add("h1:22001");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._stoppingCells.add("c22001");',
      'CLS(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
      '"node-server running cpu-cell"',
      'as-is: as-is: остановка ЯЧЕЙКИ (_stoppingCells) меняет статус-строку, но класс article остаётся running (isStopping — только host-level)'),
@@ -223,8 +245,8 @@ PINS = [
     ('card_broken_row',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "broken", status: { error: "engine init failed" } })))',
-     '"<div class=\\"node-model-row2 model-status-line msl-err\\"><span class=\\"msl-err-icon\\" aria-hidden=\\"true\\">💔</span><span class=\\"msl-text\\" data-t=\\"cell-broken-error\\" data-t-id=\\"h1:22001\\" title=\\"engine init failed\\">failed: engine init failed</span></div>"',
-     'defect-history: 02578ac: broken → строка с 💔, data-t=cell-broken-error, data-t-id=h1:22001, текст «failed: <error>»'),
+     '"<div class=\\"node-model-row2 model-status-line msl-err\\"><span class=\\"msl-err-icon\\" aria-hidden=\\"true\\">💔</span><span class=\\"msl-text\\" data-t=\\"cell-broken-error\\" data-t-id=\\"c22001\\" title=\\"engine init failed\\">failed: engine init failed</span></div>"',
+     'defect-history: 02578ac: broken → строка с 💔, data-t=cell-broken-error, data-t-id=c22001, текст «failed: <error>»'),
     ('card_broken_row_cut_141',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "broken", status: { error: "x".repeat(141) } }))).match(/failed: (x*)(…?)<\\/span>/).slice(1)',
@@ -238,17 +260,17 @@ PINS = [
     ('card_broken_row_no_error_string',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "broken" })))',
-     '"<div class=\\"node-model-row2 model-status-line msl-err\\"><span class=\\"msl-err-icon\\" aria-hidden=\\"true\\">💔</span><span class=\\"msl-text\\" data-t=\\"cell-broken-error\\" data-t-id=\\"h1:22001\\" title=\\"\\">failed: </span></div>"',
+     '"<div class=\\"node-model-row2 model-status-line msl-err\\"><span class=\\"msl-err-icon\\" aria-hidden=\\"true\\">💔</span><span class=\\"msl-text\\" data-t=\\"cell-broken-error\\" data-t-id=\\"c22001\\" title=\\"\\">failed: </span></div>"',
      'as-is: as-is: broken без status.error рисует «failed: » с пустым хвостом и пустым title'),
     ('card_broken_controls_stop_not_start',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
      'CTRL(m.nodeServerCardHtml(node, mk({ phase: "broken", status: { error: "x" } })))',
-     '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
+     '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"c22001\\" data-node-cell-stop=\\"h1\\" data-cell-id=\\"c22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
      'defect-history: 02578ac: broken — процесс живой: Stop предлагается (cell-stop), Start и Delete заблокированы'),
     ('card_error_controls_start_not_stop',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
      'CTRL(m.nodeServerCardHtml(node, mk({ phase: "error" })))',
-     '"<button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" data-node-cell-model=\\"a\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
+     '"<button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"c22001\\" data-node-cell-launch=\\"h1\\" data-cell-id=\\"c22001\\" data-node-cell-runner=\\"llama-server\\" data-node-cell-model=\\"a\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"c22001\\" data-node-slot-del=\\"c22001\\" data-cell-id=\\"c22001\\" data-node-cell-model=\\"a\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
      'negative: контраст к broken: error ведёт себя как stopped — Start и Delete активны, Stop заблокирован'),
     ('card_broken_no_llama_err_block',
      'const ERRBLK = (h) => (norm(h).match(/<div class="topology-remote-unreachable llama-err-block".*?<\\/span> <\\/div>/) || [null])[0];',
@@ -289,7 +311,7 @@ PINS = [
      'const a = norm(m.nodeServerCardHtml(node, mk({ phase: "running", isSlot: false, isController: true, gpuIndexes: [0], clientIp: "10.9.9.9" })));'
      ' const b = norm(m.nodeServerCardHtml(node, mk({ phase: "running", isSlot: false, gpuIndexes: [0], clientIp: "10.9.9.9" })));',
      '[a === b, a.includes("data-node-ctrl-"), a.includes("topology-addr-link"), (a.match(/data-t-id="([^"]*)"/) || [])[1]]',
-     '[true,false,false,"h1:22001"]',
+     '[true,false,false,"c22001"]',
      'negative: флаг isController (ячейка контроллера до шага 6.9) больше ничего не меняет — та же карточка ячейки машины: без легаси-шапки с адресом и ✎/⏹, ключ по id узла'),
     ('card_stray_status_error_draws_nothing',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
@@ -307,30 +329,33 @@ PINS = [
      'null',
      'negative: status.error при phase running не рисуется (ветка только для isError)'),
     ('card_pending_start_turns_stopped_into_starting',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingCellActions.set("h1:22001", "start");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingCellActions.set("c22001", "start");',
      '[CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))]',
      '["node-server loading","<div class=\\"node-model-row2 model-status-line\\"><span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate\\"><span></span></span><span class=\\"msl-text\\" data-live-load>starting</span></div>"]',
      'defect-history: 87f5ea7: pending action start на stopped-ячейке → класс loading и строка «starting»'),
     ('card_pending_start_controls_all_busy',
-     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; rc._pendingCellActions.set("h1:22001", "start");',
+     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; rc._pendingCellActions.set("c22001", "start");',
      'CTRL(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
      '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
      'positive: pending start → isCellBusy: все четыре кнопки muted/disabled (нельзя нажать Start второй раз)'),
     ('card_pending_start_does_not_touch_error_phase',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingCellActions.set("h1:22001", "start");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingCellActions.set("c22001", "start");',
      '[CLS(m.nodeServerCardHtml(node, mk({ phase: "error" }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "error" })))]',
      '["node-server error",null]',
      'negative: pending start переводит в starting ТОЛЬКО rawPhase stopped — error остаётся error'),
     ('card_pending_stop_row_and_stop_spinner',
-     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingCellActions.set("h1:22001", "stop");',
+     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingCellActions.set("c22001", "stop");',
      '[ROW(m.nodeServerCardHtml(node, mk({ phase: "running" }))), CTRL(m.nodeServerCardHtml(node, mk({ phase: "running" })))]',
      '["<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>","<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Stopping…\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"]',
      'defect-history: 87f5ea7: pending action stop → строка STOPPING… и кнопка Stop со спиннером (disabled, title Stopping…)'),
-    ('card_pending_remote_start_host',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingRemoteStarts.set("h1", { port: 22001, phase: "starting" });',
-     '[CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))]',
-     '["node-server loading","<div class=\\"node-model-row2 model-status-line\\"><span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate\\"><span></span></span><span class=\\"msl-text\\" data-live-load>starting</span></div>"]',
-     'defect-history: d1256f3: _pendingRemoteStarts по хосту → stopped-ячейка клиента показывает starting'),
+    ('card_pending_start_is_the_cells',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
+     '[CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))),'
+     ' (rc._pendingCellActions.set("c22001", "start"), CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))),'
+     ' ROW(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))]',
+     '["node-server configured-cell","node-server loading","<div class=\\"node-model-row2 model-status-line\\"><span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate\\"><span></span></span><span class=\\"msl-text\\" data-live-load>starting</span></div>"]',
+     'defect-history (d1256f3, 2026-11-08): запись машины о «старте» (по хосту) больше не делает её стоящие ячейки стартующими — она держала '
+     'их все в starting, и её больше никто не ставит; стартующей стоящую ячейку делает её собственный старт (по её имени) — спиннер и «starting»'),
     # ── what the cell DOES, beside what runs it ──
     # ── the identity line: the name owns its own row ──
     ('card_name_owns_its_own_row',
@@ -397,33 +422,28 @@ PINS = [
      'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })))',
      '[]',
      'negative: командная ячейка, которая про себя не сказала — чипа НЕТ; выдуманная работа хуже неназванной'),
-    ('card_pending_remote_start_timed_out',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._pendingRemoteStarts.set("h1", { port: 22001, phase: "timeout" });',
-     'CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
-     '"node-server configured-cell"',
-     'negative: истёкшая запись НЕ делает остановленную ячейку стартующей — рисуется обычная настроенная ячейка — она живёт в карте до снятия оператором, и вопрос «есть запись?» держал бы хост в «starting» вечно'),
     ('card_pending_other_port_negative',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._pendingCellActions.set("h1:22002", "start");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._pendingCellActions.set("c22002", "start");',
      'CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
      '"node-server configured-cell"',
-     'negative: pending action на другом порту не затрагивает эту ячейку'),
+     'negative: pending action другой ячейки (по её имени) не затрагивает эту'),
     ('card_stopping_host_row',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingHosts.add("h1");',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
      '"<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>"',
      'positive: _stoppingHosts → строка msl-stop со спиннером и «STOPPING…»'),
     ('card_cell_stopping_row_and_ctrl',
-     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingCells.add("h1:22001");',
+     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingCells.add("c22001");',
      '[ROW(m.nodeServerCardHtml(node, mk({ phase: "running" }))), CTRL(m.nodeServerCardHtml(node, mk({ phase: "running" })))]',
      '["<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>","<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Stopping…\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"]',
-     'positive: _stoppingCells с ключом host:port → строка STOPPING… и Stop-кнопка со спиннером'),
+     'positive: _stoppingCells с именем ячейки (cellId) → строка STOPPING… и Stop-кнопка со спиннером'),
     ('card_cell_stopping_requires_isSlot',
-     'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingCells.add("h1:22001");',
+     'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingCells.add("c22001");',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "running", isSlot: false })))',
      'null',
      'negative: _stoppingCells учитывается в статус-строке только при s.isSlot (isSlot:false → строки нет)'),
     ('card_deleting_row_and_ctrl',
-     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._deletingSlots.add("h1:22001");',
+     'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._deletingSlots.add("c22001");',
      '[ROW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))), CTRL(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))]',
      '["<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">Removing…</span></div>","<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Removing…\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"nab-lbl\\">Delete</span></button>"]',
      'positive: _deletingSlots → строка «Removing…» и Delete-кнопка со спиннером; Start заблокирован'),
@@ -512,7 +532,7 @@ PINS = [
      '[null,null]',
      'negative: stopped и running без pending/stopping-сетов — статус-строки нет'),
     ('card_prec_deleting_row_over_stopping_but_class_stopping',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._deletingSlots.add("h1:22001"); rc._stoppingHosts.add("h1");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._deletingSlots.add("c22001"); rc._stoppingHosts.add("h1");',
      '[CLS(m.nodeServerCardHtml(node, mk({ phase: "running" }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "running" })))]',
      '["node-server stopping","<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">Removing…</span></div>"]',
      'as-is: as-is расхождение приоритетов: deleting+stopping → строка говорит «Removing…» (isDeleting первее), а класс article — «stopping» (isStopping первее)'),
@@ -522,30 +542,30 @@ PINS = [
      '"<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>"',
      'positive: приоритет: stopping побеждает downloading (rawPhase становится stopping)'),
     ('card_prec_cell_stopping_over_broken',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingCells.add("h1:22001");',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._stoppingCells.add("c22001");',
      '[CLS(m.nodeServerCardHtml(node, mk({ phase: "broken", status: { error: "x" } }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "broken", status: { error: "x" } })))]',
      '["node-server error","<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>"]',
      'positive: приоритет строки: cell-stopping побеждает broken (💔 не рисуется), класс остаётся error'),
-    ('card_lc_reserved_idx0_port_btn',
+    ('card_lc_reserved_idx0',
      'const LC = (h) => (norm(h).match(/class="lc-node[^"]*"/g) || []).map((x) => x.slice(7, -1));',
-     'LC(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }))',
-     '["lc-node lc-port-btn active lc-reserved","lc-node lc-cfg-btn future lc-future","lc-node future lc-future","lc-node future lc-future"]',
-     'positive: reserved: lcIdx 0 — шаг reserved активен и является кнопкой смены порта, configure — кнопка future'),
+     'LC(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }))',
+     '["lc-node active lc-reserved","lc-node lc-cfg-btn future lc-future","lc-node future lc-future","lc-node future lc-future"]',
+     'positive: reserved: lcIdx 0 — шаг reserved активен; кнопкой смены порта он больше не бывает (2026-11-08: порт у ячейки только на прогон), configure — кнопка future'),
     ('card_lc_stopped_idx1',
      'const LC = (h) => (norm(h).match(/class="lc-node[^"]*"/g) || []).map((x) => x.slice(7, -1));',
      'LC(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
-     '["lc-node lc-port-btn done lc-done","lc-node lc-cfg-btn active lc-configured","lc-node future lc-future","lc-node future lc-future"]',
-     'positive: stopped: lcIdx 1 — configured активен (lc-configured), порт-кнопка done'),
+     '["lc-node done lc-done","lc-node lc-cfg-btn active lc-configured","lc-node future lc-future","lc-node future lc-future"]',
+     'positive: stopped: lcIdx 1 — configured активен (lc-configured), reserved — пройденный шаг'),
     ('card_lc_error_idx1',
      'const LC = (h) => (norm(h).match(/class="lc-node[^"]*"/g) || []).map((x) => x.slice(7, -1));',
      'LC(m.nodeServerCardHtml(node, mk({ phase: "error" })))',
-     '["lc-node lc-port-btn done lc-done","lc-node lc-cfg-btn active lc-error","lc-node future lc-future","lc-node future lc-future"]',
+     '["lc-node done lc-done","lc-node lc-cfg-btn active lc-error","lc-node future lc-future","lc-node future lc-future"]',
      'positive: error: lcIdx 1, активный шаг configured окрашен lc-error'),
     ('card_lc_starting_idx2_no_cfg_no_port_btn',
      'const LC = (h) => (norm(h).match(/class="lc-node[^"]*"/g) || []).map((x) => x.slice(7, -1));',
      'LC(m.nodeServerCardHtml(node, mk({ phase: "starting" })))',
      '["lc-node done lc-done","lc-node done lc-done lc-cfg-live lc-cfg-starting","lc-node active lc-loading","lc-node future lc-future"]',
-     'positive: starting: lcIdx 2 — configured пульсирует (lc-cfg-starting), ⚙ и порт-кнопка НЕ кнопки (canConfigure/canReassign false)'),
+     'positive: starting: lcIdx 2 — configured пульсирует (lc-cfg-starting), ⚙ не кнопка (canConfigure false); кнопки порта нет вовсе'),
     ('card_lc_running_idx3',
      'const LC = (h) => (norm(h).match(/class="lc-node[^"]*"/g) || []).map((x) => x.slice(7, -1));',
      'LC(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
@@ -561,20 +581,21 @@ PINS = [
      'LC(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
      '["lc-node done lc-done","lc-node lc-cfg-btn done lc-done lc-cfg-live","lc-node done lc-done","lc-node active lc-stopping"]',
      'positive: stopping: lcIdx 3, активный шаг окрашен lc-stopping'),
-    ('card_lc_port_btn_absent_when_running',
+    ('card_lc_no_port_step',
      '',
-     '[norm(m.nodeServerCardHtml(node, mk({ phase: "running" }))).includes("data-cell-port-reassign"), norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))).includes("data-cell-port-reassign")]',
-     '[false,true]',
-     'negative: кнопка смены порта: нет у running, есть у stopped'),
+     '["running", "stopped", "reserved", "error"].map((ph) => (h => h.includes("data-cell-port-reassign") || h.includes("lc-port") || h.includes(":22001"))(norm(m.nodeServerCardHtml(node, mk({ phase: ph })))))',
+     '[false,false,false,false]',
+     'negative (2026-11-08): ни в одном состоянии нет ни кнопки смены порта, ни «:22001» на шаге reserved — ячейка держит порт только '
+     'на прогон, а переносить её на другой нечего (до 2026-11-08 у стоящей шаг был кнопкой порта)'),
     ('card_ctrl_reserved',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
-     'CTRL(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }))',
-     '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Configure first\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
+     'CTRL(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }))',
+     '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Configure first\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"c22001\\" data-node-slot-del=\\"c22001\\" data-cell-id=\\"c22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
      'positive: reserved: Start заблокирован с title «Configure first», Delete активен'),
     ('card_ctrl_starting',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
      'CTRL(m.nodeServerCardHtml(node, mk({ phase: "starting" })))',
-     '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
+     '"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"c22001\\" data-node-cell-stop=\\"h1\\" data-cell-id=\\"c22001\\" data-node-cell-model=\\"a\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart needs scout 2.4 or newer on this machine\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"',
      'positive: starting (без pending-сета): Stop активен, Start/Delete заблокированы'),
     ('card_ctrl_runner_from_cfg_vllm',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
@@ -598,18 +619,18 @@ PINS = [
      'negative: ячейка скаута старше 2.4 (bootSupported не сказан): автостарт muted, title говорит, что нужно, bootEnabled игнорируется (глиф ↥)'),
     ('card_ctrl_scout_boot_on',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
-     'CTRL(m.nodeServerCardHtml(node, mk({ phase: "stopped", bootSupported: true, bootEnabled: true }))).match(/<button class="node-action-btn (\\w+)" type="button"\\s+data-node-cell-boot="([^"]*)" data-node-cell-port="(\\d+)" data-node-cell-boot-action="(\\w+)"\\s+title="([^"]*)">(.)/).slice(1)',
-     '["ok","h1","22001","disable","Disable autostart on boot","↟"]',
+     'CTRL(m.nodeServerCardHtml(node, mk({ phase: "stopped", bootSupported: true, bootEnabled: true }))).match(/<button class="node-action-btn (\\w+)" type="button"\\s+data-node-cell-boot="([^"]*)" data-cell-id="([^"]*)" data-node-cell-boot-action="(\\w+)"\\s+title="([^"]*)">(.)/).slice(1)',
+     '["ok","h1","c22001","disable","Disable autostart on boot","↟"]',
      'ячейка скаута 2.4+ с автозапуском: «ok», кликабельна, action disable, глиф ↟ — как у ячейки контроллера'),
     ('card_ctrl_failed_cell_boot_can_be_taken_off',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
-     'CTRL(m.nodeServerCardHtml(node, mk({ phase: "error", bootSupported: true, bootEnabled: true }))).match(/<button class="node-action-btn (\\w+)" type="button"\\s+data-node-cell-boot="([^"]*)" data-node-cell-port="(\\d+)" data-node-cell-boot-action="(\\w+)"\\s+title="([^"]*)">(.)/).slice(1)',
-     '["ok","h1","22001","disable","Disable autostart on boot","↟"]',
+     'CTRL(m.nodeServerCardHtml(node, mk({ phase: "error", bootSupported: true, bootEnabled: true }))).match(/<button class="node-action-btn (\\w+)" type="button"\\s+data-node-cell-boot="([^"]*)" data-cell-id="([^"]*)" data-node-cell-boot-action="(\\w+)"\\s+title="([^"]*)">(.)/).slice(1)',
+     '["ok","h1","c22001","disable","Disable autostart on boot","↟"]',
      'ячейка, которая не запустилась, с автозапуском: переключатель есть, иначе галку не снять и она запустится при следующей загрузке машины (2026-11-01)'),
     ('card_ctrl_scout_boot_off',
      'const CTRL = (h) => (norm(h).match(/<div class="node-ctrl-row"> (.*?) <\\/div>/) || [null, null])[1];',
-     'CTRL(m.nodeServerCardHtml(node, mk({ phase: "stopped", bootSupported: true, bootEnabled: false }))).match(/<button class="node-action-btn (\\w+)" type="button"\\s+data-node-cell-boot="([^"]*)" data-node-cell-port="(\\d+)" data-node-cell-boot-action="(\\w+)"/).slice(1)',
-     '["off","h1","22001","enable"]',
+     'CTRL(m.nodeServerCardHtml(node, mk({ phase: "stopped", bootSupported: true, bootEnabled: false }))).match(/<button class="node-action-btn (\\w+)" type="button"\\s+data-node-cell-boot="([^"]*)" data-cell-id="([^"]*)" data-node-cell-boot-action="(\\w+)"/).slice(1)',
+     '["off","h1","c22001","enable"]',
      'ячейка скаута 2.4+ без автозапуска: «off», кликабельна, action enable'),
     ('card_vram_claim_running',
      '',
@@ -623,34 +644,34 @@ PINS = [
      'negative: stopped даже с gpuMem — атрибута data-cell-vram нет'),
     ('card_progress_panel_bare_starting',
      '',
-     '(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "starting" })).match(/<div class="topology-runtime-panel node-progress-panel">.*?<\\/div><\\/div>/) || [null])[0]',
+     '(norm(m.nodeServerCardHtml(node, { cellId: "c22001", port: 22001, isSlot: true, phase: "starting" })).match(/<div class="topology-runtime-panel node-progress-panel">.*?<\\/div><\\/div>/) || [null])[0]',
      '"<div class=\\"topology-runtime-panel node-progress-panel\\"><div class=\\"node-model-row2 model-status-line\\"><span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate\\"><span></span></span><span class=\\"msl-text\\" data-live-load>starting</span></div></div>"',
      'positive: ячейка без модели/команды (нет bodyBlock) при starting → статус-строка падает в node-progress-panel под карточкой'),
     ('card_cell_stopping_no_isSlot_row_null_but_stop_spinner_asis',
-     'rc._stoppingCells.add("h1:22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "running", isSlot: false }));',
+     'rc._stoppingCells.add("c22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "running", isSlot: false }));',
      '[norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/)?.[0] ?? null, norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/)[1].split("</button>")[1] + "</button>"]',
      '[null,"<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Stopping…\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"nab-lbl\\">Stop</span></button>"]',
      "as-is: AS-IS: isSlot:false + _stoppingCells → строка статуса null (line 255 требует isSlot), но кнопка Stop уже крутит спиннер (line 591 без guard'а)"),
     ('card_cell_stopping_isSlot_row_and_stop_spinner_agree',
-     'rc._stoppingCells.add("h1:22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "running" }));',
+     'rc._stoppingCells.add("c22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "running" }));',
      '[norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/)?.[0] ?? null, norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/)[1].split("</button>")[1] + "</button>"]',
      '["<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>","<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Stopping…\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"nab-lbl\\">Stop</span></button>"]',
      'negative: isSlot:true + _stoppingCells → строка STOPPING… и спиннер на Stop согласованы (контраст к as-is без isSlot)'),
     ('card_lc_pending_start_no_cfg_no_port_btn',
-     'rc._pendingCellActions.set("h1:22001", "start"); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
+     'rc._pendingCellActions.set("c22001", "start"); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      '[...norm(h).matchAll(/class="(lc-node[^"]*)"/g)].map((x) => x[1])',
      '["lc-node done lc-done","lc-node done lc-done lc-cfg-live lc-cfg-starting","lc-node active lc-loading","lc-node future lc-future"]',
      'positive: Ожидающий start (pendingCellActions) → лайфцикл starting (idx 2), configured пульсирует, ни lc-cfg-btn, ни lc-port-btn'),
     ('card_lc_deleting_idx1_configured_not_a_button',
-     'rc._deletingSlots.add("h1:22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
+     'rc._deletingSlots.add("c22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      '[...norm(h).matchAll(/class="(lc-node[^"]*)"/g)].map((x) => x[1])',
      '["lc-node done lc-done","lc-node active lc-configured","lc-node future lc-future","lc-node future lc-future"]',
      'positive: Удаление остановленной ячейки: lcIdx остаётся 1, шаг configured активен, но НЕ кнопка (canConfigure/canReassign false)'),
-    ('card_lc_stopped_not_deleting_has_both_buttons',
+    ('card_lc_stopped_not_deleting_has_cfg_button',
      'const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      '[...norm(h).matchAll(/class="(lc-node[^"]*)"/g)].map((x) => x[1])',
-     '["lc-node lc-port-btn done lc-done","lc-node lc-cfg-btn active lc-configured","lc-node future lc-future","lc-node future lc-future"]',
-     'negative: Остановленная ячейка без удаления → оба шага-кнопки (порт и конфиг) на месте'),
+     '["lc-node done lc-done","lc-node lc-cfg-btn active lc-configured","lc-node future lc-future","lc-node future lc-future"]',
+     'negative: остановленная ячейка без удаления → шаг-кнопка конфигурации на месте; шаг reserved — просто шаг, не кнопка порта'),
     ('card_starting_prev_err_chip_port',
      'const h = m.nodeServerCardHtml(node, mk({ phase: "starting", status: { lastError: { kind: "port" } } }));',
      'norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/)[0]',
@@ -687,7 +708,7 @@ PINS = [
      '["node-server loading","starting","loading"]',
      'as-is: AS-IS: любая неизвестная фаза ("foo") → класс loading, строка «starting», handle loading — неизвестное рисуется как «загружается»'),
     ('card_cls_deleting_over_running_cpu_cell',
-     'rc._deletingSlots.add("h1:22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "running" }));',
+     'rc._deletingSlots.add("c22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "running" }));',
      'norm(h).match(/<article class="([^"]*)"/)[1]',
      '"node-server deleting cpu-cell"',
      'positive: Прецедент класса: deleting побеждает running; cpu-cell всё равно добавлен (running без GPU)'),
@@ -697,49 +718,37 @@ PINS = [
      '"node-server running cpu-cell"',
      'negative: Без _deletingSlots тот же running даёт класс running cpu-cell'),
     ('card_deleting_reserved_cls_row_in_empty_block_lc_no_buttons',
-     'rc._deletingSlots.add("h1:22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} })); const n = norm(h);',
+     'rc._deletingSlots.add("c22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} })); const n = norm(h);',
      '[n.match(/<article class="([^"]*)"/)[1], n.match(/<div class="node-model-block node-model-block-empty">.*?<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/)?.[0] ?? null, [...n.matchAll(/class="(lc-node[^"]*)"/g)].map((x) => x[1])]',
-     '["node-server deleting reserved-cell", "<div class=\\"node-model-block node-model-block-empty\\"> <div class=\\"node-model-ident\\"> <svg class=\\"model-ico\\" viewBox=\\"0 0 24 24\\" aria-hidden=\\"true\\"><rect x=\\"6\\" y=\\"6\\" width=\\"12\\" height=\\"12\\" rx=\\"2\\"/><path d=\\"M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2\\"/></svg> <strong class=\\"node-model-name\\"><span>:22001</span></strong> <span class=\\"node-reserved-tag\\">Reserved cell</span> </div> <div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">Removing…</span></div>", ["lc-node active lc-reserved", "lc-node future lc-future", "lc-node future lc-future", "lc-node future lc-future"]]',
-     'positive: Удаление зарезервированной ячейки: класс deleting reserved-cell, строка Removing… внутри node-model-block-empty, лайфцикл теряет и port-, и cfg-кнопку'),
-    ('card_reserved_not_deleting_no_row_lc_port_btn_negative',
+     '["node-server deleting reserved-cell", "<div class=\\"node-model-block node-model-block-empty\\"> <div class=\\"node-model-ident\\"> <svg class=\\"model-ico\\" viewBox=\\"0 0 24 24\\" aria-hidden=\\"true\\"><rect x=\\"6\\" y=\\"6\\" width=\\"12\\" height=\\"12\\" rx=\\"2\\"/><path d=\\"M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2\\"/></svg> <strong class=\\"node-model-name\\"><span>c22001</span></strong> <span class=\\"node-reserved-tag\\">Reserved cell</span> </div> <div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">Removing…</span></div>", ["lc-node active lc-reserved", "lc-node future lc-future", "lc-node future lc-future", "lc-node future lc-future"]]',
+     'positive: Удаление зарезервированной ячейки: класс deleting reserved-cell, строка Removing… внутри node-model-block-empty, лайфцикл теряет cfg-кнопку; имя пустой ячейки — её id, не «:22001»'),
+    ('card_reserved_not_deleting_no_row_lc_cfg_negative',
      'const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} })); const n = norm(h);',
      '[n.match(/<article class="([^"]*)"/)[1], n.includes("model-status-line"), [...n.matchAll(/class="(lc-node[^"]*)"/g)].map((x) => x[1])]',
-     '["node-server stopped reserved-cell",false,["lc-node lc-port-btn active lc-reserved","lc-node lc-cfg-btn future lc-future","lc-node future lc-future","lc-node future lc-future"]]',
-     'negative: Зарезервированная без удаления: класс stopped reserved-cell, строки статуса нет, обе кнопки лайфцикла на месте'),
+     '["node-server stopped reserved-cell",false,["lc-node active lc-reserved","lc-node lc-cfg-btn future lc-future","lc-node future lc-future","lc-node future lc-future"]]',
+     'negative: зарезервированная без удаления: класс stopped reserved-cell, строки статуса нет, кнопка конфигурации на месте'),
     ('card_note_block_escaped',
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "h1:22001": "a <b> note" } }); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "c22001": "a <b> note" } }); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      'norm(h).match(/<div class="node-server-note"[^>]*>.*?<\\/div>/)?.[0] ?? null',
      '"<div class=\\"node-server-note\\" title=\\"a &lt;b&gt; note\\">💬 a &lt;b&gt; note</div>"',
      'positive: Заметка ячейки из topology.cellNotes[slotKey] рисуется блоком 💬 с экранированием в title и тексте'),
     ('card_note_block_absent_negative',
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "h1:22002": "other port" } }); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "c22002": "other port" } }); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      'norm(h).includes("node-server-note")',
      'false',
-     'negative: Заметка на другом порту (h1:22002) не попадает на карточку h1:22001'),
-    ('card_unreachable_running_blocked_ufw_cmd',
+     'negative: заметка другой ячейки (c22002) не попадает на карточку c22001'),
+    # Step 7 of the owner's plan (2026-11-08): a cell listens on its machine's loopback and the controller reaches it through the
+    # scout's door, so a card says nothing of the cell's own port. The words a board of before carried draw nothing.
+    ('card_says_no_port_unreachable',
      'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], server: { ip: "10.0.0.20" }, cellPortRange: { from: 22001, to: 22999 } }); const h = m.nodeServerCardHtml(node, mk({ phase: "running", reachable: false, firewall: { state: "blocked" } })); st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [] });',
-     'norm(h).match(/<div class="topology-remote-unreachable">.*?<\\/div>/)?.[0] ?? null',
-     '"<div class=\\"topology-remote-unreachable\\"> <span>⚠ port unreachable from server — open the host firewall for this port</span> <code class=\\"firewall-cmd\\" title=\\"Run on Host\\">sudo ufw allow from 10.0.0.20 to any port 22001:22999 proto tcp</code> </div>"',
-     'positive: running + reachable false + firewall blocked → блок недостижимости с командой ufw и «Run on <node.name>»'),
-    ('card_unreachable_running_no_firewall_no_code',
-     'const h = m.nodeServerCardHtml(node, mk({ phase: "running", reachable: false }));',
-     'norm(h).match(/<div class="topology-remote-unreachable">.*?<\\/div>/)?.[0] ?? null',
-     '"<div class=\\"topology-remote-unreachable\\"> <span>⚠ port unreachable from server — open the host firewall for this port</span> </div>"',
-     'positive: running + reachable false без firewall → тот же блок без <code>'),
-    ('card_unreachable_stopped_negative',
-     'const h = m.nodeServerCardHtml(node, mk({ phase: "stopped", reachable: false, firewall: { state: "blocked" } }));',
-     'norm(h).includes("topology-remote-unreachable")',
-     'false',
-     'negative: stopped + reachable false → блока недостижимости нет (только для running)'),
-    ('card_unreachable_running_reachable_undefined_negative',
-     'const h = m.nodeServerCardHtml(node, mk({ phase: "running" }));',
-     'norm(h).includes("topology-remote-unreachable")',
-     'false',
-     'negative: running без поля reachable (undefined ≠ false) → блока нет — строгое сравнение === false'),
+     '[norm(h).includes("topology-remote-unreachable\\">"), norm(h).includes("ufw"), norm(h).includes("firewall-cmd"), norm(h).includes("unreachable from server")]',
+     '[false,false,false,false]',
+     'negative (2026-11-08): работает, reachable=false, blocked — блока недостижимости и команды ufw нет: ячейка слушает петлю своей '
+     'машины, контроллер доходит до неё через скаут; до шага 7 карточка просила открыть контроллеру диапазон ячеек'),
     ('card_broken_object_body_object_Object_asis',
      'const h = m.nodeServerCardHtml(node, mk({ phase: "broken", status: { error: { kind: "oom" } } }));',
      'norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/)[0]',
-     '"<div class=\\"node-model-row2 model-status-line msl-err\\"><span class=\\"msl-err-icon\\" aria-hidden=\\"true\\">💔</span><span class=\\"msl-text\\" data-t=\\"cell-broken-error\\" data-t-id=\\"h1:22001\\" title=\\"[object Object]\\">failed: [object Object]</span></div>"',
+     '"<div class=\\"node-model-row2 model-status-line msl-err\\"><span class=\\"msl-err-icon\\" aria-hidden=\\"true\\">💔</span><span class=\\"msl-text\\" data-t=\\"cell-broken-error\\" data-t-id=\\"c22001\\" title=\\"[object Object]\\">failed: [object Object]</span></div>"',
      'as-is: AS-IS зеркало: phase broken со status.error-ОБЪЕКТОМ → String(obj) → «failed: [object Object]» в тексте и title'),
     ('card_loading_row_no_progress_note',
      'const h = m.nodeServerCardHtml(node, mk({ phase: "loading", status: {} }));',
@@ -772,7 +781,7 @@ PINS = [
      '"running"',
      'negative: healthCls running → «running» (контраст к пустым error/reserved)'),
     ('card_pending_start_reserved_not_promoted',
-     'rc._pendingCellActions.set("h1:22001", "start"); const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} }));',
+     'rc._pendingCellActions.set("c22001", "start"); const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} }));',
      '[norm(h).match(/<article class="([^"]*)"/)[1], norm(h).includes("model-status-line")]',
      '["node-server stopped reserved-cell",false]',
      'negative: Ожидающий start НЕ повышает reserved до starting (только rawPhase==="stopped") — класс stopped reserved-cell, строки нет'),
@@ -1161,12 +1170,24 @@ PINS = [
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ specDraft: "draft.gguf" })));',
      'h.includes(\'<span class="mbadge mbadge-mtp">⚡ mtp</span>\')',
      'true',
-     'positive: любой непустой s.specDraft даёт чип ⚡ mtp независимо от specType'),
+     'positive: файл черновика без типа сборщик грузит по типу самого файла — чип ⚡ mtp'),
+    # The chip says what the start does, by the builder's rule (cell-plan.js CellDraft.drafts, 2026-11-07).
+    ('mtp_chip_follows_the_start',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }], artifacts: [], models: [], paths: {} });',
+     '(() => { const chip = (o) => norm(m.nodeServerCardHtml(node, mk(o))).includes(\'<span class="mbadge mbadge-mtp">⚡ mtp</span>\');'
+     ' const file = "m/mtp-q.gguf";'
+     ' return [chip({ specType: "draft-dflash", specDraft: "/home/caravan/llama.cpp/models/m/dflash-x.gguf" }),'
+     ' chip({ specType: "none", specDraft: file }), chip({ specType: "ngram-mod", specDraft: file }),'
+     ' chip({ specType: "draft-mtp", specDraft: file, slotConfig: { ENABLE_EMBEDDINGS: "1" } })]; })()',
+     '[true,false,false,false]',
+     'positive: работающая ячейка с черновиком DFlash — чип; negative (дефект 2026-11-07): выключенная спекуляция (none) при '
+     'названном файле — чипа нет, раньше любой файл его зажигал; ngram-* черновика не грузит; ячейка эмбеддингов не спекулирует'),
     ('mtp_builtin_model_path',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "qwen3.6-27b-mtp/x.gguf" })));',
      'h.includes(\'<span class="mbadge mbadge-mtp">⚡ mtp</span>\')',
-     'true',
-     'positive: встроенный MTP: компонент пути с суффиксом -mtp/ → чип ⚡ mtp'),
+     'false',
+     'negative (2026-11-07): -mtp в пути модели говорит, что модель умеет, а не что ячейка запускает: без draft-mtp сборщик '
+     'головы не просит, и чипа нет (раньше был — по имени)'),
     ('mtp_builtin_suffix_mtpx_none',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "qwen-mtpx.gguf" })));',
      'h.includes(\'<span class="mbadge mbadge-mtp">⚡ mtp</span>\')',
@@ -1303,12 +1324,6 @@ PINS = [
      '(h.match(/<span class="node-fw-badge[^>]*>[^<]*<\\/span>/) || [])[0] ?? null',
      'null',
      'negative: слот-карточка firewall-бэйдж не рисует (он только в заголовке легаси-ветки)'),
-    ('fw_unreachable_blocked_ufw_cmd',
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], server: { ip: "10.0.0.20" }, cellPortRange: { from: 22001, to: 22999 } }); const h = norm(m.nodeServerCardHtml(node, mk({ phase: "running", reachable: false, firewall: { state: "blocked" } }))); st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [] });',
-     '(h.match(/<code class="firewall-cmd" title="([^"]*)">([^<]*)<\\/code>/) || []).slice(1, 3)',
-     '["Run on Host","sudo ufw allow from 10.0.0.20 to any port 22001:22999 proto tcp"]',
-     'positive (1.3.656, шаг 4, вариант Б): работает, reachable=false, blocked → команда пустить контроллер — только его — на весь диапазон ячеек, '
-     'title «Run on <node.name>»; до 1.3.656 — «sudo ufw allow <port>», порт открывался всем'),
     ('sched_enabled',
      'const h = norm(m.nodeServerCardHtml(node, mk({ schedule: { enabled: true, start: "08:00", stop: "20:00" } })));',
      '(h.match(/<span class="mbadge mbadge-sched"[^>]*>([^<]*)<\\/span>/) || [])[1] ?? null',
@@ -1332,17 +1347,17 @@ PINS = [
     ('vllm_stats_running_waiting_tps',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", phase: "running", vllmStats: { requestsRunning: 2, requestsWaiting: 3, genTps: 45.678 }, slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 2 ⏳3</span><span class=\\"mbadge mbadge-bench\\">45.68 t/s</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
-     'positive: vLLM работает: тот же порядок ряда, дальше свои чипы — ▶ 2 ⏳3, 45.68 t/s, ❤ /v1/models, :port (и 🧮 CPU, т.к. VRAM не замерена)'),
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 2 ⏳3</span><span class=\\"mbadge mbadge-bench\\">45.68 t/s</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span>"',
+     'positive: vLLM работает: тот же порядок ряда, дальше свои чипы — ▶ 2 ⏳3, 45.68 t/s, ❤ /v1/models (и 🧮 CPU, т.к. VRAM не замерена); чипа «:22001» нет — порт ячейки не на экране'),
     ('vllm_stats_no_waiting_no_tps',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", phase: "running", vllmStats: { requestsRunning: 0, requestsWaiting: 0, genTps: null }, slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 0</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"unknown\\" title=\\"Not told: this machine&#39;s scout (before 2.35), its card reading or the engine does not report it. A dash, not a zero — a zero would say the cell holds none.\\">RAM —</span><span class=\\"mbadge mbadge-mem-zero\\" data-t=\\"cell-gpu\\" data-t-state=\\"none\\" title=\\"VRAM held by this cell&#39;s processes (live)\\">GPU 0</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 0</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span>"',
      'negative: requestsWaiting=0 → без ⏳; genTps=null → без t/s-чипа'),
     ('vllm_no_stats_stopped_row',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B", MAX_MODEL_LEN: "32768" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">🪟 32.8k</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">🪟 32.8k</span>"',
      'positive: остановленный vLLM: ⚡ GPU по умолчанию, MAX_MODEL_LEN → 🪟 32.8k, без stats-чипов'),
     ('vllm_name_hf_repo_last',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
@@ -1452,13 +1467,13 @@ PINS = [
     ('cmd_health_path_chip',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "exec python srv.py", HEALTH_PATH: "/healthz" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-cmd\\">❤ /healthz</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
-     'positive: command-ячейка с HEALTH_PATH → чип ❤ /healthz между устройством и :port, в том же общем порядке ряда'),
+     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-cmd\\">❤ /healthz</span>"',
+     'positive: command-ячейка с HEALTH_PATH → чип ❤ /healthz после устройства, в том же общем порядке ряда; чипа порта нет'),
     ('cmd_no_health_path',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
-     'negative: без HEALTH_PATH — только ⚙ auto и :port'),
+     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-ram\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">RAM —</span><span class=\\"mbadge mbadge-mem-unknown\\" data-t=\\"cell-gpu\\" data-t-state=\\"idle\\" title=\\"Not running: it holds nothing now, and nothing says how much it will.\\">GPU —</span>"',
+     'negative: без HEALTH_PATH — только ⚙ auto; и чипа порта нет'),
     ('cmd_name_strips_exec',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "  exec python srv.py --x" } })));',
      'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
@@ -1890,21 +1905,17 @@ PINS = [
      'norm(m.serverLifecycleBar(2, "loading", "<b>")).match(/<span class="lc-uptime">([^<]*)<\\/span>/)[1]',
      '"&lt;b&gt;"',
      'positive: serverLifecycleBar экранирует uptimeTxt'),
-    ('lc_reserved_port_replaces_dot',
+    ('lc_old_port_arguments_draw_nothing',
      '',
-     'norm(m.serverLifecycleBar(0, "stopped", "", "", 22001)).match(/<span class="lc-node active lc-stopped">(.*?)<\\/span><span class="lc-rail/)[1]',
-     '"<span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span>"',
-     'positive: serverLifecycleBar reservedPort на шаге 0: точка lc-dot убрана, лейбл несёт :22001'),
+     "(() => { const a = norm(m.serverLifecycleBar(0, \"stopped\", \"\", \"\", 22001, 'data-p=\"1\"')); return [a === norm(m.serverLifecycleBar(0, \"stopped\", \"\", \"\")), a.includes(\"22001\"), a.includes(\"lc-port\"), a.includes(\"data-p\"), a.includes('<span class=\"lc-dot\"></span><span class=\"lc-lbl\">reserved</span>')]; })()",
+     '[true,false,false,false,true]',
+     'negative (2026-11-08): бар больше не берёт порта — старые пятый и шестой аргументы (порт и атрибуты кнопки порта) ничего не рисуют: '
+     'ни «:22001», ни lc-port, ни кнопки; у шага reserved, как у всех, своя точка'),
     ('lc_reserved_no_port_keeps_dot',
      '',
      'norm(m.serverLifecycleBar(0, "stopped")).match(/<span class="lc-node active lc-stopped">(.*?)<\\/span><span class="lc-rail/)[1]',
      '"<span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">reserved</span>"',
      'negative: serverLifecycleBar без reservedPort: точка lc-dot на месте, lc-port нет'),
-    ('lc_reserved_port_escaped',
-     '',
-     'norm(m.serverLifecycleBar(0, "stopped", "", "", \'"<x>\')).match(/<span class="lc-port">([^<]*)<\\/span>/)[1]',
-     '":&quot;&lt;x&gt;"',
-     'positive: serverLifecycleBar экранирует reservedPort'),
     ('lc_cfg_button',
      '',
      'norm(m.serverLifecycleBar(1, "stopped", "", \'data-x="1"\')).match(/<button[^>]*lc-cfg-btn[^>]*>/)[0]',
@@ -1914,17 +1925,12 @@ PINS = [
      '',
      'norm(m.serverLifecycleBar(1, "stopped")).includes("<button")',
      'false',
-     'negative: serverLifecycleBar без cfgAttrs/portAttrs: кнопок нет вообще'),
-    ('lc_port_button',
-     '',
-     'norm(m.serverLifecycleBar(0, "stopped", "", "", 22001, \'data-p="1"\')).match(/<button[^>]*lc-port-btn[^>]*>.*?<\\/button>/)[0]',
-     '"<button class=\\"lc-node lc-port-btn active lc-stopped\\" type=\\"button\\" data-p=\\"1\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button>"',
-     "positive: serverLifecycleBar portAttrs: шаг 0 становится кнопкой lc-port-btn с title «Change the cell's port» (апостроф экранирован)"),
+     'negative: serverLifecycleBar без cfgAttrs: кнопок нет вообще'),
     ('lc_port_button_absent',
      '',
      'norm(m.serverLifecycleBar(0, "stopped", "", "", 22001)).includes("lc-port-btn")',
      'false',
-     'negative: serverLifecycleBar: reservedPort без portAttrs → кнопки lc-port-btn нет'),
+     'negative: serverLifecycleBar: порт, переданный по-старому, кнопки lc-port-btn не делает'),
     ('lc_cfg_live_pulsing_at_2',
      'const lcNodes = (h) => [...norm(h).matchAll(/<(span|button) class="lc-node ([^"]*)"/g)].map((x) => x[2]);',
      'lcNodes(m.serverLifecycleBar(2, "loading"))[1]',
@@ -1967,9 +1973,11 @@ PINS = [
      'boundary: serverLifecycleBar lcIdx=4 (за пределом): все done, активной точки нет'),
     ('gpu_full',
      '',
-     'norm(m.nodeGpuRowHtml(node, { index: 0, name: "RTX 3090", memoryTotalMiB: 24576, memoryUsedMiB: 12288, utilizationGpuPct: 42, temperatureC: 61, powerDrawW: 210, serverPorts: [22001, null, 22002] }))',
-     '"<div class=\\"node-gpu-row\\" data-gpu-row=\\"h1:0\\"> <div class=\\"node-gpu-head\\"> <strong>GPU 0</strong> <span class=\\"node-gpu-name\\">RTX 3090</span> <span class=\\"node-gpu-util\\" data-live-gpuutil>42% · 61°C · 210W</span> </div> <div class=\\"node-vram-bar\\" data-live-gpuvrambar data-vram-total=\\"24576\\" title=\\"12.0 / 24.0 GB\\"><span style=\\"width:50%\\"></span><b class=\\"node-vram-outsides\\" data-live-gpuoutside data-key=\\"24576|0|\\"></b><i class=\\"node-vram-slice\\" hidden></i></div> <div class=\\"node-gpu-meta\\"> <span data-live-gpuvram>VRAM 12.0 / 24.0 GB</span> <span data-live-gpuwho><span class=\\"node-gpu-ports\\">▶ 22001, 22002</span></span> <span data-live-gpuspark></span> </div> </div>"',
-     'positive: nodeGpuRowHtml полная строка: 50% VRAM, util/temp/power, null-порт отфильтрован, чужих нет — полос outside нет, спарклайн пуст без history'),
+     'norm(m.nodeGpuRowHtml({ ...node, servers: [mk({ phase: "running", gpuIndexes: [0] }), { ...mk({ phase: "running", gpuIndexes: [0], model: "b.gguf" }), cellId: "c22002", port: 22002 }, mk({ phase: "stopped" })] }, { index: 0, name: "RTX 3090", memoryTotalMiB: 24576, memoryUsedMiB: 12288, utilizationGpuPct: 42, temperatureC: 61, powerDrawW: 210, serverPorts: [22001, null, 22002] }))',
+     '"<div class=\\"node-gpu-row\\" data-gpu-row=\\"h1:0\\"> <div class=\\"node-gpu-head\\"> <strong>GPU 0</strong> <span class=\\"node-gpu-name\\">RTX 3090</span> <span class=\\"node-gpu-util\\" data-live-gpuutil>42% · 61°C · 210W</span> </div> <div class=\\"node-vram-bar\\" data-live-gpuvrambar data-vram-total=\\"24576\\" title=\\"12.0 / 24.0 GB\\"><span style=\\"width:50%\\"></span><b class=\\"node-vram-outsides\\" data-live-gpuoutside data-key=\\"24576|0|\\"></b><i class=\\"node-vram-slice\\" hidden></i></div> <div class=\\"node-gpu-meta\\"> <span data-live-gpuvram>VRAM 12.0 / 24.0 GB</span> <span data-live-gpuwho><span class=\\"node-gpu-ports\\">▶ a, b</span></span> <span data-live-gpuspark></span> </div> </div>"',
+     'positive: nodeGpuRowHtml полная строка: 50% VRAM, util/temp/power; ячейки на карте названы по имени (CellName) в порядке, в каком машина их '
+     'числит, — не портами: serverPorts контроллера (22001, 22002) на экран не идут (2026-11-08); стоящая ячейка карту не держит и не названа; '
+     'чужих нет — полос outside нет, спарклайн пуст без history'),
     ('gpu_missing_fields',
      '',
      'norm(m.nodeGpuRowHtml(node, {}))',
@@ -1995,11 +2003,11 @@ PINS = [
      'norm(m.nodeGpuRowHtml(node, { index: 1, memoryTotalMiB: 1024, nonFleetUsedMiB: 512 })).match(/<i class="node-vram-outside"[^>]*>/)[0]',
      '"<i class=\\"node-vram-outside\\" style=\\"left:0.0%;width:50.0%\\" title=\\"outside · 0.5 GB\\">"',
      'positive: nodeGpuRowHtml: без разбивки по владельцам (старый бэкенд) — одна безымянная полоса на весь nonFleet, 50%'),
-    ('gpu_ports_and_outside_both',
+    ('gpu_cells_and_outside_both',
      '',
-     'norm(m.nodeGpuRowHtml(node, { index: 1, memoryTotalMiB: 1024, nonFleetUsedMiB: 512, serverPorts: [22001] })).match(/<span data-live-gpuwho>(.*?)<\\/span> <span data-live-gpuspark>/)[1]',
-     '"<span class=\\"node-gpu-ports\\">▶ 22001</span> <span class=\\"node-gpu-outside\\" title=\\"VRAM held by a process outside the fleet (e.g. a training run)\\">▶ outside · 0.5 GB</span>"',
-     'positive: nodeGpuRowHtml: порты ячеек И чужая память — обе (раньше порты прятали чужое, и карта с Ollama рядом читалась «только наша»)'),
+     'norm(m.nodeGpuRowHtml({ ...node, servers: [mk({ phase: "running", gpuIndexes: [1] })] }, { index: 1, memoryTotalMiB: 1024, nonFleetUsedMiB: 512, serverPorts: [22001] })).match(/<span data-live-gpuwho>(.*?)<\\/span> <span data-live-gpuspark>/)[1]',
+     '"<span class=\\"node-gpu-ports\\">▶ a</span> <span class=\\"node-gpu-outside\\" title=\\"VRAM held by a process outside the fleet (e.g. a training run)\\">▶ outside · 0.5 GB</span>"',
+     'positive: nodeGpuRowHtml: ячейки карты И чужая память — обе (раньше ячейки прятали чужое, и карта с Ollama рядом читалась «только наша»)'),
     ('gpu_pct_capped_100',
      '',
      'norm(m.nodeGpuRowHtml(node, { index: 0, memoryTotalMiB: 1000, memoryUsedMiB: 1500 })).match(/<span style="width:(\\d+)%"><\\/span>/)[1]',
@@ -2232,11 +2240,11 @@ PINS = [
      'm.classifyLlamaError("failed to load").friendly',
      '"Model loading failed"',
      'negative: negative: «failed to load» без « model» не даёт not-found → generic'),
-    ('lc_cfg_and_port_both_at_0',
+    ('lc_cfg_at_0',
      'const classes = (h) => [...norm(h).matchAll(/<(?:span|button) class="(lc-node[^"]*)"/g)].map((x) => x[1]);',
-     'classes(m.serverLifecycleBar(0, "stopped", "", \'data-c="1"\', "", \'data-p="1"\'))',
-     '["lc-node lc-port-btn active lc-stopped","lc-node lc-cfg-btn future lc-future","lc-node future lc-future","lc-node future lc-future"]',
-     'positive: cfgAttrs и portAttrs вместе при lcIdx=0: обе кнопки (port active, cfg future) рендерятся одновременно'),
+     'classes(m.serverLifecycleBar(0, "stopped", "", \'data-c="1"\'))',
+     '["lc-node active lc-stopped","lc-node lc-cfg-btn future lc-future","lc-node future lc-future","lc-node future lc-future"]',
+     'positive: cfgAttrs при lcIdx=0: кнопка конфигурации рендерится (future), шаг 0 — обычный шаг'),
     ('lc_cfg_future_button_full',
      '',
      'norm(m.serverLifecycleBar(0, "stopped", "", \'data-c="1"\')).match(/<button class="lc-node lc-cfg-btn[^>]*>.*?<\\/button>/)[0]',
@@ -2252,16 +2260,7 @@ PINS = [
      'norm(m.serverLifecycleBar(1, "stopped", "", \'data-c="1"\')).match(/<button class="([^"]*)"/)[1]',
      '"lc-node lc-cfg-btn active lc-stopped"',
      'negative: negative: cfg-кнопка при lcIdx=1 — active, без lc-cfg-live'),
-    ('lc_port_btn_no_reserved_port_full',
-     '',
-     'norm(m.serverLifecycleBar(0, "stopped", "", "", "", \'data-p="1"\')).match(/<button[^>]*>.*?<\\/button>/)[0]',
-     '"<button class=\\"lc-node lc-port-btn active lc-stopped\\" type=\\"button\\" data-p=\\"1\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">reserved</span></button>"',
-     'as-is: as-is: portAttrs без reservedPort — шаг 0 всё равно становится lc-port-btn, точка остаётся, span lc-port отсутствует'),
-    ('lc_port_btn_with_reserved_port_full',
-     '',
-     'norm(m.serverLifecycleBar(0, "stopped", "", "", 22001, \'data-p="1"\')).match(/<button[^>]*>.*?<\\/button>/)[0]',
-     '"<button class=\\"lc-node lc-port-btn active lc-stopped\\" type=\\"button\\" data-p=\\"1\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button>"',
-     'positive: positive-пара: portAttrs + reservedPort — кнопка без точки, с :22001 внутри подписи'),
+
     ('lc_uptime_on_ghost_bar',
      '',
      'norm(m.serverLifecycleBar(-1, "stopped", "5s")).includes(\'<span class="lc-uptime">5s</span>\')',
@@ -2272,11 +2271,11 @@ PINS = [
      'norm(m.serverLifecycleBar(-1, "stopped", "")).includes("lc-uptime")',
      'false',
      'negative: negative к lc_uptime_on_ghost_bar: пустой uptimeTxt на призрачном баре — span lc-uptime отсутствует'),
-    ('lc_reserved_port_done_step_inner',
+    ('lc_reserved_done_step_inner',
      '',
-     'norm(m.serverLifecycleBar(3, "running", "", "", 22001)).match(/<span class="lc-node done lc-done">(.*?)<\\/span><\\/span>/)[1]',
-     '"<span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001"',
-     'positive: reservedPort убирает точку и на DONE-шаге reserved (lcIdx=3, running): внутри только lc-lbl + :22001'),
+     'norm(m.serverLifecycleBar(3, "running", "", "")).match(/<span class="lc-node done lc-done">(.*?)<\\/span><\\/span>/)[1]',
+     '"<span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">reserved"',
+     'positive: пройденный шаг reserved (lcIdx=3, running) — точка и подпись, как у всех шагов: порта в нём нет'),
     ('lc_reserved_done_step_no_port_inner',
      '',
      'norm(m.serverLifecycleBar(3, "running")).match(/<span class="lc-node done lc-done">(.*?)<\\/span><\\/span>/)[1]',
@@ -2297,11 +2296,7 @@ PINS = [
      'norm(m.serverLifecycleBar(1, "stopped", "", "<b>")).match(/<button.*?<b>/)[0]',
      '"<button class=\\"lc-node lc-cfg-btn active lc-stopped\\" type=\\"button\\" <b>"',
      'as-is: as-is: cfgAttrs вставляется в тег сырым (неэкранируемый sink — по замыслу, вызывающий обязан давать безопасные атрибуты)'),
-    ('lc_port_attrs_raw_unescaped',
-     '',
-     'norm(m.serverLifecycleBar(0, "stopped", "", "", "", "<i>")).match(/<button.*?<i>/)[0]',
-     '"<button class=\\"lc-node lc-port-btn active lc-stopped\\" type=\\"button\\" <i>"',
-     'as-is: as-is: portAttrs тоже вставляется сырым в тег кнопки'),
+
     ('gpu_used_without_total_bar',
      '',
      '[norm(m.nodeGpuRowHtml(node, { index: 0, memoryUsedMiB: 500 })).match(/title="([^"]*)"/)[1], norm(m.nodeGpuRowHtml(node, { index: 0, memoryUsedMiB: 500 })).match(/<span style="width:([^"]*)"/)[1], norm(m.nodeGpuRowHtml(node, { index: 0, memoryUsedMiB: 500 })).match(/data-live-gpuvram>([^<]*)</)[1]]',
@@ -2322,11 +2317,11 @@ PINS = [
      'norm(m.nodeGpuRowHtml(node, { index: 0, memoryTotalMiB: 1000, nonFleetUsedMiB: 500 })).match(/<i class="node-vram-outside"[^>]*>/)[0]',
      '"<i class=\\"node-vram-outside\\" style=\\"left:0.0%;width:50.0%\\" title=\\"outside · 0.5 GB\\">"',
      'negative: к ограничению: 500/1000 → width:50%, без обрезки'),
-    ("gpu_owners_named_who",
-     "",
-     "norm(m.nodeGpuRowHtml(node, { index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 16000, fleetUsedMiB: 8000, nonFleetUsedMiB: 7063, serverPorts: [22001], outside: [{ name: \"Ollama\", engine: \"ollama\", mib: 6000 }, { name: \"python3\", engine: \"\", mib: 900 }, { name: \"\", engine: \"\", mib: 100 }, { name: \"Xorg\", engine: \"\", mib: 63 }] })).match(/<span data-live-gpuwho>(.*?)<\\/span> <span data-live-gpuspark>/)[1]",
-     "\"<span class=\\\"node-gpu-ports\\\">▶ 22001</span> <span class=\\\"node-gpu-outside engine\\\" title=\\\"An engine on this machine that is not a caravan cell — its models are under “Other engines”\\\">▶ Ollama · 5.9 GB</span> <span class=\\\"node-gpu-outside\\\" title=\\\"VRAM held by a process outside the fleet (e.g. a training run)\\\">▶ python3 · 0.9 GB</span> <span class=\\\"node-gpu-outside\\\" title=\\\"VRAM held by a process outside the fleet (e.g. a training run)\\\">▶ outside · 0.1 GB</span>\"",
-     "positive: чужая память названа владельцем: движок машины (свой класс и подсказка), процесс по имени, безымянный — «outside»; меньше 64 МиБ (Xorg) — не работа, не показан"),
+    ('gpu_owners_named_who',
+     '',
+     'norm(m.nodeGpuRowHtml({ ...node, servers: [mk({ phase: "running", gpuIndexes: [0] })] }, { index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 16000, fleetUsedMiB: 8000, nonFleetUsedMiB: 7063, serverPorts: [22001], outside: [{ name: "Ollama", engine: "ollama", mib: 6000 }, { name: "python3", engine: "", mib: 900 }, { name: "", engine: "", mib: 100 }, { name: "Xorg", engine: "", mib: 63 }] })).match(/<span data-live-gpuwho>(.*?)<\\/span> <span data-live-gpuspark>/)[1]',
+     '"<span class=\\"node-gpu-ports\\">▶ a</span> <span class=\\"node-gpu-outside engine\\" title=\\"An engine on this machine that is not a caravan cell — its models are under “Other engines”\\">▶ Ollama · 5.9 GB</span> <span class=\\"node-gpu-outside\\" title=\\"VRAM held by a process outside the fleet (e.g. a training run)\\">▶ python3 · 0.9 GB</span> <span class=\\"node-gpu-outside\\" title=\\"VRAM held by a process outside the fleet (e.g. a training run)\\">▶ outside · 0.1 GB</span>"',
+     'positive: чужая память названа владельцем: движок машины (свой класс и подсказка), процесс по имени, безымянный — «outside»; меньше 64 МиБ (Xorg) — не работа, не показан'),
     ("gpu_owners_bands_after_fleet",
      "",
      "norm(m.nodeGpuRowHtml(node, { index: 0, memoryTotalMiB: 24576, memoryUsedMiB: 16000, fleetUsedMiB: 8000, nonFleetUsedMiB: 7063, serverPorts: [22001], outside: [{ name: \"Ollama\", engine: \"ollama\", mib: 6000 }, { name: \"python3\", engine: \"\", mib: 900 }, { name: \"\", engine: \"\", mib: 100 }, { name: \"Xorg\", engine: \"\", mib: 63 }] })).match(/<b class=\"node-vram-outsides\"[^>]*>(.*?)<\\/b>/)[1]",
@@ -2356,12 +2351,16 @@ PINS = [
      '',
      'norm(m.nodeGpuRowHtml(node, { index: 0, serverPorts: [null, undefined] })).match(/<span data-live-gpuwho>(.*?)<\\/span><\\/span>/)[1]',
      '"<span class=\\"topology-muted\\">idle"',
-     'negative: negative: список портов из одних null/undefined отфильтрован → «idle»'),
-    ('gpu_ports_null_filtered_keeps_real',
+     'negative: карту не держит ни одна ячейка машины (порты контроллера — одни null/undefined) → «idle»'),
+    ('gpu_cells_by_their_cards',
      '',
-     'norm(m.nodeGpuRowHtml(node, { index: 0, serverPorts: [null, 22001, undefined] })).match(/<span data-live-gpuwho>(.*?)<\\/span><\\/span>/)[1]',
-     '"<span class=\\"node-gpu-ports\\">▶ 22001"',
-     'positive: positive-пара: null-порты отфильтрованы, реальный 22001 остаётся в «▶ 22001»'),
+     '(() => { const who = (n, g) => norm(m.nodeGpuRowHtml(n, g)).match(/<span data-live-gpuwho>(.*?)<\\/span><\\/span>/)[1];'
+     ' const n = { ...node, servers: [mk({ phase: "running", gpuIndexes: [0] }), { ...mk({ phase: "running", gpuIndexes: [1] }), cellId: "c22002", port: 22002 },'
+     ' { ...mk({ phase: "running" }), cellId: "c22003", port: 22003 }, { cellId: "c22004", port: 22004, phase: "running", model: "", gpuIndexes: ["0"] }] };'
+     ' return [who(n, { index: 0, serverPorts: [null, 22001, undefined] }), who({ ...node, servers: [] }, { index: 0, serverPorts: [22001] })]; })()',
+     '["<span class=\\"node-gpu-ports\\">▶ a, c22004", "<span class=\\"topology-muted\\">idle"]',
+     'positive: карту называют ячейки, чьи процессы её держат (gpuIndexes), — ячейка без имени модели названа своим id; negative: ячейка '
+     'другой карты и ячейка без карт не названы, и одни порты контроллера (serverPorts) без ячеек ничего не называют — карта idle, а не «▶ 22001»'),
     ('gpu_spark_total_zero_uses_data_max',
      '',
      'norm(m.nodeGpuRowHtml(node, { index: 0, history: [[0, 50], [0, 100]] })).match(/points="([^"]*)"/)[1]',
@@ -2400,12 +2399,12 @@ PINS = [
      "positive: без fold карточка та же до байта — снимки выше и детальные виды не меняются"),
     ("fold_stopped_line",
      "",
-     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/data-topology-llama-input/g) || []).length, h.indexOf(\"data-topology-llama-input\") < h.indexOf('data-t=\"cell-window\"'), /<button type=\"button\" class=\"fr-switch\" role=\"switch\" aria-checked=\"false\" data-node-cell-launch=\"h1\" data-node-cell-port=\"22001\" data-node-cell-runner=\"llama-server\" data-node-cell-model=\"a\" data-t=\"cell-row-start\" data-t-id=\"h1:22001\"/.test(h), (h.match(/<span class=\"fr-name\">([^<]*)</) || [])[1], /data-node-cell-launch=\"h1\" data-node-cell-port=\"22001\" data-node-cell-runner=\"llama-server\" data-node-cell-model=\"a\" data-t=\"cell-window-action\" data-t-id=\"h1:22001\" data-t-state=\"start\"/.test(h), h.includes('data-t=\"fold-pin\"')])(norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })))",
+     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/data-topology-llama-input/g) || []).length, h.indexOf(\"data-topology-llama-input\") < h.indexOf('data-t=\"cell-window\"'), /<button type=\"button\" class=\"fr-switch\" role=\"switch\" aria-checked=\"false\" data-node-cell-launch=\"h1\" data-cell-id=\"c22001\" data-node-cell-runner=\"llama-server\" data-node-cell-model=\"a\" data-t=\"cell-row-start\" data-t-id=\"c22001\"/.test(h), (h.match(/<span class=\"fr-name\">([^<]*)</) || [])[1], /data-node-cell-launch=\"h1\" data-cell-id=\"c22001\" data-node-cell-runner=\"llama-server\" data-node-cell-model=\"a\" data-t=\"cell-window-action\" data-t-id=\"c22001\" data-t-state=\"start\"/.test(h), h.includes('data-t=\"fold-pin\"')])(norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })))",
      "[\"line\",1,true,true,\"a\",true,false]",
      "positive: стоящая в свёрнутой ленте — строка; ручка каната одна и на строке, в окне её нет; выключенный тумблер строки несёт те же data-node-cell-*, что главная кнопка окна «Запустить», — с именем модели для вопроса; 📌 у ячейки нет — она открывается окном"),
     ("fold_running_line",
      "",
-     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], /<button type=\"button\" class=\"fr-switch\" role=\"switch\" aria-checked=\"true\" data-node-cell-stop=\"h1\" data-node-cell-port=\"22001\" data-node-cell-model=\"a\" data-t=\"cell-row-stop\" data-t-id=\"h1:22001\"/.test(h), (h.match(/data-topology-llama-input/g) || []).length])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
+     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], /<button type=\"button\" class=\"fr-switch\" role=\"switch\" aria-checked=\"true\" data-node-cell-stop=\"h1\" data-cell-id=\"c22001\" data-node-cell-model=\"a\" data-t=\"cell-row-stop\" data-t-id=\"c22001\"/.test(h), (h.match(/data-topology-llama-input/g) || []).length])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
      "[\"line\",\"fold-row cell-row running cpu\",true,1]",
      "positive: работающая — строка с точкой, без ▶; CPU-ячейка — класс cpu, как акцент карточки"),
     # The owner, 2026-10-24: "on the lines of the models write the context set AND the most the model supports".
@@ -2464,23 +2463,24 @@ PINS = [
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\", crash: { count: 2, at: \"12:00\", reason: \"Xid 8\" } }), { fold: true })))",
      "\"card\"",
      "negative: работает, но падала — полная карточка со счётчиком падений"),
-    ("fold_unreachable_full",
+    ("fold_unreachable_word_folds_as_any_running",
      "",
-     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\", reachable: false }), { fold: true })))",
-     "\"card\"",
-     "negative: работает, но недостижима — полная карточка с подсказкой про файрвол"),
+     "(f => [f(mk({ phase: \"running\", reachable: false })), f(mk({ phase: \"running\" }))])((cell) => (h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, cell, { fold: true }))))",
+     "[\"line\",\"line\"]",
+     "negative (2026-11-08): слово reachable=false ушло — ячейка слушает петлю своей машины, контроллер доходит через скаут; "
+     "работающая с этим словом сворачивается, как любая работающая (до шага 7 — полная карточка с подсказкой про файрвол)"),
     ("fold_stop_switch_locked_spinning",
-     "rc._pendingCellActions.set(\"h1:22001\", \"stop\");",
+     "rc._pendingCellActions.set(\"c22001\", \"stop\");",
      "(h => [h.includes('disabled aria-busy=\"true\"'), h.includes('topology-spinner stopping-spinner'), h.includes('class=\"fr-knob\"')])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
      "[true,true,false]",
      "positive: компактный стоп блокирует повторный клик и крутит тумблер"),
     ("fold_pending_stop_full",
-     "rc._pendingCellActions.set(\"h1:22001\", \"stop\");",
+     "rc._pendingCellActions.set(\"c22001\", \"stop\");",
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"line\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
      "\"line\"",
      "positive: остановка сохраняет компактную строку со спиннером"),
     ("fold_pin_ignored",
-     "cf.CARD_FOLD.pinned.add(\"h1:22001\");",
+     "cf.CARD_FOLD.pinned.add(\"c22001\");",
      "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/data-topology-llama-input/g) || []).length, h.indexOf(\"data-topology-llama-input\") > h.indexOf('data-t=\"cell-window\"'), h.includes(\"fold-row\"), h.includes('data-t=\"fold-unpin\"')])(norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })))",
      "[\"line\",1,false,true,false]",
      "negative: булавка, сохранённая в браузере до окна, у ячейки не рисуется — строка с ручкой каната, без ▴"),
@@ -2490,24 +2490,24 @@ PINS = [
      "\"card\"",
      "positive: лента «full» — полная карточка, как раньше"),
     ("fold_window_survives_repaint",
-     "cf.CARD_FOLD.openKey = \"h1:22001\";",
-     "[norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })).startsWith('<div class=\"fold-slot cells-fold open\"'), norm(m.nodeServerCardHtml(node, { ...mk({ phase: \"stopped\" }), port: 22002 }, { fold: true })).includes(\" open\\\"\")]",
+     "cf.CARD_FOLD.openKey = \"c22001\";",
+     "[norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })).startsWith('<div class=\"fold-slot cells-fold open\"'), norm(m.nodeServerCardHtml(node, { ...mk({ phase: \"stopped\" }), cellId: \"c22002\", port: null }, { fold: true })).includes(\" open\\\"\")]",
      "[true,false]",
      "positive: открытое окно переживает перерисовку ленты (open в разметке), у соседней — нет"),
     ("fold_peek_not_for_cells",
-     "cf.CARD_FOLD.peekKey = \"h1:22001\";",
+     "cf.CARD_FOLD.peekKey = \"c22001\";",
      "norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })).includes(\" peek\\\"\")",
      "false",
      "negative: всплытия у ячейки больше нет — чужой peekKey ей класс peek не ставит"),
     ("fold_window_holds_card",
      "",
-     "(h => [h.includes('<div class=\"cell-window cw\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Cell :22001 a\" data-t=\"cell-window\" data-t-id=\"h1:22001\">'), (h.match(/<strong class=\"cwh-name\">([^<]*)</) || [])[1], (h.match(/data-cell-window-copy=\"([^\"]*)\" data-t=\"cell-window-copy\"/) || [])[1], h.includes('data-t=\"cell-card\"'), (h.match(/data-t=\"cell-window-action\" data-t-id=\"h1:22001\" data-t-state=\"([a-z]+)\"/) || [])[1], (h.match(/data-cell-window-close/g) || []).length, (h.match(/data-topology-llama-input/g) || []).length])(norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })))",
-     "[true,\"a\",\"10.0.0.5:22001\",false,\"start\",2,1]",
-     "positive: окно (вариант Г) — паспорт «имя строки · :порт», адрес машины кнопкой копирования, главная кнопка «Запустить» на полосе статуса; "
+     "(h => [h.includes('<div class=\"cell-window cw\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Cell a\" data-t=\"cell-window\" data-t-id=\"c22001\">'), (h.match(/<strong class=\"cwh-name\">([^<]*)</) || [])[1], (h.match(/data-cell-window-copy=\"([^\"]*)\" data-t=\"cell-window-copy\"/) || [])[1], h.includes('data-t=\"cell-card\"'), (h.match(/data-t=\"cell-window-action\" data-t-id=\"c22001\" data-t-state=\"([a-z]+)\"/) || [])[1], (h.match(/data-cell-window-close/g) || []).length, (h.match(/data-topology-llama-input/g) || []).length])(norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })))",
+     "[true,\"a\",null,false,\"start\",2,1]",
+     "positive: окно (вариант Г) — паспорт по имени строки, без «:порт» и без адреса ячейки (2026-11-08: порт у ячейки только на прогон), главная кнопка «Запустить» на полосе статуса; "
      "negative: карточки внутри больше нет; закрывают ✕ и затемнение; ручка каната одна — у строки"),
     ("fold_window_reserved_title",
      "",
-     "(h => [(h.match(/<span class=\"fr-name\">([^<]*)</) || [])[1], (h.match(/<strong class=\"cwh-name\">([^<]*)</) || [])[1]])(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: \"reserved\" }, { fold: true })))",
+     "(h => [(h.match(/<span class=\"fr-name\">([^<]*)</) || [])[1], (h.match(/<strong class=\"cwh-name\">([^<]*)</) || [])[1]])(norm(m.nodeServerCardHtml(node, { cellId: \"c22001\", port: null, isSlot: true, phase: \"reserved\" }, { fold: true })))",
      "[\"Reserved cell\",\"Reserved cell\"]",
      "positive: окно зарезервированной названо тем же словом, что её строка — одно правило CellRow.shownName"),
     ("hide_off_shows",
@@ -2518,8 +2518,8 @@ PINS = [
     ("hide_on_marks_stopped",
      "cf.CARD_FOLD.hideIdle.add(\"h1\");",
      "norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true }))",
-     "\"<span hidden data-cell-hidden=\\\"h1:22001\\\" data-cell-hidden-port=\\\"22001\\\" data-cell-hidden-by=\\\"idle\\\"></span>\"",
-     "positive: глаз машины включён — стоящая убрана, на её месте метка с ключом, портом и правилом (idle): без ручки "
+     '"<span hidden data-cell-hidden=\\"c22001\\" data-cell-hidden-by=\\"idle\\"></span>"',
+     "positive: глаз машины включён — стоящая убрана, на её месте метка с именем ячейки и правилом (idle), без порта: без ручки "
      "каната, но не бесследно"),
     ("hide_on_keeps_what_matters",
      "cf.CARD_FOLD.hideIdle.add(\"h1\");",
@@ -2527,12 +2527,12 @@ PINS = [
      "[\"line\",\"line\",\"card\"]",
      "negative: работающая, в ошибке, падавшая — не прячутся; в ошибке теперь красная строка, не карточка (2026-10-17), но на виду"),
     ("hide_on_keeps_fresh_reserved",
-     "cf.CARD_FOLD.hideIdle.add(\"h1\"); rc._newReservedCells.add(\"h1:22001\");",
-     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : h.startsWith(\"<span hidden\") ? \"hidden\" : \"?\"))(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: \"reserved\" }, { fold: true })))",
+     "cf.CARD_FOLD.hideIdle.add(\"h1\"); rc._newReservedCells.add(\"c22001\");",
+     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : h.startsWith(\"<span hidden\") ? \"hidden\" : \"?\"))(norm(m.nodeServerCardHtml(node, { cellId: \"c22001\", port: null, isSlot: true, phase: \"reserved\" }, { fold: true })))",
      "\"line\"",
      "negative: только что зарезервированная не прячется — с ней сейчас работают"),
     ("hide_on_keeps_open_window",
-     "cf.CARD_FOLD.hideIdle.add(\"h1\"); cf.CARD_FOLD.openKey = \"h1:22001\";",
+     "cf.CARD_FOLD.hideIdle.add(\"h1\"); cf.CARD_FOLD.openKey = \"c22001\";",
      "norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })).startsWith('<div class=\"fold-slot cells-fold open\"')",
      "true",
      "negative: ячейка с открытым окном не прячется — остановил её в окне, окно не пропало"),
@@ -2547,7 +2547,7 @@ PINS = [
      "\"card\"",
      "negative: без просьбы ленты (fold) карточка рисуется как есть — глаз живёт в ленте"),
     ("hide_lane_eye_and_count",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" }), { ...mk({ phase: \"running\" }), port: 22002 }, { ...mk({ phase: \"stopped\" }), port: 22003 }] }] });",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" }), { ...mk({ phase: \"running\" }), cellId: \"c22002\", port: 22002 }, { ...mk({ phase: \"stopped\" }), cellId: \"c22003\", port: null }] }] });",
      "[(h => [(h.match(/data-cell-eye=\"h1\"[^>]*aria-pressed=\"(true|false)\"/) || [])[1], (h.match(/<span class=\"node-eye-count\">(\\d+)</) || [])[1] ?? null, (h.match(/data-cell-hidden=/g) || []).length, (h.match(/data-fold-mode=\"line\"/g) || []).length])(m.nodesLaneHtml()), (cf.CARD_FOLD.hideIdle.add(\"h1\"), (h => [(h.match(/data-cell-eye=\"h1\"[^>]*aria-pressed=\"(true|false)\"/) || [])[1], (h.match(/<span class=\"node-eye-count\">(\\d+)</) || [])[1] ?? null, (h.match(/data-cell-hidden=/g) || []).length, (h.match(/data-fold-mode=\"line\"/g) || []).length])(m.nodesLaneHtml()))]",
      "[[\"false\",null,0,3],[\"true\",\"2\",2,1]]",
      "positive: глаз у списка машины; выключен — три строки, счётчика нет; включён — две стоящие убраны, глаз говорит «2», осталась работающая"),
@@ -2555,10 +2555,10 @@ PINS = [
      "",
      "norm(m.nodeServerCardHtml({ ...node, ip: \"\" }, mk({ phase: \"stopped\" }), { fold: true })).includes(\"cwh-addr\")",
      "false",
-     "negative: машина без адреса — адреса в заголовке нет, а не «:22001» под видом адреса"),
+     "negative: адреса ячейки в заголовке окна нет — ни «:22001», ни адреса машины под видом её адреса"),
     ("fold_reserved_line",
      "",
-     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], (h.match(/<span class=\"fr-name\">([^<]*)</) || [])[1], /class=\"fr-switch\" role=\"switch\" aria-checked=\"false\" disabled /.test(h)])(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: \"reserved\" }, { fold: true })))",
+     "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/<div class=\"(fold-row cell-row[^\"]*)\"/) || [])[1], (h.match(/<span class=\"fr-name\">([^<]*)</) || [])[1], /class=\"fr-switch\" role=\"switch\" aria-checked=\"false\" disabled /.test(h)])(norm(m.nodeServerCardHtml(node, { cellId: \"c22001\", port: null, isSlot: true, phase: \"reserved\" }, { fold: true })))",
      "[\"line\",\"fold-row cell-row reserved\",\"Reserved cell\",true]",
      "positive: зарезервированная без модели — строка со словом Reserved cell, тумблер выключен и недоступен (сперва настроить)"),
     ("fold_vram_estimate_chip",
@@ -2577,7 +2577,7 @@ PINS = [
      "\"python3 tts.py\"",
      "positive: командная ячейка — в строке её команда без exec, как на карточке"),
     ("fold_lane_asks_for_folding",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" }), { ...mk({ phase: \"running\" }), port: 22002 }] }] });",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" }), { ...mk({ phase: \"running\" }), cellId: \"c22002\", port: 22002 }] }] });",
      "[(m.nodesLaneHtml().match(/data-fold-mode=\"line\"/g) || []).length, (cf.CARD_FOLD.densities = { cells: \"full\" }, (m.nodesLaneHtml().match(/data-fold-mode=/g) || []).length), (m.nodesLaneHtml().match(/data-t=\"cell-card\"/g) || []).length]",
      "[2,0,2]",
      "positive: лента ячеек просит сворачивание — две тихие ячейки стоят строками; лента «full» — ни одной строки, те же две карточки"),
@@ -2592,28 +2592,46 @@ PINS = [
      " document.body.appendChild = () => {};"
      " const type = (draft, specType) => { html = '';"
      " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"g/q4/a.gguf\", SPEC_DRAFT_MODEL_FILE: draft, SPEC_TYPE: specType } })] }] });"
-     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {}"
+     " try { m.openNodeServerDetail(\"c22001\"); } catch (e) {}"
      " return (html.match(/--spec-type (\\S+?)[\\s<\"]/) || [])[1] || null; };"
      " try { return [type(\"g/mtp/head.gguf\", \"\"), type(\"m/dflash-x.gguf\", \"\"), type(\"m/plain.gguf\", \"\"), type(\"g/mtp/head.gguf\", \"draft-eagle3\"), type(\"\", \"\")]; }"
      " finally { document.createElement = made; document.body.appendChild = put; } })()",
      "[\"draft-mtp\",\"draft-dflash\",\"draft-simple\",\"draft-eagle3\",null]",
      "positive: окно ячейки называет тип черновика по правилу сервера — голова из папки mtp/ — draft-mtp, DFlash — DFlash; "
      "negative: обычный файл — draft-simple, тип оператора не угадывается заново, без файла и без типа флага нет"),
-    # 2026-10-17: the cell's address in its window is a plain link in this tab — no target, no ↗ (the arrow promised a new tab).
-    ("server_detail_address_is_a_plain_link",
+    # The cell window's command says speculation as the builder does (cell-plan.js CellDraft.start, contract/draft_load.json).
+    ("cell_window_command_says_speculation_as_the_builder",
      "",
      "(() => { const made = document.createElement; const put = document.body.appendChild; let html = '';"
      " document.createElement = () => ({ style: {}, dataset: {}, setAttribute() {}, appendChild() {},"
      " set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } });"
      " document.body.appendChild = () => {};"
-     " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" })] }] });"
-     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {}"
-     " try { const a = html.match(/<a href=\"([^\"]*)\"([^>]*nsd-addr-link[^>]*)>([^<]*)<\\/a>/);"
-     " return a ? [a[1] === 'http://' + a[3], /target=/.test(a[2]), a[3].includes('\\u2197'), /:22001$/.test(a[3]), (html.match(/nsd-addr-link/g) || []).length] : null; }"
+     " const say = (config) => { html = '';"
+     " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"g/q4/a.gguf\", ...config } })] }] });"
+     " try { m.openNodeServerDetail(\"c22001\"); } catch (e) {}"
+     " const copy = ((html.match(/data-copy=\"([^\"]*--model [^\"]*)\"/) || [])[1] || '').split(' ');"
+     " const after = (flag) => { const at = copy.indexOf(flag); return at < 0 ? null : copy[at + 1]; };"
+     " return [after('--spec-type'), copy.includes('--model-draft'), after('--gpu-layers-draft'), after('--spec-draft-n-max')]; };"
+     " const file = \"g/mtp/head.gguf\";"
+     " try { return [say({ SPEC_TYPE: \"draft-mtp\", SPEC_DRAFT_MODEL_FILE: file }), say({ SPEC_TYPE: \"none\", SPEC_DRAFT_MODEL_FILE: file }),"
+     " say({ SPEC_TYPE: \"draft-mtp\" }), say({ SPEC_TYPE: \"ngram-mod\", SPEC_DRAFT_MODEL_FILE: file, SPEC_DRAFT_N_MAX: \"4\" })]; }"
      " finally { document.createElement = made; document.body.appendChild = put; } })()",
-     "[true,false,false,true,1]",
-     "positive: адрес ячейки в её окне — обычная ссылка на тот же адрес (в этой же вкладке); "
-     "negative: у ссылки нет target и нет стрелки ↗, ссылка одна"),
+     "[[\"draft-mtp\",true,\"999\",null],[null,false,null,null],[\"draft-mtp\",false,null,\"2\"],[\"ngram-mod\",false,null,null]]",
+     "positive: черновик с файлом — --model-draft и --gpu-layers-draft 999, как пишет сборщик (окно его не писало); своя голова "
+     "MTP — --spec-draft-n-max 2 по умолчанию сборщика; negative (дефект 2026-11-07): none при названном файле — ни --spec-type, "
+     "ни --model-draft (окно рисовало файл); ngram-* — тип без файла и без глубины черновика"),
+    # 2026-10-17: the cell's address in its window is a plain link in this tab — no target, no ↗ (the arrow promised a new tab).
+    ("server_detail_names_no_address_of_the_cell",
+     "",
+     "(() => { const made = document.createElement; const put = document.body.appendChild; let html = ''; document.createElement = () => ({ style: {}, dataset: {}, setAttribute() {}, appendChild() {}, set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } }); document.body.appendChild = () => {};"
+     " const open = (s) => { html = ''; st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [s] }] }); try { m.openNodeServerDetail(\"c22001\"); } catch (e) {} return html; };"
+     " try { return [mk({ phase: \"stopped\" }), mk({ phase: \"running\" }), mk({ phase: \"stopped\", slotConfig: { CELL_KIND: \"command\", RUNNER: \"custom\", COMMAND: \"python srv.py --port $PORT\" }, savedCommand: \"python srv.py --port $PORT\" })].map((s) => { const h = open(s);"
+     " return [h.includes(\"nsd-addr\"), /10\\.0\\.0\\.5:\\d/.test(h), /[^\\w{]22001\\b/.test(h), (h.match(/--port <span class=\"cmd-value\">([^<]*)</) || h.match(/export PORT=([^<\\n]*)/) || [])[1] ?? null]; }); }"
+     " finally { document.createElement = made; document.body.appendChild = put; } })()",
+     '[[false,false,false,"{{PORT}}"],[false,false,false,"{{PORT}}"],[false,false,false,"{{PORT}}"]]',
+     "negative (2026-11-08): подробности ячейки не называют её адреса — ни ссылки, ни «10.0.0.5:22001»: порт у ячейки только на прогон, а "
+     "запросы приходят к ней через модель машины; команда запуска говорит порт заглушкой {{PORT}}, которую скаут заполняет при старте "
+     "(LlamaArgs::LEASED_PORT), — и у стоящей, и у работающей, и у командной ячейки, а не номером"),
     ("server_detail_escape_closes_it",
      "",
      "(() => { const made = document.createElement; const put = document.body.appendChild; const add = document.addEventListener; const rm = document.removeEventListener;"
@@ -2624,7 +2642,7 @@ PINS = [
      " document.addEventListener = (type, fn) => { if (type === 'keydown') keys.push(fn); };"
      " document.removeEventListener = (type, fn) => { if (type === 'keydown') gone.push(keys.indexOf(fn)); };"
      " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" })] }] });"
-     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {}"
+     " try { m.openNodeServerDetail(\"c22001\"); } catch (e) {}"
      " try { if (keys[0]) keys[0]({ key: 'a' }); const before = removed; if (keys[0]) keys[0]({ key: 'Escape' }); return [keys.length, before, removed, gone]; }"
      " finally { document.createElement = made; document.body.appendChild = put; document.addEventListener = add; document.removeEventListener = rm; } })()",
      "[1,0,1,[0]]",
@@ -2632,48 +2650,50 @@ PINS = [
      "её слушатель клавиш уходит вместе с ней; negative: другая клавиша ничего не закрывает"),
     # ── the voice window's 🎙 on a cell's card (voice-talk.js TalkCell.buttonHtml) ──
     ('talk_button_running_voice_cell',
-     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-talk"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
      'TALK(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { RUNNER: "lfm-audio", MODEL_FILE: "LFM2.5-Audio-1.5B/LiquidAI/SAFETENSORS" } })))',
-     '{"t": "cell-talk", "host": "h1", "port": "22001", "runner": "lfm-audio", "hears": "", "beforeDelete": true}',
-     'positive: a running cell of a runner that talks (2026-10-21) gets the 🎙 in its control row, naming its machine, port and runner'),
+     '{"t": "cell-talk", "cell": "c22001", "tId": "c22001", "port": null, "runner": "lfm-audio", "hears": "", "beforeDelete": true}',
+     'positive: a running cell of a runner that talks (2026-10-21) gets the 🎙 in its control row, naming the cell by its id and its runner; '
+     'negative (2026-11-08): no port on it — a cell holds one only while it runs, and the talk asks the controller by the id'),
     ('talk_button_stopped_voice_cell',
-     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-talk"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
      'TALK(m.nodeServerCardHtml(node, mk({ phase: "stopped", slotConfig: { RUNNER: "lfm-audio", MODEL_FILE: "LFM2.5-Audio-1.5B/LiquidAI/SAFETENSORS" } })))',
      '{"off": "Start the cell to talk to it"}',
      'negative: the same cell stopped: the 🎙 shut, saying why, with nothing to press'),
     ('talk_llama_hears',
-     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-talk"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
      'TALK(m.nodeServerCardHtml(node, mk({ phase: "running", modalities: { vision: false, audio: true } })))',
-     '{"t": "cell-talk", "host": "h1", "port": "22001", "runner": "llama-server", "hears": "true", "beforeDelete": true}',
+     '{"t": "cell-talk", "cell": "c22001", "tId": "c22001", "port": null, "runner": "llama-server", "hears": "true", "beforeDelete": true}',
      'positive: a llama.cpp cell whose server said it hears (/props modalities.audio) gets the 🎙'),
     ('talk_llama_deaf',
-     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-talk"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
      'TALK(m.nodeServerCardHtml(node, mk({ phase: "running", modalities: { vision: true, audio: false } })))',
      'null',
      'negative: a llama.cpp cell that said it does not hear gets none'),
     ('talk_llama_unsaid',
-     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-talk"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
      'TALK(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
      'null',
      'negative: a llama.cpp cell that said nothing of hearing gets none — not said is not yes'),
     ('talk_llama_stopped',
-     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-talk"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "lfm-audio", talk: { modes: ["spoken-chat", "speech"], system: "", voices: {}, turns: 1 } }, { id: "llama-server", talk: { modes: ["heard-chat"], system: "", voices: {}, turns: 8 } }]; const TM = [{ id: "spoken-chat", takes: "voice", gives: ["voice", "text"], needsHearing: false }, { id: "speech", takes: "text", gives: ["voice"], needsHearing: false }, { id: "heard-chat", takes: "voice", gives: ["text"], needsHearing: true }]; st.setState({ config: {}, runners: TR, talkModes: TM, artifacts: [], models: [], paths: {} }); const TALK = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok talk"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-talk"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-talk-runner"), hears: a("data-cell-talk-hears"), beforeDelete: row.indexOf("cell-talk") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">🎙/); return off ? { off: off[1] } : null; };',
      'TALK(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
      'null',
      'negative: a stopped llama.cpp cell gets no shut 🎙 either: most of its models do not hear'),
     # ── the live window's 📞 on a cell's card (voice-live.js LiveCell.buttonHtml, 1.3.612) ──
     ('live_button_running_minicpm',
-     'const TR = [{ id: "minicpm-omni", live: { protocol: "minicpm-omni" } }, { id: "qwen3-tts", talk: { modes: ["speech"], system: "", voices: {}, turns: 8, asksVoices: true, clone: true } }]; st.setState({ config: {}, runners: TR, talkModes: [{ id: "speech", takes: "text", gives: ["voice"], needsHearing: false }], artifacts: [], models: [], paths: {} }); const LIVE = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok live"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-live"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"), afterTalk: row.indexOf("cell-live") > row.indexOf("node-action-btn"), beforeDelete: row.indexOf("cell-live") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">📞/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "minicpm-omni", live: { protocol: "minicpm-omni" } }, { id: "qwen3-tts", talk: { modes: ["speech"], system: "", voices: {}, turns: 8, asksVoices: true, clone: true } }]; st.setState({ config: {}, runners: TR, talkModes: [{ id: "speech", takes: "text", gives: ["voice"], needsHearing: false }], artifacts: [], models: [], paths: {} }); const LIVE = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok live"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-live"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"), afterTalk: row.indexOf("cell-live") > row.indexOf("node-action-btn"), beforeDelete: row.indexOf("cell-live") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">📞/); return off ? { off: off[1] } : null; };',
      'LIVE(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { RUNNER: "minicpm-omni", MODEL_FILE: "MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf" } })))',
-     '{"t": "cell-live", "host": "h1", "port": "22001", "runner": "minicpm-omni", "afterTalk": true, "beforeDelete": true}',
-     'positive: a running cell of a runner that talks live gets 📞 in its control row, naming its machine, port and runner'),
+     '{"t": "cell-live", "cell": "c22001", "tId": "c22001", "port": null, "runner": "minicpm-omni", "afterTalk": true, "beforeDelete": true}',
+     'positive: a running cell of a runner that talks live gets 📞 in its control row, naming the cell by its id and its runner; '
+     'negative (2026-11-08): no port on it — the live socket is asked for by the cell (/api/cell-live?cell=)'),
     ('live_button_stopped_minicpm',
-     'const TR = [{ id: "minicpm-omni", live: { protocol: "minicpm-omni" } }, { id: "qwen3-tts", talk: { modes: ["speech"], system: "", voices: {}, turns: 8, asksVoices: true, clone: true } }]; st.setState({ config: {}, runners: TR, talkModes: [{ id: "speech", takes: "text", gives: ["voice"], needsHearing: false }], artifacts: [], models: [], paths: {} }); const LIVE = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok live"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-live"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"), afterTalk: row.indexOf("cell-live") > row.indexOf("node-action-btn"), beforeDelete: row.indexOf("cell-live") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">📞/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "minicpm-omni", live: { protocol: "minicpm-omni" } }, { id: "qwen3-tts", talk: { modes: ["speech"], system: "", voices: {}, turns: 8, asksVoices: true, clone: true } }]; st.setState({ config: {}, runners: TR, talkModes: [{ id: "speech", takes: "text", gives: ["voice"], needsHearing: false }], artifacts: [], models: [], paths: {} }); const LIVE = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok live"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-live"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"), afterTalk: row.indexOf("cell-live") > row.indexOf("node-action-btn"), beforeDelete: row.indexOf("cell-live") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">📞/); return off ? { off: off[1] } : null; };',
      'LIVE(m.nodeServerCardHtml(node, mk({ phase: "stopped", slotConfig: { RUNNER: "minicpm-omni", MODEL_FILE: "MiniCPM-o-4_5-gguf/openbmb/Q4_K_M/MiniCPM-o-4_5-Q4_K_M.gguf" } })))',
      json.dumps({"off": "Start the cell to talk with it live"}),
      'negative: the same cell stopped: 📞 shut, saying why'),
     ('live_button_not_for_tts',
-     'const TR = [{ id: "minicpm-omni", live: { protocol: "minicpm-omni" } }, { id: "qwen3-tts", talk: { modes: ["speech"], system: "", voices: {}, turns: 8, asksVoices: true, clone: true } }]; st.setState({ config: {}, runners: TR, talkModes: [{ id: "speech", takes: "text", gives: ["voice"], needsHearing: false }], artifacts: [], models: [], paths: {} }); const LIVE = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok live"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), host: a("data-cell-live"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"), afterTalk: row.indexOf("cell-live") > row.indexOf("node-action-btn"), beforeDelete: row.indexOf("cell-live") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">📞/); return off ? { off: off[1] } : null; };',
+     'const TR = [{ id: "minicpm-omni", live: { protocol: "minicpm-omni" } }, { id: "qwen3-tts", talk: { modes: ["speech"], system: "", voices: {}, turns: 8, asksVoices: true, clone: true } }]; st.setState({ config: {}, runners: TR, talkModes: [{ id: "speech", takes: "text", gives: ["voice"], needsHearing: false }], artifacts: [], models: [], paths: {} }); const LIVE = (h) => { const row = (norm(h).match(/<div class="node-ctrl-row">(.*?)<\\/div>/) || [])[1] || ""; const on = row.match(/<button class="node-action-btn ok live"[^>]*>/); if (on) { const a = (n) => (on[0].match(new RegExp(" " + n + \'="([^"]*)"\')) || [])[1] ?? null; return { t: a("data-t"), cell: a("data-cell-live"), tId: a("data-t-id"), port: a("data-node-cell-port"), runner: a("data-cell-live-runner"), afterTalk: row.indexOf("cell-live") > row.indexOf("node-action-btn"), beforeDelete: row.indexOf("cell-live") < row.lastIndexOf("✕") }; } const off = row.match(/<button class="node-action-btn muted" type="button" disabled title="([^"]*)">📞/); return off ? { off: off[1] } : null; };',
      'LIVE(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { RUNNER: "qwen3-tts", MODEL_FILE: "Qwen3-TTS-12Hz-1.7B-Base/Qwen/BF16" } })))',
      'null',
      'negative: a cell whose runner does not talk live gets no 📞 (it has the voice window instead)'),
@@ -2711,44 +2731,87 @@ PINS = [
      "[true,true,false]",
      "negative: без машины в адресе (все машины) — прежняя карточка: шапка и строки GPU, головы страницы нет"),
     ("machinepage_reserving_shuts_add",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [] }] }); rc._reservingCells.set(\"h1\", { port: 22030, startedAt: 1 });",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [] }] }); rc._reservingCells.set(\"h1\", { startedAt: 1 });",
      "(h => { const b = (h.match(/<button[^>]*data-t=\"machine-add\"[^>]*>/) || [\"\"])[0]; return [b.includes(\"disabled\"), b.includes(\"data-caravan-add\")]; })(norm(m.machineHeadOf({ ...node, online: true, servers: [] }).html()))",
      "[true,false]",
      "negative: пока резервируется ячейка — «Добавить модель» в полосе закрыта: голова берёт это из той же карты, что и кнопка карточки"),
+    # ── the launch builder (machine-build.js): how a cell is laid, by its runner, for a cell of the list and a launch alike ──
+    ("cellway_rules",
+     "",
+     "[m.CellWay.how({ runner: \"llama-server\" }), m.CellWay.how({ runner: \"x\", engine: true }), m.CellWay.how({ runner: \"x\", cpu: true }), m.CellWay.how({ runner: \"vllm\", vllm: {} }),"
+     " m.CellWay.how({ runner: \"strata\", row: { vramPlan: { takesFree: true } } }), m.CellWay.how({ runner: \"whisper\" }),"
+     " m.CellWay.family({ runner: \"llama-server\" }), m.CellWay.family({ runner: \"vllm\" }), m.CellWay.family({ runner: \"whisper\" }), m.CellWay.family({ runner: \"x\", engine: true }),"
+     " m.CellWay.onCard({ vramPlan: { takesFree: true } }), m.CellWay.onCard({})]",
+     "[\"spread\",\"\",\"ram\",\"asks\",\"free\",\"card\",\"llama\",\"vllm\",\"pinned\",\"\",\"free\",\"card\"]",
+     "как ячейка ложится по раннеру — одно правило для ячеек списка и собранного запуска; negative: у ячейки движка — никак"),
+    ("machinepage_launch_facts",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [] }] }); mmods.MACHINE_MODELS.picked = \"a\"; mb.MACHINE_BUILD.host = \"h1\"; mb.MACHINE_BUILD.model = \"a\"; mb.MACHINE_BUILD.picked = { engine: \"llama-server\", quant: \"a/x/Q4/a-Q4.gguf\", params: \"\" }; mb.MACHINE_BUILD.held = { engine: null, quant: { name: \"Q4\", sizeGb: 4 }, params: { fields: { CTX_SIZE: \"8192\" } } };",
+     "(() => { m.nodesLaneHtml(\"h1\"); const f = mh.MACHINE_PICK.cells.get(mb.MachineBuild.KEY) || {}; return [f.host, f.key, f.group, f.launch, f.virtual, f.listed, f.name, f.window, f.fit?.how, f.fit?.family, f.fit?.fields?.N_GPU_LAYERS !== undefined]; })()",
+     "[\"h1\",\"new\",\"bench\",\"1\",true,\"\",\"a · Q4\",false,\"spread\",\"llama\",true]",
+     "собранный запуск сказан карте как стоящая ячейка под ключом сборщика (MachineBuild.KEY — у него нет ни имени ячейки, ни порта, "
+     "пока его Start не сделает ячейку): можно запустить, окна нет, ни одной строке списка не принадлежит, ложится по правилу своего движка"),
+    ("machinepage_launch_ghost",
+     "const roomy = { ...node, online: true, servers: [], gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0, memoryFreeMiB: 24576 }], cpu: { ram: { totalGb: 64, usedGb: 8 } } };"
+     " st.setTopology({ ...st.topology, nodes: [roomy] }); mmods.MACHINE_MODELS.picked = \"a\"; mb.MACHINE_BUILD.host = \"h1\"; mb.MACHINE_BUILD.model = \"a\"; mb.MACHINE_BUILD.picked = { engine: \"llama-server\", quant: \"a/x/Q4/a-Q4.gguf\", params: \"\" }; mb.MACHINE_BUILD.held = { engine: null, quant: { name: \"Q4\", sizeGb: 4 }, params: { fields: { CTX_SIZE: \"8192\" } } }; mh.MACHINE_PICK.cellId = mb.MachineBuild.KEY;",
+     "[norm(m.nodesLaneHtml(\"h1\")).includes(\"ui-lane-blk--estimate\"), (mb.MACHINE_BUILD.reset(), norm(m.nodesLaneHtml(\"h1\")).includes(\"ui-lane-blk--estimate\"))]",
+     "[true,false]",
+     "собранный и выбранный — пунктир на полосах; negative: сборка пуста — пунктира нет"),
+    ("machinepage_launch_other_machine",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [] }] }); mmods.MACHINE_MODELS.picked = \"a\"; mb.MACHINE_BUILD.host = \"h1\"; mb.MACHINE_BUILD.model = \"a\"; mb.MACHINE_BUILD.picked = { engine: \"llama-server\", quant: \"a/x/Q4/a-Q4.gguf\", params: \"\" }; mb.MACHINE_BUILD.held = { engine: null, quant: { name: \"Q4\", sizeGb: 4 }, params: { fields: { CTX_SIZE: \"8192\" } } }; mb.MACHINE_BUILD.host = \"h2\";",
+     "(() => { m.nodesLaneHtml(\"h1\"); return [mh.MACHINE_PICK.cells.has(mb.MachineBuild.KEY), m.machineHeadOf({ ...node, servers: [] }).map.launch]; })()",
+     "[false,null]",
+     "negative: запуск, собранный на другой машине, этой карте не сказан"),
+    ("machinepage_launch_other_model",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [] }] }); mmods.MACHINE_MODELS.picked = \"a\"; mb.MACHINE_BUILD.host = \"h1\"; mb.MACHINE_BUILD.model = \"a\"; mb.MACHINE_BUILD.picked = { engine: \"llama-server\", quant: \"a/x/Q4/a-Q4.gguf\", params: \"\" }; mb.MACHINE_BUILD.held = { engine: null, quant: { name: \"Q4\", sizeGb: 4 }, params: { fields: { CTX_SIZE: \"8192\" } } }; mmods.MACHINE_MODELS.picked = \"b\";",
+     "(() => { m.nodesLaneHtml(\"h1\"); return [mh.MACHINE_PICK.cells.has(mb.MachineBuild.KEY), m.machineHeadOf({ ...node, servers: [] }).map.launch, mb.MACHINE_BUILD.server(), mb.MACHINE_BUILD.model]; })()",
+     "[false,null,null,\"b\"]",
+     "negative: в списке выбрана другая модель — запуск прежней отпущен до того, как карта его нарисует: ни сведений, ни пунктира"),
+    ("machinepage_launch_and_a_cell_apart",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [mk({ cellId: \"c22077\", port: 22077, phase: \"starting\" })] }] }); mmods.MACHINE_MODELS.picked = \"a\"; mb.MACHINE_BUILD.host = \"h1\"; mb.MACHINE_BUILD.model = \"a\"; mb.MACHINE_BUILD.picked = { engine: \"llama-server\", quant: \"a/x/Q4/a-Q4.gguf\", params: \"\" }; mb.MACHINE_BUILD.held = { engine: null, quant: { name: \"Q4\", sizeGb: 4 }, params: { fields: { CTX_SIZE: \"8192\" } } };",
+     "(() => { m.nodesLaneHtml(\"h1\"); const f = mh.MACHINE_PICK.cells.get(mb.MachineBuild.KEY) || {}; return [f.virtual ?? null, mh.MACHINE_PICK.cells.get(\"c22077\")?.listed ?? null, [...mh.MACHINE_PICK.cells.keys()].sort()]; })()",
+     "[true,\"a.gguf\",[\"c22077\",\"new\"]]",
+     "ячейка машины и собранный запуск — разные: запуск стоит под ключом сборщика, ячейка — под своим именем, и ни того, ни другого "
+     "порт не называет (до 2026-11-08 ячейка на «порту запуска» прятала запуск: теперь у запуска порта нет, а ячейка держит свой лишь на прогон)"),
+    ("machinepage_launch_keeps_its_plan",
+     "mmods.MACHINE_MODELS.picked = \"a\"; mb.MACHINE_BUILD.host = \"h1\"; mb.MACHINE_BUILD.model = \"a\"; mb.MACHINE_BUILD.picked = { engine: \"llama-server\", quant: \"a/x/Q4/a-Q4.gguf\", params: \"\" }; mb.MACHINE_BUILD.held = { engine: null, quant: { name: \"Q4\", sizeGb: 4 }, params: { fields: { CTX_SIZE: \"8192\" } } }; mp.MACHINE_PLAN.set(mb.MachineBuild.KEY, { how: \"spread\", fields: { DEVICE: \"CUDA0\" } });",
+     "[(m.machineHeadOf({ ...node, servers: [] }), mp.MACHINE_PLAN.on), (mb.MACHINE_BUILD.reset(), m.machineHeadOf({ ...node, servers: [] }), mp.MACHINE_PLAN.on)]",
+     "[true,false]",
+     "план для собранного запуска переживает рисунок, пока запуск собран; negative: сборки нет — план ни о чём, снят"),
     # ── variant В (1.3.632): a cell chosen on the machine's map — what its panel acts with comes from the builder ──
     ("machinepage_pick_facts",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [{ ...mk({ phase: \"running\" }), gpuMem: { 0: 2048 } }] }] }); mh.MACHINE_PICK.port = \"22001\";",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\") || {}; const shown = (h.match(/<span class=\"fr-name\">([^<]*)<\\/span>/) || [])[1]; return [f.key, f.window, String(f.stop).startsWith('data-node-cell-stop=\"h1\" data-node-cell-port=\"22001\"'), f.name === shown && !!shown, /data-cell-window-open=\"h1:22001\" data-t=\"machine-model-window\" data-t-id=\"22001\"/.test(h), /data-node-cell-stop=\"h1\" data-node-cell-port=\"22001\"[^>]*data-t=\"machine-model-stop\"/.test(h), h.includes('data-machine-panel=\"22001\" data-machine-own data-t=\"machine-pick\" data-t-id=\"22001\">'), h.includes('aria-label=\":22001 ' + shown + ' · 2.0 GB') && h.includes('title=\":22001 ' + shown + ' — click to choose\"')]; })(norm(m.nodesLaneHtml(\"h1\")))",
-     "[\"h1:22001\",true,true,true,true,true,true,true]",
+     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [{ ...mk({ phase: \"running\" }), gpuMem: { 0: 2048 } }] }] }); mh.MACHINE_PICK.cellId = \"c22001\";",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\") || {}; const shown = (h.match(/<span class=\"fr-name\">([^<]*)<\\/span>/) || [])[1]; return [f.key, f.window, String(f.stop).startsWith('data-node-cell-stop=\"h1\" data-cell-id=\"c22001\"'), f.name === shown && !!shown, /data-cell-window-open=\"c22001\" data-t=\"machine-model-window\" data-t-id=\"c22001\"/.test(h), /data-node-cell-stop=\"h1\" data-cell-id=\"c22001\"[^>]*data-t=\"machine-model-stop\"/.test(h), h.includes('data-machine-panel=\"c22001\" data-machine-own data-t=\"machine-pick\" data-t-id=\"c22001\">'), h.includes('aria-label=\"' + shown + ' · 2.0 GB') && h.includes('title=\"' + shown + ' — click to choose\"') && !h.includes(':22001')]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "[\"c22001\",true,true,true,true,true,true,true]",
      "positive: строитель страницы машины отдаёт строке ячейки ключ её окна, её «Остановить» (атрибуты переключателя строки) и имя, что "
-     "показывает строка; выбранная — её последняя строка открыта, на блоке и порте — то же имя"),
+     "показывает строка; выбранная — её последняя строка открыта, на блоке и его кнопке — то же имя, без «:22001»"),
     ("machinepage_pick_ctx",
-     "st.setState({ ...st.state, runners: [{ id: \"llama-server\", tokenContext: true }, { id: \"whisper\" }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [mk({ phase: \"stopped\", ctxTrained: 131072, slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"a.gguf\", CTX_SIZE: \"32768\" } }), mk({ port: 22002, phase: \"stopped\", slotConfig: { RUNNER: \"whisper\", MODEL_FILE: \"w.bin\" } })] }] });",
-     "(h => [mh.MACHINE_PICK.cells.get(\"22001\")?.ctx, mh.MACHINE_PICK.cells.get(\"22002\")?.ctx ?? null, /data-t=\"machine-model-ctx\" data-t-id=\"22001\" data-t-state=\"both\"[^>]*>🪟 32.8k \\/ 🎓 131k</.test(h)])(norm(m.nodesLaneHtml(\"h1\")))",
+     "mmods.MACHINE_MODELS.picked = \"a.gguf\"; st.setState({ ...st.state, runners: [{ id: \"llama-server\", tokenContext: true }, { id: \"whisper\" }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [mk({ phase: \"stopped\", ctxTrained: 131072, slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"a.gguf\", CTX_SIZE: \"32768\" } }), mk({ cellId: \"c22002\", port: null, phase: \"stopped\", slotConfig: { RUNNER: \"whisper\", MODEL_FILE: \"w.bin\" } })] }] });",
+     "(h => [mh.MACHINE_PICK.cells.get(\"c22001\")?.ctx, mh.MACHINE_PICK.cells.get(\"c22002\")?.ctx ?? null, /data-t=\"machine-model-ctx\" data-t-id=\"c22001\" data-t-state=\"both\"[^>]*>🪟 32.8k \\/ 🎓 131k</.test(h)])(norm(m.nodesLaneHtml(\"h1\")))",
      '[{"set":32768,"max":131072},null,true]',
      "1.3.648: строитель страницы машины отдаёт строке ячейки контекст стоящей ячейки — заданный в её настройке и окно обучения модели, "
      "те же, что у строки и окна; negative: у речи (whisper) контекста нет"),
     ("machinepage_pick_full_card",
-     "cf.CARD_FOLD.densities = { cells: \"full\" }; st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [{ ...mk({ phase: \"running\" }), gpuMem: { 0: 2048 } }] }] }); mh.MACHINE_PICK.port = \"22001\";",
-     "[(h => [mh.MACHINE_PICK.cells.get(\"22001\")?.window, h.includes(\"data-cell-window-open\"), h.includes('class=\"fold-slot cells-fold')])(norm(m.nodesLaneHtml(\"h1\"))), norm(m.nodesLaneHtml()).includes('class=\"fold-slot cells-fold')]",
+     "cf.CARD_FOLD.densities = { cells: \"full\" }; st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [{ ...mk({ phase: \"running\" }), gpuMem: { 0: 2048 } }] }] }); mh.MACHINE_PICK.cellId = \"c22001\";",
+     "[(h => [mh.MACHINE_PICK.cells.get(\"c22001\")?.window, h.includes(\"data-cell-window-open\"), h.includes('class=\"fold-slot cells-fold')])(norm(m.nodesLaneHtml(\"h1\"))), norm(m.nodesLaneHtml()).includes('class=\"fold-slot cells-fold')]",
      "[[true,true,true],false]",
      "страница машины сворачивает спокойную ячейку, даже когда лента доски «полностью» (1.3.634): строк у неё нет, и окно ячейки "
      "открывает панель; negative: на главной доске плотность «полностью» по-прежнему рисует полную карточку"),
     ("machinepage_trouble_gets_its_window",
      "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [{ ...mk({ phase: \"running\", reachable: false }), gpuMem: { 0: 2048 } },"
-     " { ...mk({ port: 22002, phase: \"running\", crash: { count: 2, at: \"13:07\", reason: \"killed\", tail: \"\" } }), gpuMem: { 0: 2048 } }] }] });"
-     " mh.MACHINE_PICK.port = \"22001\";",
-     "(h => { const cell = (port) => [mh.MACHINE_PICK.cells.get(port)?.window, h.includes(`data-cell-window-open=\"h1:${port}\"`),"
-     " h.includes(`data-fold-key=\"h1:${port}\"`), new RegExp(`data-t=\"machine-model-stop\" data-t-id=\"${port}\">`).test(h)];"
-     " return [cell(\"22001\"), cell(\"22002\"), mh.MACHINE_PICK.cells.get(\"22001\")?.unreachable, mh.MACHINE_PICK.cells.get(\"22002\")?.crashed,"
-     " h.includes('<article'), norm(m.nodesLaneHtml()).includes('data-fold-key=\"h1:22001\"')]; })(norm(m.nodesLaneHtml(\"h1\")))",
-     "[[true,true,true,true],[true,true,true,true],true,2,false,false]",
-     "defect-history (2026-10-26): ячейка в беде — контроллер до неё не достаёт, или она падала и сторож скаута её поднял — на "
-     "странице машины тоже окно, с кнопкой на панели (была полная карточка без окна: к вкладке Talk поднятой ячейки Strata не "
-     "дойти); беду строитель отдаёт панели (unreachable, crashed); negative: на главной доске беда по-прежнему полной карточкой"),
+     " { ...mk({ cellId: \"c22002\", port: 22002, phase: \"running\", crash: { count: 2, at: \"13:07\", reason: \"killed\", tail: \"\" } }), gpuMem: { 0: 2048 } }] }] });"
+     " mh.MACHINE_PICK.cellId = \"c22001\";",
+     "(h => { const cell = (port) => [mh.MACHINE_PICK.cells.get(port)?.window, h.includes(`data-cell-window-open=\"${port}\"`),"
+     " h.includes(`data-fold-key=\"${port}\"`), new RegExp(`data-t=\"machine-model-stop\" data-t-id=\"${port}\">`).test(h)];"
+     " return [cell(\"c22001\"), cell(\"c22002\"), mh.MACHINE_PICK.cells.get(\"c22001\")?.unreachable, mh.MACHINE_PICK.cells.get(\"c22002\")?.crashed,"
+     " h.includes('<article'), norm(m.nodesLaneHtml()).includes('data-fold-key=\"c22001\"')]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "[[true,true,true,true],[true,true,true,true],null,2,false,true]",
+     "defect-history (2026-10-26): ячейка в беде — она падала и сторож скаута её поднял — на странице машины тоже окно, с кнопкой "
+     "на панели (была полная карточка без окна: к вкладке Talk поднятой ячейки Strata не дойти); беду строитель отдаёт панели "
+     "(crashed); negative (2026-11-08): слова «контроллер не достаёт» нет — ячейка слушает петлю своей машины, контроллер доходит "
+     "через скаут; работающая с reachable=false на главной доске сворачивается, как любая работающая"),
     ("machinepage_hides_no_cell",
      "cf.CARD_FOLD.hideIdle.add(\"h1\"); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: [mk({ phase: \"stopped\" })] }] });",
-     "[(mh.MACHINE_PICK.port = \"22001\", norm(m.nodesLaneHtml(\"h1\")).includes('data-cell-hidden=\"h1:22001\"')), (mh.MACHINE_PICK.port = \"\", norm(m.nodesLaneHtml(\"h1\")).includes('data-cell-hidden=\"h1:22001\"')), (mh.MACHINE_PICK.port = \"22001\", norm(m.nodesLaneHtml()).includes('data-cell-hidden=\"h1:22001\"'))]",
+     "[(mh.MACHINE_PICK.cellId = \"c22001\", norm(m.nodesLaneHtml(\"h1\")).includes('data-cell-hidden=\"c22001\"')), (mh.MACHINE_PICK.cellId = \"\", norm(m.nodesLaneHtml(\"h1\")).includes('data-cell-hidden=\"c22001\"')), (mh.MACHINE_PICK.cellId = \"c22001\", norm(m.nodesLaneHtml()).includes('data-cell-hidden=\"c22001\"'))]",
      "[false,false,true]",
      "страница машины (1.3.634) не прячет глазом ни одной ячейки, выбрана она или нет: карта и список моделей показывают все, и окно каждой "
      "должно быть в странице; negative: на главной доске глаз прячет стоящую, как прятал"),
@@ -2760,8 +2823,8 @@ PINS = [
      "остаются (строки прячет machine.css, окна открываются оттуда)"),
     # ── variant В, part 2 (1.3.634): what the list of models draws of a stopped cell comes from the builder ──
     ("machinepage_bench_facts",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\" }), modelSizeBytes: 8 * 2 ** 30 }] }] });",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\") || {}; return [f.group, String(f.launch).startsWith('data-node-cell-launch=\"h1\" data-node-cell-port=\"22001\"'), f.fit.how, f.fit.bytes / 2 ** 30, f.fit.source, f.fit.mode, f.jobs, h.includes('data-t=\"machine-model-launch\" data-t-id=\"22001\"'), h.includes('data-machine-bench-fit=\"22001\" data-t-state=\"card\">fits on GPU 0</span>'), /data-node-cell-launch=\"h1\" data-node-cell-port=\"22001\"[^>]*data-t=\"machine-model-start\" data-t-id=\"22001\"/.test(h)]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "mmods.MACHINE_MODELS.picked = \"a.gguf\"; st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\" }), modelSizeBytes: 8 * 2 ** 30 }] }] });",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\") || {}; return [f.group, String(f.launch).startsWith('data-node-cell-launch=\"h1\" data-cell-id=\"c22001\"'), f.fit.how, f.fit.bytes / 2 ** 30, f.fit.source, f.fit.mode, f.jobs, h.includes('data-t=\"machine-model-launch\" data-t-id=\"c22001\"'), h.includes('data-machine-bench-fit=\"c22001\" data-t-state=\"card\">fits on GPU 0</span>'), /data-node-cell-launch=\"h1\" data-cell-id=\"c22001\"[^>]*data-t=\"machine-model-start\" data-t-id=\"c22001\"/.test(h)]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[\"bench\",true,\"spread\",8,\"files\",\"layer\",[\"llm\"],true,true,true]",
      "стоящая ячейка llama.cpp — в списке моделей: строитель отдаёт её «Запустить» (атрибуты кнопки карточки), способ «по картам», размер "
      "файлов, работу; её строка говорит, куда ляжет, и запускает"),
@@ -2770,25 +2833,34 @@ PINS = [
      r' const LAID = "Hermes-4-70B-GGUF/lmstudio-community/Q4_K_M/Hermes-4-70B-Q4_K_M.gguf";'
      r' st.setTopology({ ...st.topology, modelRatings: { "Hermes-4-70B-GGUF": "dislike", "Other-GGUF": "like" }, nodes: [{ ...node, online: true, servers: ['
      r'{ ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: LAID } }) },'
-     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "Unrated-GGUF/a/Q4/u.gguf" } }), port: 22002 },'
-     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "/home/u/" + LAID } }), port: 22003 }] }] });',
-     "(h => [[\"22001\", \"22002\", \"22003\"].map((p) => { const f = mh.MACHINE_PICK.cells.get(p); return [f?.model, f?.rating]; }),"
+     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "Unrated-GGUF/a/Q4/u.gguf" } }), cellId: "c22002", port: null },'
+     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "/home/u/" + LAID } }), cellId: "c22003", port: null }] }] });',
+     "(h => [[\"c22001\", \"c22002\", \"c22003\"].map((p) => { const f = mh.MACHINE_PICK.cells.get(p); return [f?.model, f?.rating]; }),"
      " h.split('data-t=\"machine-models\"').map((part) => [...part.matchAll(/data-model-rate=\"(like|dislike)\" data-model-rate-for=\"([^\"]*)\"/g)].length),"
      " /aria-pressed=\"true\" data-model-rate=\"dislike\" data-model-rate-for=\"Hermes-4-70B-GGUF\"/.test(h)])(norm(m.nodesLaneHtml(\"h1\")))",
      json.dumps([[["Hermes-4-70B-GGUF", "dislike"], ["Unrated-GGUF", ""], ["", ""]], [0, 4], True], ensure_ascii=False),
      "владелец, 2026-10-31 («лайки или дизлайки моделям на странице машины»): строитель отдаёт странице машины модель ячейки по её пути и оценку этой модели из topology.modelRatings, "
      "и строка модели в списке рисует две кнопки с нажатой, больше нигде; negative: у модели без оценки её нет, а путь с чужого диска модели не называет: нет и кнопок"),
+    # A cell with no file names no model: nothing is invented for it. A mark of a default cell an older controller left changes that
+    # in nothing — the page has no rule of a default cell any more (2026-11-07).
+    ("machinepage_old_default_mark_names_nothing",
+     'st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: ['
+     ' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server" }, defaultFor: "Zeta-GGUF" }) },'
+     ' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server" } }), cellId: "c22002", port: null }] }] });',
+     '(h => ["c22001", "c22002"].map((p) => { const f = mh.MACHINE_PICK.cells.get(p); return [f?.model, f?.quant, f?.listed, "defaultFor" in (f || {})]; }))(norm(m.nodesLaneHtml("h1")))',
+     "[[\"\", \"\", \"\", false], [\"\", \"\", \"\", false]]",
+     "positive: ячейка без файла модели не называет; negative: старая метка дефолтной ячейки не делает из папки модель"),
     ("machinepage_bench_repo",
      r'st.setState({ config: {}, runners: [{ id: "llama-server", sharedPicker: "source", modelField: "MODEL_FILE", llamaConfig: true },'
      r' { id: "vllm", sharedPicker: "aim", modelField: "VLLM_MODEL" }], artifacts: [], models: [], paths: {} });'
      r' const LAID = "Hermes-4-70B-GGUF/lmstudio-community/Q4_K_M/Hermes-4-70B-Q4_K_M.gguf";'
      r' st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, servers: ['
      r'{ ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: LAID } }) },'
-     r' { ...mk({ phase: "stopped" }), port: 22002 },'
-     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "/home/u/" + LAID } }), port: 22003 },'
-     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B", MODEL_FILE: LAID } }), port: 22004 },'
-     r' { ...mk({ phase: "reserved", slotConfig: { RUNNER: "llama-server", MODEL_FILE: LAID } }), port: 22005 }] }] });',
-     "(h => [[\"22001\", \"22002\", \"22003\", \"22004\", \"22005\"].map((p) => mh.MACHINE_PICK.cells.get(p)?.repo),"
+     r' { ...mk({ phase: "stopped" }), cellId: "c22002", port: null },'
+     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "/home/u/" + LAID } }), cellId: "c22003", port: null },'
+     r' { ...mk({ phase: "stopped", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B", MODEL_FILE: LAID } }), cellId: "c22004", port: null },'
+     r' { ...mk({ phase: "reserved", slotConfig: { RUNNER: "llama-server", MODEL_FILE: LAID } }), cellId: "c22005", port: null }] }] });',
+     "(h => [[\"c22001\", \"c22002\", \"c22003\", \"c22004\", \"c22005\"].map((p) => mh.MACHINE_PICK.cells.get(p)?.repo),"
      " (h.match(/data-t=\"machine-model-repo\" data-t-id=\"([^\"]+)\" title=\"([^\"]*)\">([^<]*)</g) || [])])(norm(m.nodesLaneHtml(\"h1\")))",
      json.dumps([["lmstudio-community/Hermes-4-70B-GGUF", "", "", "", ""],
                  ['data-t="machine-model-repo" data-t-id="Hermes-4-70B-GGUF" title="lmstudio-community/Hermes-4-70B-GGUF">lmstudio-community/<']],
@@ -2798,41 +2870,41 @@ PINS = [
      "negative: файл не по раскладке, путь диска машины, vLLM (его модель — не из библиотеки, хоть поле файла и заполнено), "
      "порт без модели — репозитория нет, автор не угадан"),
     ("machinepage_bench_exact",
-     "st.setState({ ...st.state, config: { CTX_SIZE: \"8192\" }, models: [{ path: \"a.gguf\", sizeGb: 8, ggufMeta: { blockCount: 32, headCount: 32, headCountKv: 8, keyLength: 128, embeddingLength: 4096 } }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"a.gguf\", CTX_SIZE: \"\", CACHE_TYPE_K: \"q8_0\", CACHE_TYPE_V: \"q8_0\", PARALLEL: \"1\", BATCH_SIZE: \"512\", UBATCH_SIZE: \"512\" } }), modelSizeBytes: 8 * 2 ** 30 }] }] });",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\")?.fit || {}; return [f.how, f.source, Math.round(f.bytes / 2 ** 30 * 1000) / 1000, f.model?.layers, h.includes('≈8.9 GB with the cache'), h.includes('data-machine-bench-fit=\"22001\" data-t-state=\"card\">fits on GPU 0</span>')]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "mmods.MACHINE_MODELS.picked = \"a.gguf\"; st.setState({ ...st.state, config: { CTX_SIZE: \"8192\" }, models: [{ path: \"a.gguf\", sizeGb: 8, ggufMeta: { blockCount: 32, headCount: 32, headCountKv: 8, keyLength: 128, embeddingLength: 4096 } }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"a.gguf\", CTX_SIZE: \"\", CACHE_TYPE_K: \"q8_0\", CACHE_TYPE_V: \"q8_0\", PARALLEL: \"1\", BATCH_SIZE: \"512\", UBATCH_SIZE: \"512\" } }), modelSizeBytes: 8 * 2 ** 30 }] }] });",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\")?.fit || {}; return [f.how, f.source, Math.round(f.bytes / 2 ** 30 * 1000) / 1000, f.model?.layers, h.includes('≈8.9 GB with the cache'), h.includes('data-machine-bench-fit=\"c22001\" data-t-state=\"card\">fits on GPU 0</span>')]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[\"plan\",\"plan\",8.859,32,true,true]",
      "модель ячейки есть в библиотеке с заголовком — строитель отдаёт её строке точный план: 8 ГБ весов, 0.53 кэша (8192 токена q8_0 "
      "на 32 слоях — контекст из настроек контроллера, раз ячейка его не сказала, как читает форма) и 0.33 буферов — «≈8.9 ГБ с "
      "кэшем», план окна ячейки кладёт её на GPU 0"),
     ("machinepage_bench_cpu",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"a.gguf\", N_GPU_LAYERS: \"0\" } }), modelSizeBytes: 8 * 2 ** 30 }] }] });",
-     "(h => [mh.MACHINE_PICK.cells.get(\"22001\")?.fit.how, h.includes('data-machine-bench-fit=\"22001\" data-t-state=\"ram\">in RAM</span>')])(norm(m.nodesLaneHtml(\"h1\")))",
+     "mmods.MACHINE_MODELS.picked = \"a.gguf\"; st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"llama-server\", MODEL_FILE: \"a.gguf\", N_GPU_LAYERS: \"0\" } }), modelSizeBytes: 8 * 2 ** 30 }] }] });",
+     "(h => [mh.MACHINE_PICK.cells.get(\"c22001\")?.fit.how, h.includes('data-machine-bench-fit=\"c22001\" data-t-state=\"ram\">in RAM</span>')])(norm(m.nodesLaneHtml(\"h1\")))",
      "[\"ram\",true]",
      "ячейка на CPU (N_GPU_LAYERS=0) — в RAM, а не на карту"),
     ("machinepage_bench_vllm",
      "st.setState({ ...st.state, runners: [{ id: \"llama-server\", llamaConfig: true }, { id: \"vllm\" }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }, { index: 1, name: \"RTX\", memoryTotalMiB: 32607, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"vllm\", VLLM_MODEL: \"q\", GPU_MEMORY_UTILIZATION: \"0.5\", ENV: \"CUDA_VISIBLE_DEVICES=1\" } }), modelSizeBytes: 9 * 2 ** 30 }] }] });",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\")?.fit || {}; return [f.how, (f.asks || []).map((a) => [a.index, Math.round(a.mib)]), f.source, h.includes('data-t-state=\"card\">fits on GPU 1</span>'), h.includes('≈15.9 GB, what its runner takes')]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\")?.fit || {}; return [f.how, (f.asks || []).map((a) => [a.index, Math.round(a.mib)]), f.source, h.includes('data-t-state=\"card\">fits on GPU 1</span>'), h.includes('≈15.9 GB, what its runner takes')]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[\"asks\",[[\"1\",16304]],\"runner\",true,true]",
      "vLLM — доля карты, что закреплена в ENV (0.5 × 31.8 ГБ — правило формы, VllmPlacement): размер «столько берёт раннер», а не файлы"),
     ("machinepage_bench_vllm_checkpoint",
      "st.setState({ ...st.state, artifacts: [{ path: \"big\", name: \"big\", sizeGb: 40 }], runners: [{ id: \"llama-server\", llamaConfig: true }, { id: \"vllm\", keepsRam: true }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }, { index: 1, name: \"RTX\", memoryTotalMiB: 32768, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"vllm\", VLLM_MODEL: \"/models/big\", ENV: \"CUDA_VISIBLE_DEVICES=1\" } }), modelSizeBytes: 0 }] }] });",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\")?.fit || {}; const at = (fields) => { const a = f.asksFor(fields); return [a.over, a.ridesGb, a.offloadNeededGb, a.weightsGb, a.asks.map((x) => [x.index, Math.round(x.weightsMib)])]; }; return [f.over, f.ridesGb, f.keepsRam, f.fields.CPU_OFFLOAD_GB, at({ CPU_OFFLOAD_GB: \"\" }), at({ CPU_OFFLOAD_GB: \"12.5\" }), at({ ENV: \"CUDA_VISIBLE_DEVICES=0\", CPU_OFFLOAD_GB: \"\" })[2], h.includes('data-t-state=\"none\"')]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\")?.fit || {}; const at = (fields) => { const a = f.asksFor(fields); return [a.over, a.ridesGb, a.offloadNeededGb, a.weightsGb, a.asks.map((x) => [x.index, Math.round(x.weightsMib)])]; }; return [f.over, f.ridesGb, f.keepsRam, f.fields.CPU_OFFLOAD_GB, at({ CPU_OFFLOAD_GB: \"\" }), at({ CPU_OFFLOAD_GB: \"12.5\" }), at({ ENV: \"CUDA_VISIBLE_DEVICES=0\", CPU_OFFLOAD_GB: \"\" })[2], h.includes('data-t-state=\"none\"')]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[true,0,false,\"\",[true,0,12.5,40,[[\"1\",29491]]],[false,12.5,12.5,40,[[\"1\",28160]]],19.5,true]",
      "defect-history (стенд): чекпойнт vLLM — папка: его вес знает строка библиотеки, а не размер файла (0): 40 ГБ не влезают в долю карты и это сказано; строитель отвечает плану, сколько оставить в RAM"),
     ("machinepage_bench_strata",
      "st.setState({ ...st.state, runners: [{ id: \"llama-server\", llamaConfig: true }, { id: \"strata\", gpuOnly: true, oneCard: true, keepsRam: true, vramPlan: { takesFree: true, floorMiB: 6144, reserveField: \"STRATA_VRAM_RESERVE_MIB\" } }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }, { index: 1, name: \"RTX\", memoryTotalMiB: 32607, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"strata\", MODEL_FILE: \"k\", ENV: \"CUDA_VISIBLE_DEVICES=1\", STRATA_VRAM_RESERVE_MIB: \"4096\" } }), modelSizeBytes: 90 * 2 ** 30 }] }] });",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\")?.fit || {}; return [f.how, f.floorMiB, f.reserve, f.keepsRam, h.includes('data-machine-bench-fit=\"22001\" data-t-state=\"free\">fits on GPU 1</span>'), h.includes(\"its share of RAM is not counted here\")]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\")?.fit || {}; return [f.how, f.floorMiB, f.reserve, f.keepsRam, h.includes('data-machine-bench-fit=\"c22001\" data-t-state=\"free\">fits on GPU 1</span>'), h.includes(\"its share of RAM is not counted here\")]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[\"free\",6144,\"4096\",true,true,true]",
      "Strata — на свободное своей карты: порог и резерв (по имени поля из реестра) приходят от строителя; сказано, что её доля RAM не учтена"),
     ("machinepage_bench_one_card",
      "st.setState({ ...st.state, runners: [{ id: \"llama-server\", llamaConfig: true }, { id: \"gr00t\", gpuOnly: true, oneCard: true, vramPlan: { fixedMiB: 7168 } }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 0 }, { index: 1, name: \"RTX\", memoryTotalMiB: 32607, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"gr00t\", MODEL_FILE: \"p\" } }), modelSizeBytes: 3 * 2 ** 30 }] }] });",
-     "(h => { const f = mh.MACHINE_PICK.cells.get(\"22001\")?.fit || {}; return [f.how, f.bytes / 2 ** 30, f.source, h.includes('data-t-state=\"card\">fits on GPU 0</span>'), h.includes(\"≈7.0 GB, what its runner takes\")]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "(h => { const f = mh.MACHINE_PICK.cells.get(\"c22001\")?.fit || {}; return [f.how, f.bytes / 2 ** 30, f.source, h.includes('data-t-state=\"card\">fits on GPU 0</span>'), h.includes(\"≈7.0 GB, what its runner takes\")]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[\"card\",7,\"runner\",true,true]",
      "раннер на одной карте со своим замером (GR00T, 7 ГБ) — на карту 0, куда ляжет без закрепления, его цифрой, а не файлами (3 ГБ); "
      "negative: не «самая свободная» карта 1"),
     ("machinepage_running_weighed_by_what_it_holds",
-     "st.setState({ ...st.state, runners: [{ id: \"llama-server\", llamaConfig: true }, { id: \"transcribe\", oneCard: true }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 614 }, { index: 1, name: \"RTX\", memoryTotalMiB: 32607, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"running\", slotConfig: { RUNNER: \"transcribe\", MODEL_FILE: \"p\" } }), gpuIndexes: [0], gpuMem: { 0: 614 }, modelSizeBytes: 3 * 2 ** 20 }, { ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"transcribe\", MODEL_FILE: \"q\" } }), port: 22002 }] }] });",
-     "(h => { const at = (p) => mh.MACHINE_PICK.cells.get(p)?.fit || {}; const place = (p) => mh.CellFit.of(at(p)).place(st.topology.nodes[0]); return [Math.round(at(\"22001\").bytes / 2 ** 20), at(\"22001\").source, place(\"22001\").verdict, place(\"22001\").cards.map((c) => [c.index, Math.round(c.gb * 1024)]), at(\"22002\").bytes, place(\"22002\").verdict]; })(norm(m.nodesLaneHtml(\"h1\")))",
+     "st.setState({ ...st.state, runners: [{ id: \"llama-server\", llamaConfig: true }, { id: \"transcribe\", oneCard: true }] }); st.setTopology({ ...st.topology, nodes: [{ ...node, online: true, cpu: { ram: { totalGb: 64, usedGb: 8 } }, gpus: [{ index: 0, name: \"RTX\", memoryTotalMiB: 24576, memoryUsedMiB: 614 }, { index: 1, name: \"RTX\", memoryTotalMiB: 32607, memoryUsedMiB: 0 }], servers: [{ ...mk({ phase: \"running\", slotConfig: { RUNNER: \"transcribe\", MODEL_FILE: \"p\" } }), gpuIndexes: [0], gpuMem: { 0: 614 }, modelSizeBytes: 3 * 2 ** 20 }, { ...mk({ phase: \"stopped\", slotConfig: { RUNNER: \"transcribe\", MODEL_FILE: \"q\" } }), cellId: \"c22002\", port: 22002 }] }] });",
+     "(h => { const at = (p) => mh.MACHINE_PICK.cells.get(p)?.fit || {}; const place = (p) => mh.CellFit.of(at(p)).place(st.topology.nodes[0]); return [Math.round(at(\"c22001\").bytes / 2 ** 20), at(\"c22001\").source, place(\"c22001\").verdict, place(\"c22001\").cards.map((c) => [c.index, Math.round(c.gb * 1024)]), at(\"c22002\").bytes, place(\"c22002\").verdict]; })(norm(m.nodesLaneHtml(\"h1\")))",
      "[614,\"runner\",\"card\",[[\"0\",614]],null,\"unsized\"]",
      "работающая ячейка без своего расчёта памяти весит столько, сколько измерено у неё на карте: план рисует её на карте, а не «place not known» (замечено 2026-11-01 на gigaam); negative: стоящая без цифры размера не получает выдуманного"),
 ]
@@ -2890,20 +2962,20 @@ PINS += [
      f' {_LINKS}(m.nodeServerCardHtml(node, mk({{ phase: "stopped", slotConfig: {{ RUNNER: "custom", CELL_KIND: "command", COMMAND: "serve" }} }}), {{ fold: true }})),'
      f' {_LINKS}(m.nodeServerCardHtml(node, mk({{ phase: "stopped", slotConfig: {{ RUNNER: "llama-server", MODEL_FILE: "/home/u/{_LAID}" }} }}), {{ fold: true }}))]',
      "[[],[],[]]",
-     "negative: порт без модели, командная ячейка, путь диска машины — ссылок нет"),
+     "negative: ячейка без модели, командная ячейка, путь диска машины — ссылок нет"),
     ("win_tab_survives_repaint",
-     'cf.CARD_FOLD.chooseWindowTab("h1:22001", "memory");',
+     'cf.CARD_FOLD.chooseWindowTab("c22001", "memory");',
      '(w => [w.tabs, w.shown])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }), { fold: true })))',
      '[[["overview",false],["memory",true],["settings",false],["log",false]],["memory"]]',
      "positive: вкладка, выбранная в окне, переживает перерисовку ленты — окно рисуется на ней, а не на обзоре"),
     ("win_pending_start_shuts_stop",
-     'rc._pendingCellActions.set("h1:22001", "start");',
+     'rc._pendingCellActions.set("c22001", "start");',
      '(w => [w.band.state, w.band.tone, w.action])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }), { fold: true })))',
      _j(["starting", "busy", {"cls": "halt", "state": "shut", "words": _en("stop"), "shut": True, "title": _en("topologyRemoteStarting")}]),
      "defect-history (1.3.621, до выкладки): старт только что попросили — полоса «Starting», «Stop» закрыт с причиной строки; "
      "negative: не крутящееся «STOPPING…»"),
     ("win_failed_restart_pending",
-     'rc._pendingCellActions.set("h1:22001", "start");',
+     'rc._pendingCellActions.set("c22001", "start");',
      '(w => [w.band.state, w.action])(CW(m.nodeServerCardHtml(node, mk({ phase: "error", lastError: "CUDA error: out of memory" }), { fold: true })))',
      _j(["failed", {"cls": "go", "state": "shut", "words": _en("cwStartAgain"), "shut": True, "title": _en("topologyRemoteStarting")}]),
      "negative: «Start again» уже нажат — до отчёта кнопка закрыта (второй старт не уйдёт), причина — та же, что у тумблера строки"),
@@ -2946,25 +3018,24 @@ PINS += [
     ("win_settings_editor_of_llama",
      "",
      '(w => [w.settings, w.editor, w.map, w.foot, w.memory.rows, w.memory.buttons])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf", CTX_SIZE: "32768", PARALLEL: "2", THREADS: "8" } }), { fold: true })))',
-     _j([{"rows": [], "buttons": ["configure", "port", "detail"], "lead": _en("cwSetLead").replace("'", "&#39;")},
-         ["h1:22001", "idle"], ["h1:22001", "idle"], ["h1:22001", ""], [], ["placement"]]),
+     '[{"rows": [], "buttons": ["configure", "detail"], "lead": "Edit the cell&#39;s settings right here: the same fields as in the full settings."}, ["c22001", "idle"], ["c22001", "idle"], ["c22001", ""], [], ["placement"]]',
      "positive: ячейка llama.cpp, которую можно настраивать, — редактор её полей в окне (idle, пока форма не заполнена для неё) вместо "
-     "сводки «главного», кнопки полных настроек, порта и команды; в «Памяти» — место карты вместо сводки сохранённого размещения; "
+     "сводки «главного», кнопки полных настроек и команды (кнопки порта нет — 2026-11-08); в «Памяти» — место карты вместо сводки сохранённого размещения; "
      "подвал есть, пуст, ячейка не работает"),
     ("win_settings_summary_while_busy",
-     'rc._pendingCellActions.set("h1:22001", "start");',
+     'rc._pendingCellActions.set("c22001", "start");',
      '(w => [w.settings.rows, w.editor, w.map, w.foot])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf", CTX_SIZE: "32768", PARALLEL: "2", THREADS: "8" } }), { fold: true })))',
      _j([[[_en("cwRowContext"), "32768"], [_en("cwRowSlots"), "2"], [_en("cwRowThreads"), "8"]], [], [], []]),
      "negative: ячейку сейчас настраивать нельзя — редактора, карты и подвала нет; «главное» llama.cpp — из полей ячейки, пустые не рисуются"),
     ("win_no_editor_for_a_port_with_no_model",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true }] });',
-     '(w => [w.editor, w.map, w.foot, w.action && w.action.state])(CW(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true })))',
+     '(w => [w.editor, w.map, w.foot, w.action && w.action.state])(CW(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }, { fold: true })))',
      _j([[], [], [], "configure"]),
-     "negative: порт без модели — ни редактора полей, ни карты, ни подвала: сначала выбирают модель, в диалоге (его кнопка — главная)"),
+     "negative: ячейка без модели — ни редактора полей, ни карты, ни подвала: сначала выбирают модель, в диалоге (его кнопка — главная)"),
     ("win_foot_says_running",
      "",
      '[CW(m.nodeServerCardHtml(node, mk({ phase: "running" }), { fold: true })).foot, CW(m.nodeServerCardHtml(node, mk({ phase: "warming" }), { fold: true })).foot]',
-     _j([["h1:22001", "1"], ["h1:22001", "1"]]),
+     _j([["c22001", "1"], ["c22001", "1"]]),
      "positive: работающая и прогревающаяся держат настройки, с которыми запущены, — подвал знает это (скажет «до перезапуска»)"),
     ("win_settings_rows_not_for_whisper",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true }, { id: "whisper" }] });',
@@ -2973,20 +3044,21 @@ PINS += [
      "negative: у раннера не llama.cpp строк «главного» нет — его поля называются иначе, и окно не выдаёт чужие; "
      "редактора полей llama.cpp, карты и подвала тоже нет — его настройки в полном окне"),
     ("win_busy_settings_and_menu",
-     'rc._pendingCellActions.set("h1:22001", "start");',
-     '(w => [w.settings.buttons, w.settings.lead, w.memory.buttons, w.items.delete, w.items.port])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }), { fold: true })))',
-     _j([["detail"], _en("cwSettingsShut"), [], [False, _en("nodeCannotRemoveActive")], [False, _en("cwPortOnlyParked")]]),
-     "negative: ячейка в движении — настроек и размещения не открыть (сказано почему), удалить и сменить порт нельзя (пункты закрыты с причиной)"),
+     'rc._pendingCellActions.set("c22001", "start");',
+     '(w => [w.settings.buttons, w.settings.lead, w.memory.buttons, w.items.delete, w.items.port ?? null])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }), { fold: true })))',
+     _j([["detail"], _en("cwSettingsShut"), [], [False, _en("nodeCannotRemoveActive")], None]),
+     "negative: ячейка в движении — настроек и размещения не открыть (сказано почему), удалить нельзя (пункт закрыт с причиной); "
+     "пункта «сменить порт» нет вовсе (2026-11-08): порт у ячейки есть только пока она работает"),
     ("win_reserved_busy_no_button",
-     'rc._pendingCellActions.set("h1:22001", "start");',
-     'CW(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true })).action',
+     'rc._pendingCellActions.set("c22001", "start");',
+     'CW(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }, { fold: true })).action',
      'null',
      "negative: зарезервирована, а форма сейчас не откроется — «Pick a model» не рисуется вовсе (кнопка, что ничего не делает, хуже её отсутствия)"),
     ("win_reserved_overview_in_words",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true }] });',
-     '(w => [w.tiles, w.overviewEmpty])(CW(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true })))',
+     '(w => [w.tiles, w.overviewEmpty])(CW(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }, { fold: true })))',
      _j([{}, _en("cwOverviewNoModel")]),
-     "negative: порт без модели — ни одной плитки с прочерком; обзор говорит словами, что чисел нет и почему"),
+     "negative: ячейка без модели — ни одной плитки с прочерком; обзор говорит словами, что чисел нет и почему"),
     ("win_speech_cell_no_speed_tile",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true }, { id: "whisper" }] });',
      'Object.keys(CW(m.nodeServerCardHtml(node, mk({ phase: "running", model: "ggml-large.bin", cellMeta: { maxAudioMs: 30000 }, slotConfig: { RUNNER: "whisper", MODEL_FILE: "ggml-large.bin" } }), { fold: true })).tiles)',
@@ -3016,19 +3088,20 @@ PINS += [
     ("win_log_tail_running_and_parked",
      "",
      '[CW(m.nodeServerCardHtml(node, mk({ phase: "running" }), { fold: true })).tail, CW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }), { fold: true })).tail]',
-     '[["h1:22001","1"],["h1:22001",""]]',
+     '[["c22001","1"],["c22001",""]]',
      "positive: во вкладке «Журнал» — журнал сервера с машины (cell-log.js); у работающей он помечен живым — тик его перечитывает, "
      "у стоящей — нет"),
     ("win_log_tail_not_for_reserved_or_engine",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true }, { id: "ollama", engineCell: true, labelKey: "engineOllama", icon: "🟠" }] }); const withEngine = { ...node, engines: [ENG({ models: [MDL({ loaded: true })] })] };',
-     '[CW(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true })).tail, (h => [h.includes("engine-ollama"), CW(h).tail])(m.nodeServerCardHtml(withEngine, mk({ phase: "running", slotConfig: { RUNNER: "ollama", ENGINE_MODEL: "qwen3:8b", ENGINE_PORT: "11434" } }), { fold: true }))]',
+     '[CW(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }, { fold: true })).tail, (h => [h.includes("engine-ollama"), CW(h).tail])(m.nodeServerCardHtml(withEngine, mk({ phase: "running", slotConfig: { RUNNER: "ollama", ENGINE_MODEL: "qwen3:8b", ENGINE_PORT: "11434" } }), { fold: true }))]',
      '[[],[true,[]]]',
-     "negative: у порта без модели журнала нет; у ячейки движка (окно engine-ollama) — тоже: журнал её модели — журнал движка, не её"),
+     "negative: у ячейки без модели журнала нет; у ячейки движка (окно engine-ollama) — тоже: журнал её модели — журнал движка, не её"),
     ("win_chat_running_llama",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true, talk: { modes: ["heard-chat", "text-chat"], turns: 8 } }] });',
      '(w => [w.chat, w.chatPage, w.tabs.map((t) => t[0])])(CW(m.nodeServerCardHtml(node, mk({ phase: "running" }), { fold: true })))',
-     '[["h1:22001","8","idle"],"http://10.0.0.5:22001/",["overview","memory","settings","log","talk"]]',
-     "positive (1.3.624): работающая ячейка-чат llama.cpp — во вкладке «Разговор» текстовый чат, ход разговора на 8 сообщений и своя страница llama.cpp"),
+     '[["c22001","8","idle"],"",["overview","memory","settings","log","talk"]]',
+     "positive (1.3.624): работающая ячейка-чат llama.cpp — во вкладке «Разговор» текстовый чат, ход разговора на 8 сообщений; "
+     "negative (2026-11-08): своей страницы llama.cpp нет — ячейка слушает петлю своей машины, браузер до неё не дойдёт"),
     ("win_chat_held_with_the_cells_model",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true, talk: { modes: ["heard-chat", "text-chat"], turns: 8 } }] });',
      '[CW(m.nodeServerCardHtml(node, mk({ phase: "running", port: 22041, modelPath: "/m/hermes/Hermes-4-70B.gguf" }), { fold: true })).chatModel, CW(m.nodeServerCardHtml(node, mk({ phase: "stopped", port: 22042 }), { fold: true })).chatModel]',
@@ -3038,7 +3111,7 @@ PINS += [
     ("win_chat_stopped_llama",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true, talk: { modes: ["heard-chat", "text-chat"], turns: 8 } }] });',
      '(w => [w.chat, w.chatPage])(CW(m.nodeServerCardHtml(node, mk({ phase: "stopped" }), { fold: true })))',
-     '[["h1:22001","8","off"],""]',
+     '[["c22001","8","off"],""]',
      "стоящая — чат есть, но выключен (сказано, что запустить); negative: ссылки на страницу, которой сейчас нет, нет"),
     ("win_chat_not_for_embeddings",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true, talk: { modes: ["heard-chat", "text-chat"], turns: 8 } }] });',
@@ -3048,7 +3121,7 @@ PINS += [
     ("win_chat_running_engine",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true }, { id: "ollama", engineCell: true, labelKey: "engineOllama", icon: "🟠", talk: { modes: ["text-chat"], turns: 8 } }] }); const withEngine = { ...node, engines: [ENG({ models: [MDL({ loaded: true })] })] }; const eng = (kinds, phase = "running") => CW(m.nodeServerCardHtml(withEngine, mk({ phase, model: "", modelPath: "", cellMeta: kinds ? { engine: "ollama", kinds } : {}, slotConfig: { RUNNER: "ollama", ENGINE_MODEL: "qwen3:8b", ENGINE_PORT: "11434" } }), { fold: true }));',
      '(w => [w.chat, w.chatPage, w.chatModel, w.tabs.map((t) => t[0]).includes("talk")])(eng(["llm"]))',
-     '[["h1:22001","8","idle"],"","qwen3:8b",true]',
+     '[["c22001","8","idle"],"","qwen3:8b",true]',
      "positive (1.3.643, просьба владельца 2026-10-26): работающая ячейка Ollama с моделью-чатом — во вкладке «Разговор» "
      "текстовый чат; negative: своей страницы, как у llama.cpp, у неё нет. defect-history (1.3.646, живая проверка "
      "2026-10-26): запись ячейки движка модели не называет (model и modelPath пусты, как здесь) — разговор держится с "
@@ -3064,27 +3137,13 @@ PINS += [
      '[[[],false],[[],false]]',
      "negative: ячейка движка не сказала, что делает её модель — работающая без kinds в отчёте и стоящая (её работу движок "
      "называет при загрузке): работа не названа, и чата нет — не сказано не значит «чат»"),
-    ("cell_reach_rule",
-     "",
-     '[["all", "open", "unknown", "", null].map((x) => m.CellReach.everyone(x === null ? null : { state: x })), ["restricted", "blocked"].map((x) => m.CellReach.everyone({ state: x })),'
-     ' m.CellReach.controllerRule("10.0.0.20", { from: 22001, to: 22999 }), m.CellReach.controllerRule("127.0.0.1", { from: 22001, to: 22999 }),'
-     ' m.CellReach.controllerRule("", { from: 22001, to: 22999 }), m.CellReach.controllerRule("10.0.0.20", {}), m.CellReach.controllerRule("10.0.0.20", { from: 22999, to: 22001 })]',
-     '[[true,true,true,true,true],[false,false],"sudo ufw allow from 10.0.0.20 to any port 22001:22999 proto tcp","","","",""]',
-     "1.3.656 (шаг 4, вариант Б): ссылка на порт ячейки — только где брандмауэр пускает всех, или не сказано, кого; negative: "
-     "«только с адресов» и «никого» — без ссылки. Правило контроллера — с его адреса на диапазон ячеек; negative: адрес "
-     "петли (контроллер на той же машине), без адреса, без диапазона или с перевёрнутым — правила нет, а не выдуманное"),
-    ("win_chat_page_by_firewall",
+    ("win_chat_page_for_no_firewall",
      'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true, talk: { modes: ["heard-chat", "text-chat"], turns: 8 } }] });',
-     '[{ state: "restricted", allowedFrom: ["10.0.0.20"] }, { state: "blocked" }, { state: "all", allowedFrom: ["Anywhere"] }, { state: "unknown" }]'
+     '[{ state: "restricted", allowedFrom: ["10.0.0.20"] }, { state: "blocked" }, { state: "all", allowedFrom: ["Anywhere"] }, { state: "unknown" }, undefined]'
      '.map((fw) => CW(m.nodeServerCardHtml(node, mk({ phase: "running", firewall: fw }), { fold: true })).chatPage)',
-     '["","","http://10.0.0.5:22001/","http://10.0.0.5:22001/"]',
-     "1.3.656: порт ячейки пускает только контроллер (правило владельца, вариант Б) или никого — ссылки на свою страницу "
-     "llama.cpp нет: из этого браузера она никуда не ведёт; negative: открыт всем, и брандмауэр не прочитан — ссылка есть"),
-    ("win_chat_page_off",
-     'st.setState({ ...st.state, runners: [{ id: "llama-server", tokenContext: true, talk: { modes: ["heard-chat", "text-chat"], turns: 8 } }] });',
-     'CW(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf", ENABLE_WEBUI: "0" } }), { fold: true })).chatPage',
-     '""',
-     "negative: своя страница llama.cpp выключена в настройках (ENABLE_WEBUI 0) — ссылки на неё нет"),
+     '["","","","",""]',
+     "negative (2026-11-08): ссылки на свою страницу llama.cpp нет при любом слове о брандмауэре — ячейка слушает петлю своей "
+     "машины; до шага 7 ссылка была там, где порт открыт всем или брандмауэр не прочитан"),
     ("win_address_only_with_ip",
      "",
      '(w => [w.address, "copy" in w.items])(CW(m.nodeServerCardHtml({ ...node, ip: "" }, mk({ phase: "stopped" }), { fold: true })))',
@@ -3117,7 +3176,7 @@ _PP_CFG = 'RUNNER: "personaplex", MODEL_FILE: "personaplex-7b-v1/nvidia/BF16"'
 PINS += [
     ('page_link_running_personaplex', _PAGE_SETUP,
      'PAGE(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { ' + _PP_CFG + ', PAGE_URL: "https://personaplex.example.org" } })))',
-     json.dumps({"t": "cell-page", "id": "h1:22001", "href": "https://personaplex.example.org", "target": None,
+     json.dumps({"t": "cell-page", "id": "c22001", "href": "https://personaplex.example.org", "target": None,
                  "afterStop": True, "beforeDelete": True}),
      'positive: a running cell of a runner that serves a page links it from its control row — at the address its own '
      'config names, in this tab'),
@@ -3196,7 +3255,7 @@ PINS += [
      json.dumps(["card", False]),
      "negative: копируется, но падала — полная карточка со счётчиком падений: беда не сворачивается в строку"),
     ("fold_downloading_deleting_full",
-     STRIP_OF + ' rc._deletingSlots.add("h1:22001");',
+     STRIP_OF + ' rc._deletingSlots.add("c22001");',
      '(h => [mode(h), h.includes("fr-strip")])(norm(m.nodeServerCardHtml(node, mk({ phase: "downloading" }), { fold: true })))',
      json.dumps(["card", False]),
      "negative: удаляется — это движение со своей строкой «Removing…» в карточке: полоски запуска нет, карточка полная"),
@@ -3318,15 +3377,15 @@ PINS += [
      "а не оценку по файлу (≈7.5G): процесс есть — это то, что он держит сейчас"),
     ("mem_reserved_port_has_no_badges",
      "",
-     'MEM(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true })))',
+     'MEM(norm(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }, { fold: true })))',
      "[]",
-     "negative: зарезервированный порт без модели — ни RAM, ни GPU: нечего сказать (ни «—», ни нуля)"),
+     "negative: зарезервированная ячейка без модели — ни RAM, ни GPU: нечего сказать (ни «—», ни нуля)"),
 ]
 
 PINS += [
     ("fold_switch_words",
      "",
-     "[\"stopped\", \"running\"].map((ph) => (norm(m.nodeServerCardHtml(node, mk({ phase: ph }), { fold: true })).match(/class=\"fr-switch\"[^>]* title=\"([^\"]*)\" aria-label=\"([^\"]*)\"/) || []).slice(1)).concat([(norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: \"reserved\" }, { fold: true })).match(/class=\"fr-switch\"[^>]* title=\"([^\"]*)\"/) || [])[1]])",
+     "[\"stopped\", \"running\"].map((ph) => (norm(m.nodeServerCardHtml(node, mk({ phase: ph }), { fold: true })).match(/class=\"fr-switch\"[^>]* title=\"([^\"]*)\" aria-label=\"([^\"]*)\"/) || []).slice(1)).concat([(norm(m.nodeServerCardHtml(node, { cellId: \"c22001\", port: null, isSlot: true, phase: \"reserved\" }, { fold: true })).match(/class=\"fr-switch\"[^>]* title=\"([^\"]*)\"/) || [])[1]])",
      json.dumps([[_en("nodeStartServer")] * 2, [_en("nodeStopServer")] * 2, _en("nodeConfigureFirst")], ensure_ascii=False),
      "positive: тумблер говорит то же, что кнопки карточки — «запустить», «остановить», у зарезервированной «сперва настроить»"),
 ]
@@ -3480,7 +3539,7 @@ PINS += [
 # The main board shows each machine at a glance; its whole card lives in the machine's own window
 # (board-view.js; the owner, 2026-10-11).
 GLANCE = ('{ ...' + HOST + ', online: true, platform: "linux", cpu: { loadPct: 7, ram: { usedGb: 3, totalGb: 16 } },'
-          ' servers: [{ port: 22001, phase: "running" }] }')
+          ' servers: [{ cellId: "c22001", port: 22001, phase: "running" }] }')
 PINS += [
     ("machine_glance_head_and_compute",
      f"st.setTopology({{ ...st.topology, nodes: [{GLANCE}] }});",
@@ -3488,12 +3547,12 @@ PINS += [
      f" h.includes('title=\"{_esc(_en("machineOpenTitle").replace("{name}", "Box"))}\">'),"
      " h.includes('<a class=\"machine-name\" href=\"/machine?host=h2\" data-machine-open=\"h2\" data-t=\"machine-open\" data-t-id=\"h2\">Box</a>')"
      " && h.includes('<span class=\"topology-muted\">10.0.0.6</span>') && !h.includes('data-live-nodemeta'),"
-     f" h.includes(norm(m.nodeComputeHtml({GLANCE}))) && h.includes('▶ 22001'),"
+     f" h.includes(norm(m.nodeComputeHtml({GLANCE}))) && h.includes('▶ c22001') && !h.includes('▶ 22001'),"
      " ['↗', 'class=\"machine-open\"', 'data-scout-disconnect', 'node-disconnect', 'node-servers', 'data-server-card', 'node-reboot', 'data-node-cell-port', 'node-caravan', 'node-collapse'].filter((x) => h.includes(x))])"
      "(norm(m.machinesLaneHtml()))",
      "[true,true,true,true,[]]",
      "главная доска: машина одним взглядом — шапка (имя — ссылка в её окно, адрес) и панель Compute — та же, что в карточке "
-     "(порты ячеек на процессоре видны); вся карточка открывает окно машины и так и подписана (2026-10-12); negative: ни кнопки "
+     "(ячейки на процессоре видны — по имени, а без имени модели по id, не портом); вся карточка открывает окно машины и так и подписана (2026-10-12); negative: ни кнопки "
      "↗ Open, ни ✕ скаута — машину отпускают в её окне, ни ячеек, ни запуска, ни питания, ни сворачивания, ни места в списке "
      "пулов, ни слова системы — это окно машины"),
     ("machine_window_holds_one_card",
@@ -3559,7 +3618,7 @@ STRIP = (ENGINE_REG
          ' const lever = (h) => (h.match(/<button type="button" class="fr-switch"[^>]*>/) || ["none"])[0];'
          ' const plus = (h) => (h.match(/<button type="button" class="sl-plus"[^>]*>/) || ["none"])[0];'
          r' const names = (h) => [...h.matchAll(/<span class="sl-name" title="[^"]*">([^<]*)</g)].map((x) => x[1]);'
-         ' const cell = (runner, model) => ({ port: 22031, isSlot: true, slotConfig: { RUNNER: runner, ENGINE_MODEL: model } });')
+         ' const cell = (runner, model) => ({ cellId: "c22031", port: null, isSlot: true, slotConfig: { RUNNER: runner, ENGINE_MODEL: model } });')
 GPU_OLLAMA = '{ ...node, gpus: [{ outside: [{ name: "Ollama", engine: "ollama", mib: 1190 }] }] }'
 
 PINS += [
@@ -3689,32 +3748,10 @@ PINS += [
      STRIP,
      'shelf(ENG({ controls: ["unload", "delete"], models: [MDL({ name: "llama3.2:3b", params: "3.2B", loaded: true, memBytes: 6591830464, vramBytes: 5333539264, contextLength: 4096, expiresAt: SOON }),'
      ' MDL(), MDL({ name: "gpt-oss:120b-cloud", params: "116.8B", quant: "MXFP4", fileBytes: 384, remote: true })] }))',
-     json.dumps("<div class=\"engine-shelf engine-ollama\" data-t=\"engine-shelf\" data-t-id=\"h1:ollama\">"
-                "<div class=\"engine-shelf-caption\"><span class=\"ncf-dot up\" aria-hidden=\"true\">"
-                "</span>In Ollama, no cell yet<span class=\"ncf-count\">3</span></div>"
-                "<div class=\"shelf-line engine-ollama loaded\" data-t=\"engine-model\" data-t-id=\"h1:ollama:llama3.2:3b\">"
-                "<button type=\"button\" class=\"sl-plus\" data-t=\"engine-model-reserve\" data-t-id=\"h1:ollama:llama3.2:3b\" data-engine-reserve=\"h1\" data-engine-kind=\"ollama\" data-engine-model=\"llama3.2:3b\" title=\"A cell with llama3.2:3b, on the next free port\" aria-label=\"A cell with llama3.2:3b, on the next free port\">+</button>"
-                "<span class=\"sl-name\" title=\"llama3.2:3b\">llama3.2:3b</span>"
-                "<span class=\"sl-params\">3.2B</span>"
-                "<button class=\"node-engine-act unload\" type=\"button\" data-t=\"node-engine-unload\" data-t-id=\"h1:ollama:llama3.2:3b\" data-engine-act=\"unload\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-model=\"llama3.2:3b\" title=\"Unload this model from the engine&#39;s memory\" aria-label=\"Unload this model from the engine&#39;s memory\">⏏</button>"
-                "<span class=\"mbadge mbadge-vram\" title=\"VRAM 5.0 GB · RAM 1.2 GB · 🪟 4.1k · unloads at 10:25 PM\">5.0G</span>"
-                "</div>"
-                "<div class=\"shelf-line engine-ollama\" data-t=\"engine-model\" data-t-id=\"h1:ollama:qwen3:8b\">"
-                "<button type=\"button\" class=\"sl-plus\" data-t=\"engine-model-reserve\" data-t-id=\"h1:ollama:qwen3:8b\" data-engine-reserve=\"h1\" data-engine-kind=\"ollama\" data-engine-model=\"qwen3:8b\" title=\"A cell with qwen3:8b, on the next free port\" aria-label=\"A cell with qwen3:8b, on the next free port\">+</button>"
-                "<span class=\"sl-name\" title=\"qwen3:8b\">qwen3:8b</span><span class=\"sl-params\">8.2B</span>"
-                "<button class=\"node-engine-act delete sl-del\" type=\"button\" data-t=\"node-engine-delete\" data-t-id=\"h1:ollama:qwen3:8b\" data-engine-act=\"delete\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-model=\"qwen3:8b\" data-engine-machine=\"Host\" title=\"Delete this model&#39;s files from the engine&#39;s disk\" aria-label=\"Delete this model&#39;s files from the engine&#39;s disk\">🗑</button>"
-                "<span class=\"mbadge mbadge-vram-est\" title=\"Estimated from the model file size on disk — actual VRAM adds context/KV overhead\">≈4.9G</span>"
-                "</div>"
-                "<div class=\"shelf-line engine-ollama\" data-t=\"engine-model\" data-t-id=\"h1:ollama:gpt-oss:120b-cloud\">"
-                "<button type=\"button\" class=\"sl-plus\" data-t=\"engine-model-reserve\" data-t-id=\"h1:ollama:gpt-oss:120b-cloud\" data-engine-reserve=\"h1\" data-engine-kind=\"ollama\" data-engine-model=\"gpt-oss:120b-cloud\" title=\"A cell with gpt-oss:120b-cloud, on the next free port\" aria-label=\"A cell with gpt-oss:120b-cloud, on the next free port\">+</button>"
-                "<span class=\"sl-name\" title=\"gpt-oss:120b-cloud\">gpt-oss:120b-cloud</span>"
-                "<span class=\"node-engine-cloud\" title=\"Runs on Ollama&#39;s servers, not on this machine\">☁</span>"
-                "<span class=\"sl-params\">116.8B</span>"
-                "<button class=\"node-engine-act delete sl-del\" type=\"button\" data-t=\"node-engine-delete\" data-t-id=\"h1:ollama:gpt-oss:120b-cloud\" data-engine-act=\"delete\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-model=\"gpt-oss:120b-cloud\" data-engine-machine=\"Host\" title=\"Delete this model&#39;s files from the engine&#39;s disk\" aria-label=\"Delete this model&#39;s files from the engine&#39;s disk\">🗑</button>"
-                "</div></div>", ensure_ascii=False),
+     '"<div class=\\"engine-shelf engine-ollama\\" data-t=\\"engine-shelf\\" data-t-id=\\"h1:ollama\\"><div class=\\"engine-shelf-caption\\"><span class=\\"ncf-dot up\\" aria-hidden=\\"true\\"></span>In Ollama, no cell yet<span class=\\"ncf-count\\">3</span></div><div class=\\"shelf-line engine-ollama loaded\\" data-t=\\"engine-model\\" data-t-id=\\"h1:ollama:llama3.2:3b\\"><button type=\\"button\\" class=\\"sl-plus\\" data-t=\\"engine-model-reserve\\" data-t-id=\\"h1:ollama:llama3.2:3b\\" data-engine-reserve=\\"h1\\" data-engine-kind=\\"ollama\\" data-engine-model=\\"llama3.2:3b\\" title=\\"A cell with llama3.2:3b\\" aria-label=\\"A cell with llama3.2:3b\\">+</button><span class=\\"sl-name\\" title=\\"llama3.2:3b\\">llama3.2:3b</span><span class=\\"sl-params\\">3.2B</span><button class=\\"node-engine-act unload\\" type=\\"button\\" data-t=\\"node-engine-unload\\" data-t-id=\\"h1:ollama:llama3.2:3b\\" data-engine-act=\\"unload\\" data-engine-host=\\"h1\\" data-engine-kind=\\"ollama\\" data-engine-label=\\"Ollama\\" data-engine-model=\\"llama3.2:3b\\" title=\\"Unload this model from the engine&#39;s memory\\" aria-label=\\"Unload this model from the engine&#39;s memory\\">⏏</button><span class=\\"mbadge mbadge-vram\\" title=\\"VRAM 5.0 GB · RAM 1.2 GB · 🪟 4.1k · unloads at 10:25 PM\\">5.0G</span></div><div class=\\"shelf-line engine-ollama\\" data-t=\\"engine-model\\" data-t-id=\\"h1:ollama:qwen3:8b\\"><button type=\\"button\\" class=\\"sl-plus\\" data-t=\\"engine-model-reserve\\" data-t-id=\\"h1:ollama:qwen3:8b\\" data-engine-reserve=\\"h1\\" data-engine-kind=\\"ollama\\" data-engine-model=\\"qwen3:8b\\" title=\\"A cell with qwen3:8b\\" aria-label=\\"A cell with qwen3:8b\\">+</button><span class=\\"sl-name\\" title=\\"qwen3:8b\\">qwen3:8b</span><span class=\\"sl-params\\">8.2B</span><button class=\\"node-engine-act delete sl-del\\" type=\\"button\\" data-t=\\"node-engine-delete\\" data-t-id=\\"h1:ollama:qwen3:8b\\" data-engine-act=\\"delete\\" data-engine-host=\\"h1\\" data-engine-kind=\\"ollama\\" data-engine-label=\\"Ollama\\" data-engine-model=\\"qwen3:8b\\" data-engine-machine=\\"Host\\" title=\\"Delete this model&#39;s files from the engine&#39;s disk\\" aria-label=\\"Delete this model&#39;s files from the engine&#39;s disk\\">🗑</button><span class=\\"mbadge mbadge-vram-est\\" title=\\"Estimated from the model file size on disk — actual VRAM adds context/KV overhead\\">≈4.9G</span></div><div class=\\"shelf-line engine-ollama\\" data-t=\\"engine-model\\" data-t-id=\\"h1:ollama:gpt-oss:120b-cloud\\"><button type=\\"button\\" class=\\"sl-plus\\" data-t=\\"engine-model-reserve\\" data-t-id=\\"h1:ollama:gpt-oss:120b-cloud\\" data-engine-reserve=\\"h1\\" data-engine-kind=\\"ollama\\" data-engine-model=\\"gpt-oss:120b-cloud\\" title=\\"A cell with gpt-oss:120b-cloud\\" aria-label=\\"A cell with gpt-oss:120b-cloud\\">+</button><span class=\\"sl-name\\" title=\\"gpt-oss:120b-cloud\\">gpt-oss:120b-cloud</span><span class=\\"node-engine-cloud\\" title=\\"Runs on Ollama&#39;s servers, not on this machine\\">☁</span><span class=\\"sl-params\\">116.8B</span><button class=\\"node-engine-act delete sl-del\\" type=\\"button\\" data-t=\\"node-engine-delete\\" data-t-id=\\"h1:ollama:gpt-oss:120b-cloud\\" data-engine-act=\\"delete\\" data-engine-host=\\"h1\\" data-engine-kind=\\"ollama\\" data-engine-label=\\"Ollama\\" data-engine-model=\\"gpt-oss:120b-cloud\\" data-engine-machine=\\"Host\\" title=\\"Delete this model&#39;s files from the engine&#39;s disk\\" aria-label=\\"Delete this model&#39;s files from the engine&#39;s disk\\">🗑</button></div></div>"',
      "positive: Якорь: модели Ollama без ячейки — подпись с их числом; загруженная первой (⏏, память, которую держит, с "
      "подробностями в подсказке), установленная — ≈размер файла и 🗑 под указателем, облачная — ☁ без размера; у каждой "
-     "«+» — ячейка с ней на следующем свободном порту"),
+     "«+» — ячейка с ней (без порта: он у ячейки только на прогон)"),
     ("shelf_skips_models_with_cells",
      STRIP,
      '[names(shelf(ENG({ models: [MDL(), MDL({ name: "b" }), MDL({ name: "c" })] }), [cell("ollama", "qwen3:8b"), cell("llama-server", "b"), cell("lmstudio", "c")])),'
@@ -3755,12 +3792,12 @@ PINS += [
                 f'aria-label="{_esc(_en("shelfReserveTitle").replace("{model}", "qwen3:8b"))}">', ensure_ascii=False),
      "«+» несёт машину, движок и модель — то, что уходит в резерв без вопросов; подсказка говорит, что будет"),
     ("shelf_plus_waits_for_a_reserve",
-     STRIP + ' rc._reservingCells.set("h1", { port: 22040, startedAt: 1 });',
+     STRIP + ' rc._reservingCells.set("h1", { startedAt: 1 });',
      '[shelf(ENG({ models: [MDL()] })), shelf(ENG({ models: [MDL()] }), [], { ...node, id: "h9" })].map((h) => (b => [/ disabled /.test(b), b.includes("data-engine-reserve"), (b.match(/ title="([^"]*)"/) || [])[1], (b.match(/data-t="engine-model-reserve" data-t-id="([^"]*)"/) || [0, "none"])[1]])(plus(h)))',
      json.dumps([[True, False, _esc(_en("shelfReserveBusy")), "h1:ollama:qwen3:8b"],
                  [False, True, _esc(_en("shelfReserveTitle").replace("{model}", "qwen3:8b")), "h9:ollama:qwen3:8b"]],
                 ensure_ascii=False),
-     "пока на машине резервируется ячейка — «+» заперт и говорит почему (второй занял бы второй порт), а хук теста у "
+     "пока на машине резервируется ячейка — «+» заперт и говорит почему (второй сделал бы вторую ячейку), а хук теста у "
      "него остаётся; negative: резерв на другой машине этой не мешает"),
     ("shelf_plus_waits_for_an_act",
      STRIP,
@@ -3979,22 +4016,22 @@ PINS += [
      ' h.includes("engine-shelf"), h.includes(\'data-t="engine-model"\'), h.includes("node-engine-more"), h.includes("node-engine-state")])'
      '(cv(node, [], EIGHT()))',
      json.dumps(['<button type="button" class="caravan-add" data-t="node-caravan-add" data-t-id="h1" data-caravan-add="h1" title="'
-                 + _esc(_en("caravanAddTitle").replace("{port}", "22001")) + '">',
+                 + _esc(_en("caravanAddTitle")) + '">',
                  _esc(_en("caravanAddModel")), _esc(_en("caravanAddCount").replace("{n}", "8")),
                  False, False, False, False], ensure_ascii=False),
-     "выбор оператора (раунд 10, A): под полосой одна строка «＋ Add model» — она несёт машину в редактор, подсказка "
-     "называет порт, который редактор предложит; счёт — все восемь моделей без ячейки здесь; negative: полки, строк "
-     "моделей и «ещё N» больше нет"),
+     "выбор оператора (раунд 10, A): под полосой одна строка «＋ Add model» — она несёт машину в редактор; подсказка "
+     "порта не называет (2026-11-08: у новой ячейки порта нет, он — её прогона); счёт — все восемь моделей без ячейки здесь; "
+     "negative: полки, строк моделей и «ещё N» больше нет"),
     ("caravan_busy_and_said",
      CARAVAN + ' const said = (h) => (h.match(/node-engine-state topology-muted">([^<]*)</) || [0, "none"])[1];',
-     '[(() => { rc._reservingCells.set("h1", { port: 22040, startedAt: 1 }); const h = cv(node, [], [MM("a/q/x.gguf")]); rc._reservingCells.clear();'
+     '[(() => { rc._reservingCells.set("h1", { startedAt: 1 }); const h = cv(node, [], [MM("a/q/x.gguf")]); rc._reservingCells.clear();'
      ' return [addOf(h).includes("disabled"), addOf(h).includes("data-caravan-add"), (addOf(h).match(/title="([^"]*)"/) || [0, ""])[1]]; })(),'
      ' said(cv(node, [], [])), said(cv(node, [], [MM("x/q/mmproj.gguf", { kind: "mmproj" })])),'
      ' [said(cv(node, [{ slotConfig: { MODEL_FILE: "a/q/x.gguf" } }], [MM("a/q/x.gguf")])),'
      ' countOf(cv(node, [{ slotConfig: { MODEL_FILE: "a/q/x.gguf" } }], [MM("a/q/x.gguf")]))], said(cv(node, [], [MM("a/q/x.gguf")]))]',
      json.dumps([[True, False, _esc(_en("shelfReserveBusy"))], _esc(_en("shelfCaravanNoModels")), _esc(_en("shelfCaravanNoModels")),
                  [_esc(_en("shelfCaravanAllHaveCells")), "none"], "none"], ensure_ascii=False),
-     "на машине идёт резерв — кнопка заперта и говорит почему: редактор предложил бы тот же порт; моделей нет (или только "
+     "на машине идёт резерв — кнопка заперта и говорит почему: второй резерв сделал бы вторую ячейку; моделей нет (или только "
      "проекторы) — так и сказано под кнопкой; у каждой модели есть ячейка на этой машине — сказано, и счёта «0» нет; "
      "negative: есть что добавить — ничего не сказано"),
 ]
@@ -4047,7 +4084,7 @@ PINS += [
 # runners (engineCell), the machine's report names the engine and its model.
 ENGINE_CELL = (
     ENGINE_REG
-    + ' const EC = (extra = {}, cfg = {}) => ({ port: 22031, isSlot: true, model: "qwen3:8b", phase: "stopped", bootSupported: true, ...extra,'
+    + ' const EC = (extra = {}, cfg = {}) => ({ cellId: "c22031", port: null, isSlot: true, model: "qwen3:8b", phase: "stopped", bootSupported: true, ...extra,'
     ' slotConfig: { RUNNER: "ollama", CELL_KIND: "command", ENGINE_MODEL: "qwen3:8b", ENGINE_PORT: "11434", ...cfg } });'
     ' const EN = (mdl = {}) => ({ ...node, engines: [ENG({ models: [MDL({ type: "llm", ...mdl })] })] });'
     r' const chipsOf = (h) => [...((h.match(/<span class="model-chips">(.*?)<\/span><\/div>/) || [0, ""])[1]).matchAll(/>([^<]+)</g)].map((x) => x[1]);'
@@ -4058,38 +4095,34 @@ PINS += [
     ("enginecell_stopped_card",
      ENGINE_CELL,
      '(h => [clsOf(h), chipsOf(h), h.includes(\'data-t="cell-configure"\'), (h.match(/data-node-cell-runner="([^"]*)"/) || [])[1]])(norm(m.nodeServerCardHtml(EN(), EC())))',
-     json.dumps(["node-server configured-cell engine-cell engine-ollama",
-                 ["💬 LLM", "🟠 Ollama", "RAM —", "GPU —", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], False, "ollama"], ensure_ascii=False),
+     '["node-server configured-cell engine-cell engine-ollama", ["💬 LLM", "🟠 Ollama", "RAM —", "GPU —", "⚖ 8.2B", "🎛 Q4_K_M"], false, "ollama"]',
      "positive: ячейка в Ollama — класс запускающего (оранжевый), работа модели по отчёту движка, значок движка из реестра, "
      "значки памяти с прочерком (стоит: где её загрузит движок, не знаем — не «≈размер файла» на чужую карту), её параметры и квант; "
      "шестерёнки редактора нет — ячейку движка делают на шаге резерва; старт знает раннер (ollama), а не «command»"),
     ("enginecell_running_memory",
      ENGINE_CELL,
      '(h => [clsOf(h), chipsOf(h), (h.match(/title="([^"]*)">GPU 5.6G/) || [])[1]])(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000, memBytes: 6500000000, contextLength: 8192 }), EC({ phase: "running" }))))',
-     json.dumps(["node-server running engine-cell engine-ollama",
-                 ["💬 LLM", "🟠 Ollama", "RAM 0.5G", "GPU 5.6G", "⚖ 8.2B", "🎛 Q4_K_M", "🪟 8.2k", ":22031"],
-                 _en("cellEngineMemTitle").replace("{engine}", "Ollama")], ensure_ascii=False),
+     '["node-server running engine-cell engine-ollama", ["💬 LLM", "🟠 Ollama", "RAM 0.5G", "GPU 5.6G", "⚖ 8.2B", "🎛 Q4_K_M", "🪟 8.2k"], "Memory Ollama holds for this model, as the engine reports it."]',
      "positive: работает — память та, что движок держит под модель: на карте (VRAM из его отчёта, GPU 5.6G) и остаток от общей в RAM (6,5 ГБ минус 6,0: RAM 0.5G), "
      "и окно модели; negative: без gpuIndexes она НЕ «CPU» — процесс ячейки модели не держит"),
     ("enginecell_name_verbatim",
      ENGINE_CELL,
      '(h => [clsOf(h), (h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)</) || []).slice(1), chipsOf(h)])(norm(m.nodeServerCardHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "google/gemma-4-e4b", type: "vlm", params: "4B", fileBytes: 3000000000 })] })] }, EC({ model: "gemma-4-e4b" }, { RUNNER: "lmstudio", ENGINE_MODEL: "google/gemma-4-e4b", ENGINE_PORT: "1234" }))))',
-     json.dumps(["node-server configured-cell engine-cell engine-lmstudio", ["google/gemma-4-e4b", "google/gemma-4-e4b"],
-                 ["💬 LLM", "🟣 LM Studio", "RAM —", "GPU —", "⚖ 4B", "🎛 Q4_K_M", ":22031"]], ensure_ascii=False),
+     '["node-server configured-cell engine-cell engine-lmstudio", ["google/gemma-4-e4b", "google/gemma-4-e4b"], ["💬 LLM", "🟣 LM Studio", "RAM —", "GPU —", "⚖ 4B", "🎛 Q4_K_M"]]',
      "positive: LM Studio — фиолетовый класс; имя модели дословно, как его зовёт движок (google/gemma-4-e4b), а не "
      "выжатое из него имя файла (gemma-4-e4b)"),
     ("enginecell_line_and_window",
      ENGINE_CELL,
      '(h => [(h.match(/<div class="(fold-row cell-row[^"]*)"/) || [])[1], (h.match(/<span class="fr-name">([^<]*)</) || [])[1], (h.match(/<div class="(cell-window[^"]*)" role="dialog"/) || [])[1], (h.match(/<span class="cwh-via" data-t="cell-window-via" title="([^"]*)">([^<]*)</) || []).slice(1)])(norm(m.nodeServerCardHtml(EN(), EC(), { fold: true })))',
      json.dumps(["fold-row cell-row parked engine-ollama", "qwen3:8b", "cell-window cw engine-ollama",
-                 [_en("cellWindowViaTitle").replace("{port}", "22031").replace("{engine}", "Ollama"), "→ 127.0.0.1:11434"]],
+                 [_en("cellWindowViaTitle").replace("{engine}", "Ollama"), "→ 127.0.0.1:11434"]],
                 ensure_ascii=False),
      "positive: строка и окно — в цвет запускающего; в строке — имя модели движка; окно говорит, куда идут запросы: "
-     "127.0.0.1 движка, куда ведёт только порт ячейки"),
+     "127.0.0.1 движка, куда ведёт только эта ячейка"),
     ("enginecell_stopped_but_engine_holds_it",
      ENGINE_CELL,
      'chipsOf(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000 }), EC())))',
-     json.dumps(["💬 LLM", "🟠 Ollama", "RAM —", "GPU —", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], ensure_ascii=False),
+     '["💬 LLM", "🟠 Ollama", "RAM —", "GPU —", "⚖ 8.2B", "🎛 Q4_K_M"]',
      "boundary: ячейка стоит, а движок держит её модель (загрузил кто-то другой) — у стоящей ячейки прочерки, "
      "как у любой стоящей, а не чужая загрузка"),
     ("enginecell_line_name_verbatim",
@@ -4100,7 +4133,7 @@ PINS += [
     ("enginecell_engine_not_reported",
      ENGINE_CELL,
      '(h => [clsOf(h), chipsOf(h)])(norm(m.nodeServerCardHtml({ ...node, engines: [] }, EC())))',
-     json.dumps(["node-server configured-cell engine-cell engine-ollama", ["🟠 Ollama", "RAM —", "GPU —", ":22031"]], ensure_ascii=False),
+     '["node-server configured-cell engine-cell engine-ollama", ["🟠 Ollama", "RAM —", "GPU —"]]',
      "negative: движка в отчёте машины нет — ячейка всё равно названа ячейкой Ollama, а работы модели и памяти нет: "
      "их не у кого спросить, и вместо чисел прочерки, а не догадки"),
     ("enginecell_line_without_report_has_no_device",
@@ -4119,7 +4152,7 @@ PINS += [
      '[norm(m.nodeServerCardHtml(EN(), EC({}, { ENGINE_MODEL: "google/gemma-4-e4b" }), { fold: true })),'
      ' norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "custom", CELL_KIND: "command", COMMAND: "exec bash ~/run_tts.sh $PORT" } }), { fold: true })),'
      ' norm(m.nodeServerCardHtml(node, mk({ phase: "running", model: "x\\"<b>.gguf" }), { fold: true })),'
-     ' norm(m.nodeServerCardHtml(node, { port: 22001, isSlot: true, phase: "reserved" }, { fold: true }))]'
+     ' norm(m.nodeServerCardHtml(node, { cellId: "c22001", port: null, isSlot: true, phase: "reserved" }, { fold: true }))]'
      '.map((h) => (h.match(/class="fr-switch"[^>]*?data-node-cell-model="([^"]*)"/) || [0, "none"])[1])',
      json.dumps(["google/gemma-4-e4b", "bash ~/run_tts.sh $PORT", "x&quot;&lt;b&gt;", "none"]),
      "тумблер строки несёт имя, которое показывает карточка, — для вопроса «запустить/остановить …?»: модель движка "
@@ -4139,7 +4172,7 @@ LANE = (ENGINE_CELL
         + ' const laneRaw = (engines, servers) => { st.setTopology({ ...st.topology, nodes: [{ ...node, engines, servers }] }); return m.nodesLaneHtml(); };'
         ' const lane = (engines, servers) => norm(laneRaw(engines, servers));'
         r' const chips = (h) => [...h.matchAll(/data-t-id="(h1:[a-z]+)" aria-pressed="(true|false)" title="[^"]*">(<span class="ncf-dot( up)?" aria-hidden="true"><\/span>)?([^<]*)<span class="ncf-count">(\d+)</g)].map((x) => [x[1], x[2] === "true", x[3] ? (x[4] ? "up" : "down") : "", x[5], Number(x[6])]);'
-        r' const marks = (h) => [...h.matchAll(/data-cell-hidden="([^"]*)" data-cell-hidden-port="\d+" data-cell-hidden-by="([^"]*)"/g)].map((x) => [x[1], x[2]]);'
+        r' const marks = (h) => [...h.matchAll(/data-cell-hidden="([^"]*)" data-cell-hidden-by="([^"]*)"/g)].map((x) => [x[1], x[2]]);'
         ' const shown = (h) => [...new Set([...h.matchAll(/data-t="cell-(?:row|card)" data-t-id="([^"]*)"/g)].map((x) => x[1]))];'
         ' const TWO = () => [mk({ phase: "stopped" }), EC()];')
 
@@ -4154,13 +4187,13 @@ PINS += [
     ("lane_chip_narrows",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => [marks(h), shown(h), chips(h).filter((c) => c[1]).map((c) => c[0]), h.includes("node-eye-count")])(lane([ENG()], TWO()))',
-     '[[["h1:22001", "launcher"]], ["h1:22031"], ["h1:ollama"], false]',
+     '[[["c22001", "launcher"]], ["c22031"], ["h1:ollama"], false]',
      "positive: выбран Ollama — ячейка каравана убрана меткой «launcher» (её кабель уберётся с ней), ячейка Ollama "
      "видна; глаз не считает убранное чипом"),
     ("lane_chip_and_eye_count_apart",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "caravan"); cf.CARD_FOLD.hideIdle.add("h1");',
      r'(h => [marks(h), (h.match(/<span class="node-eye-count">(\d+)</) || [])[1]])(lane([ENG()], TWO()))',
-     '[[["h1:22001", "idle"], ["h1:22031", "launcher"]], "1"]',
+     '[[["c22001", "idle"], ["c22031", "launcher"]], "1"]',
      "positive: чип и глаз вместе — каждая метка называет своё правило; глаз считает только свои (1), а не все скрытые (2)"),
     ("lane_stale_choice_shows_all",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "lmstudio");',
@@ -4189,7 +4222,7 @@ PINS += [
      "подсказка чипа движка — что он покажет и работает ли движок на этой машине"),
     ("lane_engine_shelf_under_its_strip_over_the_chips",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
-     '(h => { const at = (x) => h.indexOf(x); const cellAt = at(\'data-t="cell-row" data-t-id="h1:22031"\');'
+     '(h => { const at = (x) => h.indexOf(x); const cellAt = at(\'data-t="cell-row" data-t-id="c22031"\');'
      ' const shelfAt = at(\'data-t="engine-shelf" data-t-id="h1:ollama"\');'
      ' return [at(\'class="node-subtitle\') < at(\'data-t="node-engine"\'), at(\'data-t="node-engine"\') < shelfAt,'
      ' shelfAt < at(\'data-t="node-cell-filter"\'), at(\'data-t="node-cell-filter"\') < cellAt,'
@@ -4197,7 +4230,7 @@ PINS += [
      ' [...h.matchAll(/data-t="engine-model" data-t-id="([^"]*)"/g)].map((x) => x[1]), h.includes("node-engine-panel"), h.includes("data-engine-menu")]; })'
      '(lane([ENG({ models: [MDL(), MDL({ name: "b" })] })], TWO()))',
      '[true, true, true, true, 1, ["h1:ollama:b"], false, false]',
-     "positive: заголовок списка, полоса сервера, под ней модели без ячейки (qwen3:8b уже в ячейке :22031 — её на полке "
+     "positive: заголовок списка, полоса сервера, под ней модели без ячейки (qwen3:8b уже в ячейке c22031 — её на полке "
      "нет), потом чипы и ячейки — полка над чипами, чтобы её было видно; negative: под ячейками второй полки нет, ни "
      "панели, ни ▾ больше нет"),
     ("lane_engine_strips_and_shelves_always",
@@ -4213,7 +4246,7 @@ PINS += [
     ("lane_engine_missing_line",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => [(h.match(/data-t="node-engine-missing"[^>]*>([^<]*)</) || [0, "none"])[1], h.includes(\'data-t="engine-shelf" data-t-id="h1:ollama"\'), shown(h)])(lane([], TWO()))',
-     json.dumps([_esc(_en("engineNotReported").replace("{engine}", "Ollama")), False, ["h1:22031"]], ensure_ascii=False),
+     json.dumps([_esc(_en("engineNotReported").replace("{engine}", "Ollama")), False, ["c22031"]], ensure_ascii=False),
      "boundary: машина движок не сообщает, а ячейка в нём есть — чип нажат, над ячейкой строка «не сообщает» (её "
      "ячейки не запустятся), полки нет — спросить не у кого"),
     ("lane_output_anchors_at_chips",
@@ -4263,41 +4296,41 @@ PINS += [
      '[true, true, true]',
      "предупреждение — в голове колонки Compute: под её заголовком, над строкой процессора и картами, где карту "
      "хватятся"),
-    ("lane_cpu_line_skips_engine_cells",
+    ('lane_cpu_line_skips_engine_cells',
      LANE,
      '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',
-     '"22001"',
-     "negative: строка CPU машины не зовёт работающую ячейку движка «ячейкой на CPU» — её процесс модели не держит; "
-     "ячейка каравана без карт там, как прежде"),
+     '"a"',
+     'negative: строка CPU машины не зовёт работающую ячейку движка «ячейкой на CPU» — её процесс модели не держит; ячейка каравана без карт '
+     'там, как прежде, — по имени (a), не портом'),
 ]
 
 # 2026-10-19 (the owner): the comment on a model — one for all its quants, written on /models — stands in the cell's comments.
 PINS += [
     ("card_model_note_block",
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellModelNotes: { "h1:22001": "A <i>MoE</i> of 176B" } }); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellModelNotes: { "c22001": "A <i>MoE</i> of 176B" } }); const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      'norm(h).match(/<div class="node-server-note model"[^>]*>.*?<\\/div>/)?.[0] ?? null',
-     json.dumps('<div class="node-server-note model" data-t="cell-model-note" data-t-id="h1:22001" title="' + _esc(_en("cellModelNoteTip"))
+     json.dumps('<div class="node-server-note model" data-t="cell-model-note" data-t-id="c22001" title="' + _esc(_en("cellModelNoteTip"))
                 + '&#10;&#10;A &lt;i&gt;MoE&lt;/i&gt; of 176B">📖 A &lt;i&gt;MoE&lt;/i&gt; of 176B</div>', ensure_ascii=False),
      "positive: the comment on the cell's model (topology.cellModelNotes by the cell's key) is a 📖 line on the card, escaped in the text and in the tooltip, "
      "which says what it is and where it is written before the words"),
     ("card_model_note_follows_the_cells_own_note",
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "h1:22001": "mine" }, cellModelNotes: { "h1:22001": "the model\'s" } });'
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "c22001": "mine" }, cellModelNotes: { "c22001": "the model\'s" } });'
      ' const n = norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" })));',
      '[n.includes("💬 mine"), n.indexOf("📖 the model") > n.indexOf("💬 mine"), (n.match(/class="node-server-note/g) || []).length]',
      "[true,true,2]",
      "a cell with a note of its own and a commented model shows both, the cell's own first: neither hides the other"),
     ("card_model_note_same_words_said_once",
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "h1:22001": "same words" }, cellModelNotes: { "h1:22001": "same words" } });'
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellNotes: { "c22001": "same words" }, cellModelNotes: { "c22001": "same words" } });'
      ' const n = norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" })));',
      '[(n.match(/class="node-server-note/g) || []).length, n.includes("💬 same words"), n.includes("📖")]',
      "[1,true,false]",
      "boundary: the same words on the cell and on its model are said once, as the cell's own (a note that was copied into the cell before the model had a comment)"),
     ("card_model_note_absent_negative",
-     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellModelNotes: { "h1:22002": "another cell\'s model" } });'
+     'st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [], cellModelNotes: { "c22002": "another cell\'s model" } });'
      ' const h = m.nodeServerCardHtml(node, mk({ phase: "stopped" }));',
      'norm(h).includes("node-server-note")',
      "false",
-     "negative: a comment on the model of the cell at another port (h1:22002) is not on the card of h1:22001, and a card with none has no line"),
+     "negative: a comment on the model of another cell (c22002) is not on the card of c22001, and a card with none has no line"),
     ("server_detail_reads_the_model_comment_whole",
      "",
      "(() => { const made = document.createElement; const put = document.body.appendChild; let html = '';"
@@ -4305,28 +4338,76 @@ PINS += [
      " set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } });"
      " document.body.appendChild = () => {};"
      " const open = (notes) => { html = ''; st.setTopology({ ...st.topology, cellModelNotes: notes, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" })] }] });"
-     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {} return html; };"
-     " try { const with_ = open({ \"h1:22001\": \"Whole <b>text</b>, all of it.\" }), without = open({});"
+     " try { m.openNodeServerDetail(\"c22001\"); } catch (e) {} return html; };"
+     " try { const with_ = open({ \"c22001\": \"Whole <b>text</b>, all of it.\" }), without = open({});"
      " return [(with_.match(/<div class=\"nsd-model-note-text\">([^<]*)<\\/div>/) || [])[1] || null, with_.includes('nsd-note-input'), with_.indexOf('nsd-model-note') > with_.indexOf('nsd-note-input'),"
      " without.includes('cell-model-note-full'), without.includes('nsd-note-input')]; }"
      " finally { document.createElement = made; document.body.appendChild = put; } })()",
      json.dumps(["Whole &lt;b&gt;text&lt;/b&gt;, all of it.", True, True, False, True]),
      "positive: the cell's window reads the model's comment whole (not two lines), escaped, under the cell's own NOTE box, which is still there to write in; "
      "negative: a cell whose model has no comment has no such block"),
-    ("server_detail_links_the_address_by_its_firewall",
+    ("server_detail_says_no_firewall_and_no_address",
+     "",
+     "(() => { const made = document.createElement; const put = document.body.appendChild; let html = ''; document.createElement = () => ({ style: {}, dataset: {}, setAttribute() {}, appendChild() {}, set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } }); document.body.appendChild = () => {};"
+     " const open = (firewall) => { html = ''; st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"running\", firewall })] }] });"
+     " try { m.openNodeServerDetail(\"c22001\"); } catch (e) {} return html; };"
+     " try { return [{ state: \"restricted\", allowedFrom: [\"10.0.0.20\"] }, { state: \"all\", allowedFrom: [\"Anywhere\"] }, undefined].map((fw) => { const h = open(fw);"
+     " return [(h.match(/class=\"node-fw-badge fw-([a-z]+)\"/) || [])[1] ?? null, h.includes('nsd-addr-link') || h.includes('class=\"nsd-addr\"'), h.includes(\"10.0.0.5:22001\")]; }); }"
+     " finally { document.createElement = made; document.body.appendChild = put; } })()",
+     '[[null,false,false],[null,false,false],[null,false,false]]',
+     "negative (2026-11-08, шаг 7): ячейка слушает петлю своей машины — значка брандмауэра в строке статуса нет ни при каком слове о нём "
+     "(до шага 7: закрытый и открытый — свой значок); адреса ячейки нет ни ссылкой, ни текстом"),
+]
+
+
+# 2026-11-08 (Papyrus caravan-scout-port-lease, steps 2–3): a cell is known by its own name, cellId, and holds a port only while it runs.
+# The board names it by its model (CellName) or its id, keys and addresses it by the id (data-cell-id), and draws no port for it.
+PINS += [
+    ("cell_names_no_port_in_any_phase",
+     "",
+     "(() => { const PH = [\"reserved\", \"stopped\", \"error\", \"starting\", \"downloading\", \"warming\", \"running\", \"broken\"]; const bad = [];"
+     " for (const phase of PH) for (const fold of [false, true]) { const s = { ...mk({ phase }), port: 22011 };"
+     " const h = m.nodeServerCardHtml(node, s, { fold }); const text = h.replace(/<[^>]*>/g, \" \");"
+     " if (/:\\d{4,5}\\b/.test(text)) bad.push([phase, fold, \"port in the words\", text.match(/:\\d{4,5}\\b/)[0]]);"
+     " if (/data-llama-port|data-node-cell-port|data-cell-port-reassign|data-cell-hidden-port|lc-port|fr-port/.test(h)) bad.push([phase, fold, \"a port's mark\"]);"
+     " for (const tag of h.match(/<[a-z]+\\b[^>]*>/g) || []) if ((tag.match(/ data-cell-id=/g) || []).length > 1) bad.push([phase, fold, \"two ids\", tag.slice(0, 60)]);"
+     " const ids = [...h.matchAll(/ data-cell-id=\"([^\"]*)\"/g)].map((x) => x[1]); if (!ids.length || ids.some((id) => id !== \"c22001\")) bad.push([phase, fold, \"ids\", [...new Set(ids)]]); }"
+     " return bad; })()",
+     "[]",
+     "negative: ни в одном состоянии — стоящая, зарезервированная, упавшая, стартующая, качающая, греющаяся, работающая, сломанная, карточкой и "
+     "строкой с окном — ячейка не называет порта: ни «:22011» в словах (даже если ряд контроллера его несёт), ни метки порта (data-llama-port, "
+     "data-node-cell-port, кнопки смены порта, lc-port, fr-port); positive: её адрес везде один — data-cell-id её имени, и ни один элемент не "
+     "несёт его дважды"),
+    ("cell_name_by_what_it_runs",
+     "st.setState({ ...st.state, runners: [{ id: \"llama-server\", tokenContext: true }, { id: \"ollama\", engineCell: true, labelKey: \"runnerOllama\" }, { id: \"vllm\" }, { id: \"whisper\" }, { id: \"moonshine\" }, { id: \"custom\" }],"
+     " artifacts: [{ path: \"Qwen3-8B/Qwen/AWQ\", name: \"Qwen3-8B\", format: \"AWQ\" }] });",
+     "[{ model: \"Qwen3.6-35B-A3B-UD-Q4_K_M.gguf\", slotConfig: { RUNNER: \"llama-server\" } },"
+     " { model: \"\", slotConfig: { RUNNER: \"ollama\", ENGINE_MODEL: \"google/gemma-4-e4b\" } },"
+     " { model: \"\", slotConfig: { RUNNER: \"vllm\", VLLM_MODEL: \"/models/Qwen3-8B/Qwen/AWQ/\" } },"
+     " { model: \"\", slotConfig: { RUNNER: \"vllm\", VLLM_MODEL: \"/m/Other/author/FP8\" } },"
+     " { model: \"\", slotConfig: { RUNNER: \"whisper\", WHISPER_MODEL: \"medium\" } },"
+     " { model: \"\", slotConfig: { RUNNER: \"moonshine\", MOONSHINE_MODEL: \"ES\" } },"
+     " { model: \"\", slotConfig: { CELL_KIND: \"command\", COMMAND: \"exec python srv.py --port $PORT\" } },"
+     " { model: \"\", slotConfig: {} }]"
+     ".map((x, i) => { const n = new m.CellName({ cellId: \"c\" + i, port: 22011, ...x }); return [n.shown, n.title]; })",
+     json.dumps([["Qwen3.6-35B-A3B-UD", "Qwen3.6-35B-A3B-UD"], ["google/gemma-4-e4b", "google/gemma-4-e4b"], ["Qwen3-8B", "Qwen3-8B"],
+                 ["Other", "Other"], ["medium", "medium"], ["es", "es"], ["python srv.py --port $PORT", "python srv.py --port $PORT"], ["", "c7"]]),
+     "positive: одно правило имени ячейки (CellName) для её блоков, строки, окна, вопросов старта и строк GPU/CPU машины: модель движка дословно, "
+     "имя модели, контрольная точка vLLM по строке библиотеки или по папке <Model>/<author>/<FORMAT>, размер whisper, язык moonshine, команда без exec; "
+     "boundary: ячейка без модели имени не имеет (\"\"), и там, где её надо назвать, её называет её id — не порт, который несёт её ряд"),
+    ("server_detail_by_its_cell_alone",
      "",
      "(() => { const made = document.createElement; const put = document.body.appendChild; let html = '';"
      " document.createElement = () => ({ style: {}, dataset: {}, setAttribute() {}, appendChild() {},"
      " set innerHTML(h) { html = h; }, get firstElementChild() { return { addEventListener() {}, querySelector: () => null, querySelectorAll: () => [], remove() {} }; } });"
      " document.body.appendChild = () => {};"
-     " const open = (firewall) => { html = ''; st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"running\", firewall })] }] });"
-     " try { m.openNodeServerDetail(\"h1\", 22001); } catch (e) {} return html; };"
-     " try { return [{ state: \"restricted\", allowedFrom: [\"10.0.0.20\"] }, { state: \"all\", allowedFrom: [\"Anywhere\"] }, undefined].map((fw) => { const h = open(fw);"
-     " return [h.includes('class=\"topology-addr-link nsd-addr-link\"'), (h.match(/<code class=\"nsd-addr\" title=\"([^\"]*)\">([^<]*)<\\/code>/) || []).slice(1)]; }); }"
+     " st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk({ phase: \"stopped\" })] }, { ...node, id: \"h2\", name: \"Other\", servers: [{ ...mk({ phase: \"running\" }), cellId: \"c22002\", port: 22001 }] }] });"
+     " const open = (...args) => { html = ''; try { m.openNodeServerDetail(...args); } catch (e) { return 'threw: ' + e.message; } return (html.match(/<div class=\"modal-head-row\">\\s*<strong>([^<]*)</) || [])[1] ?? null; };"
+     " try { return [open(\"c22002\"), open(\"c22001\"), open(\"c9999\"), open(\"h1\", 22001), open(\"\"), open()]; }"
      " finally { document.createElement = made; document.body.appendChild = put; } })()",
-     json.dumps([[False, ["The machine&#39;s firewall lets only the controller reach this port", "10.0.0.5:22001"]], [True, []], [True, []]]),
-     "1.3.656 (вариант Б): порт ячейки пускает только контроллер — адрес в подробностях без ссылки, а подсказка говорит почему; "
-     "negative: порт открыт всем, и брандмауэр не прочитан — адрес ссылкой, как был"),
+     '["Other","Host",null,null,null,null]',
+     "positive: подробности ячейки находят её по имени на любой машине — c22002 на второй машине, где её прогон держит тот же номер порта, что "
+     "был у первой; negative: имя, которого нет, ничего не открывает, и старый вызов (машина, порт) — тоже, как и пустое имя"),
 ]
 
 _fail = []

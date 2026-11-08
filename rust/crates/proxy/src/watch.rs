@@ -25,6 +25,8 @@ impl<'a> Watch<'a> {
     const SILENCE_LIMIT: f64 = 600.0;
     /// How often a request asks whether the board has stopped it, at most.
     const STOP_TURN: f64 = 0.25;
+    /// How long a wait goes before it looks around.
+    const SLEEP_TURN: Duration = Duration::from_secs(1);
 
     /// The look-out of `record`'s request. `streaming` is whether its client asked for a stream: only such a client has an open
     /// socket to watch and a read timeout to feed.
@@ -77,10 +79,13 @@ impl<'a> Watch<'a> {
         }
     }
 
-    /// Waits `seconds`, looking around each second.
-    pub fn sleep(&mut self, seconds: u64, client: &mut ClientSide) -> Result<(), Ending> {
-        for _ in 0..seconds {
-            std::thread::sleep(Duration::from_secs(1));
+    /// Waits `long`, looking around at least once a second.
+    pub fn sleep(&mut self, long: Duration, client: &mut ClientSide) -> Result<(), Ending> {
+        let mut left = long;
+        while !left.is_zero() {
+            let step = left.min(Self::SLEEP_TURN);
+            std::thread::sleep(step);
+            left = left.saturating_sub(step);
             self.turn(client)?;
         }
         self.last_upstream_byte = self.proxy.clock.epoch();

@@ -228,6 +228,10 @@ const out = {
   out.aside.llamaFigure = drawn({ "tr-RUNNER": { value: "llama-server" } }, 37.2);
   out.aside.strata = drawn({ "tr-RUNNER": { value: "strata" }, "tr-ENV": { value: "" } }, 37.2);
   out.aside.strataNoCard = drawn({ "tr-RUNNER": { value: "strata" }, "tr-ENV": { value: "CUDA_VISIBLE_DEVICES=3" } }, 37.2);
+  const oldGpus = TR_GPUS.slice();
+  TR_GPUS.splice(0, TR_GPUS.length, { index: 0, memoryFreeMiB: 20480 }, { index: 1 });
+  out.aside.strataDsUntold = drawn({ "tr-RUNNER": { value: "strata-ds" } }, 37.2);
+  TR_GPUS.splice(0, TR_GPUS.length, ...oldGpus);
   // GR00T's plan is the figure its policy was measured at, whatever llama's sum is.
   out.aside.gr00t = drawn({ "tr-RUNNER": { value: "gr00t" }, "tr-ENV": { value: "" } }, 37.2);
   out.fitGb = Object.fromEntries(["gr00t", "seamless"].map((r) => {
@@ -253,6 +257,14 @@ const out = {
                     shortReserve: at(9000, "4096") };
   out.freeStartBar = m.FreeVramStart.of(plan, { env: "CUDA_VISIBLE_DEVICES=1", reserve: "4096",
     gpus: [{ index: 0, memoryFreeMiB: 1 }, { index: 1, memoryFreeMiB: 20000 }] }).bar();
+  // Strata's DeepSeek engine takes the free memory of every card (the registry's `everyCard`): the form's bar is on them all.
+  const every = REGISTRY.find((r) => r.id === "strata-ds").vramPlan;
+  const both = [{ index: 0, memoryFreeMiB: 20480 }, { index: 1, memoryFreeMiB: 30720 }];
+  const s = m.FreeVramStart.of(every, { env: "CUDA_VISIBLE_DEVICES=1", reserve: "", gpus: both });
+  out.freeEvery = { plan: every, bar: s.bar(), gb: s.addGb, known: s.known, places: s.places,
+                    untold: m.FreeVramStart.of(every, { env: "", reserve: "", gpus: [both[0], { index: 1 }] }).known,
+                    none: m.FreeVramStart.of(every, { env: "", reserve: "", gpus: [] }),
+                    zero: m.FreeVramStart.of(every, { gpus: [{ index: 0, memoryFreeMiB: 0 }] }).known };
 }
 // The CPU tile of a GPU-only runner is drawn and cannot be pressed.
 out.cpuTileOff = Object.fromEntries(["strata", "gr00t", "vllm", "transcribe"].map((r) => {
@@ -579,6 +591,38 @@ out.prismPlacement = ["0", "10"].map((layers) => {
     out.moeFacts.dense = m.placementFacts("tr-").model.expertsGb;
   }
 
+  // A speculative draft (2026-11-07): the estimate counts its file when the start loads it, and the map and the line above the tabs
+  // place it — one figure (cellModelOf). The draft as the form names it (modelChoiceOf), its type and layers off the form's fields.
+  {
+    const DRAFT = { path: "mtp-m70.gguf", kind: "draft", sizeGb: 1.28, ggufMeta: { blockCount: 80 } };
+    const rows = (list) => { globalThis.__stubReturns["form.modelsByPath"] = () => new Map(list.map((r) => [r.path, r])); };
+    const named = (draft) => { globalThis.__stubReturns["form.modelChoiceOf"] = () => ({ model: "m70.gguf", mmproj: "", draft }); };
+    // Two empty cards of 48 GB: the 70B and its draft fit whole.
+    setCards([{ index: 0, name: "Card", memoryTotalMiB: 49152, memoryFreeMiB: 49152, memoryUsedMiB: 0 },
+              { index: 1, name: "Card", memoryTotalMiB: 49152, memoryFreeMiB: 49152, memoryUsedMiB: 0 }]);
+    cellIs(slot("stopped", {}));
+    rows([llama, DRAFT]);
+    const at = (extra = {}, draft = DRAFT.path) => {
+      named(draft);
+      form({ "tr-SPEC_TYPE": { value: "draft-mtp" }, ...extra });
+      const e = m.estimateRuntimeMemoryGb("tr-");
+      const s = m.offloadSplit("tr-");
+      const f = m.placementFacts("tr-").model;
+      return { runtime: round(e.runtimeSize, 2), files: round(e.fileTotalSize, 2), draftSize: e.draftSize, state: e.draft?.state ?? null,
+               vram: round(s.vramGb, 2), ram: round(s.ramGb, 2), cards: round(f.draftCardsGb ?? 0, 2), inRam: round(f.draftRamGb ?? 0, 2) };
+    };
+    out.draftEst = {
+      plain: at({ "tr-SPEC_TYPE": { value: "" } }, ""), mtp: at(), sidecarType: at({ "tr-SPEC_TYPE": { value: "" } }),
+      none: at({ "tr-SPEC_TYPE": { value: "none" } }), ngram: at({ "tr-SPEC_TYPE": { value: "ngram-simple" } }),
+      embed: at({ "tr-ENABLE_EMBEDDINGS": { type: "checkbox", checked: true } }), builtin: at({}, ""),
+      ram: at({ "tr-SPEC_DRAFT_N_GPU_LAYERS": { value: "0" } }),
+      unsized: (rows([llama]), at()),
+    };
+    rows([llama]);
+    named("");
+    setCards(cards());
+  }
+
   // What the compute target writes: the split follows the mode, and the cards' sizes follow the split.
   const apply = (before, gpuIdx, cardList, ts = "") => {
     setCards(cardList); cellIs(null);
@@ -708,6 +752,22 @@ out.prismPlacement = ["0", "10"].map((layers) => {
     };
     delete globalThis.__fields["tr-CPU_OFFLOAD_GB"];
   }
+  // What the trips cost (DecodeSpeed): the owner's Cosmos-Reason2-2B BF16 (4.54 GiB) on the GPU machine's RTX 3090, PCIe 4.0 x8, 3 GiB left in RAM —
+  // measured 2026-11-02 at 5.2–5.3 tokens/s, 182–184 with all of it on the card.
+  {
+    const c3090 = { index: "0", name: "NVIDIA GeForce RTX 3090", memoryTotalMiB: 24576, pcieGen: "4", pcieWidth: "8" };
+    const at = (card, model, offload = "3", util = "0.2") => m.VllmPlacement.from({ ENV: "CUDA_VISIBLE_DEVICES=0", GPU_MEMORY_UTILIZATION: util, CPU_OFFLOAD_GB: offload }, [card], 4.54, model);
+    const speedOf = (p) => (p.speed ? [Math.round(p.speed.now * 10) / 10, Math.round(p.speed.full), Math.round(p.speed.slower)] : null);
+    const busless = { ...c3090, pcieGen: undefined, pcieWidth: undefined };
+    out.vllmSpeed = {
+      cosmos: [speedOf(at(c3090, { expertCount: 0 })), at(c3090, { expertCount: 0 }).note()],
+      // As measured without the offload: util 0.45, all of it on the card (at 0.2 it does not fit, and the line says that).
+      allOnCard: [speedOf(at(c3090, { expertCount: 0 }, "", "0.45")), at(c3090, { expertCount: 0 }, "", "0.45").note()],
+      noBus: [speedOf(at(busless, { expertCount: 0 })), at(busless, { expertCount: 0 }).note()],
+      experts: [speedOf(at(c3090, { expertCount: 128 })), at(c3090, { expertCount: 128 }).note()],
+      unsaid: [speedOf(at(c3090, {})), speedOf(at(c3090, { expertCount: "0" }))],
+    };
+  }
 }
 console.log(JSON.stringify(out));
 """
@@ -789,6 +849,15 @@ check(of["unsized"]["rides"] == 9 and of["unsized"]["need"] == 0 and of["unsized
 check(of["zero"]["rides"] == 0 and of["words"]["rides"] == 0 and of["negative"]["rides"] == 0 and of["zero"]["note"] == "", "negative: 0, слово и минус: ничего в RAM, строки нет")
 check(of["parallel"]["rides"] == 10 and of["parallel"]["onCard"] == 25, "tensor-parallel: на каждую карту: 2 × 5 ГБ в RAM, на карте по 30 − 5")
 check(of["form"] == 7.5, "форма читает своё поле тем же правилом")
+vs = got["vllmSpeed"]
+check(vs["cosmos"][0] == [4.8, 192, 40] and "≈ 4.8 tokens/s, 40× slower than with all of them on the card (≈ 192)" in vs["cosmos"][1]
+      and "not a measurement" in vs["cosmos"][1],
+      f"Cosmos на 3090 PCIe 4.0 x8, 3 ГиБ в RAM: строка говорит ≈ 4,8 т/с и «в 40 раз», замер владельца 5,2–5,3 и 182–184 (получено {vs['cosmos']})")
+check(vs["allOnCard"][0] == [192, 192, 1] and vs["allOnCard"][1] == "", "все веса на карте: оценка без перевозки, строки о цене нет")
+check(vs["noBus"][0] is None and vs["noBus"][1].endswith("each pass takes longer for the trips."),
+      "negative: шина карты не сказана (скаут до 2.45.0): прежние слова без числа, а не догадка")
+check(vs["experts"][0] is None and "≈" not in vs["experts"][1], "negative: модель с экспертами читает часть весов на токен — правило о ней молчит")
+check(vs["unsaid"] == [None, None], "negative: строка модели не сказала число экспертов (или сказала словом) — оценки нет")
 check(got["cpuTileOff"] == {"strata": True, "gr00t": True, "vllm": True, "transcribe": False},
       f"плитка CPU у Strata, GR00T и vLLM не нажимается, у transcribe — нажимается (получено {got['cpuTileOff']})")
 
@@ -924,6 +993,14 @@ check(got["freeStart"] == {"roomy": [True, 13.6], "roomyReserve": [True, 9.6], "
       "свободно 13.6 ГБ — берёт всё, с резервом 4 ГБ — 9.6; ровно 6 ГБ — стартует, на 1 МиБ меньше — нет "
       "(правило скаута starts.py: свободно >= нужно); не стартует — полоса рисует нужное "
       f"(получено {got['freeStart']})")
+fe = got["freeEvery"]
+check(fe["plan"] == {"takesFree": True, "everyCard": True} and fe["bar"] == {"hard": True, "cards": [0, 1], "vramNote": english("vramTakesFreeEvery")}
+      and fe["gb"] == 50 and fe["known"] is True and fe["places"] == [{"index": "0", "gb": 20}, {"index": "1", "gb": 30}],
+      f"Strata · DeepSeek (everyCard из реестра): полоса формы — на обеих картах, 20 + 30 ГБ, закрепление карты 1 её не меняет (получено {fe})")
+check(fe["untold"] is False and fe["none"] is None and fe["zero"] is True,
+      "negative: карта не сказала свободное — старт не известен; карт нет — старта нет; сказанный ноль известен")
+check(got["aside"]["strataDsUntold"] and got["aside"]["strataDsUntold"][0][1] == 0,
+      f"форма не рисует частичную оценку при неизвестной памяти карты: {got['aside']['strataDsUntold']}")
 check(got["freeStartBar"] == {"hard": True, "cards": [1], "vramNote": english("vramTakesFree", gb="10.0 GB")},
       f"полоса — на её карте (1), без запаса в 1 ГБ, с нужным: 6 ГБ + резерв 4 (получено {got['freeStartBar']})")
 
@@ -1030,6 +1107,29 @@ check(mf["experts"] == 512 and mf["expertBytes"] == 5008 and mf["layers"] == 48 
       f"the map is told the experts, what they weigh (5008 bytes, as GB) and the cache of 12 layers (got {mf})")
 check(mf["unknownBytes"] == 0 and mf["dense"] == 0,
       "negative: experts whose bytes the header did not give weigh 0 — not known; a dense model's experts weigh nothing")
+print()
+print("черновик спекуляции в оценке формы, на карте памяти и в строке над вкладками (2026-11-07):")
+de = got["draftEst"]
+pl = de["plain"]
+check(pl["draftSize"] == 0 and pl["state"] is None and pl["cards"] == 0 and pl["inRam"] == 0 and pl["ram"] == 0,
+      f"без черновика — ничего о нём (got {pl})")
+mtp = de["mtp"]
+check(mtp["draftSize"] == 1.28 and mtp["state"] == "cards" and round(mtp["runtime"] - pl["runtime"], 2) == 1.28
+      and round(mtp["files"] - pl["files"], 2) == 1.28 and round(mtp["vram"] - pl["vram"], 2) == 1.28 and mtp["cards"] == 1.28
+      and mtp["inRam"] == 0,
+      f"positive (дефект 2026-10-27): draft-mtp с файлом в библиотеке — +1.28 ГБ к файлам, к целому и к картам (got {mtp} против {pl})")
+check(de["sidecarType"] == mtp, "тип не сказан, файл — голова MTP: грузится так же, и считается так же")
+for name in ("none", "ngram", "embed", "builtin"):
+    check({k: de[name][k] for k in ("runtime", "files", "vram", "ram", "draftSize", "state")}
+          == {k: pl[k] for k in ("runtime", "files", "vram", "ram", "draftSize", "state")},
+          f"negative ({name}): SPEC_TYPE none / ngram-* / ячейка эмбеддингов / draft-mtp без файла — черновик ничего не добавляет")
+rm = de["ram"]
+check(rm["state"] == "ram" and round(rm["runtime"] - pl["runtime"], 2) == 1.28 and rm["vram"] == pl["vram"] and rm["ram"] == 1.28
+      and rm["cards"] == 0 and rm["inRam"] == 1.28,
+      f"SPEC_DRAFT_N_GPU_LAYERS 0 — черновик в целом, но в RAM: карты те же, RAM +1.28 (got {rm})")
+un = de["unsized"]
+check(un["draftSize"] is None and un["state"] == "unsized" and un["runtime"] == pl["runtime"] and un["files"] == pl["files"],
+      f"черновика нет в библиотеке — размер не известен (null, не 0), назван, а не прибавлен нулём (got {un})")
 print()
 print("две карты, одна модель — что ячейка держит и что ей свободно:")
 hd = got["holds"]

@@ -1,8 +1,9 @@
-//! The topology section: which cells exist, on which host, under which key. A slot is stored under `"<hostId>:<port>"`, and that string is the whole invariant: a lookup that builds the key differently from the write addresses a slot that is not there. So the key is built in ONE place.
+//! The topology section: which cells exist, on which host, under which name. A slot is stored under its cell's own id (`rules::CellId`:
+//! `c<port>` for a cell from before 2026-11-07, `c` and eight hex digits for a newer one); the machine is a field of the slot, and the
+//! port is no fact of a slot at all — the scout leases one when the cell starts (Papyrus `caravan-scout-port-lease`, step 2).
 
 use super::admin::AdminStore;
 use super::base::{Document, Store};
-use crate::paths::HostIds;
 use serde_json::{Map, Value};
 
 /// A view onto the admin document's `topology` section. Holds no data of its own; saving is still the document's job.
@@ -16,11 +17,6 @@ impl<'doc> Topology<'doc> {
         Self { section: AdminStore::topology(doc) }
     }
 
-    /// The one spelling of a slot's key.
-    pub fn slot_key(host_id: &str, port: i64) -> String {
-        format!("{}:{port}", HostIds::canonical(host_id))
-    }
-
     /// The raw section.
     pub fn raw(&mut self) -> &mut Document {
         self.section
@@ -31,44 +27,38 @@ impl<'doc> Topology<'doc> {
         Store::section(self.section, name, &[])
     }
 
-    /// The slots.
+    /// The slots, by cell id.
     pub fn slots(&mut self) -> &mut Document {
         self.named("serverSlots")
     }
 
-    /// The slot for this host and port, or empty: what a caller that renders a cell wants.
-    pub fn slot(&mut self, host_id: &str, port: i64) -> Value {
-        let key = Self::slot_key(host_id, port);
+    /// The slot of cell `id`, or empty: what a caller that renders a cell wants.
+    pub fn slot(&mut self, id: &str) -> Value {
         self.slots()
-            .get(&key)
+            .get(id)
             .filter(|slot| rules::Coerce::truthy(Some(*slot)))
             .cloned()
             .unwrap_or_else(|| Value::Object(Map::new()))
     }
 
     /// The slot, or none: what a caller about to change something wants, to refuse.
-    pub fn find_slot(&mut self, host_id: &str, port: i64) -> Option<&mut Value> {
-        let key = Self::slot_key(host_id, port);
-        self.slots().get_mut(&key)
+    pub fn find_slot(&mut self, id: &str) -> Option<&mut Value> {
+        self.slots().get_mut(id)
     }
 
     /// Whether there is one.
-    pub fn has_slot(&mut self, host_id: &str, port: i64) -> bool {
-        let key = Self::slot_key(host_id, port);
-        self.slots().contains_key(&key)
+    pub fn has_slot(&mut self, id: &str) -> bool {
+        self.slots().contains_key(id)
     }
 
-    /// Stores a slot under its canonical key, and answers with that key.
-    pub fn put_slot(&mut self, host_id: &str, port: i64, slot: Value) -> String {
-        let key = Self::slot_key(host_id, port);
-        self.slots().insert(key.clone(), slot);
-        key
+    /// Stores a slot under its cell's id.
+    pub fn put_slot(&mut self, id: &str, slot: Value) {
+        self.slots().insert(id.to_string(), slot);
     }
 
     /// Removes a slot; answers with what was there.
-    pub fn drop_slot(&mut self, host_id: &str, port: i64) -> Option<Value> {
-        let key = Self::slot_key(host_id, port);
-        self.slots().shift_remove(&key)
+    pub fn drop_slot(&mut self, id: &str) -> Option<Value> {
+        self.slots().shift_remove(id)
     }
 
     /// The clients.

@@ -13,9 +13,11 @@ use crate::common::cloud_sources::CloudSources;
 use crate::common::misc::CloudFileKeys;
 use files::CredentialVault;
 use regex::Regex;
-use rules::{AppError, Coerce, Credentials, EntryModels, ModelCatalogue};
+use rules::{AppError, Coerce};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod reading;
 
 /// The files of this controller.
 pub struct CloudData<'app> {
@@ -158,17 +160,6 @@ impl<'app> CloudData<'app> {
     /// The one writer of the keys.
     pub fn vault(&self) -> CredentialVault {
         CredentialVault::new(self.app.paths.provider_secrets_file.clone())
-    }
-
-    /// The models a client calls without a pool, as the board reads them.
-    pub fn live_models(&self, routers: Option<&Value>) -> EntryModels {
-        let secrets = self.secrets();
-        EntryModels::read(routers, Some(&self.load()), &Credentials::read(Some(&secrets)), ModelCatalogue::default())
-    }
-
-    /// The pools alone, with no model called straight.
-    pub fn pool_names(&self, data: &Value) -> EntryModels {
-        EntryModels::read(None, Some(data), &Credentials::default(), ModelCatalogue::default()).pools_only()
     }
 
     /// What opens an account: a test alias uses its original's.

@@ -6,6 +6,10 @@
 //
 // Decisions apart from effects: MachineRoom, RackShares and the moves are rules on values; MachinePlan is the state; MachineDrag reads
 // the pointer; MachinePlanStart talks to the controller, with everything it needs handed in.
+//
+// A cell is known here by its own name, `cellId` (the topology's `servers[].cellId`), and by nothing else: it holds a port only while it
+// runs, and the page shows none. The launch being built under the map (machine-build.js) is no cell yet and has no cellId: it is planned
+// under the builder's own key (MachineBuild.KEY) until its Start makes the cell.
 import { t } from "./i18n.js";
 import { CardPin, CardRoom, ComputeFields, PlacementPlan } from "./placement.js";
 
@@ -13,13 +17,13 @@ const GIB = 2 ** 30;
 
 /** The machine as a start would find it. */
 export class MachineRoom {
-  /** A copy of the machine with the cells `ports` gone: what they hold on its cards and in its RAM is free, and they are marked
+  /** A copy of the machine with the cells `cellIds` gone: what they hold on its cards and in its RAM is free, and they are marked
    *  `leaving` for whoever draws it. A cell on a card maps its model file and its RSS is not the machine's "used", unless its runner
    *  keeps its weights in RAM (`keepsRam`), so only those give RAM back: the rule the RAM's lane draws by. */
-  static without(node, ports = [], keepsRam = () => false) {
-    const gone = new Set((ports || []).map(String));
+  static without(node, cellIds = [], keepsRam = () => false) {
+    const gone = new Set((cellIds || []).map(String));
     if (!gone.size) return node;
-    const leaving = (node?.servers || []).filter((s) => gone.has(String(s.port)));
+    const leaving = (node?.servers || []).filter((s) => gone.has(String(s.cellId)));
     const gpus = (node?.gpus || []).map((g) => {
       const mib = leaving.reduce((sum, s) => sum + (CardRoom.said(s.gpuMem?.[String(g.index)]) || 0), 0);
       if (!(mib > 0)) return g;
@@ -35,7 +39,7 @@ export class MachineRoom {
     }, 0);
     return { ...node, gpus,
       ...(ram && used !== null ? { cpu: { ...node.cpu, ram: { ...ram, usedGb: Math.max(0, used - back) } } } : {}),
-      servers: (node?.servers || []).map((s) => (gone.has(String(s.port)) ? { ...s, leaving: true } : s)) };
+      servers: (node?.servers || []).map((s) => (gone.has(String(s.cellId)) ? { ...s, leaving: true } : s)) };
   }
 
   /** What a start has to lay itself on: {cards: [{index, freeGb, ceilingGb}], all, ramFreeGb, cores}; a card nobody measured has no
@@ -216,7 +220,7 @@ class VllmMove extends CellMove {
 
   laid(fields) {
     const at = this.facts.asksFor?.(fields);
-    return { how: "asks", fields, asks: at?.asks ?? [], over: !!at?.over, ridesGb: at?.ridesGb ?? 0 };
+    return { how: "asks", fields, asks: at?.asks ?? [], over: !!at?.over, ridesGb: at?.ridesGb ?? 0, speed: at?.speed ?? null };
   }
 
   /** On a card. Weights its share does not hold stay in RAM and come to it for every pass: that is how they run at all, and the plan says
@@ -250,34 +254,39 @@ export class MachinePlan {
   }
 
   clear() {
-    this.port = "";
+    // The cell the plan is for, by its cellId; "" is no plan.
+    this.cellId = "";
     this.how = "";
     this.fields = null;
     this.asks = null;
     this.over = false;
     this.ridesGb = 0;
+    this.speed = null;
     this.shares = null;
     this.evict = [];
     this.moved = false;
     this.dragging = false;
     this.drop = "";
     this.dropOk = true;
+    // While a drag lasts: whether the cell in hand may lie on each lane, by its id ("0", "1", "ram") — MachineDrag.targetsOf.
+    this.targets = null;
     this.busy = false;
     this.room = null;
   }
 
   get on() {
-    return this.port !== "" && !!this.fields;
+    return this.cellId !== "" && !!this.fields;
   }
 
-  /** The plan for a cell: `result` as a move gives it. */
-  set(port, result, { evict = [], moved = false } = {}) {
-    this.port = String(port);
+  /** The plan for the cell `cellId`: `result` as a move gives it; `evict` the cells that give way, by their cellIds. */
+  set(cellId, result, { evict = [], moved = false } = {}) {
+    this.cellId = String(cellId);
     this.how = result.how;
     this.fields = result.fields;
     this.asks = result.asks ?? null;
     this.over = !!result.over;
     this.ridesGb = Number(result.ridesGb) || 0;
+    this.speed = result.speed ?? null;
     this.shares = result.shares ?? null;
     this.evict = (evict || []).map(String);
     this.moved = !!moved;
@@ -302,24 +311,30 @@ export class MachinePlan {
     this.moved = false;
   }
 
+  /** The launch the plan was laid for is a cell now, made by the start's save (MachinePlanStart): the plan is that cell's from here on, so a
+   *  start that fails after it leaves the plan on the cell that stands, and a second Start starts it instead of making another. */
+  becomes(cellId) {
+    this.cellId = String(cellId);
+  }
+
   /** What is held now, to go back to when a drag is let go nowhere. */
   snapshot() {
-    return { port: this.port, how: this.how, fields: this.fields, asks: this.asks, over: this.over, ridesGb: this.ridesGb, shares: this.shares, evict: this.evict, moved: this.moved };
+    return { cellId: this.cellId, how: this.how, fields: this.fields, asks: this.asks, over: this.over, ridesGb: this.ridesGb, speed: this.speed, shares: this.shares, evict: this.evict, moved: this.moved };
   }
 
   restore(saved) {
     Object.assign(this, saved);
   }
 
-  /** The cells that would have let go when it starts. */
+  /** The cells that would have let go when it starts, by their cellIds. */
   leaving() {
-    return this.on ? [...this.evict, ...(this.moved ? [this.port] : [])] : [];
+    return this.on ? [...this.evict, ...(this.moved ? [this.cellId] : [])] : [];
   }
 
   /** The builder's facts of the planned cell, as the plan would have them. */
   facts(facts = {}) {
     return { ...facts, how: this.how || facts.how, fields: { ...facts.fields, ...Object.fromEntries(Object.entries(this.fields || {}).filter(([k]) => k in (facts.fields || {}))) },
-             ...(this.asks ? { asks: this.asks, over: this.over, ridesGb: this.ridesGb } : {}) };
+             ...(this.asks ? { asks: this.asks, over: this.over, ridesGb: this.ridesGb, speed: this.speed } : {}) };
   }
 
   /** What a start would change in the config it has, as "KEY=value": the words of the panel. */
@@ -330,19 +345,21 @@ export class MachinePlan {
 
   /** What differs from another drawing, for whoever redraws only when it must. */
   key() {
-    return this.on ? JSON.stringify([this.port, this.how, this.fields, this.evict, this.moved, this.busy]) : "";
+    return this.on ? JSON.stringify([this.cellId, this.how, this.fields, this.evict, this.moved, this.busy]) : "";
   }
 
   /** Whether the plan still means anything on this machine: a stopped cell to start, or a running one to move, and those that are to
-   *  give way still there. While a start carries it out it is the start's. */
-  validFor(node, phaseOf = (s) => String(s?.phase || "")) {
+   *  give way still there. While a start carries it out it is the start's. `launch` is the launch being built on the page (machine-build.js,
+   *  MachineBuild.server): no cell of the machine yet, standing under the builder's key, planned as one. */
+  validFor(node, phaseOf = (s) => String(s?.phase || ""), launch = null) {
     if (!this.on || this.busy) return this.on;
-    const of = (port) => (node?.servers || []).find((s) => String(s.port) === String(port));
-    const server = of(this.port);
+    const of = (cellId) => (node?.servers || []).find((s) => String(s.cellId) === String(cellId))
+      || (launch && String(launch.cellId) === String(cellId) ? launch : undefined);
+    const server = of(this.cellId);
     if (!server) return false;
     const holds = ["running", "warming", "broken"].includes(phaseOf(server));
     if (holds !== this.moved) return false;
-    return this.evict.every((port) => of(port) && ["running", "warming", "broken"].includes(phaseOf(of(port))));
+    return this.evict.every((cellId) => of(cellId) && ["running", "warming", "broken"].includes(phaseOf(of(cellId))));
   }
 }
 
@@ -384,10 +401,14 @@ export class MachineDrag {
   static MOVABLE = "[data-machine-pick]";
   /** What is a button of its own where a press could fall on a movable thing: a cell's Window, Start and Stop, a model's mark. */
   static OWN = ["[data-machine-own]", "[data-model-rate]"];
-  /** The list of models: where a cell is taken from, and where a working one dropped stops. */
-  static LIST = '[data-t="machine-models"]';
+  /** The block of the model picked, where a cell's row stands: where a cell is taken from, and where a working one dropped stops. The block is
+   *  inside the same pane as the list that picks which model it shows. */
+  static BLOCK = '[data-t="machine-chosen"]';
   /** The pane the list stands in. Where it does not scroll (a narrow screen), the wheel moves the page. */
   static PANE = ".machine-main";
+  /** The page's own body on a wide screen, which scrolls when the window is too low for the rack, the launch builder and the panes
+   *  (machine.css); narrower, the page scrolls as one, and the document is what moves. */
+  static PAGE = ".machine-page > .ui-win--page > .ui-win-body";
 
   /** What a press takes: the block, chip or cell's row it fell on — one rule for the click that chooses and the press that drags. A press on
    *  a button of its own there takes nothing, and only does what that button does. */
@@ -412,22 +433,24 @@ export class MachineDrag {
   }
 
   /**
-   * @param cells () → the builder's word on each cell, by port (MachinePick.cells)
+   * @param cells () → the builder's word on each cell, by cellId (MachinePick.cells)
    * @param node () → the machine of the page, or null on any other page
    * @param place (facts, node) → where those facts lay the cell (CellFit)
-   * @param chosenPort () → the cell chosen now
-   * @param choose (port) → that cell chosen
+   * @param chosenId () → the cellId of the cell chosen now
+   * @param choose (cellId) → that cell chosen
    * @param patch () → the map drawn again
-   * @param bring (port) → the cell's row in sight: its plan and its buttons are there
-   * @param stop (port) → the cell's own Stop pressed, with its question
+   * @param bring (cellId) → the cell's row in sight: its plan and its buttons are there
+   * @param stop (cellId) → the cell's own Stop pressed, with its question
+   * @param name (cellId) → the cell as the page names it (MachinePick.nameOf), for the tag under the pointer
    * @param notify (words) → said to the operator
    * @param nextFrame (fn) → fn called at the next frame; what it returns says one is waiting
    */
-  bind(doc, { cells = () => new Map(), node = () => null, place = () => ({ verdict: "unknown", cards: [], ramGb: 0 }), chosenPort = () => "", choose = () => {},
-              patch = () => {}, bring = () => {}, stop = () => {}, notify = () => {}, nextFrame = (fn) => globalThis.requestAnimationFrame?.(fn) || 0 } = {}) {
+  bind(doc, { cells = () => new Map(), node = () => null, place = () => ({ verdict: "unknown", cards: [], ramGb: 0 }), chosenId = () => "", choose = () => {},
+              patch = () => {}, bring = () => {}, stop = () => {}, name = (cellId) => String(cellId), notify = () => {},
+              nextFrame = (fn) => globalThis.requestAnimationFrame?.(fn) || 0 } = {}) {
     if (this.bound || !doc?.addEventListener) return;
     this.bound = true;
-    Object.assign(this, { doc, cells, node, place, chosenPort, choose, patch, bring, stop, notify, nextFrame });
+    Object.assign(this, { doc, cells, node, place, chosenId, choose, patch, bring, stop, name, notify, nextFrame });
     doc.addEventListener("pointerdown", (e) => this.down(e), true);
     doc.addEventListener("pointermove", (e) => this.moved(e));
     doc.addEventListener("pointerup", (e) => this.up(e));
@@ -449,48 +472,65 @@ export class MachineDrag {
     });
   }
 
-  /** `port` laid on `target`: a plan, or the reason said. */
-  placeAt(port, target) {
-    const facts = this.factsOf(port);
+  /** The cell `cellId` laid on `target`: a plan, or the reason said. */
+  placeAt(cellId, target) {
+    const facts = this.factsOf(cellId);
     if (!facts || !this.node()) return;
-    const found = this.attempt(String(port), facts.group === "holds", target, "");
+    const found = this.attempt(String(cellId), facts.group === "holds", target, "");
     if (found.result.refused) {
       this.notify(t(found.result.refused));
       return;
     }
-    this.plan.set(port, found.result, { evict: found.evict, moved: facts.group === "holds" });
-    this.choose(port);
+    this.plan.set(cellId, found.result, { evict: found.evict, moved: facts.group === "holds" });
+    this.choose(cellId);
     this.patch();
-    this.bring(port);
+    this.bring(cellId);
   }
 
-  /** Where `port` would lie on `target`, as it is or with `occupant` gone: a model that fits leaves what lies there alone; one that does
-   *  not, dropped on a block, takes that block's place. {result, verdict, evict}. */
-  attempt(port, moved, target, occupant) {
+  /** Where the cell `cellId` would lie on `target`, as it is or with `occupant` (a cellId) gone: a model that fits leaves what lies there
+   *  alone; one that does not, dropped on a block, takes that block's place. {result, verdict, evict}. */
+  attempt(cellId, moved, target, occupant) {
     const node = this.node();
-    const facts = this.factsOf(port)?.fit || {};
-    const own = occupant === port ? "" : occupant;
+    const facts = this.factsOf(cellId)?.fit || {};
+    const own = occupant === cellId ? "" : occupant;
     const lay = (evict) => {
-      const { after, room } = this.roomOf(node, [...evict, ...(moved ? [port] : [])]);
+      const { after, room } = this.roomOf(node, [...evict, ...(moved ? [cellId] : [])]);
       const result = CellMove.of(facts).to(target, room);
       if (result.refused) return { result, verdict: "none", evict };
       const probe = new MachinePlan();
-      probe.set(port, result, { evict, moved });
+      probe.set(cellId, result, { evict, moved });
       return { result, verdict: this.place(probe.facts(facts), after).verdict, evict };
     };
     const found = lay([]);
     if (found.result.refused || !own || MachineDrag.fits(found.verdict) || !this.factsOf(own)?.stop) return found;
     const instead = lay([own]);
-    return !instead.result.refused && instead.verdict !== "none" ? instead : found;
+    return MachineDrag.lies(instead) ? instead : found;
   }
 
-  factsOf(port) {
-    return this.cells().get(String(port));
+  /** Whether the cell lies where `found` (`attempt`) lays it: the move is not refused and it fits somewhere. One rule for the ring of the lane
+   *  under the pointer and for every lane lit or dim while a drag lasts. */
+  static lies(found) {
+    return !found.result.refused && found.verdict !== "none";
+  }
+
+  /** Whether the cell in hand may lie on each lane of the machine as it is now, by the lane's id: the rule the lane under the pointer is
+   *  judged by (`lies`), asked of every lane at once when the cell is taken, so the rack says where it may go before the pointer gets there —
+   *  lit where it may, dim where it may not (the owner's choice for the launch builder, 2026-11-06; the cells of the list are carried the
+   *  same way). null on no machine. */
+  targetsOf(cellId, moved) {
+    const node = this.node();
+    if (!node) return null;
+    const ids = [...MachineRoom.of(node).cards.map((c) => String(c.index)), "ram"];
+    return Object.fromEntries(ids.map((id) => [id, MachineDrag.lies(this.attempt(cellId, moved, id, ""))]));
+  }
+
+  factsOf(cellId) {
+    return this.cells().get(String(cellId));
   }
 
   /** The machine as this start would find it, and the moves' view of it. */
   roomOf(node, leaving) {
-    const keeps = (server) => !!this.factsOf(server.port)?.fit?.keepsRam;
+    const keeps = (server) => !!this.factsOf(server.cellId)?.fit?.keepsRam;
     const after = MachineRoom.without(node, leaving, keeps);
     return { after, room: MachineRoom.of(after) };
   }
@@ -511,7 +551,7 @@ export class MachineDrag {
     if (!facts) return;
     const standing = facts.group === "bench";
     if (standing ? !facts.launch : facts.group !== "holds" || !facts.stop) return;
-    this.press = { port: String(el.dataset.machinePick), x: e.clientX, y: e.clientY, moved: !standing };
+    this.press = { cellId: String(el.dataset.machinePick), x: e.clientX, y: e.clientY, moved: !standing };
   }
 
   moved(e) {
@@ -543,32 +583,53 @@ export class MachineDrag {
   }
 
   /** One frame of the pane moving: what lies under a pointer that stands still changes with it. At the pane's end it stops until the
-   *  pointer moves again, and the drag's end ends it. */
+   *  pointer moves again, and the drag's end ends it. The list's pane moves where the pointer leans on its edge; elsewhere the page does,
+   *  where the pointer leans on the edge of what shows it: on a phone, or a window too low for the rack and the launch builder both, the
+   *  rack is out of sight above the launch carried up to it (the owner, 2026-11-07: «вверх на видеокарты… пальцем или мышью»). */
   leanStep(drag) {
     drag.frame = 0;
     if (this.drag !== drag) return;
-    const pane = this.doc.querySelector?.(MachineDrag.PANE);
-    const box = pane?.getBoundingClientRect?.();
-    if (!box) return;
-    const step = Math.round(PaneLean.at(drag.pointer.y, box.top, box.bottom) * PaneLean.SPEED);
-    if (!step) return;
-    const was = pane.scrollTop;
-    pane.scrollTop = was + step;
-    if (pane.scrollTop === was) return;
-    this.over(drag.pointer.x, drag.pointer.y);
-    drag.frame = this.nextFrame(() => this.leanStep(drag));
+    for (const scroller of [this.paneOf(), this.pageOf()]) {
+      const step = scroller ? Math.round(PaneLean.at(drag.pointer.y, scroller.top, scroller.bottom) * PaneLean.SPEED) : 0;
+      if (!step) continue;
+      const was = scroller.el.scrollTop;
+      scroller.el.scrollTop = was + step;
+      if (scroller.el.scrollTop === was) continue;
+      this.over(drag.pointer.x, drag.pointer.y);
+      drag.frame = this.nextFrame(() => this.leanStep(drag));
+      return;
+    }
+  }
+
+  /** The list's pane and where it shows, or null. */
+  paneOf() {
+    const el = this.doc.querySelector?.(MachineDrag.PANE);
+    const box = el?.getBoundingClientRect?.();
+    return box ? { el, top: box.top, bottom: box.bottom } : null;
+  }
+
+  /** What scrolls the page and where it shows: the page's body while it has more than it shows, else the document in the window; null
+   *  where neither is known. */
+  pageOf() {
+    const body = this.doc.querySelector?.(MachineDrag.PAGE);
+    const box = body && Number(body.scrollHeight) > Number(body.clientHeight) + 1 ? body.getBoundingClientRect?.() : null;
+    if (box) return { el: body, top: box.top, bottom: box.bottom };
+    const root = this.doc.scrollingElement;
+    const height = Number(this.doc.defaultView?.innerHeight) || 0;
+    return root && height ? { el: root, top: 0, bottom: height } : null;
   }
 
   begin() {
-    const { port, moved } = this.press;
-    this.drag = { port, moved, saved: this.plan.snapshot(), key: null, result: null };
+    const { cellId, moved } = this.press;
+    this.drag = { cellId, moved, saved: this.plan.snapshot(), key: null, result: null };
     this.press = null;
     this.plan.dragging = true;
+    this.plan.targets = this.targetsOf(cellId, moved);
     this.doc.documentElement?.classList?.add?.("machine-dragging");
     this.tag = this.doc.createElement?.("div") || null;
     if (this.tag) {
       this.tag.className = "machine-drag-tag";
-      this.tag.textContent = String(this.factsOf(port)?.name || `:${port}`);
+      this.tag.textContent = String(this.name(cellId));
       this.doc.body?.appendChild?.(this.tag);
     }
   }
@@ -577,7 +638,8 @@ export class MachineDrag {
     if (this.tag?.style) this.tag.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y - 12)}px)`;
   }
 
-  /** What is under the pointer: {target, occupant}, or {bench: true}, or nothing. */
+  /** What is under the pointer: {target, occupant} — the occupant the cellId of the block there — or {block: true} for the block of the
+   *  model picked, or nothing. */
   under(x, y) {
     const el = this.doc.elementFromPoint?.(x, y);
     const lane = el?.closest?.('[data-t="machine-map-lane"]');
@@ -586,7 +648,7 @@ export class MachineDrag {
       const block = el.closest?.('[data-t="machine-map-block"]');
       return { target: id === "ram" ? "ram" : id.replace(/^gpu-/, ""), occupant: block ? String(block.dataset.machinePick || "") : "" };
     }
-    return el?.closest?.(MachineDrag.LIST) ? { bench: true } : {};
+    return el?.closest?.(MachineDrag.BLOCK) ? { block: true } : {};
   }
 
   /** What the drag says over `what`: a plan laid there, a refusal, or nothing. */
@@ -595,22 +657,22 @@ export class MachineDrag {
     const key = JSON.stringify(what);
     if (key === this.drag.key) return;
     this.drag.key = key;
-    const { port, moved, saved } = this.drag;
+    const { cellId, moved, saved } = this.drag;
     const node = this.node();
     this.plan.drop = "";
     this.plan.dropOk = true;
     this.drag.result = null;
     if (what.target !== undefined && node) {
-      const found = this.attempt(port, moved, what.target, what.occupant);
+      const found = this.attempt(cellId, moved, what.target, what.occupant);
       this.plan.drop = what.target;
-      this.plan.dropOk = !found.result.refused && found.verdict !== "none";
+      this.plan.dropOk = MachineDrag.lies(found);
       this.drag.result = found.result;
       if (found.result.refused) this.plan.restore(saved);
-      else this.plan.set(port, found.result, { evict: found.evict, moved });
+      else this.plan.set(cellId, found.result, { evict: found.evict, moved });
     } else {
       this.plan.restore(saved);
     }
-    this.drag.bench = !!what.bench;
+    this.drag.block = !!what.block;
     this.patch();
   }
 
@@ -627,7 +689,7 @@ export class MachineDrag {
     }
     this.press = null;
     if (!this.drag) return;
-    const { port, moved, result, bench, saved } = this.drag;
+    const { cellId, moved, result, block, saved } = this.drag;
     this.finish();
     // The click that ends a drag comes at once, if it comes at all: a press and a release on different elements may give none, and
     // the next real click must not be taken for it.
@@ -635,20 +697,20 @@ export class MachineDrag {
     let stopping = false;
     const laid = !!result && !result.refused;
     if (laid) {
-      this.choose(port);
+      this.choose(cellId);
     } else {
       this.plan.restore(saved);
       if (result?.refused) this.notify(t(result.refused));
-      else stopping = bench && moved;
+      else stopping = block && moved;
     }
     // The cell's own Stop is pressed by a click too: pressed with the guard still up, the guard took it for the drag's last click
     // and a running cell dragged down stayed as it was (1.3.695, seen first on the real page).
     setTimeout(() => {
       this.swallow = false;
-      if (stopping) this.stop(port);
+      if (stopping) this.stop(cellId);
     }, MachineDrag.CLICK_MS);
     this.patch();
-    if (laid) this.bring(port);
+    if (laid) this.bring(cellId);
   }
 
   cancel() {
@@ -671,6 +733,7 @@ export class MachineDrag {
     this.plan.dragging = false;
     this.plan.drop = "";
     this.plan.dropOk = true;
+    this.plan.targets = null;
     this.doc.documentElement?.classList?.remove?.("machine-dragging");
     this.tag?.remove?.();
     this.tag = null;
@@ -686,16 +749,17 @@ export class MachineDrag {
 
   /** The chosen cell with a share of `id` set: a plan made from where it would lie now, when it has none yet. */
   setShare(id, want) {
-    const port = String(this.chosenPort());
-    const facts = this.factsOf(port)?.fit;
+    const cellId = String(this.chosenId());
+    const facts = this.factsOf(cellId)?.fit;
     if (!facts) return;
-    const move = CellMove.of(this.plan.port === port ? this.plan.facts(facts) : facts);
+    const mine = this.plan.cellId === cellId;
+    const move = CellMove.of(mine ? this.plan.facts(facts) : facts);
     if (!move.sizable) return;
     const node = this.node();
-    const leaving = this.plan.port === port ? this.plan.leaving() : [];
+    const leaving = mine ? this.plan.leaving() : [];
     const { after, room } = this.roomOf(node, leaving);
-    const shares = this.plan.port === port && this.plan.shares ? this.plan.shares : MachineDrag.sharesOf(this.place(facts, after), room);
-    this.plan.set(port, move.share(shares, id, want, room), { evict: this.plan.port === port ? this.plan.evict : [], moved: this.plan.port === port && this.plan.moved });
+    const shares = mine && this.plan.shares ? this.plan.shares : MachineDrag.sharesOf(this.place(facts, after), room);
+    this.plan.set(cellId, move.share(shares, id, want, room), { evict: mine ? this.plan.evict : [], moved: mine && this.plan.moved });
     this.patch();
   }
 
@@ -718,8 +782,8 @@ export class MachineDrag {
     if (!step) return;
     e.preventDefault?.();
     const id = grip.dataset.machineGrip;
-    const port = String(this.chosenPort());
-    const now = this.plan.port === port && this.plan.shares ? Number(this.plan.shares[id]) || 0 : Number(grip.dataset.machineGripHolds) || 0;
+    const cellId = String(this.chosenId());
+    const now = this.plan.cellId === cellId && this.plan.shares ? Number(this.plan.shares[id]) || 0 : Number(grip.dataset.machineGripHolds) || 0;
     this.setShare(id, now + step * MachineDrag.STEP_GB);
     this.doc.querySelector?.(`[data-machine-grip="${String(id).replace(/["\\]/g, "\\$&")}"]`)?.focus?.();
   }
@@ -740,13 +804,17 @@ export class MachinePlanStart {
   static SEEN_MS = 15_000;
 
   /**
-   * @param save ({hostId, port, config, cacheModels}) → the controller keeps the config
-   * @param act (hostId, port, action) → true when a cell was asked to start or stop; false when it was refused, the reason already said
-   * @param phase (port) → the phase of a cell now, as the topology says, the topology read anew
+   * @param save ({cellId, config, cacheModels} | {hostId, config, cacheModels}) → the controller keeps the config
+   *   (POST /api/topology/server-cell/save-config): for the cell named, or, with no cellId, for a new cell it makes on that machine —
+   *   its answer then names the new cell (`cellId`)
+   * @param act (cellId, action) → true when a cell was asked to start or stop; false when it was refused, the reason already said
+   * @param phase (cellId) → the phase of a cell now, as the topology says, the topology read anew
+   * @param name (cellId) → the cell as the page names it, for the words of a failure
    * @param pause (ms) → a wait
    */
-  constructor({ save, act, phase, pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }), now = () => Date.now() } = {}) {
-    Object.assign(this, { save, act, phase, pause, now });
+  constructor({ save, act, phase, name = (cellId) => String(cellId), pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); }),
+                now = () => Date.now() } = {}) {
+    Object.assign(this, { save, act, phase, name, pause, now });
   }
 
   /** Whether a phase is a cell that stands and was asked for nothing. */
@@ -759,42 +827,63 @@ export class MachinePlanStart {
     return MachinePlanStart.stands(phase) || String(phase) === "error";
   }
 
-  async waitFor(port) {
+  async waitFor(cellId) {
     const until = this.now() + MachinePlanStart.WAIT_MS;
     for (;;) {
-      if (MachinePlanStart.letGo(await this.phase(port))) return;
-      if (this.now() >= until) throw new Error(t("machinePlanStuck", { port: String(port) }));
+      if (MachinePlanStart.letGo(await this.phase(cellId))) return;
+      if (this.now() >= until) throw new Error(t("machinePlanStuck", { cell: String(this.name(cellId)) }));
       await this.pause(MachinePlanStart.TICK_MS);
     }
   }
 
   /** Until the topology says the start, or the time is up. Drawn before that, the cell stands there with its old settings and a live
    *  Start button: 1.6 s on the stand with its pulse of 5 s (the settings told a plan of 11.0 + 17.4 GB as 12.2 + 16.3). */
-  async waitSeen(port) {
+  async waitSeen(cellId) {
     const until = this.now() + MachinePlanStart.SEEN_MS;
-    while (MachinePlanStart.stands(await this.phase(port)) && this.now() < until) await this.pause(MachinePlanStart.TICK_MS);
+    while (MachinePlanStart.stands(await this.phase(cellId)) && this.now() < until) await this.pause(MachinePlanStart.TICK_MS);
   }
 
-  /** @param plan the plan; @param hostId the cell's machine; @param config its config as stored; @param cacheModels its own setting
+  /** The config saved, and the cell it was saved for: the plan's own (`cellId`), or — for the launch built under the map, which is no cell
+   *  yet — the one the save made on `makeOn`, its machine, as the answer names it. A save that names no new cell is said, never started by a
+   *  guess. */
+  async saved(cellId, makeOn, body) {
+    const answer = await this.save(makeOn ? { hostId: makeOn, ...body } : { cellId, ...body });
+    if (!makeOn) return cellId;
+    const made = String(answer?.cellId ?? "").trim();
+    if (!made) throw new Error(t("machinePlanNoCell"));
+    return made;
+  }
+
+  /** @param plan the plan, for the cell it names (MachinePlan.cellId); @param makeOn "" for a cell that is kept, or the machine the launch
+   *  built under the map is made on — the plan then names the builder's key, and the save makes the cell; @param config the config as
+   *  stored; @param cacheModels its own setting
+   *  @param made (key, cellId) → heard as soon as the save made the launch's cell, `key` the one the plan was laid under: the plan is that
+   *  cell's from then on (MachinePlan.becomes), whatever the start does next
    *  @returns whether the cell was asked to start; false when an action was refused. */
-  async run({ plan, hostId, config, cacheModels }) {
-    const port = plan.port;
+  async run({ plan, makeOn = "", config, cacheModels, made = () => {} }) {
+    const key = plan.cellId;
     const leaving = plan.leaving();
     const fields = { ...plan.fields };
-    for (const p of leaving) {
-      if (!await this.act(hostId, p, "stop")) return false;
+    for (const id of leaving) {
+      if (!await this.act(id, "stop")) return false;
     }
-    for (const p of leaving) await this.waitFor(p);
+    for (const id of leaving) await this.waitFor(id);
     plan.letGone();
-    await this.save({ hostId, port: Number(port), config: { ...config, ...fields }, cacheModels: !!cacheModels });
-    if (!await this.act(hostId, port, "start")) return false;
-    await this.waitSeen(port);
+    const id = await this.saved(key, makeOn, { config: { ...config, ...fields }, cacheModels: !!cacheModels });
+    if (makeOn) {
+      plan.becomes(id);
+      made(key, id);
+    }
+    if (!await this.act(id, "start")) return false;
+    await this.waitSeen(id);
     return true;
   }
 
-  /** The plan's two buttons. `target` says what a start needs of the planned cell: {hostId, config, cacheModels, question, room}; `redraw`
-   *  draws the map again. Refused or failed, the plan stays and the reason is said. */
-  bind(doc, { plan = MACHINE_PLAN, target = () => null, confirm = async () => true, notify = () => {}, redraw = () => {} } = {}) {
+  /** The plan's two buttons. `target` says what a start needs of the planned cell: {config, cacheModels, question, room}, and `makeOn`, the
+   *  machine, for the launch being built, which the save makes — at once or as a promise (the launch is given its config by the cell form,
+   *  add-model.js `formConfig`); `redraw` draws the map again; `made` (key, cellId) hears the launch's cell made (`run`). Refused or failed,
+   *  the plan stays and the reason is said. */
+  bind(doc, { plan = MACHINE_PLAN, target = () => null, confirm = async () => true, notify = () => {}, redraw = () => {}, made = () => {} } = {}) {
     if (this.bound || !doc?.addEventListener) return;
     this.bound = true;
     doc.addEventListener("click", async (e) => {
@@ -804,14 +893,24 @@ export class MachinePlanStart {
         redraw();
         return;
       }
-      if (!e.target?.closest?.("[data-machine-plan-start]") || !plan.on || plan.busy) return;
+      if (!e.target?.closest?.("[data-machine-plan-start]") || !plan.on || plan.busy || this.asking) return;
       e.preventDefault?.();
-      const what = target(plan);
-      if (!what || !(await confirm(what.question))) return;
+      // What the start needs may take a while (a form filled), and a second press in between is no second start.
+      const asked = plan.cellId;
+      this.asking = true;
+      let what = null;
+      try {
+        what = await target(plan);
+        if (!what || !(await confirm(what.question))) return;
+      } finally {
+        this.asking = false;
+      }
+      // The plan may have gone while the operator was asked (a drawing found its cell gone): nothing is started for it.
+      if (!plan.on || plan.cellId !== asked) return;
       plan.begin(what.room);
       redraw();
       try {
-        if (await this.run({ plan, hostId: what.hostId, config: what.config, cacheModels: what.cacheModels })) plan.clear();
+        if (await this.run({ plan, makeOn: String(what.makeOn || ""), config: what.config, cacheModels: what.cacheModels, made })) plan.clear();
         else plan.end();
       } catch (err) {
         plan.end();

@@ -8,14 +8,13 @@ use crate::config::fields::ConfigFields;
 use crate::domain::runner::Config;
 use crate::fleet::cell_assets::CellAssets;
 use crate::fleet::cell_live::CellLive;
-use crate::fleet::cell_ops::{CellAutostart, CellOps};
+use crate::fleet::cell_ops::CellOps;
 use crate::fleet::cell_schedule::CellSchedule;
 use crate::fleet::cell_talk::CellTalk;
 use crate::fleet::launch::LaunchScript;
 use crate::fleet::server_cells::ServerCells;
 use crate::fleet::start::CellRamPlan;
 use crate::models::model_list::ModelList;
-use crate::store::topology::Topology;
 use crate::web::{Exchange, Routes};
 use rules::{AppError, Coerce};
 use serde_json::{Value, json};
@@ -40,8 +39,6 @@ impl CellRoutes {
             ("/api/topology/server-slot/note", Self::slot_note),
             ("/api/topology/server-cell/action", Self::action),
             ("/api/topology/server-cell/schedule", Self::schedule),
-            ("/api/topology/server-cell/reassign-port", Self::reassign_port),
-            ("/api/topology/server-cell/swap-port", Self::swap_port),
             ("/api/topology/server-cell/save-config", Self::save_config),
             ("/api/cell-talk", Self::talk),
             ("/api/cell-talk/voice", Self::store_voice),
@@ -59,14 +56,14 @@ impl CellRoutes {
     }
 
     fn voices(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        let (host, port) = (h.parsed.param_or("hostId", ""), h.parsed.param_or("port", ""));
-        h.ok(&Asked::ok_with(CellTalk::of(app).voices(&host, Some(&json!(port)))?));
+        let cell = h.parsed.param_or("cell", "");
+        h.ok(&Asked::ok_with(CellTalk::of(app).voices(&cell)?));
         Ok(())
     }
 
     fn live(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
-        let (host, port) = (h.parsed.param_or("hostId", ""), h.parsed.param_or("port", ""));
-        CellLive::of(app).serve(h, &host, Some(&json!(port)))
+        let cell = h.parsed.param_or("cell", "");
+        CellLive::of(app).serve(h, &cell)
     }
 
     fn assets(app: &App, h: &mut Exchange<'_>) -> Result<(), AppError> {
@@ -92,8 +89,8 @@ impl CellRoutes {
     }
 
     fn slot_note(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let port = Asked::int_strict(&body, "port")?;
-        let done = ServerCells::of(app).set_note(&Coerce::text(body.get("hostId")), port, body.get("note"))?;
+        let id = ServerCells::asked_id(&body)?;
+        let done = ServerCells::of(app).set_note(&id, body.get("note"))?;
         h.ok(&Asked::ok_with(done));
         Ok(())
     }
@@ -106,30 +103,6 @@ impl CellRoutes {
     fn schedule(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
         h.ok(&CellSchedule::set(app, &body)?);
         Ok(())
-    }
-
-    fn reassign_port(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let host = Coerce::stripped(body.get("hostId"));
-        let moves = [(host, Asked::int_or_zero(&body, "port")?, Asked::int_or_zero(&body, "newPort")?)];
-        let (mut done, autostart) = CellAutostart::of(app).moved(&moves, || ServerCells::of(app).reassign_port(&body))?;
-        Coerce::put(&mut done, "autostart", json!(autostart));
-        Asked::send_with_board(app, h, done)
-    }
-
-    fn swap_port(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {
-        let host = Coerce::stripped(body.get("hostId"));
-        let (port_a, port_b) = (Asked::int_or_zero(&body, "port")?, Asked::int_or_zero(&body, "targetPort")?);
-        let other = app.admin.change(|doc| {
-            let slots = Topology::of(doc).slots().clone();
-            slots.values().find(|slot| Coerce::int_or_zero(slot.get("port")) == Some(port_b)).cloned()
-        });
-        let mut moves = vec![(host, port_a, port_b)];
-        if let Some(other) = other {
-            moves.push((Coerce::text(other.get("hostId")), port_b, port_a));
-        }
-        let (mut done, autostart) = CellAutostart::of(app).moved(&moves, || ServerCells::of(app).swap_ports(&body))?;
-        Coerce::put(&mut done, "autostart", json!(autostart));
-        Asked::send_with_board(app, h, done)
     }
 
     fn save_config(app: &App, h: &mut Exchange<'_>, body: Value) -> Result<(), AppError> {

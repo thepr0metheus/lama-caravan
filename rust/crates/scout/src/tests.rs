@@ -1,5 +1,5 @@
-//! What this crate's tests stand on: a folder of a test's own, a clock in the test's hand, and an HTTP server that answers what the test says. Nothing here
-//! reaches the network or the machine's real state.
+//! What this crate's tests stand on: a folder of a test's own, a clock in the test's hand, disks that have what the test says, a machine with no tools, and an
+//! HTTP server that answers what the test says. Nothing here reaches the network or the machine's real state.
 
 #![allow(
     clippy::unwrap_used,
@@ -8,12 +8,16 @@
     reason = "a helper of a test may stop where it found something wrong"
 )]
 
+use crate::commands::{Commands, NoAnswer, Ran};
+use crate::models::FreeSpace;
 use os::clock::Clock;
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// A folder of a test's own, gone when the test ends, whichever way it ends.
 pub struct TestFolder {
@@ -68,6 +72,41 @@ impl Clock for HandClock {
 
     fn thread_cpu(&self) -> Option<f64> {
         None
+    }
+}
+
+/// The disks in the test's hand: a folder's disk has what the test said, and any other more than a copy or a move here takes, so that no test is refused for the disk it runs on —
+/// 28 of them went red with under 2 GB free in their temporary folder (2026-11-07).
+#[derive(Default)]
+pub struct HandDisks {
+    said: Mutex<BTreeMap<PathBuf, Option<u64>>>,
+}
+
+impl HandDisks {
+    /// What a disk nobody spoke of has free.
+    const ROOMY: u64 = 1 << 50;
+
+    /// From now on the disk under `folder` has `free`; `None`: it does not say.
+    pub fn has(&self, folder: &Path, free: Option<u64>) {
+        self.said.lock().unwrap().insert(folder.to_path_buf(), free);
+    }
+}
+
+impl FreeSpace for HandDisks {
+    fn free_under(&self, folder: &Path) -> Option<u64> {
+        let said = self.said.lock().unwrap();
+        // The word on the deepest folder that holds this one.
+        let word = said.iter().filter(|(root, _)| folder.starts_with(root)).max_by_key(|(root, _)| root.components().count());
+        word.map_or(Some(Self::ROOMY), |(_, free)| *free)
+    }
+}
+
+/// A machine with no tools: whatever a program under test would run is not there, so nothing of the machine is asked — no `ss`, no `lsof`, no `nvidia-smi`.
+pub struct NoTools;
+
+impl Commands for NoTools {
+    fn run(&self, _argv: &[&str], _timeout: Duration) -> Result<Ran, NoAnswer> {
+        Err(NoAnswer::NotFound)
     }
 }
 

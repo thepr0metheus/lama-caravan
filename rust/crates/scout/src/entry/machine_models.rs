@@ -1,7 +1,7 @@
 //! The models of this machine, as `GET /v1/models` lists them: each cell the scout runs, starts or keeps a start request for, and each one the controller keeps for the machine, grouped by its model's name and its runner: two cells of one model on one
 //! runner are its copies.
 //!
-//! A cell the table holds with nothing behind it, no process, no start, no record, no kept request, not one the controller keeps: a port only asked about, is no model, and is left out. A running copy also says its places: how many requests its server
+//! A cell the table holds with nothing behind it, no process, no start, no record, no kept request, not one the controller keeps: a name only asked about, is no model, and is left out. A running copy also says its places: how many requests its server
 //! takes at once and how many it works on now. A copy whose server does not say has `null`: a model's sum is known only when every running copy says its part.
 
 use crate::cells::Cells;
@@ -15,11 +15,13 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-/// One copy of a model.
+/// One copy of a model: one cell.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Copy {
-    /// Its port.
-    pub port: i64,
+    /// Its cell's own name.
+    pub id: String,
+    /// The port its run holds; `None` while it holds none (Papyrus `caravan-scout-port-lease`): a stopped copy is still a copy.
+    pub port: Option<i64>,
     /// Its model's name.
     pub name: String,
     /// Its runner.
@@ -80,25 +82,25 @@ impl MachineModels {
         }
     }
 
-    /// Each cell, sorted by port. The name from the freshest word first: the start under way or last made here, the record of a cell running since before this scout started, the kept start request, and, for a cell started before names were kept, its model's
+    /// Each cell, sorted by its name. The name from the freshest word first: the start under way or last made here, the record of a cell running since before this scout started, the kept start request, and, for a cell started before names were kept, its model's
     /// path in the record. A stopped cell the controller keeps is called what its settings call it now: they are what its next start runs. The runner: what the freshest settings say: the controller's, else the kept start request's, else the record's.
     pub fn cells_now(&self) -> Vec<Copy> {
         let kept = self.autostart.requests();
         // absent-ok: not knowing the cells lists what this scout knows, as before there was a list.
-        let known = self.known.ports().unwrap_or_default();
-        let mut found: BTreeMap<i64, Copy> = BTreeMap::new();
-        for (port, cell) in self.cells.table.all() {
-            let record = self.cells.records.get(port);
-            let request = kept.get(port.to_string()).filter(|request| Coerce::truthy(Some(*request)));
+        let known = self.known.cells().unwrap_or_default();
+        let mut found: BTreeMap<String, Copy> = BTreeMap::new();
+        for (id, cell) in self.cells.table.all() {
+            let record = self.cells.records.get(&id);
+            let request = kept.get(&id).filter(|request| Coerce::truthy(Some(*request)));
             let state = Self::state(&cell);
-            let told = known.get(&port);
+            let told = known.get(&id);
             if state == "stopped" && record.is_empty() && request.is_none() && told.is_none() {
                 continue;
             }
             let recorded_path =
                 record.get("cfg").and_then(|config| config.get("modelPath")).filter(|path| Coerce::truthy(Some(*path)));
             let name = match told.filter(|_| state == "stopped") {
-                Some(told) => told.name(port),
+                Some(told) => told.name(&id),
                 None => {
                     let own = cell.facts().name.clone();
                     if !own.is_empty() {
@@ -109,7 +111,7 @@ impl MachineModels {
                         let requested =
                             request.and_then(|request| request.get("modelPath")).filter(|path| Coerce::truthy(Some(*path)));
                         let path = requested.or(recorded_path).map_or_else(String::new, |path| Coerce::text(Some(path)));
-                        ModelName::of(request.and_then(|request| request.get("config")), &path, port)
+                        ModelName::of(request.and_then(|request| request.get("config")), &path, &id)
                     }
                 }
             };
@@ -118,16 +120,24 @@ impl MachineModels {
                 (None, Some(request)) => Self::runner(request.get("config")),
                 (None, None) => Self::runner(Some(&json!({"RUNNER": record.get("cfg").and_then(|config| config.get("runner"))}))),
             };
+            let port = cell.port();
             let (slots, busy) = self.places(port, state);
-            found.insert(port, Copy { port, name, runner, state, since: record.get("startedAt").cloned(), slots, busy });
+            found
+                .insert(id.clone(), Copy { id, port, name, runner, state, since: record.get("startedAt").cloned(), slots, busy });
         }
         self.add_stopped(&mut found, &kept, &known);
         found.into_values().collect()
     }
 
-    fn add_stopped(&self, found: &mut BTreeMap<i64, Copy>, kept: &Value, known: &BTreeMap<i64, crate::entry::known::KnownCell>) {
-        let stopped = |port: i64, name: String, runner: String| Copy {
-            port,
+    fn add_stopped(
+        &self,
+        found: &mut BTreeMap<String, Copy>,
+        kept: &Value,
+        known: &BTreeMap<String, crate::entry::known::KnownCell>,
+    ) {
+        let stopped = |id: &str, name: String, runner: String| Copy {
+            id: id.to_string(),
+            port: None,
             name,
             runner,
             state: "stopped",
@@ -135,31 +145,28 @@ impl MachineModels {
             slots: None,
             busy: None,
         };
-        for (key, request) in kept.as_object().into_iter().flatten() {
-            let Ok(port) = key.parse::<i64>() else {
-                continue;
-            };
-            if found.contains_key(&port) {
+        for (id, request) in kept.as_object().into_iter().flatten() {
+            if found.contains_key(id) {
                 continue;
             }
-            let told = known.get(&port);
+            let told = known.get(id);
             let name = told.map_or_else(
-                || ModelName::of(request.get("config"), &Coerce::text(request.get("modelPath")), port),
-                |told| told.name(port),
+                || ModelName::of(request.get("config"), &Coerce::text(request.get("modelPath")), id),
+                |told| told.name(id),
             );
             let runner = told.map_or_else(|| Self::runner(request.get("config")), |told| Self::runner(Some(&told.config)));
-            found.insert(port, stopped(port, name, runner));
+            found.insert(id.clone(), stopped(id, name, runner));
         }
-        for (port, told) in known {
-            found.entry(*port).or_insert_with(|| stopped(*port, told.name(*port), Self::runner(Some(&told.config))));
+        for (id, told) in known {
+            found.entry(id.clone()).or_insert_with(|| stopped(id, told.name(id), Self::runner(Some(&told.config))));
         }
     }
 
     /// A running copy's places; none asked of a copy that does not run.
-    fn places(&self, port: i64, state: &str) -> (Option<i64>, Option<i64>) {
-        if state != "running" {
+    fn places(&self, port: Option<i64>, state: &str) -> (Option<i64>, Option<i64>) {
+        let Some(port) = port.filter(|_| state == "running") else {
             return (None, None);
-        }
+        };
         let busy = self.cells.probe.metrics(port).get("requestsProcessing").and_then(Value::as_i64).filter(|busy| *busy >= 0);
         (self.cells.probe.slots_total(port), busy)
     }
@@ -169,7 +176,7 @@ impl MachineModels {
         copies.iter().filter(|copy| copy.state == "running").map(part).sum()
     }
 
-    /// The models by the id the entry lists them under, each with its copies, in the order of their first ports. Cells of one name on two runners are two models, each called by the name and its runner (`name@runner`), as LM Studio tells a model's variants: a
+    /// The models by the id the entry lists them under, each with its copies, in the order of their first cells. Cells of one name on two runners are two models, each called by the name and its runner (`name@runner`), as LM Studio tells a model's variants: a
     /// request for one of them must not land on a server of another kind, and which of the two the bare name meant nobody said.
     pub fn groups(&self) -> Vec<(String, Vec<Copy>)> {
         let mut by_name: Vec<(String, ByRunner)> = Vec::new();
@@ -196,7 +203,7 @@ impl MachineModels {
         out
     }
 
-    /// The models in OpenAI's shape, each with `caravan`: its state, the best of its copies', its places, and each copy's port, state and places. `created` is when its first copy started; 0 for one never started.
+    /// The models in OpenAI's shape, each with `caravan`: its state, the best of its copies', its places, and each copy's cell, port (none while it holds none), state and places. `created` is when its first copy started; 0 for one never started.
     pub fn listing(&self) -> Vec<Value> {
         let owner = self.config.text("hostId");
         self.groups()
@@ -205,7 +212,7 @@ impl MachineModels {
                 // absent-ok: a group has a copy; a state outside the list is the last of it.
                 let best = STATES.iter().find(|state| copies.iter().any(|copy| copy.state == **state)).copied().unwrap_or("stopped");
                 let started = copies.iter().filter_map(|copy| copy.since.as_ref().and_then(Value::as_f64)).filter(|since| *since > 0.0).map(|since| since.trunc() as i64).min();
-                let rows: Vec<Value> = copies.iter().map(|copy| json!({"port": copy.port, "state": copy.state, "slots": copy.slots, "busy": copy.busy})).collect();
+                let rows: Vec<Value> = copies.iter().map(|copy| json!({"id": copy.id, "port": copy.port, "state": copy.state, "slots": copy.slots, "busy": copy.busy})).collect();
                 json!({
                     "id": name,
                     "object": "model",

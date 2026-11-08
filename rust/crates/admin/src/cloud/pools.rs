@@ -185,7 +185,7 @@ impl<'app> PoolDesk<'app> {
 
     /// `name`, when no other pool carries it: consumers call a pool by its name.
     pub(super) fn unique(&self, data: &Value, name: &str, but: Option<&str>) -> Result<String, AppError> {
-        if self.cloud().pool_names(data).taken(name, but) {
+        if self.cloud().board_names(data).taken(name, but) {
             return Err(AppError::with_status(
                 format!("a pool named {name} exists — consumers call a pool by its name, so give this one another"),
                 409,
@@ -196,7 +196,7 @@ impl<'app> PoolDesk<'app> {
 
     /// A name of the board's own choosing made free with " 2", " 3"…
     pub(super) fn free_name(&self, data: &Value, name: &str) -> String {
-        let names = self.cloud().pool_names(data);
+        let names = self.cloud().board_names(data);
         let (mut candidate, mut number) = (name.to_string(), 2);
         while names.taken(&candidate, None) {
             candidate = format!("{name} {number}").chars().take(Self::NAME_MAX).collect();

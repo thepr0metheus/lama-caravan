@@ -1,6 +1,7 @@
 //! `admin.json`: the panel's own document: topology, pricing, favourites, tokens.
 
 use super::base::{Document, Store};
+use super::cell_ids::SlotsByCell;
 use crate::domain::host::HostRecord;
 use crate::domain::runner::RunnerRegistry;
 use crate::paths::{CONTROLLER_HOST_ID, HostIds};
@@ -9,11 +10,14 @@ use rules::Coerce;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, PoisonError};
 
 /// The admin document, with its defaults and its migrations.
 pub struct AdminStore {
     store: Store,
     monitor_retention: i64,
+    /// When the oldest change that waits for the file was made (`save_later`): none while the file holds every change.
+    waiting: Mutex<Option<f64>>,
 }
 
 impl AdminStore {
@@ -26,12 +30,33 @@ impl AdminStore {
     const SCOUT_WORDS_ENTRY: [&'static str; 3] = ["agentUrl", "applyStatus", "desiredAt"];
     const SCOUT_WORDS_ROW: [&'static str; 1] = ["manual"];
 
-    /// Opens the document, seeds it and brings it forward.
-    pub fn open(path: PathBuf, monitor_retention: i64, runners: &RunnerRegistry) -> Self {
-        let this = Self { store: Store::open(path), monitor_retention };
+    /// What the copy of the file before the cells' move to their ids is called after the file's own name.
+    const BEFORE_CELL_IDS: &'static str = "bak-before-cell-ids";
+
+    /// Opens the document, seeds it and brings it forward; `stamp` names a copy kept before a move.
+    pub fn open(path: PathBuf, monitor_retention: i64, runners: &RunnerRegistry, stamp: &str) -> Self {
+        let this = Self { store: Store::open(path), monitor_retention, waiting: Mutex::new(None) };
         this.seed();
-        this.migrate(runners);
+        this.migrate(runners, stamp);
         this
+    }
+
+    /// The file as it was, kept beside it before the slots move to their cells' ids: a release before the move knows a slot by its machine
+    /// and its port and reads none of a later one, and the way back past it is this copy (deploy/nas/README.md). Whether it was kept: no
+    /// copy, no move — the next start tries again.
+    fn keep_copy_before_cell_ids(&self, stamp: &str) -> bool {
+        let path = self.store.path();
+        let name = path.file_name().map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+        let copy = path.with_file_name(format!("{name}.{}-{stamp}", Self::BEFORE_CELL_IDS));
+        match std::fs::copy(path, &copy) {
+            Ok(_) => true,
+            Err(error) => {
+                Log::line(&format!(
+                    "store: the cells stay under their ports for now: the copy before the move was not kept ({error})"
+                ));
+                false
+            }
+        }
     }
 
     /// The store itself.
@@ -49,15 +74,47 @@ impl AdminStore {
         self.store.change(edit)
     }
 
-    /// A save of what was changed.
+    /// A save of what was changed: every change, the ones that waited too. The wait is held through the save, so a change that comes to
+    /// wait meanwhile is not taken for saved.
     pub fn save(&self) -> std::io::Result<()> {
-        self.store.save()
+        let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        self.store.save()?;
+        *waiting = None;
+        Ok(())
+    }
+
+    /// A change that can wait for the file: it is live in memory at once, and the file takes it with the next save of anything, or once it
+    /// has waited `most` seconds (`save_if_waited`). For what a scout's heartbeat brings every few seconds — a machine's load, its cards'
+    /// power, its free disk — which the next heartbeat brings again: a save for each rewrote the whole document, 526 KB, 11 times a minute,
+    /// on the NAS's disks (measured 2026-11-03; the owner: «write less»).
+    pub fn save_later(&self, now: f64) {
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert(now);
+    }
+
+    /// Saves when a change has waited `most` seconds or longer; whether it saved. A save that fails is said, and the changes wait on.
+    pub fn save_if_waited(&self, now: f64, most: f64) -> bool {
+        let due = self.waiting.lock().unwrap_or_else(PoisonError::into_inner).is_some_and(|since| now - since >= most);
+        if !due {
+            return false;
+        }
+        match self.save() {
+            Ok(()) => true,
+            Err(error) => {
+                Log::line(&format!("admin state not saved: {error}"));
+                false
+            }
+        }
+    }
+
+    /// Whether a change waits for the file.
+    pub fn waiting(&self) -> bool {
+        self.waiting.lock().unwrap_or_else(PoisonError::into_inner).is_some()
     }
 
     /// A change, and a save right after it. A save that fails is said: the change holds in memory, and the next save takes it.
     pub fn saving<R>(&self, edit: impl FnOnce(&mut Document) -> R) -> R {
         let out = self.store.change(edit);
-        if let Err(error) = self.store.save() {
+        if let Err(error) = self.save() {
             Log::line(&format!("admin state not saved: {error}"));
         }
         out
@@ -96,19 +153,26 @@ impl AdminStore {
         topology
     }
 
-    fn migrate(&self, runners: &RunnerRegistry) {
-        let (rekeyed, dropped, split, unsaid) = self.store.change(|doc| {
+    fn migrate(&self, runners: &RunnerRegistry, stamp: &str) {
+        let movable = !self.store.read(SlotsByCell::pending) || self.keep_copy_before_cell_ids(stamp);
+        let (rekeyed, by_cell, dropped, split, unsaid) = self.store.change(|doc| {
+            let rekeyed = Self::rekey_legacy_controller_slots(doc);
             (
-                Self::rekey_legacy_controller_slots(doc),
+                rekeyed,
+                if movable { SlotsByCell::migrate(doc) } else { Vec::new() },
                 Self::forget_what_reports_said(doc),
                 Self::split_hosts_from_clients(doc),
                 Self::metrics_unsaid(doc, runners),
             )
         });
-        if (rekeyed || !dropped.is_empty() || !split.is_empty() || unsaid.is_some())
+        if (rekeyed || !by_cell.is_empty() || !dropped.is_empty() || !split.is_empty() || unsaid.is_some())
             && let Err(error) = self.store.save()
         {
             Log::line(&format!("store: migrated, not saved: {error}"));
+        }
+        if !by_cell.is_empty() {
+            let moves: Vec<String> = by_cell.iter().map(|(key, id)| format!("{key} → {id}")).collect();
+            Log::line(&format!("store: cells are known by their own id now, a port is leased at a start: {}", moves.join(", ")));
         }
         if let Some(keys) = unsaid.filter(|keys| !keys.is_empty()) {
             Log::line(&format!(
@@ -257,5 +321,30 @@ impl AdminStore {
             dropped.insert("tombstones".to_string(), lists.map(|list| list.len() as i64).sum());
         }
         dropped
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "a test may stop where it found something wrong")]
+
+    use super::*;
+    use crate::domain::runner::RunnerDefaults;
+
+    #[test]
+    fn the_file_before_the_cells_move_is_kept_beside_it_once() {
+        let folder = crate::tests::TestFolder::new("admin-before-cell-ids");
+        let path = folder.path.join("admin.json");
+        let before = json!({"topology": {"serverSlots": {"box:22001": {"id": "box:22001", "hostId": "box", "port": 22001}}}});
+        std::fs::write(&path, before.to_string()).unwrap();
+        let runners = RunnerRegistry::new(&RunnerDefaults { models_dir: "/m".into(), home: "/h".into() }).unwrap();
+        let store = AdminStore::open(path.clone(), 600, &runners, "20261108-120000");
+        assert!(store.read(|doc| doc["topology"]["serverSlots"].get("c22001").is_some()), "the slot is under its cell's id");
+        let copy = folder.path.join("admin.json.bak-before-cell-ids-20261108-120000");
+        let kept: Value = serde_json::from_slice(&std::fs::read(&copy).unwrap()).unwrap();
+        assert_eq!(kept, before, "the copy is the file as it was: the way back past the move");
+        // Negative: once — a second start finds nothing to move, and keeps no second copy.
+        drop(AdminStore::open(path, 600, &runners, "20261108-130000"));
+        assert!(!folder.path.join("admin.json.bak-before-cell-ids-20261108-130000").exists());
     }
 }

@@ -1,5 +1,5 @@
 /* A machine's page (variant В «Карта памяти» of the screens' redesign; machine-head.js): the layout of its head — the passport and,
-   in the same line, what it does now, its "⋯" and Add model — of the map of its memory under it — a lane per card and one for
+   in the same line, how to read the map, what it does now, its "⋯" and Add model — of the map of its memory under it — a lane per card and one for
    the RAM, one under another, the cells on their way, and the panel of the cell chosen on them — of the list of models under the
    map with their cells in it, and of the column at their right: the engines, the model disk, the incidents and the activity. Every
    colour, font size and radius is a token of ui.css, held so by scripts/check_ui_tokens.py (this file is in its UI_CSS). Linked
@@ -10,34 +10,60 @@
    parts are sections, told apart by a line; a cell's row in the list has a frame of its own, since it is the thing that is dragged. */
 .machine-page.node-card { border: 0; border-radius: 0; background: transparent; }
 .machine-page > .ui-win--page { padding: 0; }
-.machine-page .ui-win-head { align-items: center; flex-wrap: wrap; padding: 8px 24px; border-bottom: 1px solid var(--ui-line); }
+/* The head is one row (the owner's choice Б, 2026-11-08, so that the list of models starts higher): the machine's name and its facts, how to read
+   the rack with all the cards' totals, then what the machine does now, its "⋯" and Add model; the board's icons keep their place at its right end
+   (the 250 px kept for them below). A row too short for all of it loses the legend's words first — their marks and the totals stay — then the
+   facts go under the name. Shorter still (under 1240 px: a window of two cards measured 1205 px for the row with no words and the facts under
+   the name), and under 1100 px, the row wraps: the name and the tools on the first line, the legend, its words back, on a line of its own; a phone
+   keeps only the legend's marks. By the window's width and not the head's own (a container query): a container is a layer of its own, and the
+   "⋯" list opened under it would lie under the lanes' blocks. */
+.machine-page .ui-win-head { align-items: center; flex-wrap: wrap; gap: var(--ui-s2) 20px; padding: 8px 24px; border-bottom: 1px solid var(--ui-line); }
+.machine-page .ui-win-id { flex: 0 1 auto; min-width: 0; }
 .machine-page > .ui-win--page > .ui-win-body { padding: 0; gap: 0; }
 .machine-page .ui-win-id .node-scout-old { align-self: flex-start; }
+.machine-head-key { display: inline-flex; align-items: center; gap: var(--ui-s3); flex: 0 1 auto; min-width: 0; margin-inline: auto; white-space: nowrap; }
+@media (min-width: 1241px) {
+  .machine-page .ui-win-title-row { flex-wrap: nowrap; }
+  .machine-page .ui-win-facts { white-space: nowrap; }
+  .machine-head-key + .machine-tools { margin-left: 0; }
+}
+@media (min-width: 1241px) and (max-width: 1564px), (max-width: 600px) {
+  .machine-map-word { display: none; }
+  .machine-map-key i.is-cache { margin-left: 0; }
+}
+@media (min-width: 1241px) and (max-width: 1394px) {
+  .machine-page .ui-win-title-row { flex-direction: column; align-items: flex-start; gap: 0; }
+  .machine-page .ui-win-facts { font-size: var(--ui-fs-fact); }
+}
+@media (max-width: 1240px) {
+  .machine-head-key { order: 3; width: 100%; margin-inline: 0; flex-wrap: wrap; row-gap: var(--ui-s1); white-space: normal; }
+}
 
-/* What the machine does now, its "⋯" and Add model: one group at the right of its name, wrapping under it on a narrow screen. Its buttons are of the
-   quiet height, Add model keeping the look of the page's one main action: the head is a strip, and it stood 69 px high, higher than any row under it
-   (the owner, 2026-11-03: "it can be made not so high"). */
+/* What the machine does now, its "⋯" and Add model: one group at the right end of the head's row. Its buttons are of the quiet height, Add model
+   keeping the look of the page's one main action: the head is a strip, and it stood 69 px high, higher than any row under it (the owner,
+   2026-11-03: "it can be made not so high"). */
 .machine-tools { display: flex; align-items: center; gap: var(--ui-s3); flex-wrap: wrap; margin-left: auto; }
 .machine-tools .ui-menu, .machine-tools .ui-btn { flex: none; }
 .machine-tools .ui-btn { height: var(--ui-h-quiet); }
 .machine-tools .ui-btn--main { padding: 0 14px; }
 
-/* The map: its title and how to read it, the lanes one under another, and the panel of the chosen cell. */
+/* The map: the lanes one under another with the legend beside them, and the block of the model picked under the legend; how to read it is in the
+   head's row. The map does not scroll — the pane that scrolls is the list of models — so the block, and the line that keeps it apart from the
+   lanes, are its own; the padding is the map's. */
 .machine-map {
   display: flex;
   flex-direction: column;
   gap: var(--ui-s2);
-  padding: 12px 24px;
+  padding: 10px 24px 12px;
   border-bottom: 1px solid var(--ui-line);
 }
-.machine-map-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--ui-s3); flex-wrap: wrap; }
-.machine-map-title { font: 700 var(--ui-fs-section)/1.2 var(--ui-font); color: var(--ui-text); }
-.machine-map-hint { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
 .machine-map-lanes { display: flex; flex-direction: column; gap: var(--ui-s4); min-width: 0; container: rack / inline-size; }
-/* The rack: the lanes and, beside them, the list of what lies on them; under them where they would not both fit. */
+/* The rack: the lanes and, beside them, the list of what lies on them; under them where they would not both fit. A lane's row is its words
+   (222 px), its free room (80), its bar, the spine and its figures (214 with no little charts): beside the list's 360 px and the gap, the bar
+   keeps 240 px only from a rack of 1150 px. The list went under at 860 px before (2026-11-07), and a window of 1024 px drew the bar 16 px wide. */
 .machine-rack { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--ui-s3) var(--ui-s4); align-items: start; }
 .machine-rack-lanes { display: flex; flex-direction: column; gap: 5px; min-width: 0; --lane-who: 264px; --lane-room: 80px; }
-@container rack (max-width: 860px) {
+@container rack (max-width: 1149px) {
   .machine-rack { grid-template-columns: minmax(0, 1fr); }
 }
 /* Where the row is short the bar keeps its room, and the words after the picture are cut: their hover has them whole. */
@@ -53,29 +79,21 @@
 .machine-lane-pic .is-hub { fill: var(--ui-act-strong); }
 .machine-lane-pic .is-bracket { fill: var(--ui-muted); }
 .machine-lane-pic .is-contact { fill: var(--ui-busy); }
-@container rack (max-width: 620px) {
+@container rack (max-width: 780px) {
   .machine-lane-pic { height: 15px; }
   .machine-lane-pic svg { height: 15px; width: auto; }
 }
-/* All the cards together, at the end of the map's head. */
+/* All the cards together, after the legend in the head's row. */
 .machine-map-totals { display: inline-flex; align-items: center; gap: var(--ui-s3); font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); white-space: nowrap; }
 .machine-map-total { min-height: 0; margin: 0; padding: 0; border: 0; background: none; color: var(--ui-text); font: 650 var(--ui-fs-fact)/1.4 var(--ui-mono); font-variant-numeric: tabular-nums; cursor: pointer; }
 .machine-map-total:hover { color: var(--ui-act-strong); }
 .machine-map-total:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
-.machine-map-key { display: inline-flex; align-items: center; gap: var(--ui-s1); margin-left: auto; font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); white-space: nowrap; }
+.machine-map-key { display: inline-flex; align-items: center; gap: var(--ui-s1); font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); white-space: nowrap; }
 .machine-map-key i { display: inline-block; box-sizing: border-box; width: 15px; height: 10px; border-radius: 0; }
 .machine-map-key i.is-weights { border: 2px dashed var(--ui-act); background: color-mix(in srgb, var(--ui-act) 12%, transparent); }
-.machine-map-key i.is-cache { margin-left: var(--ui-s2); border: 2px dashed color-mix(in srgb, var(--ui-act) 55%, transparent); background: color-mix(in srgb, var(--ui-act) 5%, transparent); }
-.machine-map-unplaced, .machine-map-coming {
-  display: flex;
-  align-items: center;
-  gap: var(--ui-s2);
-  flex-wrap: wrap;
-  font: 500 var(--ui-fs-fact)/1.4 var(--ui-font);
-  color: var(--ui-muted);
-}
-/* A chip says what its cell does — a copy names its file and its figures — and on a narrow screen its words wrap inside it. */
-.machine-map-unplaced .ui-pill, .machine-map-coming .ui-pill { height: auto; min-height: 30px; max-width: 100%; padding-block: 5px; line-height: 1.3; text-align: left; }
+/* Cache and buffers are dotted where the weights are dashed: two lines of one colour told apart by how bright they are read as one on the map's
+   ground (2026-11-07), and a legend whose two keys look alike tells nothing. The blocks a placement draws are the same (ui.css). */
+.machine-map-key i.is-cache { margin-left: var(--ui-s2); border: 2px dotted color-mix(in srgb, var(--ui-act) 70%, transparent); background: color-mix(in srgb, var(--ui-act) 5%, transparent); }
 /* A drag on the rack. A cell can be taken by its block, its row beside the lanes or its row in the list of models; the lane under it says whether it would lie there. */
 .machine-map .ui-lane-blk[data-machine-pick], .machine-map .ui-legend-row[data-machine-pick], .machine-model-launch { touch-action: pan-y; }
 .machine-dragging, .machine-dragging * { cursor: grabbing !important; user-select: none; }
@@ -97,9 +115,159 @@
 }
 .ui-lane[data-machine-drop="ok"] .ui-lane-bar { box-shadow: 0 0 0 2px var(--ui-act); }
 .ui-lane[data-machine-drop="no"] .ui-lane-bar { box-shadow: 0 0 0 2px var(--ui-bad); }
+/* While a cell is carried every lane says whether it may lie there (MachineDrag.targetsOf), from the moment it is taken: the lanes it may go
+   to are lit, the others step back. The ring of the lane under the pointer stays the answer for that lane. */
+.ui-lane[data-machine-target="ok"] .ui-lane-bar { outline: 1px dashed var(--ui-act); outline-offset: 2px; }
+.ui-lane[data-machine-target="no"] { opacity: .45; }
 
-/* The list of models under the rack (machine-models.js, the owner's choices М1 and Н1, 2026-11-02): a row per model, opened in place, and
-   in an opened row its cells, each on two lines. Its title, its filters and its pills of work stay while its rows scroll under them. */
+/* The launch builder under the map (machine-build.js; the owner, 2026-11-06), in two rows (the owner's choice Б, 2026-11-08): the launch is one
+   rail of three places on top, and its places are the steps; under it one shelf shows the cards of the step chosen in a row swiped sideways. A
+   finger's swipe on the shelf is the browser's own scroll (touch-action: pan-x), so a card is taken by a move up or down only and carried up into
+   the rail. Once an engine and a quant stand there the rail is the strip, carried further up onto the lanes as a cell's row is — by its handle
+   and its gaps with a mouse, by its handle with a finger, where the rest of it lets the page scroll; its places stay the steps. Until then the
+   rail's end names the builder and holds the new-cell wizard of the model. A card that does not go with what is picked is dim and says why on its
+   hover; what is not there is a line of words, never an empty card. */
+.machine-build { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 24px; border-bottom: 1px solid var(--ui-line); container: build / inline-size; }
+/* Each part keeps one colour on its step, its cards, its place and a card's copy in hand: the engine the accent, the quant amber, the settings green. */
+.machine-build .is-engine, .machine-build-ghost.is-engine, .machine-build-ghost .is-engine { --build-kind: var(--ui-act); }
+.machine-build .is-quant, .machine-build-ghost.is-quant, .machine-build-ghost .is-quant { --build-kind: var(--ui-busy); }
+.machine-build .is-params, .machine-build-ghost.is-params, .machine-build-ghost .is-params { --build-kind: var(--ui-good); }
+.machine-build-title { font: 700 var(--ui-fs-section)/1.2 var(--ui-font); color: var(--ui-text); }
+.machine-build-none { margin: 0; font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+/* No model picked: the builder's name and what to do, one line. */
+.machine-build.is-none { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: var(--ui-s1) var(--ui-s3); padding-block: 9px; }
+.machine-build-icon { flex: none; width: 22px; height: 22px; fill: none; stroke: var(--build-kind, currentColor); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.machine-build-words { display: flex; flex-direction: column; min-width: 0; }
+.machine-build-words strong { font: 650 var(--ui-fs-row)/1.25 var(--ui-font); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.machine-build-words small { max-width: 260px; font: 500 var(--ui-fs-fact)/1.3 var(--ui-font); color: var(--ui-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.machine-build-words small.machine-build-warn { color: var(--ui-busy); }
+
+/* The shelf, under the rail: an end with cards out of sight fades, and on a screen with a mouse an arrow stands there (machine-build.js `ends`).
+   Its room above the cards is the room of their arrows. */
+.machine-build-shelf { position: relative; min-width: 0; }
+.machine-build-track { display: flex; gap: 10px; min-width: 0; overflow-x: auto; overflow-y: hidden; padding: 16px 2px 4px; scroll-snap-type: x proximity; scroll-padding-inline: 2px;
+  scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x; }
+.machine-build-track::-webkit-scrollbar { display: none; }
+.machine-build-shelf.has-more .machine-build-track { -webkit-mask-image: linear-gradient(90deg, var(--ui-text) calc(100% - 48px), transparent); mask-image: linear-gradient(90deg, var(--ui-text) calc(100% - 48px), transparent); }
+.machine-build-shelf.has-back .machine-build-track { -webkit-mask-image: linear-gradient(90deg, transparent, var(--ui-text) 48px); mask-image: linear-gradient(90deg, transparent, var(--ui-text) 48px); }
+.machine-build-shelf.has-back.has-more .machine-build-track { -webkit-mask-image: linear-gradient(90deg, transparent, var(--ui-text) 48px, var(--ui-text) calc(100% - 48px), transparent);
+  mask-image: linear-gradient(90deg, transparent, var(--ui-text) 48px, var(--ui-text) calc(100% - 48px), transparent); }
+.machine-build-arrow { position: absolute; z-index: 2; top: calc(50% + 6px); translate: 0 -50%; display: none; place-items: center; width: 30px; height: 30px; min-height: 0; padding: 0;
+  border: 1px solid var(--ui-line-strong); border-radius: 50%; background: var(--ui-surface); color: var(--ui-text); font: 700 var(--ui-fs-section)/1 var(--ui-font);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--ui-ground) 70%, transparent); cursor: pointer; }
+.machine-build-arrow.is-back { inset-inline-start: -6px; }
+.machine-build-arrow.is-more { inset-inline-end: -6px; }
+.machine-build-shelf.has-back .machine-build-arrow.is-back, .machine-build-shelf.has-more .machine-build-arrow.is-more { display: grid; }
+@media (hover: none) {
+  .machine-build-shelf.has-back .machine-build-arrow.is-back, .machine-build-shelf.has-more .machine-build-arrow.is-more { display: none; }
+}
+
+/* A card: lifted a little under a mouse, with an arrow over it that says which way it goes — up, into the rail; the one in its place ticked. */
+.machine-build-card { position: relative; flex: none; display: flex; align-items: center; gap: 10px; max-width: 300px; min-width: 0; min-height: 0; margin: 0;
+  padding-block: 10px; padding-inline: 12px 16px; scroll-snap-align: start; border: 1px solid var(--ui-line); border-radius: var(--ui-r3); background: var(--ui-raised); color: var(--ui-text);
+  font: 500 var(--ui-fs-fact)/1.3 var(--ui-font); text-align: start; cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x;
+  transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease, opacity .16s ease, background .16s ease; }
+.machine-build-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--build-kind) 50%, var(--ui-line)); box-shadow: 0 8px 18px color-mix(in srgb, var(--ui-ground) 70%, transparent); }
+.machine-build-card::after { content: "↑"; position: absolute; left: 50%; top: -14px; translate: -50% 0; color: var(--build-kind); font: 700 var(--ui-fs-label)/1 var(--ui-font);
+  opacity: 0; pointer-events: none; transition: opacity .16s ease, top .16s ease; }
+.machine-build-card:hover::after { opacity: .9; top: -17px; }
+.machine-build-card.is-on { border-color: var(--build-kind); background: color-mix(in srgb, var(--build-kind) 10%, var(--ui-raised)); box-shadow: inset 0 0 0 1px var(--build-kind); }
+.machine-build-card.is-dim { opacity: .45; cursor: not-allowed; }
+.machine-build-card.is-dim:hover { transform: none; box-shadow: none; }
+.machine-build-card.is-dim::after { display: none; }
+.machine-build-card.is-lifted { opacity: .25; transform: none; box-shadow: none; }
+.machine-build-card:focus-visible, .machine-build-step:focus-visible, .machine-build-port:focus-visible, .machine-build-x:focus-visible, .machine-build-arrow:focus-visible {
+  outline: 2px solid var(--ui-act-strong); outline-offset: 2px; }
+.machine-build-tick { position: absolute; top: -7px; inset-inline-end: -7px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--build-kind);
+  color: var(--ui-on-series); font: 800 var(--ui-fs-label)/1 var(--ui-font); }
+/* A card in hand: its copy under the pointer, tilted a little; the card it was taken from steps back. */
+.machine-build-ghost { position: fixed; z-index: 60; top: 0; left: 0; margin: 0; pointer-events: none; rotate: -2deg; opacity: .97; border-color: var(--build-kind);
+  box-shadow: var(--ui-shadow-pop); transition: none; }
+.machine-build-ghost::after { display: none; }
+
+/* The rail: its three places are the steps, the one whose cards the shelf shows ringed in its part's colour. A place is dashed while nothing
+   stands there, solid with an edge of its part's colour once something does, and then its number is filled. A place is a tab: its step's
+   button fills it, its ✕ beside. */
+.machine-build-rail { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; padding: 4px; border: 1px solid var(--ui-line); border-radius: var(--ui-r4);
+  background: var(--ui-well); transition: border-color .2s ease, box-shadow .2s ease, background .2s ease; }
+.machine-build-places { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; min-width: 0; }
+.machine-build-slot { position: relative; display: flex; align-items: center; min-width: 0; min-height: 50px; padding-inline-end: 6px; border: 1px dashed var(--ui-line-strong);
+  border-radius: var(--ui-r2); color: var(--ui-muted); transition: border-color .16s ease, background .16s ease, opacity .16s ease; }
+.machine-build-step { flex: 1 1 auto; align-self: stretch; display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 0; margin: 0; padding-block: 6px;
+  padding-inline: 10px 6px; border: 0; border-radius: var(--ui-r2); background: transparent; color: inherit; font: 500 var(--ui-fs-fact)/1.3 var(--ui-font); text-align: start; cursor: pointer; }
+.machine-build-step:hover { background: color-mix(in srgb, var(--ui-text) 6%, transparent); }
+.machine-build-step-mark { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--ui-line-strong); border-radius: 50%;
+  font: 700 var(--ui-fs-label)/1 var(--ui-font); font-style: normal; }
+.machine-build-slot .machine-build-words small { font: 650 var(--ui-fs-label)/1.3 var(--ui-font); letter-spacing: .04em; text-transform: uppercase; }
+.machine-build-slot .machine-build-words strong { font-size: var(--ui-fs-body); color: inherit; }
+.machine-build-slot.is-full { border-style: solid; border-color: color-mix(in srgb, var(--build-kind) 40%, var(--ui-line)); background: var(--ui-raised); color: var(--ui-text);
+  box-shadow: inset 3px 0 0 var(--build-kind); }
+.machine-build-slot.is-full .machine-build-step-mark { border-color: var(--build-kind); background: var(--build-kind); color: var(--ui-on-series); }
+.machine-build-slot.is-shown { border-style: solid; border-color: var(--build-kind); background: color-mix(in srgb, var(--build-kind) 9%, var(--ui-raised)); color: var(--ui-text);
+  box-shadow: inset 0 0 0 1px var(--build-kind); }
+.machine-build-x { flex: none; display: grid; place-items: center; width: 22px; height: 22px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--ui-muted); font: 700 var(--ui-fs-label)/1 var(--ui-font); cursor: pointer; }
+.machine-build-x:hover { background: color-mix(in srgb, var(--ui-text) 10%, transparent); color: var(--ui-text); }
+/* Not whole yet: the rail's end names the builder, what a start needs is its hover, and the new-cell wizard of the model is a word under it. */
+.machine-build-end { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 2px; min-width: 0; padding-inline: 10px 6px; white-space: nowrap; }
+.machine-build-end .ui-btn { height: auto; min-height: 0; padding: 0; gap: var(--ui-s1); border: 0; background: none; color: var(--ui-act-strong); font: 600 var(--ui-fs-fact)/1.3 var(--ui-font); }
+.machine-build-end .ui-btn:hover { background: none; text-decoration: underline; }
+.machine-build-end .ui-btn[disabled] { color: var(--ui-muted); text-decoration: none; }
+/* Whole, the rail is the strip: green, taken by its handle and its gaps with a mouse, by its handle with a finger; the rest lets the page scroll. */
+.machine-build-take { display: flex; align-items: center; gap: 10px; padding-inline: 10px 6px; touch-action: none; }
+.machine-build-take .machine-build-words strong { font-size: var(--ui-fs-body); color: var(--ui-good); }
+.machine-build-grip { flex: none; color: var(--ui-good); font: 700 var(--ui-fs-figure)/1 var(--ui-font); letter-spacing: -2px; }
+.machine-build-rail.is-whole { border-color: color-mix(in srgb, var(--ui-good) 60%, var(--ui-line)); background: color-mix(in srgb, var(--ui-good) 7%, var(--ui-well));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-good) 12%, transparent); cursor: grab; touch-action: pan-y; }
+.machine-build-rail.is-on { border-color: var(--ui-act); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-act) 18%, transparent); }
+.machine-build-port { flex: none; min-height: 0; padding: 2px var(--ui-s2); border: 1px solid var(--ui-line); border-radius: var(--ui-r1); background: var(--ui-raised); color: var(--ui-text);
+  font: 650 var(--ui-fs-fact)/1.3 var(--ui-mono); font-variant-numeric: tabular-nums; }
+.machine-build-port.is-on { border-color: var(--ui-act); }
+/* A card in hand: the rail lit, and in it the place this card goes to; the other two step back. */
+.machine-build.is-carrying .machine-build-rail { border-color: var(--ui-act); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-act) 22%, transparent); }
+.machine-build.is-carrying .machine-build-rail.is-over { background: color-mix(in srgb, var(--ui-act) 10%, var(--ui-well)); }
+.machine-build.is-carrying .machine-build-slot { opacity: .5; }
+.machine-build[data-carrying="engine"] [data-build-slot="engine"], .machine-build[data-carrying="quant"] [data-build-slot="quant"],
+.machine-build[data-carrying="params"] [data-build-slot="params"] { opacity: 1; border-style: solid; border-color: var(--build-kind); background: color-mix(in srgb, var(--build-kind) 12%, transparent); }
+/* A new step's cards come in from the side the shelf moves to; a drawing of the same step leaves them be. */
+@keyframes machine-build-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+.machine-build-track.is-entering > * { animation: machine-build-in .24s ease both; }
+.machine-build-track.is-entering > :nth-child(2) { animation-delay: .04s; }
+.machine-build-track.is-entering > :nth-child(3) { animation-delay: .08s; }
+.machine-build-track.is-entering > :nth-child(n+4) { animation-delay: .12s; }
+@media (prefers-reduced-motion: reduce) {
+  .machine-build-track.is-entering > *, .machine-build-card, .machine-build-rail, .machine-build-slot { animation: none; transition: none; }
+}
+/* The map's last line of the launch's cell (its places, its plan, Start and Cancel) stands under the rail, as under a cell's row. */
+.machine-build > .machine-pick { padding-top: 0; }
+/* Narrow, the places stand one under another, and the rail's end or the strip's handle under them. */
+@container build (max-width: 760px) {
+  .machine-build-rail, .machine-build-places { grid-template-columns: minmax(0, 1fr); }
+  .machine-build-take { padding-block: 6px 2px; padding-inline: 4px; }
+  .machine-build-end { flex-direction: row; align-items: baseline; flex-wrap: wrap; gap: var(--ui-s1) var(--ui-s3); padding-block: 4px 2px; padding-inline: 4px; white-space: normal; }
+}
+@media (max-width: 780px) {
+  .machine-build { padding: 12px 16px; }
+}
+
+/* The block of the model picked (the owner, 2026-11-05; its place — inside «What lies where», under the legend, variant А of the mockups,
+   the owner's choice of 2026-11-06): the model picked in the list and the rows of its cells, drawn for one model, and drawn when nothing is
+   picked, where the words say that nothing is. It is a part of the map, so the map's own padding and its line at the end cover it: here only the
+   line over it and the space under the legend are its own. What its makers recommend is not here: it is read on the row of the list that picked. */
+.machine-chosen { display: flex; flex-direction: column; gap: var(--ui-s2); padding-top: var(--ui-s2); border-top: 1px solid var(--ui-line); }
+.machine-chosen-head { display: flex; align-items: baseline; gap: var(--ui-s2) var(--ui-s3); flex-wrap: wrap; }
+.machine-chosen-title { font: 700 var(--ui-fs-section)/1.2 var(--ui-font); color: var(--ui-text); }
+.machine-chosen-hint { font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+/* What the picked model is: the same parts a row of the list says (MachineModels.partsHtml), so the block and the row cannot say two things
+   about one model. The mark is not here — it stays on the row, where a press keeps it. */
+.machine-chosen-line { display: flex; align-items: center; gap: var(--ui-s2) var(--ui-s3); flex-wrap: wrap; }
+.machine-chosen-line .machine-model-name { font: 650 var(--ui-fs-row)/1.25 var(--ui-font); }
+.machine-chosen-none { margin: 0; font: 500 var(--ui-fs-body)/1.4 var(--ui-font); color: var(--ui-muted); }
+.machine-chosen-cells { display: flex; flex-direction: column; gap: 6px; padding: 6px var(--ui-s2) 10px; background: var(--ui-well); }
+
+/* The list of models under the rack (machine-models.js, the owner's choices М1 and Н1, 2026-11-02): a row per model, and a press on a row picks
+   which model the block above shows — its cells and their buttons are there, so a row here is a thing to press, not a place to act. Its title,
+   its filters and its pills of work stay while its rows scroll under them. */
 .machine-models {
   display: flex;
   flex-direction: column;
@@ -144,13 +312,14 @@
 .machine-models-find:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: 1px; }
 .machine-models-list { display: flex; flex-direction: column; border-bottom: 1px solid var(--ui-line); }
 .machine-models-none, .machine-models-empty { margin: 0; font: 500 var(--ui-fs-body)/1.4 var(--ui-font); color: var(--ui-muted); }
-/* The cells with no model's row of their own, among the rows with a cell. */
-.machine-models-rest { display: flex; flex-direction: column; gap: 6px; padding: 8px var(--ui-s2) 10px; border-top: 1px solid var(--ui-line); }
+/* The cells with no model's row to pick: they stand in the block above, as the cells of the picked model do, and the words that say why they
+   have no row name them there. */
+.machine-models-rest { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--ui-line); }
 .machine-model { border-top: 1px solid var(--ui-line); }
-.machine-model.is-open > .machine-model-row { background: var(--ui-raised); }
 .machine-model-row { display: flex; align-items: center; gap: var(--ui-s2); min-height: 34px; padding-right: var(--ui-s2); }
-/* Its columns have fixed widths, the name takes the rest: rows of one, two or seven cells stay even. */
-.machine-model-open {
+/* Its columns have fixed widths, the name takes the rest: rows of one, two or seven cells stay even. A row of the list is a press and nothing
+   else — what a press does is pick the model the block above shows, so there is no open state here to draw. */
+.machine-model-choose {
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 170px) 112px 112px 84px;
@@ -166,8 +335,8 @@
   text-align: left;
   cursor: pointer;
 }
-.machine-model-open:hover { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
-.machine-model-open:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: -2px; }
+.machine-model-choose:hover { background: color-mix(in srgb, var(--ui-text) 5%, transparent); }
+.machine-model-choose:focus-visible { outline: 2px solid var(--ui-act-strong); outline-offset: -2px; }
 .machine-model-title { display: flex; flex-direction: column; min-width: 0; }
 .machine-model-name { font: 650 var(--ui-fs-row)/1.25 var(--ui-font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .machine-model.is-idle .machine-model-name { color: var(--ui-muted); }
@@ -186,12 +355,11 @@
 .machine-model-cells i { margin-left: 3px; font: 650 var(--ui-fs-label)/1 var(--ui-font); font-style: normal; color: var(--ui-text-dim); }
 .machine-model-cells.is-none { color: var(--ui-muted); }
 .machine-model-rate { flex: none; display: inline-flex; justify-content: flex-end; gap: 2px; width: 50px; }
-.machine-model-more { display: flex; flex-direction: column; gap: 6px; padding: 6px var(--ui-s2) 10px; background: var(--ui-well); }
-/* A cell of the model, on two lines between its port and its buttons. A click anywhere on it chooses it, and it is what is dragged up to
-   the rack, so its words are no text to select. */
+/* A cell of the model, on two lines between its name and its buttons. A click anywhere on it chooses it, and it is what is dragged up to
+   the rack, so its words are no text to select. The first column holds the cell's own name: `c` and eight hex digits for a new cell. */
 .machine-model-launch {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr) auto;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
   align-items: center;
   gap: 2px var(--ui-s3);
   padding: 6px 10px;
@@ -218,7 +386,7 @@
   --launch-state: var(--ui-busy);
   border-color: color-mix(in srgb, var(--ui-busy) 45%, var(--ui-line));
 }
-.machine-model-launch:where(:has(.machine-bench-fit:is([data-t-state="broken"], [data-t-state="failed"], [data-t-state="unreachable"]))) {
+.machine-model-launch:where(:has(.machine-bench-fit:is([data-t-state="broken"], [data-t-state="failed"]))) {
   --launch-state: var(--ui-bad);
   border-color: color-mix(in srgb, var(--ui-bad) 45%, var(--ui-line));
 }
@@ -277,8 +445,10 @@
 .machine-pick-acts .ui-pill { height: 28px; flex: none; }
 .machine-model-launch:has(.machine-pick[data-t-state="planned"]:not([hidden])) [data-t="machine-model-start"] { display: none; }
 .machine-model-nolaunch { margin: 0; font: 500 var(--ui-fs-fact)/1.4 var(--ui-font); color: var(--ui-muted); }
+/* The prose is read on the row of the list that is picked (the owner, 2026-11-06), so it stands under its row, inside the list's own padding:
+   a row that is not picked has nothing to say but its parts. */
 .machine-model-said {
-  margin: 0;
+  margin: 0 var(--ui-s2) var(--ui-s2);
   padding: 8px 10px;
   border-radius: var(--ui-r2);
   border: 1px dashed var(--ui-line-strong);
@@ -288,12 +458,11 @@
 }
 .machine-model-said b { color: var(--ui-text); font-weight: 650; }
 .machine-model-said.is-unread { color: var(--ui-busy); }
-.machine-model-foot { display: flex; }
 /* Narrow, nothing goes: a row's name takes its own line over the rest, and a cell's buttons a line of their own. */
 @media (max-width: 760px) {
-  .machine-model-open { grid-template-columns: minmax(0, 1fr) auto auto auto; }
+  .machine-model-choose { grid-template-columns: minmax(0, 1fr) auto auto auto; }
   .machine-model-title { grid-column: 1 / -1; }
-  .machine-model-launch { grid-template-columns: 76px minmax(0, 1fr); }
+  .machine-model-launch { grid-template-columns: 92px minmax(0, 1fr); }
   .machine-model-acts { grid-column: 1 / -1; grid-row: auto; }
   .machine-pick { grid-column: 1 / -1; }
 }

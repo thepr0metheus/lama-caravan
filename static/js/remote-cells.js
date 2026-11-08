@@ -1,5 +1,6 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
 import { CARD_FOLD } from "./card-fold.js";
+import { CellDraft } from "./cell-plan.js";
 import { appConfirm, appConfirmTyped, appPrompt } from "./dialogs.js";
 import { DraftFile } from "./draft-file.js";
 import { refreshFavoritesPanel } from "./favorites.js";
@@ -37,11 +38,11 @@ import {
 import { cellHolds, machineGpuLabel, mountPlacementMap, refreshComputeTarget } from "./memory.js";
 import { startMonitor } from "./polling.js";
 import { setTopology, state, topology, ui } from "./state.js";
-import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
+import { topologyAssignmentsByAgent } from "./topology-activity.js";
 import {
   engineSizeText, hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
 } from "./topology-nodes.js";
-import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
+import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
 import { TalkCell, TalkWindow } from "./voice-talk.js";
 import { LiveCell, LiveWindow } from "./voice-live.js";
@@ -57,30 +58,89 @@ export function topologyHost(hostId) {
   return (topology?.hosts || []).find((h) => h.id === hostId) || null;
 }
 
+// The board's row of cell `cellId` (topology.nodes[].servers — what the machines' cards draw), found by the cell's id alone:
+// it is unique across the fleet. null for an id no machine's row names.
+export function boardCell(cellId) {
+  const id = String(cellId || "");
+  if (!id) return null;
+  for (const node of topology?.nodes || []) {
+    const row = (node.servers || []).find((s) => String(s.cellId || "") === id);
+    if (row) return row;
+  }
+  return null;
+}
+
 // ── Remote llama-server start tracking ───────────────────────────────────────
-// A remote model can take a while to download + load into VRAM. The route-agent
-// only reports llamaNode.running once the HTTP server is actually up, so until
-// then we show an optimistic "loading" placeholder card in the Llama Servers
-// panel and poll topology until the real server appears (or we time out).
-export const _pendingRemoteStarts = new Map(); // hostId -> { hostId, hostName, modelName, port, gpuName, clientIp, startedAt, phase, error }
+// A remote model can take a while to download + load into VRAM: while a scout reports a start under way, the board polls the
+// topology until it ends (startRemoteStartWatch). The board's own optimistic "starting" record went on 2026-11-08: the cell form's
+// Apply only saves (a new cell too), and a start is the cell's own ▶ (cellServiceAction), its state the cell's (_pendingCellActions).
 export const _stoppingHosts = new Set(); // hostIds currently in the process of stopping
-export const _deletingSlots = new Set(); // "hostId:port" keys currently being deleted
-export const _reservingCells = new Map(); // hostId -> { port, startedAt }
-export const _newReservedCells = new Set(); // "hostId:port" keys that should flash after creation
-export const _expandedCellCfgs = new Set(); // "hostId:port" keys with expanded config block
-export const _stoppingCells = new Set();   // "hostId:port" keys currently being stopped
-// Any in-flight cell action ("hostId:port" -> "start"|"stop"|...): renders as a
+// A cell is keyed by its id (cellId) alone, unique across the fleet: it holds a port only while it runs, the one its scout
+// leased for that run, so no port keys anything here.
+export const _deletingSlots = new Set(); // cellIds currently being deleted
+// hostId -> { startedAt }: a machine making a cell. Keyed by the machine: the cell has no id until the controller answers.
+export const _reservingCells = new Map();
+export const _newReservedCells = new Set(); // cellIds that should flash after creation
+export const _stoppingCells = new Set();   // cellIds currently being stopped
+// Any in-flight cell action (cellId -> "start"|"stop"|...): renders as a
 // busy card and is part of the structure fingerprint, so poll renders can't
 // skip the transition. Cleared in cellServiceAction's finally.
 export const _pendingCellActions = new Map();
 
+/**
+ * A cell's button as the board draws it (topology-nodes.js, cell-window.js): the cell it acts on, by `data-cell-id` — the
+ * board's one address of a cell — and the name the board shows for it (`data-node-cell-model`), which a question about the
+ * cell says. A cell the board gives no name is named by its id: it has a port only while it runs, and no question names one.
+ */
+export class CellButton {
+  constructor(el) {
+    this.el = el;
+  }
+
+  /** The selector of the button that does `attr` (a data attribute's name) to cell `cellId`. */
+  static selector(attr, cellId) {
+    const id = String(cellId);
+    const quoted = globalThis.CSS?.escape ? globalThis.CSS.escape(id) : id.replace(/["\\]/g, "\\$&");
+    return `[${attr}][data-cell-id="${quoted}"]`;
+  }
+
+  get cellId() {
+    return String(this.el?.dataset?.cellId || "");
+  }
+
+  /** The board's name for the cell, "" where it shows none. */
+  get name() {
+    return String(this.el?.dataset?.nodeCellModel || "");
+  }
+
+  /** What a question names the cell by: the board's name, else its id. */
+  get shown() {
+    return this.name || this.cellId;
+  }
+
+  /** The question a start asks. `loadsModel`: the cell starts by loading its model (llama.cpp's, an engine's), not by running a
+   *  command — for a command cell the shown name is its command line, so the model's words would promise a load that is not. */
+  startQuestion(loadsModel) {
+    if (!loadsModel) return t("dlgStartCommand", { cell: this.shown });
+    return this.name ? t("dlgStartModel", { model: this.name }) : t("dlgStartCell", { cell: this.cellId });
+  }
+
+  stopQuestion() {
+    return this.name ? t("dlgStopModel", { model: this.name }) : t("dlgStopCell", { cell: this.cellId });
+  }
+
+  deleteQuestion() {
+    return t("dlgDeleteCell", { cell: this.shown });
+  }
+}
+
 // 0 ms feedback without waiting for a render: disable the card's action row
 // and put a spinner on the clicked button. The next full render recreates the
 // buttons from _pendingCellActions, so the state carries over.
-function _patchCellButtonsBusy(hostId, port, actionName) {
+function _patchCellButtonsBusy(cellId, actionName) {
   const attr = actionName === "stop" ? "data-node-cell-stop"
     : actionName === "start" ? "data-node-cell-launch" : "data-node-cell-boot";
-  const btn = document.querySelector(`[${attr}="${hostId}"][data-node-cell-port="${port}"]`);
+  const btn = document.querySelector(CellButton.selector(attr, cellId));
   if (!btn) return;
   const row = btn.parentElement;
   row?.querySelectorAll("button").forEach((b) => { b.disabled = true; b.classList.add("muted"); b.classList.remove("ok", "warn", "del"); });
@@ -88,27 +148,9 @@ function _patchCellButtonsBusy(hostId, port, actionName) {
   btn.innerHTML = `<span class="topology-spinner stopping-spinner" aria-hidden="true"></span>` + (lbl ? lbl.outerHTML : "");
 }
 export let _remoteStartWatchTimer = null;
-export const REMOTE_START_TIMEOUT_MS = 240_000;
 
-export function registerPendingRemoteStart(info) {
-  _pendingRemoteStarts.set(info.hostId, {
-    phase: "starting",
-    startedAt: Date.now(),
-    ...info,
-  });
-  startRemoteStartWatch();
-}
-
-export function clearPendingRemoteStart(hostId) {
-  _pendingRemoteStarts.delete(hostId);
-  // The watch loop itself decides when to stop (a server-side startup may
-  // still be in flight after the client placeholder hands off).
-}
-
-// True while anything remote is still coming up: a client-side optimistic
-// placeholder, or a server-reported resolving/downloading/loading server.
+// True while a scout reports a cell coming up: resolving, downloading or loading.
 export function remoteStartupInFlight() {
-  if ([..._pendingRemoteStarts.values()].some((p) => p.phase === "starting")) return true;
   const startup = ["resolving", "downloading", "loading"];
   return (topology?.server?.llamaServers || [])
     .some((s) => s.isRemote && startup.includes(s.phase));
@@ -117,16 +159,8 @@ export function remoteStartupInFlight() {
 export function startRemoteStartWatch() {
   if (_remoteStartWatchTimer) return;
   _remoteStartWatchTimer = setInterval(() => {
-    // Time out optimistic client placeholders that never got picked up.
-    const now = Date.now();
-    for (const [, p] of _pendingRemoteStarts) {
-      if (p.phase === "starting" && now - p.startedAt > REMOTE_START_TIMEOUT_MS) {
-        p.phase = "timeout";
-      }
-    }
     if (!remoteStartupInFlight()) {
-      // Nothing loading anymore — stop polling. Terminal (timeout/error)
-      // placeholder cards stay on screen until the user dismisses them.
+      // Nothing loading anymore — stop polling.
       clearInterval(_remoteStartWatchTimer);
       _remoteStartWatchTimer = null;
       if (topologyInteractionActive()) markTopologyRenderPending();
@@ -137,16 +171,16 @@ export function startRemoteStartWatch() {
   }, 2000);
 }
 
-// Shared server-slot actions (used by the node view). The cell window may keep edits of a cell's settings not applied
+// The dialog of the cell held under `key` (CellForm). The cell window may keep edits of a cell's settings not applied
 // (cell-settings.js): that cell's dialog shows them as they stand, and the form is filled for another cell — or this one
 // afresh — only when the operator lets them go.
-export async function openRemoteFormForHost(hostId, port = "", { pickModel = false } = {}) {
-  if (!pickModel && CELL_FORM.keeps(hostId, port)) {
+export async function openCellForm(key, { pickModel = false } = {}) {
+  if (!pickModel && CELL_FORM.keeps(key)) {
     CELL_FORM.show();
     return;
   }
-  if (!(await CELL_FORM.mayFill(hostId, port))) return;
-  CELL_FORM.fill(hostId, port, { pickModel });
+  if (!(await CELL_FORM.mayFill(key))) return;
+  CELL_FORM.fill(key, { pickModel });
 }
 
 /**
@@ -155,25 +189,60 @@ export async function openRemoteFormForHost(hostId, port = "", { pickModel = fal
  * handlers write them (`set`), saved by its Apply (`save`) — so the checks, the placement map and the command previews stay
  * the dialog's, in one place. One form, one cell at a time: `holds` says whose inputs it has. What is done to the form by other
  * hands — filled for a cell, saved, its dialog closed — is heard by `on`.
+ *
+ * A cell is held under its key: its id (cellId), or `new:<machine>` (`CellForm.newKey`) for a cell not made yet — the new-cell
+ * wizard's (add-model.js). A cell has no id until its first save: the controller makes it and names it in its answer, and the
+ * form holds it by that id from then on (`cellId`), so a second Apply saves the same cell rather than making another.
  */
 export class CellForm {
   static EVENTS = ["filled", "saved", "hidden"];
+  /** What the key of a cell not made yet begins with; the machine's id follows. */
+  static NEW = "new:";
 
   constructor() {
     this.listeners = Object.fromEntries(CellForm.EVENTS.map((kind) => [kind, []]));
-    // Who keeps edits of the form outside its dialog — the cell window: {keeps(hostId, port), leave(hostId, port)}.
+    // Who keeps edits of the form outside its dialog — the cell window: {keeps(key), leave(key)}.
     this.keeper = null;
     this.watching = false;
   }
 
-  holds(hostId, port) {
-    return !!_trCellPort && String(_trHostId) === String(hostId) && String(_trCellPort) === String(port);
+  /** The key a cell not made yet on machine `hostId` is held under. */
+  static newKey(hostId) {
+    return `${CellForm.NEW}${hostId}`;
   }
 
-  /** The form filled with the cell's saved config; `hidden`: without its dialog (the cell window's own filling). */
-  fill(hostId, port, { pickModel = false, hidden = false } = {}) {
+  /** {cellId, hostId} of a key: a new cell's machine, or a kept cell with the machine of its row on the board. A key of no cell
+   *  the board shows names no machine (hostId ""): there is nothing to fill the form for. */
+  static place(key) {
+    const k = String(key ?? "");
+    if (k.startsWith(CellForm.NEW)) return { cellId: "", hostId: k.slice(CellForm.NEW.length) };
+    return { cellId: k, hostId: String(boardCell(k)?.clientId || "") };
+  }
+
+  /** The key of the cell the form holds; "" while it was filled for none. */
+  key() {
+    if (_trCellId) return _trCellId;
+    return _trHostId ? CellForm.newKey(_trHostId) : "";
+  }
+
+  holds(key) {
+    const mine = this.key();
+    return !!mine && mine === String(key ?? "");
+  }
+
+  /** The id of the cell the form holds; "" while it holds one not made yet. After the first save of a new cell, the new id. */
+  cellId() {
+    return _trCellId;
+  }
+
+  /** The form filled with the cell's saved config — a new cell's with the form's defaults; `hidden`: without its dialog (the cell
+   *  window's own filling, the wizard's). False for a key of no cell the board shows: the form is left as it was. */
+  fill(key, { pickModel = false, hidden = false } = {}) {
+    const { cellId, hostId } = CellForm.place(key);
+    if (!hostId) return false;
     const host = topologyHost(hostId) || {};
-    openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], port, { pickModel, hidden });
+    openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], cellId, { pickModel, hidden });
+    return true;
   }
 
   keepBy(keeper) {
@@ -181,13 +250,13 @@ export class CellForm {
   }
 
   /** True when the edits kept outside the dialog are this cell's, and the form holds them. */
-  keeps(hostId, port) {
-    return !!this.keeper?.keeps?.(hostId, port) && this.holds(hostId, port);
+  keeps(key) {
+    return !!this.keeper?.keeps?.(key) && this.holds(key);
   }
 
-  /** May the form be filled for cell hostId:port now? Its keeper asks the operator about edits not applied; with no keeper, yes. */
-  async mayFill(hostId, port) {
-    return this.keeper?.leave ? !!(await this.keeper.leave(hostId, port)) : true;
+  /** May the form be filled for the cell of `key` now? Its keeper asks the operator about edits not applied; with no keeper, yes. */
+  async mayFill(key) {
+    return this.keeper?.leave ? !!(await this.keeper.leave(key)) : true;
   }
 
   read() {
@@ -211,7 +280,7 @@ export class CellForm {
     return !!$(`tr-${field}`)?.checked;
   }
 
-  /** A field the form does not let be typed in: a cell's port, which is moved on the board. */
+  /** A field the form does not let be typed in now: read-only or switched off (a health path while its check is off). */
   locked(field) {
     const el = $(`tr-${field}`);
     return !!(el && (el.readOnly || el.disabled));
@@ -282,231 +351,15 @@ export class CellForm {
 
 export const CELL_FORM = new CellForm();
 
-// ── Port picker: move a parked cell to another free port ─────────────────────
-// Grid of the fleet-wide port pool (cells on every host + proxy ports share
-// the numbering). Occupied tiles are colored by owner kind and
-// carry the owner in the tooltip; a click on a free tile confirms and calls
-// the reassign endpoint — cables and rules follow the cell server-side.
-// Ports the operator (or a scan) marked as belonging to something else on the
-// box. Fetched with the picker so a reopen shows the current set.
-let _portExclusions = [];
-
-// The fleet's real port window, served in the topology payload. The fallback
-// mirrors the shipped default and only matters for the first paint before
-// topology arrives — every later read tracks whatever CARAVAN_CELL_* says.
-function cellPortRange() {
-  const r = topology?.cellPortRange || {};
-  const from = Number(r.from) || 22001;
-  return { from, to: Number(r.to) || (from + 998) };
-}
-async function _loadPortExclusions() {
-  try {
-    const r = await api("/api/port-exclusions");
-    _portExclusions = r.exclusions || [];
-  } catch { /* the picker still works; the tiles just lack the extra colour */ }
-}
-
-export function openPortPicker(hostId, port) {
-  const used = new Map();   // port -> {kind, label, host, name, swappable}
-  _portExclusions.forEach((x) => used.set(Number(x.port), {
-    kind: "excluded", label: x.note || x.host || "", note: x.note || "", excluded: true }));
-  const SWAPPABLE = new Set(["stopped", "reserved", "error"]);
-  (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
-    const p = Number(s.port || 0);
-    if (!p) return;
-    const host = s.clientId || n.id;
-    const what = (s.model || (s.config || {}).COMMAND || "cell").toString().slice(0, 48);
-    const phase = s.phase || (s.status && s.status.phase) || "";
-    used.set(p, { kind: "cell", label: `${host} · ${what}`, host, name: what,
-                  swappable: SWAPPABLE.has(phase) });
-  }));
-  (topology?.proxies || []).forEach((pr) => {
-    const p = Number(pr.port || 0);
-    if (!p) return;
-    used.set(p, { kind: "proxy", label: pr.label || "" });
-  });
-  const cur = Number(port);
-  // The grid covers the fleet's configured range (the firewall-friendly window)
-  // and stretches further if something already sits above it. Anything OCCUPIED
-  // below the base — legacy proxies, exclusions, a not-yet-migrated
-  // cell — is shown as a compact strip above a divider: those numbers must stay
-  // visible (and swappable/releasable), but the thousands of FREE ports between
-  // them and the base are not on offer any more, so they are not drawn. A first
-  // version drew the full run from 8022 to the base — a wall of dead tiles.
-  const range = cellPortRange();
-  const usedPorts = [...used.keys()].filter(Number.isFinite);
-  const maxUsed = Math.max(range.from, ...usedPorts);
-  const upper = Math.max(range.to, maxUsed + 10);
-  const legacyPorts = usedPorts.filter((p) => p < range.from).sort((a, b) => a - b);
-  if (cur < range.from && !legacyPorts.includes(cur)) legacyPorts.push(cur);
-  const curName = used.get(cur)?.name || "";
-  let tiles = "";
-  const drawTile = (p) => {
-    const u = used.get(p);
-    const isCur = p === cur;
-    let cls, attr, title;
-    if (isCur) {
-      cls = "current"; attr = " disabled"; title = t("portPickerLegendCurrent");
-    } else if (!u) {
-      cls = "free"; attr = ` data-pick-port="${p}"`; title = t("portPickerLegendFree");
-    } else if (u.excluded) {
-      // Clickable: an exclusion you cannot undo from the same place you made it
-      // is a trap. Clicking releases the number back into the pool.
-      cls = "busy excluded"; attr = ` data-release-port="${p}"`;
-      title = t("portPickerReleaseTitle", { p: String(p), why: u.note || "—" });
-    } else if (u.kind === "cell" && u.swappable) {
-      // A stopped cell → offer a port swap (both cells trade ports + wiring).
-      cls = "busy cell swappable"; attr = ` data-swap-port="${p}"`;
-      title = t("portPickerSwapTitle", { p: String(p), name: u.name });
-    } else {
-      cls = `busy ${u.kind}`; attr = " disabled"; title = `${u.kind} · ${u.label}`;
-    }
-    tiles += `<button type="button" class="port-tile ${cls}"${attr} title="${escapeHtml(title)}">${p}</button>`;
-  };
-  legacyPorts.forEach(drawTile);
-  if (legacyPorts.length) tiles += `<span class="port-grid-divider" aria-hidden="true"></span>`;
-  for (let p = range.from; p <= upper; p++) drawTile(p);
-  const legend = [["free", t("portPickerLegendFree")], ["busy cell", t("portPickerLegendCell")],
-                  ["busy proxy", t("portPickerLegendProxy")],
-                  ["busy excluded", t("portPickerLegendExcluded")],
-                  ["current", t("portPickerLegendCurrent")]]
-    .map(([cls, lbl]) => `<span class="port-picker-key"><span class="port-tile mini ${cls}"></span>${escapeHtml(lbl)}</span>`).join("");
-  const ovl = document.createElement("div");
-  ovl.className = "topology-policy-overlay port-picker-overlay";
-  ovl.innerHTML = `
-    <div class="topology-policy-modal port-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("portPickerTitle", { port: String(cur) }))}">
-      <div class="topology-card-head">
-        <strong>${escapeHtml(t("portPickerTitle", { port: String(cur) }))}</strong>
-        <button class="icon-action compact" type="button" data-pp-close aria-label="${escapeHtml(t("a11yClosePortPicker"))}">×</button>
-      </div>
-      <div class="port-picker-legend">${legend}</div>
-      <div class="port-picker-hint">${escapeHtml(t("portPickerSwapHint"))}
-        <button type="button" class="port-scan-btn" data-port-scan>🔍 ${escapeHtml(t("portScanBtn"))}</button>
-      </div>
-      <div class="port-scan-result" hidden></div>
-      <div class="port-picker-grid">${tiles}</div>
-    </div>`;
-  const close = () => ovl.remove();
-  ovl.addEventListener("click", async (e) => {
-    if (e.target === ovl || e.target.closest("[data-pp-close]")) { close(); return; }
-    // ── Scan: ask every host what it is listening on, offer to hold those ──
-    if (e.target.closest("[data-port-scan]")) {
-      const box = ovl.querySelector(".port-scan-result");
-      const btn = ovl.querySelector("[data-port-scan]");
-      box.hidden = false;
-      box.innerHTML = `<div class="muted">${escapeHtml(t("portScanRunning"))}</div>`;
-      btn.disabled = true;
-      try {
-        const r = await api("/api/port-exclusions?scan=1");
-        const hosts = (r.scan || {}).hosts || [];
-        // A host we could not reach is NOT a clean host — say which is which.
-        const dead = hosts.filter((h) => !h.ok);
-        const rows = hosts.filter((h) => h.ok && (h.ports || []).length);
-        const total = rows.reduce((n, h) => n + h.ports.length, 0);
-        const list = rows.map((h) => `<div class="port-scan-host"><strong>${escapeHtml(h.hostId)}</strong> `
-          + h.ports.map((p) => `<span class="port-scan-port" title="${escapeHtml(p.proc || "?")}${p.pid ? ` · pid ${p.pid}` : ""}">${p.port}<span class="muted"> ${escapeHtml((p.proc || "?").slice(0, 14))}</span></span>`).join("")
-          + `</div>`).join("");
-        const deadLine = dead.length
-          ? `<div class="port-scan-dead">⚠ ${escapeHtml(t("portScanUnreachable", { hosts: dead.map((h) => h.hostId).join(", ") }))}</div>` : "";
-        box.innerHTML = total
-          ? `<div class="port-scan-head">${escapeHtml(t("portScanFound", { n: total }))}</div>${list}${deadLine}`
-            + `<button type="button" class="port-scan-apply" data-port-exclude-all>${escapeHtml(t("portScanExcludeAll"))}</button>`
-          : `<div class="muted">${escapeHtml(t("portScanClean"))}</div>${deadLine}`;
-        box._found = rows;
-      } catch (err) {
-        box.innerHTML = `<div class="port-scan-dead">⚠ ${escapeHtml(String(err.message || err))}</div>`;
-      }
-      btn.disabled = false;
-      return;
-    }
-    if (e.target.closest("[data-port-exclude-all]")) {
-      const box = ovl.querySelector(".port-scan-result");
-      const add = (box._found || []).flatMap((h) => h.ports.map((p) => ({
-        port: p.port, host: h.hostId, auto: true,
-        note: `${p.proc || "?"}${p.pid ? ` (pid ${p.pid})` : ""} · ${h.hostId}` })));
-      if (!add.length) return;
-      if (!(await appConfirm(t("portScanExcludeConfirm", { n: add.length }), { danger: false }))) return;
-      try {
-        await api("/api/port-exclusions", { method: "POST", body: JSON.stringify({ add }) });
-        toast(t("portScanExcluded", { n: add.length }));
-        close();
-        await _loadPortExclusions();
-        openPortPicker(hostId, port);        // repaint with the new colours
-      } catch (err) { toast(err.message); }
-      return;
-    }
-    const releaseTile = e.target.closest("[data-release-port]");
-    if (releaseTile) {
-      const p = Number(releaseTile.dataset.releasePort);
-      if (!(await appConfirm(t("portPickerReleaseConfirm", { p: String(p) }), { danger: false }))) return;
-      try {
-        await api("/api/port-exclusions", { method: "POST", body: JSON.stringify({ remove: [p] }) });
-        close();
-        await _loadPortExclusions();
-        openPortPicker(hostId, port);
-      } catch (err) { toast(err.message); }
-      return;
-    }
-    const freeTile = e.target.closest("[data-pick-port]");
-    const swapTile = e.target.closest("[data-swap-port]");
-    const tile = freeTile || swapTile;
-    if (!tile) return;
-    // Free tile → reassign to a free port; stopped-cell tile → swap the two cells.
-    const swap = !!swapTile;
-    const target = Number(tile.dataset.pickPort || tile.dataset.swapPort);
-    const prompt = swap
-      ? t("portPickerSwapConfirm", { a: String(cur), an: curName || String(cur),
-                                     b: String(target), bn: used.get(target)?.name || String(target) })
-      : t("portPickerConfirm", { from: String(cur), to: String(target) });
-    if (!(await appConfirm(prompt, { danger: false }))) return;
-    tile.disabled = true;
-    try {
-      const res = await api(swap ? "/api/topology/server-cell/swap-port"
-                                 : "/api/topology/server-cell/reassign-port", {
-        method: "POST",
-        body: JSON.stringify(swap ? { hostId, port: cur, targetPort: target }
-                                  : { hostId, port: cur, newPort: target }),
-      });
-      if (res.topology) setTopology(res.topology);
-      renderTopology();
-      toast(swap ? t("portPickerSwapDone", { a: String(cur), b: String(target) })
-                 : t("portPickerDone", { port: String(target) }));
-      close();
-    } catch (err) {
-      toast(err.message);
-      tile.disabled = false;
-    }
-  });
-  document.body.appendChild(ovl);
-}
-
-export function nextTopologyCellPort() {
-  const used = new Set();
-  (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
-    const port = Number(s.port || 0);
-    if (port) used.add(port);
-  }));
-  // Proxy routes share the fleet-wide numbering — a
-  // cell must never take a port the proxy already listens on (the backend
-  // used_server_cell_ports applies the same union).
-  (topology?.proxies || []).forEach((p) => {
-    const port = Number(p.port || 0);
-    if (port) used.add(port);
-  });
-  let port = cellPortRange().from;
-  while (used.has(port)) port += 1;
-  return port;
-}
-
 // A cell with a model of an engine, from the "+" on its line under the
 // engine's strip (2026-09-26, the operator's choice B): the line says the
-// engine and the model already, so nothing is asked, and the port is the
-// next free one. One reserve at a time on a machine — a second "+" before the
-// first cell came back would take a second port.
+// engine and the model already, so nothing is asked. The cell has no port
+// until it starts — its scout leases one then. One reserve at a time on a
+// machine: a second "+" before the first cell came back would make a second cell.
 export async function reserveEngineCell(hostId, kind, model) {
   const hostKey = String(hostId || "");
   if (!hostKey || !kind || !model || _reservingCells.has(hostKey)) return;
-  await postReserve(hostId, Number(nextTopologyCellPort() || 0), { engine: String(kind), model: String(model) });
+  await postReserve(hostKey, { engine: String(kind), model: String(model) });
 }
 
 // The "+" on a model's line, as its markup says it (shelfLineHtml in
@@ -516,53 +369,60 @@ export function reserveEngineButton(btn) {
   return reserveEngineCell(d.engineReserve, d.engineKind, d.engineModel);
 }
 
+// A cell just made or saved pulses on the board for `ms`, so the eye lands where it is. By its id: an answer that names
+// no cell has nothing to pulse, and none is made up for it.
+function flashCell(cellId, ms) {
+  const id = String(cellId || "");
+  if (!id) return;
+  _newReservedCells.add(id);
+  setTimeout(() => {
+    _newReservedCells.delete(id);
+    if (!topologyInteractionActive()) renderTopology();
+  }, ms);
+}
+
 // What a reserve sends and shows, once for every way into it: the machine's
 // spinner until the new cell is on the board, the new cell's flash, and the
 // controller's refusal in its own words.
-async function postReserve(hostId, pendingPort, plan) {
-  const hostKey = String(hostId || "");
-  if (hostKey && pendingPort) {
-    _reservingCells.set(hostKey, { port: pendingPort, startedAt: Date.now() });
-    renderTopology();
-  }
+async function postReserve(hostId, plan) {
+  _reservingCells.set(hostId, { startedAt: Date.now() });
+  renderTopology();
   try {
     const result = await api("/api/topology/server-slot/add", {
       method: "POST",
       body: JSON.stringify({ hostId, ...plan }),
     });
-    const created = result?.cell || result?.slot || {};
-    const createdHost = String(created.hostId || hostId || "");
-    const createdPort = Number(created.port || pendingPort || 0);
-    if (createdHost && createdPort) {
-      const key = `${createdHost}:${createdPort}`;
-      _newReservedCells.add(key);
-      setTimeout(() => {
-        _newReservedCells.delete(key);
-        if (!topologyInteractionActive()) renderTopology();
-      }, 1400);
-    }
+    // The new cell, by the id the controller gave it ({ok, slot, cell: {id, hostId, …}}).
+    flashCell(result?.cell?.id, 1400);
     // Keep the spinner up until the new cell is actually ON the board —
     // clearing it on the API reply left a dead gap while the heavier
     // /api/topology refetch was still in flight ("the UI hung").
     try {
       await refreshTopology();
     } catch { /* poll will catch up */ }
-    _reservingCells.delete(hostKey);
+    _reservingCells.delete(hostId);
     if (!topologyInteractionActive()) renderTopology();
   } catch (e) {
-    _reservingCells.delete(hostKey);
+    _reservingCells.delete(hostId);
     renderTopology();
     toast(String(e));
   }
 }
 
 // `force`: start a cell in an engine whose model would not fit into the
-// cards' free memory anyway — sent only after the operator said so.
+// cards' free memory anyway — sent only after the operator said so. The cell
+// is named by its id alone: a start leases its port on its scout, which
+// answers with it, and nothing here asks for one.
 /** @returns whether the cell was asked to do it: false when the action was refused or failed, the reason already said to the operator. */
-export async function cellServiceAction(hostId, port, actionName, { force = false } = {}) {
-  const cellKey = `${hostId}:${port}`;
+export async function cellServiceAction(cellId, actionName, { force = false } = {}) {
+  const cellKey = String(cellId || "");
+  // A button that names no cell is a board drawn wrong: nothing is sent for it, and the operator hears that nothing was done.
+  if (!cellKey) {
+    toast(`⚠️ ${t("cellActionFailed")}`);
+    return false;
+  }
   _pendingCellActions.set(cellKey, actionName);
-  _patchCellButtonsBusy(hostId, port, actionName);
+  _patchCellButtonsBusy(cellKey, actionName);
   if (actionName === "stop") {
     _stoppingCells.add(cellKey);
     if (!topologyInteractionActive()) renderTopology();
@@ -570,7 +430,7 @@ export async function cellServiceAction(hostId, port, actionName, { force = fals
   try {
     const res = await api("/api/topology/server-cell/action", {
       method: "POST",
-      body: JSON.stringify({ hostId, port: Number(port), action: actionName, ...(force ? { force: true } : {}) }),
+      body: JSON.stringify({ cellId: cellKey, action: actionName, ...(force ? { force: true } : {}) }),
       signal: AbortSignal.timeout(60000),
     });
     // A cell in an engine whose model would not fit into the cards' free
@@ -582,9 +442,9 @@ export async function cellServiceAction(hostId, port, actionName, { force = fals
       if (!topologyInteractionActive()) renderTopology();
       const s = res.short;
       const need = `${s.basis === "weights" ? "≥" : "≈"} ${engineSizeText(s.needBytes)}`;
-      if (await appConfirm(t("cellEngineShort", { model: s.model, need, free: engineSizeText(s.freeBytes), port: String(port) }),
+      if (await appConfirm(t("cellEngineShort", { model: s.model, need, free: engineSizeText(s.freeBytes) }),
         { confirmLabel: t("cellStartAnyway"), scene: "start" })) {
-        return cellServiceAction(hostId, port, actionName, { force: true });
+        return cellServiceAction(cellKey, actionName, { force: true });
       }
       return false;
     }
@@ -794,14 +654,15 @@ export async function deleteTopologyClientAgent(clientId, agentId) {
   } catch (e) { toast(String(e)); }
 }
 
-export async function deleteServerSlot(hostId, port) {
-  const key = `${hostId}:${port}`;
+export async function deleteServerSlot(cellId) {
+  const key = String(cellId || "");
+  if (!key) return;
   _deletingSlots.add(key);
   renderTopology();
   try {
     await api("/api/topology/server-slot/delete", {
       method: "POST",
-      body: JSON.stringify({ hostId, port: Number(port) }),
+      body: JSON.stringify({ cellId: key }),
     });
     _deletingSlots.delete(key);
     refreshTopology().catch(() => {});
@@ -827,19 +688,19 @@ function _clearVramSlices() {
 function _showVramSlice(card) {
   _clearVramSlices();
   const nodeId = card.dataset.cellNode || "";
-  const port = Number(card.dataset.llamaPort || 0);
   if (!nodeId) return;
-  // Cells sharing this node — used to stack bands left-to-right by port so the
-  // hovered one sits where its memory actually is, not always at zero.
+  // Cells sharing this node, in the order the machine lists them (the order they were made) — used to stack bands
+  // left-to-right so the hovered one sits after the cells before it, not always at zero. A port ordered them once; a cell
+  // has one only while it runs.
   const peers = [...document.querySelectorAll("[data-cell-vram][data-cell-node]")]
     .filter((p) => p.dataset.cellNode === nodeId);
+  const earlier = peers.slice(0, Math.max(0, peers.indexOf(card)));
   _vramClaims(card).forEach(({ i, mib }) => {
     const bar = document.querySelector(`[data-gpu-row="${CSS.escape(`${nodeId}:${i}`)}"] .node-vram-bar`);
     const slice = bar?.querySelector(".node-vram-slice");
     const total = Number(bar?.dataset.vramTotal || 0);
     if (!slice || !(total > 0) || !(mib > 0)) return;
-    const before = peers
-      .filter((p) => Number(p.dataset.llamaPort || 0) < port)
+    const before = earlier
       .reduce((a, p) => a + (_vramClaims(p).find((c) => c.i === i)?.mib || 0), 0);
     slice.style.left = `${Math.min(100, (before / total) * 100)}%`;
     slice.style.width = `${Math.min(100, (mib / total) * 100)}%`;
@@ -862,24 +723,22 @@ function bindVramHoverOnce() {
   });
 }
 
-// Bind data-node-start / data-node-slot-del within a root element (scoped to
-// the root just rendered, so a repaint does not bind a button twice).
+// Bind a cell's buttons within a root element (scoped to the root just rendered, so a repaint does not bind a button twice).
+// Every one names its cell by `data-cell-id` (CellButton): a cell is known by its id alone.
 export function bindServerSlotControls(root) {
   if (!root) return;
   bindVramHoverOnce();
-  root.querySelectorAll("[data-node-start]").forEach((b) =>
-    b.addEventListener("click", () => openRemoteFormForHost(b.dataset.nodeStart, b.dataset.nodeStartPort || "")));
+  // ⚙ the cell's form, filled for it (its machine is its row's on the board).
   root.querySelectorAll("[data-node-cell-start]").forEach((b) =>
     b.addEventListener("click", () => {
-      openRemoteFormForHost(b.dataset.nodeCellStart, b.dataset.nodeCellPort || "");
+      openCellForm(new CellButton(b).cellId);
     }));
   // Launch a configured cell directly (no modal — model already set)
   root.querySelectorAll("[data-node-cell-launch]").forEach((b) =>
     b.addEventListener("click", async () => {
-      const port = b.dataset.nodeCellPort;
       // The name the card shows comes with the button: the folded line's
       // switch carries the card's ▶ attributes and has no card around it.
-      const model = b.dataset.nodeCellModel || "";
+      const cell = new CellButton(b);
       // For a command-path cell that shown name is the command line,
       // so the model wording announced "bash ~/run_tts.sh $PORT cosyvoice" as a
       // model and promised it would load into memory — neither is true. (A
@@ -891,22 +750,17 @@ export function bindServerSlotControls(root) {
       const runner = b.dataset.nodeCellRunner || "llama-server";
       const loadsModel = usesLlamaConfig(runner)
         || runnerRegistry().some((r) => r.id === runner && r.engineCell === true);
-      const msg = !loadsModel
-        ? t("dlgStartCommand", { port })
-        : (model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port }));
-      if (!(await appConfirm(msg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
-      cellServiceAction(b.dataset.nodeCellLaunch, port, "start");
+      if (!(await appConfirm(cell.startQuestion(loadsModel), { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
+      cellServiceAction(cell.cellId, "start");
     }));
   root.querySelectorAll("[data-node-cell-stop]").forEach((b) =>
     b.addEventListener("click", async () => {
-      const port = b.dataset.nodeCellPort;
-      const model = b.dataset.nodeCellModel || "";
-      const msg = model ? t("dlgStopModel", { model, port }) : t("dlgStopPort", { port });
-      if (!(await appConfirm(msg, { confirmLabel: t("stop"), scene: "stop" }))) return;
-      cellServiceAction(b.dataset.nodeCellStop, port, "stop");
+      const cell = new CellButton(b);
+      if (!(await appConfirm(cell.stopQuestion(), { confirmLabel: t("stop"), scene: "stop" }))) return;
+      cellServiceAction(cell.cellId, "stop");
     }));
   root.querySelectorAll("[data-node-cell-boot]").forEach((b) =>
-    b.addEventListener("click", () => cellServiceAction(b.dataset.nodeCellBoot, b.dataset.nodeCellPort, b.dataset.nodeCellBootAction)));
+    b.addEventListener("click", () => cellServiceAction(new CellButton(b).cellId, b.dataset.nodeCellBootAction)));
   // 🎙 the voice window over the running cell (voice-talk.js): its own element, so the board's repaints keep the talk.
   root.querySelectorAll("[data-cell-talk]").forEach((b) =>
     b.addEventListener("click", (e) => {
@@ -922,90 +776,17 @@ export function bindServerSlotControls(root) {
   // 🌐 the page the cell serves itself (cell-page.js): a link, followed in this tab; the card under it hears nothing.
   root.querySelectorAll("[data-cell-page]").forEach((a) =>
     a.addEventListener("click", (e) => e.stopPropagation()));
-  // ⇄ RESERVED step → the free-port picker (parked cells only; the render
-  // sets the attr under the same conditions as delete).
-  root.querySelectorAll("[data-cell-port-reassign]").forEach((b) =>
-    b.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const [hostId, p] = String(b.dataset.cellPortReassign).split(":");
-      // Load the held-out ports before painting, so they never flash as free.
-      _loadPortExclusions().then(() => openPortPicker(hostId, Number(p)));
-    }));
   root.querySelectorAll("[data-node-slot-del]").forEach((b) =>
     b.addEventListener("click", () => {
-      const [hostId, port] = b.dataset.nodeSlotDel.split(":");
-      appConfirm(t("dlgDeleteCell", { port }), { confirmLabel: t("deleteAction") })
-        .then((ok) => { if (ok) deleteServerSlot(hostId, port); });
+      const cell = new CellButton(b);
+      appConfirm(cell.deleteQuestion(), { confirmLabel: t("deleteAction") })
+        .then((ok) => { if (ok) deleteServerSlot(cell.cellId); });
     }));
   // Drill into the full server detail modal
   root.querySelectorAll("[data-node-detail]").forEach((b) =>
     b.addEventListener("click", () => {
-      const [nid, port] = b.dataset.nodeDetail.split(":");
-      openNodeServerDetail(nid, port);
+      openNodeServerDetail(new CellButton(b).cellId);
     }));
-}
-
-// Optimistic "starting…" card for the NODE view Gives immediate feedback on click, then hands
-// off to the real card once the node reports a live/failed server — so a fast
-// failure (e.g. graph_reserve OOM) no longer looks like the GUI ignored you.
-export function nodeStartingCardHtml(node) {
-  const p = _pendingRemoteStarts.get(String(node.id));
-  if (!p) return "";
-  if ((node.servers || []).some((s) => topologyServerPhase(s) !== "stopped")) {
-    clearPendingRemoteStart(node.id);  // real card now drives the state
-    return "";
-  }
-  // A record that ended badly KEEPS its card. This used to return "" for any
-  // phase but "starting", so the moment the watch wrote "timeout" the card
-  // vanished — and it is the only place the ✕ lives, so the record could no
-  // longer be dismissed. It stayed in `_pendingRemoteStarts`, whose `.has()`
-  // goes on forcing every stopped cell of that host to read "starting": a start
-  // that failed, drawn as work still in progress, with nothing left to press.
-  // The two strings below were translated into all twenty languages when this
-  // card was designed and had never once been reached.
-  const failed = p.phase === "timeout" || p.phase === "error";
-  const host = node.name || node.id;
-  const note = failed
-    ? t(p.phase === "timeout" ? "topologyRemoteStartTimeout" : "topologyRemoteStartFailed", { host })
-    : t("topologyRemoteStarting") + "…";
-  return `
-    <article class="node-server ${failed ? "error" : "loading"}" data-pending-remote-start="${escapeHtml(String(node.id))}">
-      <div class="node-server-head">
-        ${failed ? "" : `<span class="topology-spinner" aria-hidden="true"></span>`}
-        <span class="topology-addr-link" style="pointer-events:none">${escapeHtml(p.clientIp || node.ip || "")}${p.port ? ":" + escapeHtml(String(p.port)) : ""}</span>
-        ${topologyStatusPill(failed ? "error" : "loading")}
-        <span style="flex:1"></span>
-        <button class="mini-link" type="button" data-pending-remote-dismiss="${escapeHtml(String(node.id))}" style="color:var(--muted,#888)" title="${escapeHtml(t("topologyRemoteStartDismiss"))}">✕</button>
-      </div>
-      ${p.modelName ? `<div class="topology-muted" style="font-size:12px;padding:2px 0">${escapeHtml(p.modelName)}</div>` : ""}
-      <div class="topology-muted" style="font-size:11px">${escapeHtml(note)}</div>
-    </article>`;
-}
-
-//: Whether a host has a start still genuinely in flight — as opposed to a
-//: record that ended in timeout or error and is only waiting to be dismissed.
-export function remoteStartPending(hostId) {
-  return (_pendingRemoteStarts.get(String(hostId)) || {}).phase === "starting";
-}
-
-export async function submitLlamaStop(hostId) {
-  const name = topologyHost(hostId)?.name || hostId;
-  if (!(await appConfirm(`${t("stopServerConfirm", { host: name })}`, { confirmLabel: t("stop"), scene: "stop" }))) return;
-
-  _stoppingHosts.add(hostId);
-  if (!topologyInteractionActive()) renderTopology();
-
-  try {
-    clearPendingRemoteStart(hostId);
-    await api("/api/topology/client-llama/stop", { method: "POST", body: JSON.stringify({ hostId }) });
-    setTimeout(() => {
-      _stoppingHosts.delete(hostId);
-      refreshTopology().catch(() => {});
-    }, 1500);
-  } catch (_) {
-    _stoppingHosts.delete(hostId);
-    if (!topologyInteractionActive()) renderTopology();
-  }
 }
 
 // The server of an engine next to a machine's cells started or stopped from
@@ -1160,7 +941,17 @@ export let _trGpuName = "";
 export let _trClientGpus = [];
 export let _trClientCpu = {};
 export let _trPurging = false; // true while cache purge is in flight → blocks Start
-export let _trCellPort = "";
+// The id of the kept cell the form is filled for; "" for a cell not made yet (the new-cell wizard's), which gets its id at its
+// first save. The form carries no port: a cell has one only while it runs, the one its scout leased for that run.
+export let _trCellId = "";
+
+// The board's row of the kept cell the form `pfx` holds — its saved config, schedule, phase, saved command and history; null for
+// a cell not made yet, one the board keeps no record of, and a form of no cell (only the tr- form edits cells).
+export function formCell(pfx) {
+  if (pfx !== "tr-" || !_trCellId) return null;
+  const row = boardCell(_trCellId);
+  return row?.isSlot ? row : null;
+}
 
 // Is the machine this cell form targets the controller's own? Then its files
 // are the controller's: the models tree the controller lists and the home it
@@ -1184,7 +975,7 @@ export function formConfigOf(pfx) {
 const SCHED_DAY_KEYS = ["dayMo", "dayTu", "dayWe", "dayTh", "dayFr", "daySa", "daySu"];
 let _schedSaveTimer = 0;
 const _schedWired = new Set();
-let _schedCtx = { pfx: "tr", hostId: "", port: 0 };
+let _schedCtx = { pfx: "tr", cellId: "" };
 
 function _schedRead(pfx) {
   const days = [...document.querySelectorAll(`#${pfx}-schedDays [data-day]`)]
@@ -1199,13 +990,13 @@ function _schedRead(pfx) {
 }
 
 function _schedQueueSave() {
-  const { pfx, hostId, port } = _schedCtx;
+  const { pfx, cellId } = _schedCtx;
   clearTimeout(_schedSaveTimer);
   _schedSaveTimer = setTimeout(async () => {
     try {
       const res = await api("/api/topology/server-cell/schedule", {
         method: "POST",
-        body: JSON.stringify({ hostId, port, schedule: _schedRead(pfx) }),
+        body: JSON.stringify({ cellId, schedule: _schedRead(pfx) }),
       });
       const sc = res.schedule || {};
       $(`${pfx}-schedStatus`).textContent = sc.enabled
@@ -1216,13 +1007,13 @@ function _schedQueueSave() {
   }, 450);
 }
 
-export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
+export function renderSchedulePanel(pfx, cellId, schedule) {
   const panel = $(`${pfx}-schedulePanel`);
   if (!panel) return;
-  // The panel only makes sense for a saved cell (the slot exists).
-  panel.hidden = !cellPort;
-  if (!cellPort) return;
-  _schedCtx = { pfx, hostId, port: parseInt(cellPort, 10) };
+  // The panel only makes sense for a saved cell (the slot exists): a cell not made yet has no id to keep a schedule by.
+  panel.hidden = !cellId;
+  if (!cellId) return;
+  _schedCtx = { pfx, cellId: String(cellId) };
   const sc = schedule || {};
   $(`${pfx}-schedEnabled`).checked = !!sc.enabled;
   $(`${pfx}-schedStart`).value = sc.start || "22:00";
@@ -1317,34 +1108,28 @@ export function openHostPowerScheduleModal(hostId, sched) {
   overlay.querySelector("#hpsAt").focus();
 }
 
-// The slot from the current topology for (hostId, port) — schedule's source.
-export function findSlotEntry(hostId, port) {
-  return ((topology?.server || {}).llamaServers || [])
-    .find((sv) => String(sv.port) === String(port) && (sv.clientId || "") === hostId);
-}
-
 // The form's title says which cell it sets up — a new one, or the one already
-// configured on that port — and not which engine: the runner is a choice made
-// inside the form. It said "Add llama server" for every cell, a Strata cell
-// already configured included (live check, 2026-10-13). A form opened with no
-// port (none of today's doors does) is a new cell's, and draws no empty ":".
+// configured — and not which engine: the runner is a choice made inside the
+// form. It said "Add llama server" for every cell, a Strata cell already
+// configured included (live check, 2026-10-13).
 // "<machine> · <its cards>", what the form's title names: every card of the machine, not the first one's name.
 export function cellFormMachine(hostId, gpus, fallbackName = "") {
   const cards = machineGpuLabel(gpus) || String(fallbackName || "");
   return `${hostId}${cards ? " · " + cards : ""}`;
 }
 
-export function cellFormTitle(host, port, existing) {
-  if (!port) return t("remoteNewCellTitleNoPort", { host });
-  return t(existing ? "remoteCellTitle" : "remoteNewCellTitle", { port, host });
+// `cell`: what names the configured cell — its model as the board shows it, else its id; never a port, which a cell has only
+// while it runs. A cell that is not configured yet — not made, or kept with no model — is a new cell's form.
+export function cellFormTitle(host, cell, existing) {
+  return existing && cell ? t("remoteCellTitle", { cell, host }) : t("remoteNewCellTitle", { host });
 }
 
-export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", { pickModel = false, hidden = false } = {}) {
+export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellId = "", { pickModel = false, hidden = false } = {}) {
   _trHostId = hostId;
   _trClientGpus = Array.isArray(clientGpus) ? clientGpus : [];
   _trGpuName = String(gpuName || _trClientGpus[0]?.name || "");
   _trClientCpu = (topologyHost(hostId) || {}).cpu || {};
-  _trCellPort = cellPort ? String(cellPort) : "";
+  _trCellId = cellId ? String(cellId) : "";
   // Same as the controller editor: the tab bar's overflow state is only
   // measurable once this modal is actually on screen.
   setTimeout(() => syncConfigTabs("tr-"), 0);
@@ -1366,9 +1151,12 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
       const specTypeEl = $("tr-SPEC_TYPE");
       // On: the type the draft file is for, as picking the model writes it. The
       // family's type alone went over a DFlash sidecar, which then starts as an
-      // MTP head and drafts nothing.
+      // MTP head and drafts nothing. Off: the builder's "none" (CellDraft.OFF),
+      // the draft file kept for the switch turned on again. Off wrote an empty
+      // type until 2026-11-07, and the builder launches a file named with no
+      // type by the file's own: a switched-off draft still loaded.
       if (specTypeEl) specTypeEl.value = e.target.checked
-        ? DraftFile.cellType($("tr-SPEC_DRAFT_MODEL_FILE")?.value || "", selected?.familyDefaults?.SPEC_TYPE) : "";
+        ? DraftFile.cellType($("tr-SPEC_DRAFT_MODEL_FILE")?.value || "", selected?.familyDefaults?.SPEC_TYPE) : CellDraft.OFF;
       syncToggleLabel(e.target);
       syncCompanionMuting("tr-");
     });
@@ -1384,14 +1172,16 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     // Every edit of every field draws every preview (renderCellPreviews): this listener is the one
     // place that does not have to know which runner's command reads which field. A fixed list of
     // fields in llama-edit.js did know, and had no ALIAS (GR00T's --name, vLLM's served name), no
-    // draft file, no language field and no port: typing there left "New command" on the old text.
+    // draft file and no language field: typing there left "New command" on the old text.
     $("llamaRemoteEditForm")?.addEventListener("input", () => {
       renderCellPreviews("tr-");
     });
     _trFormReady = true;
   }
 
-  renderSchedulePanel("tr", hostId, cellPort, findSlotEntry(hostId, cellPort)?.schedule);
+  // The kept cell's row on the board: what it saved, and its schedule. None for a cell not made yet.
+  const slot = formCell("tr-");
+  renderSchedulePanel("tr", _trCellId, slot?.schedule);
 
   // Populate model dropdowns (same models as the controller since admin serves them)
   _trCachedModels = new Set(); // reset until the async fetch arrives
@@ -1428,8 +1218,6 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
     // An embedding cell gets --no-jinja from the builder whatever this says.
     ENABLE_JINJA:         skynetCfg.ENABLE_JINJA     || "1",
     PARALLEL:             "1",
-    HOST:                 "0.0.0.0",
-    PORT:                 _trCellPort || "8180",
     THREADS:              "1",
     THREADS_BATCH:        "1",
     BATCH_SIZE:           "1024",
@@ -1439,24 +1227,17 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   };
 
   // 4: for an existing cell, the authoritative config is the slotConfig the
-  // controller persisted for this host:port — overlay it so the form shows what
+  // controller persisted for this cell — overlay it so the form shows what
   // the cell was actually configured with, not the cross-host defaults above.
   // This is the single source of truth (serverSlots on the controller); we no
   // longer keep a per-host localStorage copy that could drift from it.
   let _trSlotHasConfig = false;
   let _trSlotCache = false;
-  if (_trCellPort) {
-    const slot = (topology?.nodes || [])
-      .flatMap((n) => n.servers || [])
-      .find((s) => s.isSlot && String(s.clientId || "") === String(hostId) &&
-                   String(s.port) === String(_trCellPort));
-    if (slot?.slotConfig && Object.keys(slot.slotConfig).length) {
-      Object.assign(remoteDefaults, slot.slotConfig);
-      _trSlotHasConfig = true;
-      _trSlotCache = slot.cacheModels === true;
-    }
+  if (slot?.slotConfig && Object.keys(slot.slotConfig).length) {
+    Object.assign(remoteDefaults, slot.slotConfig);
+    _trSlotHasConfig = true;
+    _trSlotCache = slot.cacheModels === true;
   }
-  if (_trCellPort) remoteDefaults.PORT = _trCellPort;
   // The cache switch shows the cell's own value. It opened checked for every
   // cell, a saved "off" included, and the next Apply turned the cache back on:
   // the form's default presented as the cell's setting. A new cell keeps the
@@ -1466,8 +1247,6 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   _trFormConfig = remoteDefaults;
   applyConfigToForm(remoteDefaults, "tr-");
-  const trPortEl = $("tr-PORT");
-  if (trPortEl) trPortEl.readOnly = !!_trCellPort;
 
   // Set hidden LLAMA_MODELS_DIR so command preview shows ~remote path
   const trMdEl = $("tr-LLAMA_MODELS_DIR");
@@ -1486,7 +1265,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   // Current command + New-command diff baseline (mirrors the controller modal):
   // an existing remote cell shows its own current command; a brand-new add has none.
-  const existingCell = !!(_trCellPort && _trSlotHasConfig);
+  const existingCell = !!(_trCellId && _trSlotHasConfig);
   setEditCurrentCommand("tr-", existingCell ? "cell" : "new");
   renderModelInsight("tr-");
   renderChatTemplateHint("tr-");
@@ -1530,7 +1309,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   const remTitleEl = $("llamaRemoteEditTitle");
   if (remTitleEl) {
-    remTitleEl.textContent = cellFormTitle(cellFormMachine(hostId, _trClientGpus, gpuName), _trCellPort, existingCell);
+    remTitleEl.textContent = cellFormTitle(cellFormMachine(hostId, _trClientGpus, gpuName), slot?.model || _trCellId, existingCell);
     if (!remTitleEl.parentElement.querySelector(".topo-edit-mode-badge")) {
       const b = document.createElement("span");
       b.className = "topo-edit-mode-badge remote";
@@ -1555,160 +1334,83 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   fetchAndRenderRemoteBackups(hostId).catch(() => {});
 }
 
-/** Apply: a cell's config saved — true when it was; a refusal said before asking and a confirm declined are false, and the
- *  cell window waits on that answer (cell-settings.js). A new cell started answers nothing: no window edits one. */
-export async function submitRemoteLlamaStart({ confirmed = false } = {}) {
-  if (_trPurging) { toast(t("topologyPurgeCacheBlocksStart")); return false; }
-  const config = readConfigForm("tr-");
+// What a config the form holds is saved as, or why it is not: the rules the
+// form's Apply says before it asks anything — a command needs its command, a
+// model server its model (vLLM's is the model picked, `picked`), llama.cpp a
+// pair of cache types it starts with. One reading for the Apply and for a launch
+// built on a machine's page (machine-build.js), which is saved as the form
+// would save it. {config, refused}: `refused` the words, "" when nothing stops it.
+export function cellConfigChecked(config, picked = "") {
   // Command-path runners (custom/vllm/whisper) carry no MODEL_FILE — their
   // artifact lives in COMMAND/VLLM_MODEL/WHISPER_MODEL respectively.
-  const runnerId       = (config.RUNNER || "").trim() || (config.CELL_KIND === "command" ? "custom" : "llama-server");
-  const isCommandPath  = !usesLlamaConfig(runnerId);
-  const isCommand      = runnerId === "custom";
-  const port           = parseInt(config.PORT || "8180", 10);
-  const modelPath      = (config.MODEL_FILE || "").trim();
-  // "auto"/"all" are legal values (llama.cpp fits what the card holds and
-  // leaves the rest in RAM). parseInt would send NaN; the real -ngl travels
-  // inside `config`, this number is bookkeeping for the heartbeat.
-  const _nglRaw = String(config.N_GPU_LAYERS ?? "").trim().toLowerCase();
-  const gpuLayers = /^\d+$/.test(_nglRaw) ? parseInt(_nglRaw, 10) : 999;
-  const ctxSize        = parseInt(config.CTX_SIZE || "4096", 10);
-  const cacheModels    = !!$("tr-cacheModels")?.checked;
-  // A CELL's Apply only saves the config (the start is the card's ▶ button), so
-  // it must not promise a start — it used to ask "Start the server on :N?" and
-  // then just save, which reads as a failed start.
-  const _isCellSave = !!_trCellPort;
-  // A command-path cell starts a command, not a model server — saying "the
-  // model will load into memory" (or even "server") describes something else.
-  const _startMsg = _isCellSave
-    ? t("dlgApplyCellConfig")
-    : isCommandPath
-      ? t("dlgStartCommand", { port: String(port) })
-      : (!modelPath
-          ? t("dlgStartPort", { port: String(port) })
-          : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) }));
+  const runnerId = (config.RUNNER || "").trim() || (config.CELL_KIND === "command" ? "custom" : "llama-server");
+  const isCommandPath = !usesLlamaConfig(runnerId);
+  if (runnerId === "custom") return { config, refused: (config.COMMAND || "").trim() ? "" : t("enterCommand") };
+  if (runnerId === "vllm") {
+    // A model picked in the list names its place among the controller's models, on any machine: only with nothing picked is there nothing to serve.
+    if ((config.VLLM_MODEL || "").trim()) return { config, refused: "" };
+    const model = String(picked || "").trim();
+    return model ? { config: { ...config, VLLM_MODEL: model }, refused: "" } : { config, refused: t("selectModel") };
+  }
+  if (!isCommandPath && !(config.MODEL_FILE || "").trim()) return { config, refused: t("selectModel") };
+  // A pair llama.cpp does not start with is said now, with the way out — not after the cell
+  // has crashed four times and given up (the fields of the llama form mean nothing to the others).
+  const kv = isCommandPath ? "" : KvCache.refusedType(config);
+  return { config, refused: kv ? t("kvCacheNeedsFlash", { type: kv }) : "" };
+}
+
+/** Apply: the cell's config saved — true when it was; a refusal said before asking, a confirm declined and a failed save are
+ *  false, and the cell window and the new-cell wizard wait on that answer (cell-settings.js, add-model.js). The Apply only
+ *  saves: the start is the cell's own ▶. A kept cell is saved by its id; a cell not made yet by its machine — the controller
+ *  makes it and names it in its answer, and the form holds it by that id from then on (CellForm.cellId). Neither carries a
+ *  port: a cell's scout leases one at each start. */
+export async function submitRemoteLlamaStart({ confirmed = false } = {}) {
+  if (_trPurging) { toast(t("topologyPurgeCacheBlocksStart")); return false; }
+  const cacheModels = !!$("tr-cacheModels")?.checked;
   // What is missing is said before anything is asked: "Apply?" and then
   // "select a model" was two dialogs for nothing (an empty model is what
   // "+ Add model" opens with).
-  if (isCommand) {
-    if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return false; }
-  } else if (runnerId === "vllm") {
-    // A model picked in the list names its place among the controller's models, on any machine: only with nothing picked is there nothing to serve.
-    if (!(config.VLLM_MODEL || "").trim()) {
-      const picked = ($("tr-MODEL_FILE")?.value || "").trim();
-      if (!picked) { toast(t("selectModel")); return false; }
-      config.VLLM_MODEL = picked;
-    }
-  } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return false; }
-  // A pair llama.cpp does not start with is said now, with the way out — not after the cell
-  // has crashed four times and given up (the fields of the llama form mean nothing to the others).
-  if (!isCommandPath) {
-    const refused = KvCache.refusedType(config);
-    if (refused) { toast(t("kvCacheNeedsFlash", { type: refused })); return false; }
-  }
-  if (!confirmed && !(await appConfirm(_startMsg, {
-    danger: false,
-    confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),
-    scene: "start",
-  }))) return false;
+  const { config, refused } = cellConfigChecked(readConfigForm("tr-"), $("tr-MODEL_FILE")?.value || "");
+  if (refused) { toast(refused); return false; }
+  // An Apply only saves the config, so it must not promise a start — it used to
+  // ask "Start the server on :N?" and then just save, which reads as a failed start.
+  if (!confirmed && !(await appConfirm(t("dlgApplyCellConfig"), { danger: false, confirmLabel: "OK", scene: "start" }))) return false;
 
-  // Cell mode: save config without starting (same as controller "Apply")
-  if (_trCellPort) {
-    let saved = false;
-    const held = cellHolds("tr-");        // does the cell run? — asked before the request, while the form still names it
-    const btn = $("llamaRemoteEditStart");
-    const orig = btn.textContent;
-    btn.textContent = t("savingConfig");
-    btn.disabled = true;
-    btn.classList.add("btn-busy");
-    try {
-      await api("/api/topology/server-cell/save-config", {
-        method: "POST",
-        body: JSON.stringify({ hostId: _trHostId, port, config, cacheModels }),
-      });
-      $("llamaRemoteEditOverlay").hidden = true;
-      // Saved is not applied: a running cell keeps the settings it started with until it restarts, and the window used to
-      // close on "Saved." as if the change had landed (2026-10-17: a split mode picked on the running 70B, nothing happened).
-      toast(held.live ? t("savedKeepsRunning") : t("saved"));
-      // A cell this editor saves is the caravan's: a chip that hides the
-      // caravan's cells gives way, or a cell just made from a shelf's "+" would
-      // be saved out of sight.
-      CARD_FOLD.reveal(_trHostId, "caravan");
-      // Pulse the cell card so the eye lands where the chip flips to CONFIGURED.
-      const key = `${_trHostId}:${port}`;
-      _newReservedCells.add(key);
-      setTimeout(() => {
-        _newReservedCells.delete(key);
-        if (!topologyInteractionActive()) renderTopology();
-      }, 2600);
-      refreshTopology().catch(() => {});
-      saved = true;
-      CELL_FORM.emit("saved", config);
-    } catch (e) {
-      toast(String(e));
-    } finally {
-      btn.textContent = orig;
-      btn.disabled = false;
-      btn.classList.remove("btn-busy");
-    }
-    return saved;
-  }
-
-  const btn  = $("llamaRemoteEditStart");
+  let saved = false;
+  const held = cellHolds("tr-");        // does the cell run? — asked before the request, while the form still names it
+  const btn = $("llamaRemoteEditStart");
   const orig = btn.textContent;
-  btn.textContent = t("topologyClientGpuStarting");
+  btn.textContent = t("savingConfig");
   btn.disabled = true;
   btn.classList.add("btn-busy");
-  // The machine as both answers below name it, and its "loading" record. One place: the two
-  // answers each kept their own copy, and the duplicate's copy named a `client` that does not
-  // exist here — the notice threw, and the form closed with no word.
-  const machine = () => topologyHost(_trHostId) || {};
-  const machineName = () => machine().name || _trHostId;
-  const markLoading = () => {
-    const host = machine();
-    registerPendingRemoteStart({
-      hostId: _trHostId,
-      hostName: machineName(),
-      modelName: modelPath.split("/").pop(),
-      port,
-      clientIp: host.ip || "",
-      gpuName: (host.gpus && host.gpus[0] && host.gpus[0].name) || "",
-    });
-  };
   try {
-    const result = await api("/api/topology/client-llama/start", {
+    const res = await api("/api/topology/server-cell/save-config", {
       method: "POST",
-      // Forward the full form config so the remote builds the same command
-      // (mmproj/vision, flash-attn, cache types, threads, jinja, …).
-      body: JSON.stringify({ hostId: _trHostId, modelPath, port, gpuLayers, ctxSize, cacheModels, config, cellPort: _trCellPort }),
+      body: JSON.stringify(_trCellId ? { cellId: _trCellId, config, cacheModels } : { hostId: _trHostId, config, cacheModels }),
     });
-    if (result?.ok) {
-      // Config is persisted server-side in the cell's slot (single source of
-      // truth); no per-host localStorage copy needed for the next form open.
-      markLoading();
-      $("llamaRemoteEditOverlay").hidden = true;
-      toast(t("topologyRemoteStartSent", { host: machineName() }));
-      renderTopology();
-    } else {
-      toast(result?.result?.error || result?.error || "Error starting remote server");
-    }
+    // A new cell is held by the id the controller gave it: the next Apply saves it again rather than making another.
+    if (!_trCellId && res?.cellId) _trCellId = String(res.cellId);
+    $("llamaRemoteEditOverlay").hidden = true;
+    // Saved is not applied: a running cell keeps the settings it started with until it restarts, and the window used to
+    // close on "Saved." as if the change had landed (2026-10-17: a split mode picked on the running 70B, nothing happened).
+    toast(held.live ? t("savedKeepsRunning") : t("saved"));
+    // A cell this editor saves is the caravan's: a chip that hides the
+    // caravan's cells gives way, or a cell just made from a shelf's "+" would
+    // be saved out of sight.
+    CARD_FOLD.reveal(_trHostId, "caravan");
+    // Pulse the cell card so the eye lands where the chip flips to CONFIGURED.
+    flashCell(_trCellId, 2600);
+    refreshTopology().catch(() => {});
+    saved = true;
+    CELL_FORM.emit("saved", config);
   } catch (e) {
-    const msg = String(e);
-    // "startup already in progress" means we sent a duplicate — treat as success:
-    // close the dialog and show a friendly notice instead of an error.
-    if (msg.toLowerCase().includes("already in progress") || msg.toLowerCase().includes("already starting")) {
-      if (!_pendingRemoteStarts.has(_trHostId)) markLoading();
-      $("llamaRemoteEditOverlay").hidden = true;
-      toast(t("topologyRemoteStartAlreadyInProgress", { host: machineName() }));
-      renderTopology();
-    } else {
-      toast(msg);
-    }
+    toast(String(e));
   } finally {
     btn.textContent = orig;
     btn.disabled = false;
     btn.classList.remove("btn-busy");
   }
+  return saved;
 }
 
 export async function purgeRemoteModelCache() {
@@ -1804,7 +1506,8 @@ export async function fetchAndRenderRemoteBackups(hostId) {
       // Named snapshots lead with the user's name (the timestamp moves into the
       // meta line); legacy no-name entries keep the old timestamp label.
       const label = cfg.name ? `${cfg.name} — ${modelShort}` : `${cfg.savedAt} — ${modelShort}`;
-      const meta = `${cfg.name ? cfg.savedAt + " · " : ""}${cfg.target || "?"} · port ${cfg.port} · ctx ${cfg.ctxSize} · ${cfg.gpuLayers} layers`;
+      // No port: a backup is the settings of a model's start, and a cell's port is its scout's to lease at each start.
+      const meta = `${cfg.name ? cfg.savedAt + " · " : ""}${cfg.target || "?"} · ctx ${cfg.ctxSize} · ${cfg.gpuLayers} layers`;
       return `
         <div class="backup-row" title="${escapeHtml(meta)}">
           <button class="backup-item" type="button" data-remote-backup="${escapeHtml(cfg.filename)}">
@@ -1817,7 +1520,7 @@ export async function fetchAndRenderRemoteBackups(hostId) {
         </div>`;
     }).join("");
 
-    // Click: load the full saved config into the form (model, ctx, port, flags…).
+    // Click: load the full saved config into the form (model, ctx, flags…); a port an older backup kept has no field to go to.
     listEl.querySelectorAll("[data-remote-backup]").forEach((btn) => {
       const cfg = configs.find((c) => c.filename === btn.dataset.remoteBackup);
       if (!cfg) return;

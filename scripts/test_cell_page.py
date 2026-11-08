@@ -7,7 +7,8 @@ Both are held to ONE table of cases, contract/cell_page.json (the program's half
 would be a link the card draws to a page the save refused, or a page the save kept and the card never links.
 
 Pinned by value, each claim with a positive and a negative: the table; the registry rows (PersonaPlex alone serves a page); the card's 🌐 — open on a running cell with
-its address, shut saying why (no address, not a page's, stopped), none for a runner without a page, the address escaped in its attribute.
+its address, shut saying why (no address, not a page's, stopped), none for a runner without a page, the address escaped in its attribute; the link names
+its cell by the cell's id (a cell holds a port only while it runs), and no port.
 
 Words are read from static/js/i18n/en.js programmatically.
 
@@ -50,25 +51,27 @@ st.setState({ runners: REG });
 const { PageCell } = await import(pathToFileURL(root + "/cell-page.js").href);
 const out = {};
 const CASES = JSON.parse(process.env.PAGE_CASES);
-out.addresses = CASES.map((raw) => new PageCell({ hostId: "m1", port: 22021, runner: "personaplex", config: { PAGE_URL: raw } }).address);
+out.addresses = CASES.map((raw) => new PageCell({ cellId: "c22021", runner: "personaplex", config: { PAGE_URL: raw } }).address);
 
 const tag = (h) => { const m = String(h).match(/^<(a|button)\b[^>]*>/); if (!m) return null;
   const a = (n) => (m[0].match(new RegExp(" " + n + '="([^"]*)"')) || [])[1] ?? null;
   return { tag: m[1], cls: a("class"), t: a("data-t"), id: a("data-t-id"), page: a("data-cell-page"), href: a("href"), target: a("target"),
            title: a("title"), disabled: / disabled[ >]/.test(m[0]), label: String(h).replace(/<[^>]*>/g, "") }; };
-const pp = (config) => new PageCell({ hostId: "m1", port: 22021, runner: "personaplex", config });
+const pp = (config) => new PageCell({ cellId: "c3f9a02b1", runner: "personaplex", config });
 out.running = tag(pp({ PAGE_URL: " https://personaplex.example.org " }).buttonHtml(true));
 out.stopped = tag(pp({ PAGE_URL: "https://personaplex.example.org" }).buttonHtml(false));
 out.none = tag(pp({}).buttonHtml(true));
 out.noneStopped = tag(pp({ PAGE_URL: "  " }).buttonHtml(false));
 out.bad = tag(pp({ PAGE_URL: "http://personaplex.example.org" }).buttonHtml(true));
 out.quoted = pp({ PAGE_URL: 'https://personaplex.example.org/x"onmouseover="alert(1)' }).buttonHtml(true);
-out.other = new PageCell({ hostId: "m1", port: 22024, runner: "minicpm-omni", config: { PAGE_URL: "https://personaplex.example.org" } }).buttonHtml(true);
-out.unknown = new PageCell({ hostId: "m1", port: 22030, runner: "", config: { PAGE_URL: "https://personaplex.example.org" } }).buttonHtml(true);
+// A builder that still hands the cell's port and machine: the link names neither.
+out.portGiven = new PageCell({ cellId: "c4b5c6d7e", hostId: "m1", port: 22021, runner: "personaplex", config: { PAGE_URL: "https://personaplex.example.org" } }).buttonHtml(true);
+out.other = new PageCell({ cellId: "c22024", runner: "minicpm-omni", config: { PAGE_URL: "https://personaplex.example.org" } }).buttonHtml(true);
+out.unknown = new PageCell({ cellId: "c22030", runner: "", config: { PAGE_URL: "https://personaplex.example.org" } }).buttonHtml(true);
 out.spec = [pp({}).spec, new PageCell({ runner: "minicpm-omni" }).spec];
 // A row whose pattern the browser cannot read draws no link — not any link.
 REG = [{ id: "broken", page: { field: "PAGE_URL", pattern: "(" } }];
-const broken = new PageCell({ hostId: "m1", port: 22031, runner: "broken", config: { PAGE_URL: "https://personaplex.example.org" } });
+const broken = new PageCell({ cellId: "c22031", runner: "broken", config: { PAGE_URL: "https://personaplex.example.org" } });
 out.broken = [broken.address, tag(broken.buttonHtml(true))];
 // A row that names another field reads that one.
 REG = [{ id: "other-field", page: { field: "SITE", pattern: process.env.PAGE_PATTERN } }];
@@ -137,11 +140,13 @@ def main():
         o[key] = o[key] or {}
     o["broken"][1] = o["broken"][1] or {}
     run_ = o["running"]
-    check(run_ == {"tag": "a", "cls": "node-action-btn ok page", "t": "cell-page", "id": "m1:22021", "page": "m1:22021",
+    check(run_ == {"tag": "a", "cls": "node-action-btn ok page", "t": "cell-page", "id": "c3f9a02b1", "page": "c3f9a02b1",
                    "href": "https://personaplex.example.org", "target": None,
                    "title": w("pageOpenTitle", address="https://personaplex.example.org"), "disabled": False,
                    "label": "🌐" + w("pageOpen")},
-          f"a running cell with its address: a link to that address, in this tab (no target), named for the tests ({run_})")
+          f"a running cell with its address: a link to that address, in this tab (no target), named for the tests by the cell's id ({run_})")
+    check("22021" not in o["portGiven"] and "m1" not in o["portGiven"] and 'data-t-id="c4b5c6d7e"' in o["portGiven"],
+          "negative: handed the cell's port and machine, the link names neither — the cell is its id")
     check(o["stopped"] and o["stopped"] == {**o["stopped"], "tag": "button", "disabled": True, "title": w("pageOpenStopped"), "href": None, "t": None},
           "negative: stopped — shut, saying to start it; nothing to follow")
     check(o["none"].get("tag") == "button" and o["none"].get("disabled") is True

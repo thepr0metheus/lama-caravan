@@ -45,7 +45,7 @@ impl PoolWatch {
     }
 
     fn decided(proxy: &Proxy, settings: &Settings, pool: &Pool) -> String {
-        proxy.choose_row(settings, pool, b"", "", &BTreeSet::new());
+        proxy.choose_row(settings, pool, b"", "", &BTreeSet::new(), false);
         pool.id.clone()
     }
 

@@ -262,7 +262,7 @@
   "/api/agent-proxies/config": {
    "post": {
     "operationId": "post_api_agent_proxies_config",
-    "summary": "Save the full list of proxy routes, and optionally the routers",
+    "summary": "Save the full list of the clients' records, and optionally the routers",
     "tags": [
      "agent-proxies"
     ],
@@ -311,7 +311,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`routes` is the whole list: a route left out is removed; `routers` replaces the\nRouting routers and is kept as it is when omitted. `revision` is the topology's\n`proxyRevisions.routes` the list was built from: a list built from an older version\nis refused with 409 `{error, stale: true, topology}` and nothing is saved, so the page\nbuilds it again from the current topology; without `revision` the save goes through as\nbefore. The proxy service is started if it is down, never restarted; it re-reads the\nfile itself. Answers `{ok, config, monitor}` with the saved config; 400 for a duplicate\nport, an invalid route (no `label`, a port outside 1024-65535) or a new port outside the\nproxy range the firewall lets in (23001-23999 by default), 500 when the proxy service\ncannot be started."
+    "description": "`routes` is the whole list of the stored clients, each by its `id`: a client left out is removed,\nand an id no stored client has is refused — a client is made by `POST /api/consumers/create`, which\ngives it its id and key. `routers` replaces the Routing routers and is kept as it is when omitted.\n`revision` is the topology's `proxyRevisions.routes` the list was built from: a list built from an\nolder version is refused with 409 `{error, stale: true, topology}` and nothing is saved, so the page\nbuilds it again from the current topology; without `revision` the save goes through as before. The\nproxy service is started if it is down, never restarted; it re-reads the file itself. Answers\n`{ok, config, monitor}` with the saved config; 400 for an id named twice, a record with no id or no\n`label`, or an id no client has; 500 when the proxy service cannot be started."
    }
   },
   "/api/agent-proxies/policy": {
@@ -400,7 +400,7 @@
   "/api/agent-proxies/route-delete": {
    "post": {
     "operationId": "post_api_agent_proxies_route_delete",
-    "summary": "Delete a proxy route of any kind with its router wiring",
+    "summary": "Delete a client of the entry: its key stops opening the entry",
     "tags": [
      "agent-proxies"
     ],
@@ -411,8 +411,8 @@
        "schema": {
         "type": "object",
         "properties": {
-         "port": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         "routeId": {
+          "description": "The client's record id, as `GET /api/topology` `proxies[].id` says it."
          }
         },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
@@ -444,13 +444,13 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` is the route's port; `force` deletes it even while an agent is still assigned\nto it. The router edges that start at the port go too; the firewall is left as it is.\nAnswers `{ok, result: {deleted, label}, topology}`; 404 when no\nroute has that port, 409 while an agent is assigned to it and `force` is not set,\n400 for a non-numeric port."
+    "description": "`routeId` is the client's record id. Its key stops opening the entry in the same write. Answers\n`{ok, result: {deleted, label}, topology}`; 404 when no client has that id, 409 for the last client of\na built-in program, 400 for a `port` in place of `routeId`."
    }
   },
   "/api/agent-proxies/route-policy": {
    "post": {
     "operationId": "post_api_agent_proxies_route_policy",
-    "summary": "Patch one proxy route's label, mode, priority, upstream, router or queue thresholds",
+    "summary": "Patch one client's name, mode, priority, cloud fallback or queue thresholds",
     "tags": [
      "agent-proxies"
     ],
@@ -461,8 +461,8 @@
        "schema": {
         "type": "object",
         "properties": {
-         "port": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         "routeId": {
+          "description": "The client's record id, as `GET /api/topology` `proxies[].id` says it."
          }
         },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
@@ -494,7 +494,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` picks the route; only the fields sent change: `label`, `mode` (open, paused\nor drain), `priority` (0-100), `preemptible`, `upstreamType` (llama or cloud; cloud\nneeds `providerId`), `cloudFallbackProviderId`, `routerId` (empty unassigns the\nport), the overrides `cloudFallbackPct`, `priorityPreemptPct`, `queueAbortPct`\n(null inherits the global policy) and `portClosed` — true closes the route's own port,\nso its agent comes in only through the entry by its key (refused without a key, or\nwhile the entry is off).\nAnswers `{ok, config, monitor}`; 404 for an unknown route, 400 for an invalid value,\nan unknown router, or a key the route would share with another; 409 for a client of the\nentry renamed to the name another client has (the rule its creation follows)."
+    "description": "`routeId` picks the client; only the fields sent change: `label`, `mode` (open, paused\nor drain), `priority` (0-100), `preemptible`, `upstreamType` (llama or cloud; cloud\nneeds `providerId`), `cloudFallbackProviderId`, the overrides `cloudFallbackPct`,\n`priorityPreemptPct`, `queueAbortPct` (null inherits the global policy). `portClosed` is refused with\n410: a client comes in through the entry with its key and has no port of its own; `routerId` with 400:\na client calls a pool or a model by its name.\nAnswers `{ok, config, monitor}`; 404 for no such client, 400 for an invalid value, a `port` in\nplace of `routeId`, or a key the client would share with another; 409 for a client renamed to the\nname another client has (the rule its creation follows)."
    }
   },
   "/api/agent-proxies/routers": {
@@ -555,7 +555,7 @@
   "/api/agent-proxies/stop": {
    "post": {
     "operationId": "post_api_agent_proxies_stop",
-    "summary": "Stop the in-flight requests of a proxy route, or one request by id",
+    "summary": "Stop the in-flight requests of a client, or one request by id",
     "tags": [
      "agent-proxies"
     ],
@@ -566,8 +566,8 @@
        "schema": {
         "type": "object",
         "properties": {
-         "port": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         "routeId": {
+          "description": "The client's record id, as `GET /api/topology` `proxies[].id` says it."
          },
          "requestId": {
           "description": "Not described yet: the shape of this value is level 2 of the API description."
@@ -601,7 +601,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` stops every in-flight request of that route and `requestId` stops just that\none. It writes stop requests that the proxy picks up, so the answer says what was\nasked to stop, not that it has stopped. Answers `{ok, result: {stopped}, monitor}`;\n404 for an unknown `port`."
+    "description": "`routeId` stops every in-flight request of that client and `requestId` stops just that\none. It writes stop requests that the proxy picks up, so the answer says what was\nasked to stop, not that it has stopped. Answers `{ok, result: {stopped}, monitor}`;\n404 for an unknown `routeId`, 400 for a `port` in its place."
    }
   },
   "/api/agent-proxies/switchboards": {
@@ -690,7 +690,7 @@
      "admin",
      "viewer"
     ],
-    "description": "Consumers send their route's key as `Authorization: Bearer <key>` (or `x-api-key`) to the\nentry, and the proxy serves the request as that route's (rust/crates/rules/src/key_entry.rs).\nAnswers `{ok, port, publicUrl, listening, keyedRoutes, closedPorts}`: `port` is null while\nthe entry is off, `closedPorts` are the routes reached through the entry only."
+    "description": "Consumers send their key as `Authorization: Bearer <key>` (or `x-api-key`) to the\nentry, and the proxy serves the request as that client's (rust/crates/rules/src/key_entry.rs).\nAnswers `{ok, port, publicUrl, listening, keyedRoutes}`: `port` is null while the entry is off."
    },
    "post": {
     "operationId": "post_api_agent_proxy_entry",
@@ -734,19 +734,19 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` — a free port for the entry; null or 0 closes it, which is refused while any\nroute's port is closed (its agent would have no way in). `publicUrl` — the address\nconsumers are given, e.g. `https://caravan-api.example.org/v1`; the board shows it, the\nproxy never reads it. The proxy opens, moves or closes the listener within seconds.\nAnswers the settings as `GET /api/agent-proxy-entry` does; 409 for a port the fleet\nalready uses or something else listens on, 400 for a malformed value."
+    "description": "`port` — a free port for the entry; null or 0 closes it, which is refused while any\nclient stands: the entry is its only way in. `publicUrl` — the address\nconsumers are given, e.g. `https://caravan-api.example.org/v1`; the board shows it, the\nproxy never reads it. The proxy opens, moves or closes the listener within seconds.\nAnswers the settings as `GET /api/agent-proxy-entry` does; 409 for a port the fleet\nalready uses or something else listens on, 400 for a malformed value."
    }
   },
   "/api/agent-proxy-latency": {
    "get": {
     "operationId": "get_api_agent_proxy_latency",
-    "summary": "The caravan's own time on one proxy port: medians and 90th percentiles",
+    "summary": "The caravan's own time for one client: medians and 90th percentiles",
     "tags": [
      "agent-proxy-latency"
     ],
     "parameters": [
      {
-      "name": "port",
+      "name": "routeId",
       "in": "query",
       "required": false,
       "schema": {
@@ -786,13 +786,13 @@
      "admin",
      "viewer"
     ],
-    "description": "`port` is the proxy route's port (400 if it is not a number); `range` is `1h`, `12h` or\n`24h`, anything else covers every day the journal keeps. Read from the finished records'\n`latency`, measured since 1.3.437 — older requests are not counted. Answers `{latency}`\nwith `requests` and, as `{n, p50, p90}` in milliseconds or null when nothing was\nmeasured: `prepMs` (the caravan's own work before the upstream, without the queue),\n`connectMs` (opening the upstream connection, 0 when a kept one was taken), `headersMs`\nand `firstChunkMs` (the upstream's answer, from the request sent) and `cpuMs` (processor\ntime of the request). `connReused` is `{n, reused}`: provider requests and how many of\nthem took a kept connection."
+    "description": "`routeId` is the client (400 if it is no id, or a `port` is named in its place); its rows written\nbefore 2026-11-07 under the number it had count as its own. `range` is `1h`, `12h` or\n`24h`, anything else covers every day the journal keeps. Read from the finished records'\n`latency`, measured since 1.3.437 — older requests are not counted. Answers `{latency}`\nwith `requests` and, as `{n, p50, p90}` in milliseconds or null when nothing was\nmeasured: `prepMs` (the caravan's own work before the upstream, without the queue),\n`connectMs` (opening the upstream connection, 0 when a kept one was taken), `headersMs`\nand `firstChunkMs` (the upstream's answer, from the request sent) and `cpuMs` (processor\ntime of the request). `connReused` is `{n, reused}`: provider requests and how many of\nthem took a kept connection."
    }
   },
   "/api/agent-proxy-logs": {
    "get": {
     "operationId": "get_api_agent_proxy_logs",
-    "summary": "Proxy request log of one day, newest first, filterable by port, route, client or errors",
+    "summary": "Proxy request log of one day, newest first, filterable by client, route, sender or errors",
     "tags": [
      "agent-proxy-logs"
     ],
@@ -822,7 +822,7 @@
       }
      },
      {
-      "name": "port",
+      "name": "routeId",
       "in": "query",
       "required": false,
       "schema": {
@@ -902,7 +902,7 @@
      "admin",
      "viewer"
     ],
-    "description": "`date` is YYYY-MM-DD (default: the newest day logged), `limit` caps the rows at\n1-2000 (default 200), `since` keeps only the last N minutes of that day, and\n`event` (one, or several comma-separated: `finished,blocked`), `port`, `route` (label\nsubstring) and `client` (exact IP) filter the rows.\n`errors=1` keeps failed requests, `slim=1` drops the bulky queue and active\nsnapshots, and `summary=1` answers per-port counters (`total`, `errors`, `byKind`,\n`topClient`) instead of rows. Answers `{date, dates, rows, limit}` (`dates` lists\nthe days that have a log); 400 for a malformed `date`, `port` or `since`."
+    "description": "`date` is YYYY-MM-DD (default: the newest day logged), `limit` caps the rows at\n1-2000 (default 200), `since` keeps only the last N minutes of that day, and\n`event` (one, or several comma-separated: `finished,blocked`), `routeId` (a client, its\nrows written before 2026-11-07 under its old number included), `route` (label substring) and\n`client` (the sender's exact IP) filter the rows.\n`errors=1` keeps failed requests, `slim=1` drops the bulky queue and active\nsnapshots, and `summary=1` answers counters per client, by its id — the entry's refusals before a key named\nanyone under `entry` — (`routeId`, `total`, `errors`, `byKind`, `topClient`) instead of rows. Answers `{date, dates, rows, limit}` (`dates` lists\nthe days that have a log); 400 for a malformed `date`, `routeId` or `since`, and for a `port`."
    }
   },
   "/api/agent-proxy-model-card": {
@@ -914,7 +914,7 @@
     ],
     "parameters": [
      {
-      "name": "port",
+      "name": "routeId",
       "in": "query",
       "required": false,
       "schema": {
@@ -946,7 +946,7 @@
      "admin",
      "viewer"
     ],
-    "description": "`port` is the proxy route's port: 400 if it is not a number, 404 if no route has it.\nThe controller asks the entry with the route's key, so the key never leaves it (`keyed`\nsays whether the route has one); an entry that is off or does not answer still gives a 200\nanswer with `ok: false`, `status` and `error`. The answer also carries `tookMs`, the\nparsed `entries` (id, window sizes, aliases), the `raw` body and `windowLinks`: every\npath on which the port states its window, as `{kind, url}` — `list` (/v1/models) always,\n`retrieve` (/v1/models/<id>) on a cloud port, `props` (/props, /v1/props) on a cell's."
+    "description": "`routeId` is the client: 400 if it is no id or a `port` is named in its place, 404 if no client\nhas it. The controller asks the entry with the client's key, so the key never leaves it (`keyed`\nsays whether the client has one); an entry that is off or does not answer still gives a 200\nanswer with `ok: false`, `status` and `error`. The answer also carries `tookMs`, the\nparsed `entries` (id, window sizes, aliases), the `raw` body and `windowLinks`: every\npath on which the port states its window, as `{kind, url}` — `list` (/v1/models) always,\n`retrieve` (/v1/models/<id>) on a cloud port, `props` (/props, /v1/props) on a cell's."
    }
   },
   "/api/api-pricing": {
@@ -1379,6 +1379,55 @@
     "description": "`action` is `create` (the default), `set-role`, `delete` or `set-password`, acting\non `username` with `password` (8 characters at least) and `role` (`admin` or\n`viewer`). `create` answers `{ok, username, role}` and the others `{ok}`; deleting\nan account also ends its sessions. 404 for an unknown user, 409 for a name already\ntaken, 400 for demoting the last admin, deleting the last user, a short password or\nan unknown action."
    }
   },
+  "/api/board/reader": {
+   "post": {
+    "operationId": "post_api_board_reader",
+    "summary": "Set or clear the board's image reader",
+    "tags": [
+     "board"
+    ],
+    "requestBody": {
+     "required": false,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "reader": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
+        "description": "The fields the handler reads. Not described yet: the shape of this value is level 2 of the API description."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin"
+    ],
+    "description": "`reader` names one model or pool for the whole board; null, an empty name or an omitted field clears it. The name must be known to the board and promise image input; an unknown name, an unstated input promise or incompatible inputs are refused with 400. Answers `{ok, reader, topology}` with the saved name or null. A request whose serving row cannot read its pictures has them described by this reader first (docs/vision-describe.md)."
+   }
+  },
   "/api/board-providers/add": {
    "post": {
     "operationId": "post_api_board_providers_add",
@@ -1556,17 +1605,9 @@
     ],
     "parameters": [
      {
-      "name": "hostId",
+      "name": "cell",
       "in": "query",
-      "required": false,
-      "schema": {
-       "type": "string"
-      }
-     },
-     {
-      "name": "port",
-      "in": "query",
-      "required": false,
+      "required": true,
       "schema": {
        "type": "string"
       }
@@ -1589,7 +1630,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `port` name a running cell whose runner talks live (its registry row's `live`:\nMiniCPM-o's WebSocket, the protocol of its web demo). Opened as a WebSocket\n(`wss://<board>/api/cell-live?hostId=…&port=…`), the controller opens the cell's own with the\nbrowser's handshake, answers with the cell's 101 and passes the talk on both ways, byte for\nbyte, until one side ends or both are silent for five minutes; the page may not open a\nplain-http cell's WebSocket itself. As a plain GET it answers what a talk would reach:\n`{ok, runner, protocol, health: {status, error, ms}}`, the cell's answer to its health said\nrather than raised — the window tells a door that drops WebSocket from a cell that is down.\n400 for a cell that does not talk live or a handshake that is not a WebSocket's, 404 for no\nsuch machine, 409 for a cell that is not running, 502 when the cell does not answer or does\nnot open its WebSocket."
+    "description": "`cell` names a running cell whose runner talks live (its registry row's `live`:\nMiniCPM-o's WebSocket, the protocol of its web demo). Opened as a WebSocket\n(`wss://<board>/api/cell-live?cell=…`), the controller opens the cell's own with the\nbrowser's handshake, answers with the cell's 101 and passes the talk on both ways, byte for\nbyte, until one side ends or both are silent for five minutes; the page may not open a\nplain-http cell's WebSocket itself. As a plain GET it answers what a talk would reach:\n`{ok, runner, protocol, health: {status, error, ms}}`, the cell's answer to its health said\nrather than raised — the window tells a door that drops WebSocket from a cell that is down.\n400 for a cell that does not talk live or a handshake that is not a WebSocket's, 404 for no\nsuch machine, 409 for a cell that is not running, 502 when the cell does not answer or does\nnot open its WebSocket."
    }
   },
   "/api/cell-log": {
@@ -1624,7 +1665,7 @@
      "admin",
      "viewer"
     ],
-    "description": "For the cell window's Log tab. `hostId` and `port` — the cell; `lines` — how many of the last (300 when not said, 2000 at most); `run` — an\nearlier run's log, by a name `runs` gives (the newest when not said). Answers `{ok, hostId, port, run, lines,\nruns}`, `runs` as `[{name, bytes, modifiedAt}]` newest first, as the machine's scout reads them (2.36+) with keys\nscrubbed out of the lines. `{ok: false, hostId, port, error}` with status 200 for a scout older than 2.36, one\nthat cannot be asked, a port with no log there or a name that is not one of its runs; 404 when no scout has\nreported for `hostId`, 400 when `port` is not a number.\n\nThe handler passes its query on: it may read parameters not listed here."
+    "description": "For the cell window's Log tab. `cell` — the cell's id; `lines` — how many of the last (300 when not said, 2000 at most); `run` — an\nearlier run's log, by a name `runs` gives (the newest when not said). Answers `{ok, hostId, cellId, run, lines,\nruns}`, `runs` as `[{name, bytes, modifiedAt}]` newest first, as the machine's scout reads them with keys\nscrubbed out of the lines; a cell's logs follow its id, whatever ports it ran on. `{ok: false, hostId, cellId, error}` with status 200 for a scout too old to keep logs by cell, one\nthat cannot be asked, a cell with no log there or a name that is not one of its runs; 404 for a cell that is not kept, 400 with no `cell`.\n\nThe handler passes its query on: it may read parameters not listed here."
    }
   },
   "/api/cell-ram-plan": {
@@ -1689,7 +1730,11 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+         "cellId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
         "x-caravan-fields-complete": false
        }
@@ -1719,7 +1764,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `port` name the cell; `mode` is one of `/api/state` `talkModes`, and the\ncell's runner must answer it (its registry row's `talk.modes`): `spoken-chat` and\n`heard-chat` (a recording in, a voice and words or words out, `/v1/chat/completions`),\n`speech` (a text in, a voice out, `/v1/audio/speech`), `transcription` and\n`speech-translation` (a recording in, words out, `/v1/audio/transcriptions`). `audio` is a\nwav in base64, `text` a line of text, `history` the talk so far (`{role, text, audio}`;\nthe runner's `talk.turns` messages go, the new one included), `system` the system\nprompt (absent: the runner's), `voice` one of the runner's voices (or, of a runner whose\ncell says its voices, one of those). In `speech`, a cell whose runner says `talk.clone`\nreads the text in the voice of `sample` (a wav in base64) instead, with `sampleText` its\nwords and `consent: true` — the operator's word that the voice is theirs, or its owner\nagreed. The controller asks the cell on its machine — the page may not ask a plain-http\ncell — and answers `{ok, mode, status, ms: {first, total}, bytes, text, audio, audioType,\nerror}`, `audio` in base64; the cell's refusal is an answer too, its words in `error`.\n400 for another mode or one the cell does not answer, a sample where none is taken or\nwithout consent, 404 for no such machine, 409 for a cell that is not running or has no\nconfig, 413 for a recording that is too long, 502 when the cell does not answer."
+    "description": "`cellId` names the cell; `mode` is one of `/api/state` `talkModes`, and the\ncell's runner must answer it (its registry row's `talk.modes`): `spoken-chat` and\n`heard-chat` (a recording in, a voice and words or words out, `/v1/chat/completions`),\n`speech` (a text in, a voice out, `/v1/audio/speech`), `transcription` and\n`speech-translation` (a recording in, words out, `/v1/audio/transcriptions`). `audio` is a\nwav in base64, `text` a line of text, `history` the talk so far (`{role, text, audio}`;\nthe runner's `talk.turns` messages go, the new one included), `system` the system\nprompt (absent: the runner's), `voice` one of the runner's voices (or, of a runner whose\ncell says its voices, one of those). In `speech`, a cell whose runner says `talk.clone`\nreads the text in the voice of `sample` (a wav in base64) instead, with `sampleText` its\nwords and `consent: true` — the operator's word that the voice is theirs, or its owner\nagreed. The controller asks the cell on its machine — the page may not ask a plain-http\ncell — and answers `{ok, mode, status, ms: {first, total}, bytes, text, audio, audioType,\nerror}`, `audio` in base64; the cell's refusal is an answer too, its words in `error`.\n400 for another mode or one the cell does not answer, a sample where none is taken or\nwithout consent, 404 for no such machine, 409 for a cell that is not running or has no\nconfig, 413 for a recording that is too long, 502 when the cell does not answer."
    }
   },
   "/api/cell-talk/voice": {
@@ -1735,7 +1780,11 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+         "cellId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
         "x-caravan-fields-complete": false
        }
@@ -1765,7 +1814,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `port` name a cell whose runner says `talk.clone`; `name` is 1..64 letters,\ndigits, `.`, `_` or `-`; `sample` a wav in base64 and `sampleText` the words it says\n(without them the cell keeps the voice's timbre only); `consent: true` is the operator's\nword that the voice is theirs, or its owner agreed. A request to the cell names the voice\nfrom then on — the window's, or any client's of its port. Answers `{ok, status, name,\nerror, ms}`; the cell's refusal is an answer, and so is a 2xx that does not say the voice\nwas kept. 400 for a cell that keeps no voices, a bad name, an empty sample or no\nconsent, 404 for no such machine, 409 for a cell that is not running, 413 for a sample\nthat is too long, 502 when the cell does not answer."
+    "description": "`cellId` names a cell whose runner says `talk.clone`; `name` is 1..64 letters,\ndigits, `.`, `_` or `-`; `sample` a wav in base64 and `sampleText` the words it says\n(without them the cell keeps the voice's timbre only); `consent: true` is the operator's\nword that the voice is theirs, or its owner agreed. A request to the cell names the voice\nfrom then on — the window's, or any client's of that cell. Answers `{ok, status, name,\nerror, ms}`; the cell's refusal is an answer, and so is a 2xx that does not say the voice\nwas kept. 400 for a cell that keeps no voices, a bad name, an empty sample or no\nconsent, 404 for no such machine, 409 for a cell that is not running, 413 for a sample\nthat is too long, 502 when the cell does not answer."
    }
   },
   "/api/cell-talk/voices": {
@@ -1777,17 +1826,9 @@
     ],
     "parameters": [
      {
-      "name": "hostId",
+      "name": "cell",
       "in": "query",
-      "required": false,
-      "schema": {
-       "type": "string"
-      }
-     },
-     {
-      "name": "port",
-      "in": "query",
-      "required": false,
+      "required": true,
       "schema": {
        "type": "string"
       }
@@ -1817,7 +1858,7 @@
      "admin",
      "viewer"
     ],
-    "description": "`hostId` and `port` name a cell whose runner says where its server lists its voices\n(its registry row's `talk.asksVoices`). Answers `{ok, status, voices, stored, error, ms:\n{first, total}}`: `voices` are the model's own, `stored` (`{name, words}`) the voices kept\non the cell from a sample; the cell's refusal is an answer, its words in `error`. 400 for\na cell that does not say its voices, 404 for no such machine, 409 for a cell that is not\nrunning, 502 when the cell does not answer."
+    "description": "`cell` names a cell whose runner says where its server lists its voices\n(its registry row's `talk.asksVoices`). Answers `{ok, status, voices, stored, error, ms:\n{first, total}}`: `voices` are the model's own, `stored` (`{name, words}`) the voices kept\non the cell from a sample; the cell's refusal is an answer, its words in `error`. 400 for\na cell that does not say its voices, 404 for no such machine, 409 for a cell that is not\nrunning, 502 when the cell does not answer."
    }
   },
   "/api/cloud-accounts/api-costs": {
@@ -2844,7 +2885,7 @@
     ],
     "parameters": [
      {
-      "name": "port",
+      "name": "routeId",
       "in": "query",
       "required": false,
       "schema": {
@@ -2877,7 +2918,7 @@
      "admin",
      "viewer"
     ],
-    "description": "`port` is the client, `path` its question: `/v1/models` or `/v1/models/<model>`. The\ncontroller asks the entry with the client's key and answers what the entry answered — its\nstatus and body as they came, its refusals too; the key never leaves the controller. The\nRouting's client cards link here. 400 for another path, 404 for no such client, 409 for a\nclient without a key or while the entry is off, 502 when the entry does not answer."
+    "description": "`routeId` is the client, `path` its question: `/v1/models` or `/v1/models/<model>`. The\ncontroller asks the entry with the client's key and answers what the entry answered — its\nstatus and body as they came, its refusals too; the key never leaves the controller. The\nRouting's client cards link here. 400 for another path, 404 for no such client, 409 for a\nclient without a key or while the entry is off, 502 when the entry does not answer."
    }
   },
   "/api/consumers/create": {
@@ -2923,7 +2964,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`name` is the consumer's name on the board and in the journal (required, not one another\nconsumer has). With `kind` it is a client of that program: `opencode`, as many as you like, and\n`open-webui`, which is one. With a `kind` the name may be empty: it takes the kind's, numbered. The\nnew consumer sees every pool and every model that runs and is closed to nothing:\n`POST /api/consumers/deny` closes what it may not call. The key (`lcv1_…`) is answered this once:\n`{ok, port, name, key, deny, entryUrl, topology}`; `port` is the consumer's number on the board, it\nnever listens. 400 for an empty name without a kind, or another kind; 409 for a name taken, while\nthe entry is off, or for `open-webui` when it has its client."
+    "description": "`name` is the consumer's name on the board and in the journal (required, not one another\nconsumer has). With `kind` it is a client of that program: `opencode`, as many as you like, and\n`open-webui`, which is one. With a `kind` the name may be empty: it takes the kind's, numbered. The\nnew consumer sees every pool and every model that runs and is closed to nothing:\n`POST /api/consumers/deny` closes what it may not call. The key (`lcv1_…`) is answered this once:\n`{ok, routeId, name, key, deny, entryUrl, topology}`; `routeId` is the consumer's record id, what every\nother door names it by. 400 for an empty name without a kind, or another kind; 409 for a name taken, while\nthe entry is off, or for `open-webui` when it has its client."
    }
   },
   "/api/consumers/deny": {
@@ -2939,7 +2980,14 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+         "routeId": {
+          "description": "The client's record id, as `GET /api/topology` `proxies[].id` says it."
+         },
+         "deny": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
         "x-caravan-fields-complete": false
        }
@@ -2969,7 +3017,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` picks the client; `deny` is the whole list of what it may not call from now on, each a\nkey: `pool:<id>` a pool, `model:<place>` a model where it stands (`mm:…` a machine's, `acc:<account>/<model>`\nan account's), `account:<id>` every model of a cloud account and `host:<id>` every model of a machine,\nthe ones added later too. `[]` opens everything. The keys are what `denyChoices` in the topology names. A\nmodel closed shuts only the client's own call of it: a pool one of whose rows is that model serves it whole.\nThe client's `GET /v1/models` leaves out what it is closed to, and a request for it is refused with 403.\nAnswers `{ok, port, deny, topology}`; 404 for a number that is no client's, 400 for a key of no such\nform or one naming nothing the board has now."
+    "description": "`routeId` picks the client; `deny` is the whole list of what it may not call from now on, each a\nkey: `pool:<id>` a pool, `model:<place>` a model where it stands (`mm:…` a machine's, `acc:<account>/<model>`\nan account's), `account:<id>` every model of a cloud account and `host:<id>` every model of a machine,\nthe ones added later too. `[]` opens everything. The keys are what `denyChoices` in the topology names. A\nmodel closed shuts only the client's own call of it: a pool one of whose rows is that model serves it whole.\nThe client's `GET /v1/models` leaves out what it is closed to, and a request for it is refused with 403.\nAnswers `{ok, routeId, deny, topology}`; 404 for an id that is no client's, 400 for a key of no such\nform or one naming nothing the board has now."
    }
   },
   "/api/consumers/key": {
@@ -2985,7 +3033,11 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+         "routeId": {
+          "description": "The client's record id, as `GET /api/topology` `proxies[].id` says it."
+         }
+        },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
         "x-caravan-fields-complete": false
        }
@@ -3015,7 +3067,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` picks the consumer. The new key is answered this once, and the old one stops\nworking at once: `{ok, port, name, key, entryUrl, topology}`. 404 for a number that is\nno consumer's."
+    "description": "`routeId` picks the consumer. The new key is answered this once, and the old one stops\nworking at once: `{ok, routeId, name, key, entryUrl, topology}`. 404 for an id that is\nno consumer's, 400 for a `port` in its place."
    }
   },
   "/api/consumers/order": {
@@ -3064,7 +3116,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`order` lists the clients' ports in the new order; a client it does not name stands after\nthem by name, and an empty list returns the clients to their order by name. The order is\nkept for every browser and account. Answers `{ok, order, rev, topology}`, where `rev` grows\nby one with every save (GET /api/topology `layout.clientOrderRev`); 400 when `order` is\nnot a list of distinct ports."
+    "description": "`order` lists the clients' ids in the new order; a client it does not name stands after\nthem by name, and an empty list returns the clients to their order by name. The order is\nkept for every browser and account. Answers `{ok, order, rev, topology}`, where `rev` grows\nby one with every save (GET /api/topology `layout.clientOrderRev`); 400 when `order` is\nnot a list of distinct client ids."
    }
   },
   "/api/consumers/probe": {
@@ -3081,8 +3133,8 @@
        "schema": {
         "type": "object",
         "properties": {
-         "port": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         "routeId": {
+          "description": "The client's record id, as `GET /api/topology` `proxies[].id` says it."
          },
          "path": {
           "description": "Not described yet: the shape of this value is level 2 of the API description."
@@ -3120,7 +3172,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`port` is the client, `path` the kind of work: `/v1/chat/completions`, `/v1/responses`,\n`/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/images/generations` or\n`/v1/embeddings`; `model` the name the client calls its pool by. The controller sends the\nshortest standard request of that kind with the client's key — a few tokens, half a second\nof silence, one small picture, a word read out — and answers `{ok, request: {method, path,\nmodel, sent}, status, contentType, ms, bytes, text, cut}` or, for audio, `audio` in base64 in\nplace of `text`. Speech is asked as WAV in a voice of the pool's: the first voice of the cell\nthat serves it — its first row switched on, a stopped cell passed by — or OpenAI's `alloy`\nfor an account's row and a pool the board knows no voice of; `request.voice` says it,\n`{name, cell}`. The entry's refusal is\nan answer too. 400 for another path, 404 for no such client, 409 for a client without a key,\nwhile the entry is off, or for speech when the pool's serving cell has no voice (nothing is\nsent then), 502 when the entry does not answer or that cell does not list its voices."
+    "description": "`routeId` is the client, `path` the kind of work: `/v1/chat/completions`, `/v1/responses`,\n`/v1/audio/transcriptions`, `/v1/audio/speech`, `/v1/images/generations` or\n`/v1/embeddings`; `model` the name the client calls its pool by. The controller sends the\nshortest standard request of that kind with the client's key — a few tokens, half a second\nof silence, one small picture, a word read out — and answers `{ok, request: {method, path,\nmodel, sent}, status, contentType, ms, bytes, text, cut}` or, for audio, `audio` in base64 in\nplace of `text`. Speech is asked as WAV in a voice of the pool's: the first voice of the cell\nthat serves it — its first row switched on, a stopped cell passed by — or OpenAI's `alloy`\nfor an account's row and a pool the board knows no voice of; `request.voice` says it,\n`{name, cell}`. The entry's refusal is\nan answer too. 400 for another path, 404 for no such client, 409 for a client without a key,\nwhile the entry is off, or for speech when the pool's serving cell has no voice (nothing is\nsent then), 502 when the entry does not answer or that cell does not list its voices."
    }
   },
   "/api/controller-info": {
@@ -3479,11 +3531,11 @@
       }
      },
      {
-      "name": "port",
+      "name": "cell",
       "in": "query",
       "required": true,
       "schema": {
-       "type": "integer"
+       "type": "string"
       }
      }
     ],
@@ -3507,7 +3559,7 @@
       "fleetToken": []
      }
     ],
-    "description": "What a scout asks before it starts a cell by itself, its watchdog or its boot, for a cell's settings are the controller's. Answers `{ok, request}`: `request` is what a start from the board sends, or null when there is no such cell here. Not ok: the cell cannot be started as it stands, and the machine goes by what it has."
+    "description": "What a scout asks before it starts a cell by itself, its watchdog or its boot, for a cell's settings are the controller's. `cell` is the cell's id (a scout of before says `port`: the cell `c<port>`). Answers `{ok, request}`: `request` is what a start from the board sends — the cell's id and the range its port is leased from, no port — or null when there is no such cell here. Not ok: the cell cannot be started as it stands, and the machine goes by what it has."
    }
   },
   "/api/fleet/llama-builds": {
@@ -3777,7 +3829,7 @@
      "admin",
      "viewer"
     ],
-    "description": "Answers `{ok, release, running, installCommand}`. `release` is `{commit, sha256, bytes}` or null for a controller that carries no scout, and `installCommand`, the command for a new machine, is null with it. `running` is the commit of the machine's last report, or null for a scout that does not say one: such a scout cannot replace itself. 404 for an unknown machine; no `hostId` asks about no machine."
+    "description": "Answers `{ok, release, running, sameScout, installCommand}`. `release` is `{commit, sha256, bytes}` or null for a controller that carries no scout, and `installCommand`, the command for a new machine, is null with it. `running` is the commit of the machine's last report, or null for a scout that does not say one: such a scout cannot replace itself. `sameScout` says whether the release it runs hands out the same program and scripts (`content` of the two releases' `scout-bundle.json`, the other one kept beside in `releases/<commit>`): true, false, or null when it cannot tell, for no release, a release not kept or one that does not say. The controller hands its release by itself only to a scout that is not the same (fleet/scout_follow.rs). 404 for an unknown machine; no `hostId` asks about no machine."
    }
   },
   "/api/fleet/scout-update": {
@@ -3826,7 +3878,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "The scout fetches `/scout/bundle.tar.gz`, checks its sum and that the new program runs there, moves its link, answers and ends; its service starts the new one and the cells that run outlive it. Answers `{ok, commit, restarting}`. 404 when this controller carries no scout, 409 for a scout not installed as a release, 502 with the scout's words when it refuses, such as while a cell is on its way up."
+    "description": "The scout fetches `/scout/bundle.tar.gz`, checks its sum and that the new program runs there, moves its link and answers; it ends once nothing passes through it that its end would cut, its service starts the new one, and the cells that run outlive it. Answers `{ok, commit, restarting}`, and, from a scout that waits for requests passing through its entry (2.47+), `waitsFor: {words, requests, mostSec}` as the scout said it: what it waits for, how many requests, and the most it waits for them (600 s). 404 when this controller carries no scout, 409 for a scout not installed as a release or while a hand-out of this release to it is under way, 502 with the scout's words when it refuses. A scout busy for now (a cell on its way up, a job of its own, a move of its model folders) is not refused: the controller asks it again by itself at its reports, `retrySec` apart, `tries` times, and answers `{ok, commit, restarting: false, waiting: {words, retrySec, tries}}`. The controller does the same by itself after a delivery, at the machine's next report, when the scout in the release changed."
    }
   },
   "/api/fleet/vllm": {
@@ -4429,7 +4481,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`destDir` (relative to the models directory) and `name` identify the partial, as listed\namong the interrupted rows of `GET /api/hf/download/jobs`. Its bytes and manifest go, and so\ndo the folders that leaves empty. Answers `{ok, freed}` in bytes, or 200 with `ok: false` and\n`error` for missing fields, an invalid path, a partial a running job is writing, or one that\nis already gone."
+    "description": "`destDir` (relative to the models directory) and `name` identify the partial, as listed\namong the interrupted rows of `GET /api/hf/download/jobs`. Its bytes and manifest go, and so\ndo the folders that leaves empty; the files of its job after it, not on disk yet, are\nnot fetched. Answers `{ok, freed}` in bytes, or 200 with `ok: false` and\n`error` for missing fields, an invalid path, a partial a running job is writing, or one that\nis already gone."
    }
   },
   "/api/hf/download/jobs": {
@@ -4463,7 +4515,7 @@
      "admin",
      "viewer"
     ],
-    "description": "Running, retrying and failed jobs are listed with their `jobId`; a `.part` file with\nno job behind it comes back as `status: \"interrupted\"`, and `resumable` says whether\nits manifest survived. Finished and cancelled jobs are not listed (a cancelled job's\npartial is). Answers `{ok, jobs}`."
+    "description": "Running, retrying and failed jobs are listed with their `jobId`; a `.part` file with\nno job behind it comes back as `status: \"interrupted\"`, and `resumable` says whether\nits manifest survived. Such a row is the job the partial was part of: `total_files`,\n`fileNames` and `total_bytes` count the partial's file and the files of the job after it\nthat are neither on disk nor written by a running job (a manifest from before 2026-11-03\nnames none; a size one file does not say leaves `total_bytes` 0, unknown). Finished and\ncancelled jobs are not listed (a cancelled job's partial is). Answers `{ok, jobs}`."
    }
   },
   "/api/hf/download/resume": {
@@ -4515,7 +4567,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`destDir` (relative to the models directory) and `name` identify the partial, as\nlisted among the interrupted rows of `GET /api/hf/download/jobs`. The repo and file\nare read from the partial's manifest. Answers `{ok, jobId}`, or 200 with `ok: false`\nand `error` for missing fields, an invalid `destDir` or a partial without a\nmanifest."
+    "description": "`destDir` (relative to the models directory) and `name` identify the partial, as\nlisted among the interrupted rows of `GET /api/hf/download/jobs`. The repo and file\nare read from the partial's manifest, and so are the files of its job after it: one job\nfetches the partial on from its bytes, then those of the others still missing. Answers\n`{ok, jobId}`, or 200 with `ok: false` and `error` for missing fields, an invalid\n`destDir`, a partial without a manifest, or a manifest whose list of the job's other\nfiles cannot be read."
    }
   },
   "/api/hf/download/status": {
@@ -7578,86 +7630,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`pool` has the pool's `id` and what changes: `name`, `contextLength` and\n`contextAuto`, and `steps` — the pool's own rows in their new order, each with `id`\nand `enabled` (an account row may change its `model` too). What a row is cabled to\nchanges by `/api/pools/connect-row`. A row the pool does not have, or the same row\ntwice, is refused: a new one comes by `/api/pools/add-row`. The pool serves by that\norder alone. Answers `{ok, pool, topology}`; 400 for a bad field, 404 for an unknown\npool or account."
-   }
-  },
-  "/api/port-exclusions": {
-   "get": {
-    "operationId": "get_api_port_exclusions",
-    "summary": "List the ports kept free of cells, optionally with a scan for foreign listeners",
-    "tags": [
-     "port-exclusions"
-    ],
-    "x-caravan-query-complete": false,
-    "responses": {
-     "200": {
-      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
-      "content": {
-       "application/json": {
-        "schema": {
-         "description": "Not described yet: the shape of this value is level 2 of the API description."
-        }
-       }
-      }
-     },
-     "default": {
-      "$ref": "#/components/responses/Error"
-     }
-    },
-    "security": [
-     {
-      "session": []
-     }
-    ],
-    "x-caravan-roles": [
-     "admin",
-     "viewer"
-    ],
-    "description": "`exclusions` lists each excluded `port` with its `note`, `host`, `addedAt` and\n`auto` flag. `scan=1` also scans the cell port range on the controller and on every\nmachine with a scout for listeners the fleet does not own, and returns them under\n`scan`; it takes seconds, so ask only when needed. A machine that cannot be scanned\nis listed with `ok: false` and an `error`, not as clean.\n\nThe handler passes its query on: it may read parameters not listed here."
-   },
-   "post": {
-    "operationId": "post_api_port_exclusions",
-    "summary": "Add and remove port exclusions (ports the fleet must not put a cell on)",
-    "tags": [
-     "port-exclusions"
-    ],
-    "requestBody": {
-     "required": false,
-     "content": {
-      "application/json": {
-       "schema": {
-        "type": "object",
-        "properties": {},
-        "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
-        "x-caravan-fields-complete": false
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
-      "content": {
-       "application/json": {
-        "schema": {
-         "description": "Not described yet: the shape of this value is level 2 of the API description."
-        }
-       }
-      }
-     },
-     "default": {
-      "$ref": "#/components/responses/Error"
-     }
-    },
-    "security": [
-     {
-      "session": []
-     }
-    ],
-    "x-caravan-roles": [
-     "admin"
-    ],
-    "description": "`add` is a list of ports or `{port, note, host, auto}` entries and `remove` a list\nof ports to lift; both are applied in one call. Answers `{ok, added, removed,\nexclusions}` with the resulting full list. 400 for a port outside 1-65535, 409 for a\nport that a cell or proxy route already uses."
+    "description": "`pool` has the pool's `id` and what changes: `name`, `contextLength` and\n`contextAuto`, `reader` — the model the operator names as the reader of a picture, or\nnothing (`null`) — and `steps` — the pool's own rows in their new order, each with\n`id` and `enabled` (an account row may change its `model` too). A field the body does\nnot name is kept as the stored pool has it, so a reader cable sends `id` and `reader`\nalone; a body that names `id` at the top level names no pool and answers 404. What a\nrow is cabled to changes by `/api/pools/connect-row`. A row the pool does not have, or\nthe same row twice, is refused: a new one comes by `/api/pools/add-row`. The pool\nserves by that order alone. Answers `{ok, pool, topology}`; 400 for a bad field, 404\nfor an unknown pool or account."
    }
   },
   "/api/project-git": {
@@ -8225,7 +8198,7 @@
       }
      },
      {
-      "name": "port",
+      "name": "routeId",
       "in": "query",
       "required": false,
       "schema": {
@@ -8257,7 +8230,7 @@
      "admin",
      "viewer"
     ],
-    "description": "`port` — only that proxy port's requests (wins over `client`); `client` — only that\nclient IP; `range` — `1h`, `12h` or `24h`, anything else returns everything kept (14\ndays by default). Answers `{samples}`, one row per completed request with generated\ntokens: `t`, `promptTps`, `evalTps`, `promptTokens`, `evalTokens`, `promptMs`,\n`genMs`, `cacheTokens`, `finish`, `port`, `route` and `client`."
+    "description": "`routeId` — only that client's requests, its rows from before 2026-11-07 included (wins over\n`client`; a `port` in its place is refused with 400); `client` — only that sender's IP; `range` — `1h`, `12h` or `24h`, anything else returns everything kept (14\ndays by default). Answers `{samples}`, one row per completed request with generated\ntokens: `t`, `promptTps`, `evalTps`, `promptTokens`, `evalTokens`, `promptMs`,\n`genMs`, `cacheTokens`, `finish`, `routeId`, `route` and `client`."
    }
   },
   "/api/topology": {
@@ -8297,7 +8270,7 @@
   "/api/topology/agent-proxy-bind": {
    "post": {
     "operationId": "post_api_topology_agent_proxy_bind",
-    "summary": "Point an agent at a proxy port for one role (primary or fallback)",
+    "summary": "Gone: an agent is pointed at no port of its own (410)",
     "tags": [
      "topology"
     ],
@@ -8337,7 +8310,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `agentId` name the agent in the operator's record, `port` is a port\nthat has a proxy route, and `role` is `primary` (default) or `fallback`. The binding\nis only recorded: the agent itself is pointed at the port by hand, in its own\nsettings. Answers `{ok, result, topology}`; 404 for a client or agent the record\nlacks, 400 without a port, for a port with no route or for another role, 409 when\nanother agent already holds the port."
+    "description": "Answers 410 to every body. A client has no port of its own since 2026-11-02 and no number since\n2026-11-07 (the owner): an agent calls the entry with its own key, as a client of it — made with\n`POST /api/consumers/create`."
    }
   },
   "/api/topology/agent-route/context": {
@@ -9310,7 +9283,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "The launch request comes in the body (`hostId`, `port`, `modelPath`, `gpuLayers`,\n`ctxSize`, `cacheModels`, `config`, and `cellPort` when the start moves the cell),\nnot from the saved slot. On success the cell's slot is saved so its cables stay\nattached. Answers `{ok, hostId, result}` with the scout's reply; 404 for an unknown\nmachine, 409 for a reserved port, 502 when the scout is unreachable or refuses."
+    "description": "The launch request comes in the body (`hostId`, `cellId`, `modelPath`, `gpuLayers`,\n`ctxSize`, `cacheModels`, `config`), not from the saved slot; with no `cellId` a new cell is made. The scout leases the cell's port. On success the cell's slot is saved so its cables stay\nattached. Answers `{ok, hostId, cellId, port, result}` with the scout's reply and the port it leased; 404 for an unknown\nmachine, 502 when the scout is unreachable or refuses, 400 for a scout too old to lease ports."
    }
   },
   "/api/topology/client-llama/stop": {
@@ -9326,7 +9299,14 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+         "hostId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "cellId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
         "x-caravan-fields-complete": false
        }
@@ -9356,7 +9336,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` names the machine and `port` the cell. A stopped cell leaves the machine's\nreport, and the model files it downloaded are removed unless it runs with\n`cacheModels`. Answers `{ok, hostId, result}` with the scout's reply; 502 when the\nscout is unreachable or refuses."
+    "description": "`hostId` names the machine and `cellId` the cell (none: every cell of the machine). A stopped cell leaves the machine's\nreport and gives its port back, and the model files it downloaded are removed unless it runs with\n`cacheModels`. Answers `{ok, hostId, result}` with the scout's reply; 502 when the\nscout is unreachable or refuses."
    }
   },
   "/api/topology/client-monitor": {
@@ -9647,7 +9627,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`from` and `to` are machine ids, for a machine that comes back under another name.\nPorts, router cables and each cell's config, model, label, note and history stay as\nthey are. Answers `{ok, from, to, ports}`; 400 when an id is missing, both are the\nsame or either is the controller, 404 when `from` has no cells, 409 when `to`\nalready holds one of those ports (nothing is moved then)."
+    "description": "`from` and `to` are machine ids, for a machine that comes back under another name.\nEach cell keeps its id, config, model, label, note and history. Answers `{ok, from, to, cells}`, the ids moved; 400 when an id is missing, both are the\nsame or either is the controller, 404 when `from` has no cells."
    }
   },
   "/api/topology/scout/connect": {
@@ -9840,63 +9820,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`action` is `start`, `stop`, `restart`, `enable` or `disable`; the last two turn the\ncell's autostart on or off, and a start uses the launch config saved on the cell. A\n`restart` stops the cell first and starts it only when the stop succeeded. A\n`start` or `restart` of an engine cell whose model would not fit the free GPU memory\nanswers `{ok: false, short}` (status 200) unless `force` is `true`. Answers `{ok,\nhostId, port, action, result}`; 400 for an unknown action, the controller's own id\nor a cell with no saved model."
-   }
-  },
-  "/api/topology/server-cell/reassign-port": {
-   "post": {
-    "operationId": "post_api_topology_server_cell_reassign_port",
-    "summary": "Move a cell to another free port, its cables following it",
-    "tags": [
-     "topology"
-    ],
-    "requestBody": {
-     "required": false,
-     "content": {
-      "application/json": {
-       "schema": {
-        "type": "object",
-        "properties": {
-         "hostId": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
-         },
-         "port": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
-         },
-         "newPort": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
-         }
-        },
-        "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
-        "x-caravan-fields-complete": false
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
-      "content": {
-       "application/json": {
-        "schema": {
-         "description": "Not described yet: the shape of this value is level 2 of the API description."
-        }
-       }
-      }
-     },
-     "default": {
-      "$ref": "#/components/responses/Error"
-     }
-    },
-    "security": [
-     {
-      "session": []
-     }
-    ],
-    "x-caravan-roles": [
-     "admin"
-    ],
-    "description": "`hostId`, `port` and `newPort` are required; `newPort` is checked against every\ncell, proxy route and port exclusion in the fleet, and the cell's saved config and\nevery name of it move with it: the routers' references, the pools' rows, its schedule. A\nrow or a schedule that still named `newPort` — a deleted cell's — loses that name. Meant\nfor a stopped cell, which is not checked here. Answers `{ok, key, port, followed,\ntopology}`, `followed` being `{routers, pools: [names], schedule, notFollowed: [what could\nnot be written]}`, and `autostart`: what its scout's kept start request did — off at the old\nport before the move, on at the new one after (1.3.504), `[]` for a cell without autostart;\n404 when the cell has no slot, 409 when `newPort` is taken, 400 when it equals `port`."
+    "description": "`cellId` names the cell; `action` is `start`, `stop`, `restart`, `enable` or `disable`; the last two turn the\ncell's autostart on or off, and a start uses the launch config saved on the cell: the scout leases its port and answers with it. A\n`restart` stops the cell first and starts it only when the stop succeeded. A\n`start` or `restart` of an engine cell whose model would not fit the free GPU memory\nanswers `{ok: false, short}` (status 200) unless `force` is `true`. Answers `{ok,\nhostId, cellId, action, result}`; 400 for an unknown action, no `cellId`, the controller's own id\nor a cell with no saved model, 404 for a cell that is not kept, and a scout too old to lease ports is told to update."
    }
   },
   "/api/topology/server-cell/save-config": {
@@ -9912,106 +9836,17 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
-        "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
-        "x-caravan-fields-complete": false
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
-      "content": {
-       "application/json": {
-        "schema": {
-         "description": "Not described yet: the shape of this value is level 2 of the API description."
-        }
-       }
-      }
-     },
-     "default": {
-      "$ref": "#/components/responses/Error"
-     }
-    },
-    "security": [
-     {
-      "session": []
-     }
-    ],
-    "x-caravan-roles": [
-     "admin"
-    ],
-    "description": "`hostId`, `port`, `config` and `cacheModels` are read; a cell that does not exist\nyet is created, its port checked as a reserve checks it (409 when taken). If the\ncell has autostart on, the scout's saved start request is refreshed too, and the\nanswer carries `autostart: {ok, error?}`. A cell whose runner serves a page of its\nown (its registry row's `page`: PersonaPlex's `PAGE_URL`) keeps that page's address\ntrimmed, or is refused when it is not an https address of a name — nothing is saved\nthen. Answers `{ok, hostId, port, state}` with `state` as in `GET /api/state`; 400\nwithout `hostId` or `port`, or for a page's address of another form."
-   }
-  },
-  "/api/topology/server-cell/schedule": {
-   "post": {
-    "operationId": "post_api_topology_server_cell_schedule",
-    "summary": "Set the time window in which a cell is started and stopped by the clock",
-    "tags": [
-     "topology"
-    ],
-    "requestBody": {
-     "required": false,
-     "content": {
-      "application/json": {
-       "schema": {
-        "type": "object",
-        "properties": {},
-        "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
-        "x-caravan-fields-complete": false
-       }
-      }
-     }
-    },
-    "responses": {
-     "200": {
-      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
-      "content": {
-       "application/json": {
-        "schema": {
-         "description": "Not described yet: the shape of this value is level 2 of the API description."
-        }
-       }
-      }
-     },
-     "default": {
-      "$ref": "#/components/responses/Error"
-     }
-    },
-    "security": [
-     {
-      "session": []
-     }
-    ],
-    "x-caravan-roles": [
-     "admin"
-    ],
-    "description": "`hostId` and `port` pick the cell; `schedule` is `{enabled, start, stop, days}`:\n`start` and `stop` are `HH:MM` (22:00 and 08:00 when empty), `days` are weekdays 0-6\nwith Monday 0 (empty means every day), and a window may cross midnight. Answers\n`{ok, hostId, port, schedule}`; 404 when the cell has no slot, 400 for a malformed\ntime or equal `start` and `stop` on an enabled window."
-   }
-  },
-  "/api/topology/server-cell/swap-port": {
-   "post": {
-    "operationId": "post_api_topology_server_cell_swap_port",
-    "summary": "Swap the ports of two cells, each keeping its cables",
-    "tags": [
-     "topology"
-    ],
-    "requestBody": {
-     "required": false,
-     "content": {
-      "application/json": {
-       "schema": {
-        "type": "object",
         "properties": {
+         "cellId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
          "hostId": {
           "description": "Not described yet: the shape of this value is level 2 of the API description."
          },
-         "port": {
+         "config": {
           "description": "Not described yet: the shape of this value is level 2 of the API description."
          },
-         "targetPort": {
+         "cacheModels": {
           "description": "Not described yet: the shape of this value is level 2 of the API description."
          }
         },
@@ -10044,7 +9879,60 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `port` pick one cell and `targetPort` is the other cell's port, on any\nmachine; both saved configs and every name of them — the routers' references, the pools'\nrows, the schedules — trade places. Meant for stopped cells, which is not checked here.\nAnswers `{ok, a, b, followed, autostart, topology}` with each cell's new `{host, port}`, what\nfollowed them and what their scouts' kept start requests did (as for a port move); 404 when\nthe first cell has no slot, 400 when `targetPort` is not a cell or equals `port`."
+    "description": "`cellId`, `config` and `cacheModels` are read; with no `cellId`, `hostId` names the machine and a new cell is made there, its id in the answer. A config keeps no port: the scout leases one at a start. If the\ncell has autostart on, the scout's saved start request is refreshed too, and the\nanswer carries `autostart: {ok, error?}`. A cell whose runner serves a page of its\nown (its registry row's `page`: PersonaPlex's `PAGE_URL`) keeps that page's address\ntrimmed, or is refused when it is not an https address of a name — nothing is saved\nthen. Answers `{ok, hostId, cellId, state}` with `state` as in `GET /api/state`; 400\nwith neither `cellId` nor `hostId`, or for a page's address of another form; 404 for a `cellId` that is not kept."
+   }
+  },
+  "/api/topology/server-cell/schedule": {
+   "post": {
+    "operationId": "post_api_topology_server_cell_schedule",
+    "summary": "Set the time window in which a cell is started and stopped by the clock",
+    "tags": [
+     "topology"
+    ],
+    "requestBody": {
+     "required": false,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "cellId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "schedule": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
+        "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
+        "x-caravan-fields-complete": false
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin"
+    ],
+    "description": "`cellId` names the cell; `schedule` is `{enabled, start, stop, days}`:\n`start` and `stop` are `HH:MM` (22:00 and 08:00 when empty), `days` are weekdays 0-6\nwith Monday 0 (empty means every day), and a window may cross midnight. Answers\n`{ok, cellId, schedule}`; 404 when the cell has no slot, 400 for a malformed\ntime or equal `start` and `stop` on an enabled window."
    }
   },
   "/api/topology/server-order": {
@@ -10139,7 +10027,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` is required. Omit `port` to take the next free one; `engine` (`ollama` or\n`lmstudio`) with `model` reserves a cell inside that engine, checked against the\nmachine's report first. Answers `{ok, slot, cell}`, plus `nextPort` (what the next\nreservation would get) when `port` was omitted or `engine` given; 409 for a port\nalready reserved, and 404 or 409 when the engine or its model is not there."
+    "description": "`hostId` is required. A new cell gets an id of its own and no port: its scout leases one when it starts. `config` saves the cell's settings with it; with no `config`, or with `engine` (`ollama` or `lmstudio`) and `model`, the cell is reserved — an engine's cell checked against the machine's report first. Answers `{ok, slot, cell}`, `cell.id` the new cell's id; 404 or 409 when the engine or its model is not there."
    }
   },
   "/api/topology/server-slot/delete": {
@@ -10155,7 +10043,11 @@
       "application/json": {
        "schema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+         "cellId": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
         "description": "The fields the handler reads by name; it also passes the body on, so it may read more. Not described yet: the shape of this value is level 2 of the API description.",
         "x-caravan-fields-complete": false
        }
@@ -10185,7 +10077,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `port` are required. The start request the scout keeps for the cell's\nautostart goes first — its reports would bring the cell back (1.3.504). The stop request\nto the scout is best effort, so an unreachable scout does not fail the call. The cell's\nrows in the pools lose their cable and its schedule goes with it: a new cell on this port\nis another model. Answers `{ok, removed, autostart?}`, where `removed` says whether a slot\nwas stored and `autostart` — only for a cell with autostart — `{port, enabled, ok, error?}`:\nwhether the scout let its request go."
+    "description": "`cellId` names the cell. The start request the scout keeps for the cell's autostart goes first — its reports would bring the cell back (1.3.504). The stop request to the scout is best effort, so an unreachable scout does not fail the call. The rows of its model in the pools lose their cable when it was the model's only copy. Answers `{ok, removed, autostart?}`, where `removed` says whether a slot was stored and `autostart` — only for a cell with autostart — `{cellId, enabled, ok, error?}`: whether the scout let its request go; 404 for a cell that is not kept."
    }
   },
   "/api/topology/server-slot/note": {
@@ -10202,10 +10094,7 @@
        "schema": {
         "type": "object",
         "properties": {
-         "hostId": {
-          "description": "Not described yet: the shape of this value is level 2 of the API description."
-         },
-         "port": {
+         "cellId": {
           "description": "Not described yet: the shape of this value is level 2 of the API description."
          },
          "note": {
@@ -10240,7 +10129,7 @@
     "x-caravan-roles": [
      "admin"
     ],
-    "description": "`hostId` and `port` pick the cell, and `note` is cut to 280 characters. Answers\n`{ok, key, note}`; 404 when the cell has no slot."
+    "description": "`cellId` names the cell, and `note` is cut to 280 characters. Answers `{ok, cellId, note}`; 404 when the cell has no slot."
    }
   },
   "/api/usage-stats": {
@@ -10908,6 +10797,246 @@
      "admin",
      "viewer"
     ]
+   }
+  },
+  "/api/runner-presets": {
+   "get": {
+    "operationId": "get_api_runner_presets",
+    "summary": "List the launch builder's saved sets, the makers' numbers and runner marks",
+    "tags": [
+     "runner-presets"
+    ],
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin",
+     "viewer"
+    ],
+    "description": "`presets` maps a runner to its named sets, each a map of portable fields (sampling and two server switches) to a number or a boolean; `warnings` maps a model's folder to the runners the owner marked as not for it — a warning in the launch builder, never a refusal; `makers` maps a model's folder to what its maker stated once (the program's own table, field to a value as a cell's config keeps it): the first set the builder offers for that model, the preset a model's default cell became on 2026-11-07; `unread` counts the stored rows that did not read and are left out."
+   }
+  },
+  "/api/runner-presets/fields": {
+   "get": {
+    "operationId": "get_api_runner_presets_fields",
+    "summary": "List the fields a saved set of one runner may hold",
+    "tags": [
+     "runner-presets"
+    ],
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin",
+     "viewer"
+    ],
+    "description": "`runner` (query) names a runner of the registry; answers `{ok, runner, fields}` with each field's type and range. A runner whose fields nobody reviewed has none, so it can hold no set; an unknown runner is refused with 400.",
+    "parameters": [
+     {
+      "name": "runner",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ]
+   }
+  },
+  "/api/runner-presets/put": {
+   "post": {
+    "operationId": "post_api_runner_presets_put",
+    "summary": "Save one named parameter set of a runner, for every machine",
+    "tags": [
+     "runner-presets"
+    ],
+    "requestBody": {
+     "required": false,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "runner": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "name": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "params": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
+        "description": "The fields the handler reads. Not described yet: the shape of this value is level 2 of the API description."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin"
+    ],
+    "description": "`runner`, `name` (1–80 characters) and `params` (a non-empty object of the runner's portable fields, numbers in their range or booleans); a set of the same name is replaced. Anything else is refused with 400."
+   }
+  },
+  "/api/runner-presets/remove": {
+   "post": {
+    "operationId": "post_api_runner_presets_remove",
+    "summary": "Remove one named parameter set of a runner",
+    "tags": [
+     "runner-presets"
+    ],
+    "requestBody": {
+     "required": false,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "runner": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "name": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
+        "description": "The fields the handler reads. Not described yet: the shape of this value is level 2 of the API description."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin"
+    ],
+    "description": "`runner` and `name`; removing a set that is not there changes nothing, and a set of a runner the caravan no longer has can be removed too."
+   }
+  },
+  "/api/model-runner-warning": {
+   "post": {
+    "operationId": "post_api_model_runner_warning",
+    "summary": "Mark or unmark a runner as not for a model",
+    "tags": [
+     "runner-presets"
+    ],
+    "requestBody": {
+     "required": false,
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "model": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "runner": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         },
+         "unwanted": {
+          "description": "Not described yet: the shape of this value is level 2 of the API description."
+         }
+        },
+        "description": "The fields the handler reads. Not described yet: the shape of this value is level 2 of the API description."
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "The answer. Not described yet: the shape of this value is level 2 of the API description.",
+      "content": {
+       "application/json": {
+        "schema": {
+         "description": "Not described yet: the shape of this value is level 2 of the API description."
+        }
+       }
+      }
+     },
+     "default": {
+      "$ref": "#/components/responses/Error"
+     }
+    },
+    "security": [
+     {
+      "session": []
+     }
+    ],
+    "x-caravan-roles": [
+     "admin"
+    ],
+    "description": "`model` (the model's folder), `runner` and `unwanted` (a boolean). The mark is a warning the launch builder shows on that runner's card for that model; it never refuses a start."
    }
   }
  },

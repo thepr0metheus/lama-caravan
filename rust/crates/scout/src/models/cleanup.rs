@@ -3,6 +3,7 @@
 use crate::log::Log;
 use crate::models::fetcher::ModelFetcher;
 use crate::models::files::{Resolved, Walk};
+use rules::CellId;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::fs;
@@ -143,18 +144,22 @@ impl ModelFetcher {
         Self::size_of(&self.scratch_root())
     }
 
-    /// The cells' scratch folders, by port. A folder with no port's name is not one of them.
-    pub fn scratch_folders(&self) -> Vec<(i64, PathBuf)> {
+    /// The cells' scratch folders, by the cell each is of. A folder named by a port is a cell's of before 2026-11-07, `c<port>`, as the rule of a cell's name reads it: it goes when that cell keeps
+    /// no scratch, as any other cell's does. A folder with no cell's name is not one of them.
+    pub fn scratch_folders(&self) -> Vec<(String, PathBuf)> {
         let folders = fs::read_dir(self.scratch_root()).into_iter().flatten().flatten();
         folders
-            .filter_map(|folder| folder.file_name().to_string_lossy().parse::<i64>().ok().map(|port| (port, folder.path())))
+            .filter_map(|folder| {
+                let name = folder.file_name().to_string_lossy().into_owned();
+                CellId::read(&Value::String(name)).map(|cell| (cell, folder.path()))
+            })
             .collect()
     }
 
-    /// Removes the scratch folders of every port but `keep`. (the files removed, the bytes freed)
-    pub fn clear_scratches(&self, keep: &BTreeSet<i64>) -> (u64, u64) {
+    /// Removes the scratch folders of every cell but `keep`. (the files removed, the bytes freed)
+    pub fn clear_scratches(&self, keep: &BTreeSet<String>) -> (u64, u64) {
         let (mut files, mut freed) = (0, 0);
-        for (_, folder) in self.scratch_folders().into_iter().filter(|(port, _)| !keep.contains(port)) {
+        for (_, folder) in self.scratch_folders().into_iter().filter(|(cell, _)| !keep.contains(cell)) {
             let size = Self::size_of(&folder);
             let count = Walk::files_with_sizes(&folder).len() as u64;
             if fs::remove_dir_all(&folder).is_ok() {

@@ -1,18 +1,20 @@
-//! The pools' rows of a machine's cells, named by the machine's model rather than the cell's port. A cell can change
-//! its port; what it serves stays, and a pool's row should follow.
+//! The pools' rows of a machine's cells, named by the machine's model rather than by a cell. A cell has a port only while it
+//! runs (Papyrus `caravan-scout-port-lease`); what it serves stays, and a pool's row should follow. A row of before that named a
+//! cell's port (`srv:<port>`) names the cell `c<port>` (`rules::CellId`), and goes to that cell's model.
 
 use super::machine_models::MachineOutputs;
+use super::server_cells::ServerCells;
 use crate::app::App;
 use crate::cloud::data::CloudData;
 use crate::common::cloud_file::{ModelKey, ModelSchedules};
 use os::LocalTime;
 use plumbing::log::Log;
-use rules::{AppError, Coerce, PyRepr};
+use rules::{AppError, CellId, Coerce, PyRepr};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The ports of each model a machine lists, by name.
-pub type Listed = BTreeMap<String, Vec<i64>>;
+/// The cells of each model a machine lists, by name: their ids.
+pub type Listed = BTreeMap<String, Vec<String>>;
 
 /// The rows of the pools, and the schedules, that name a machine's cells, re-cabled to its models.
 pub struct MachineRows<'app> {
@@ -41,58 +43,56 @@ impl<'app> MachineRows<'app> {
                 continue;
             }
             let copies = model.get("copies").and_then(Value::as_array).into_iter().flatten();
-            out.insert(
-                name,
-                copies
-                    .filter_map(|copy| copy.get("port").filter(|port| Coerce::truthy(Some(*port))).and_then(Coerce::int))
-                    .collect(),
-            );
+            out.insert(name, copies.filter_map(ServerCells::node_cell).collect());
         }
         Some(out)
     }
 
-    /// Each port with the machines' models that hold it.
-    fn owners(hosts: &[Value]) -> BTreeMap<i64, BTreeSet<(String, String)>> {
-        let mut found: BTreeMap<i64, BTreeSet<(String, String)>> = BTreeMap::new();
+    /// Each cell with the machines' models that hold it.
+    fn owners(hosts: &[Value]) -> BTreeMap<String, BTreeSet<(String, String)>> {
+        let mut found: BTreeMap<String, BTreeSet<(String, String)>> = BTreeMap::new();
         for host in hosts {
             let host_id = Coerce::text(host.get("id"));
             if host_id.is_empty() {
                 continue;
             }
             // absent-ok: a report that lists no models changes no row.
-            for (name, ports) in Self::listed(host).unwrap_or_default() {
-                for port in ports {
-                    found.entry(port).or_default().insert((host_id.clone(), name.clone()));
+            for (name, cells) in Self::listed(host).unwrap_or_default() {
+                for cell in cells {
+                    found.entry(cell).or_default().insert((host_id.clone(), name.clone()));
                 }
             }
         }
         found
     }
 
-    /// The output of the model whose only copy is the cell at `port`: what goes with the cell when it is deleted.
-    pub fn sole_model(host: Option<&Value>, port: i64) -> Option<String> {
+    /// The output of the model whose only copy is cell `id`: what goes with the cell when it is deleted.
+    pub fn sole_model(host: Option<&Value>, id: &str) -> Option<String> {
         let host = host?;
         let host_id = Coerce::text(host.get("id"));
         if host_id.is_empty() {
             return None;
         }
         let listed = Self::listed(host)?;
-        listed.iter().find(|(_, ports)| ports.as_slice() == [port]).map(|(name, _)| MachineOutputs::output_id(&host_id, name))
+        listed
+            .iter()
+            .find(|(_, cells)| matches!(cells.as_slice(), [only] if only == id))
+            .map(|(name, _)| MachineOutputs::output_id(&host_id, name))
     }
 
-    /// `{old name: new name}`: a model gone from the list whose ports all serve one other now.
+    /// `{old name: new name}`: a model gone from the list whose cells all serve one other now.
     fn renames(before: Option<&Listed>, after: Option<&Listed>) -> BTreeMap<String, String> {
         let (Some(before), Some(after)) = (before, after) else {
             return BTreeMap::new();
         };
-        let at: BTreeMap<i64, &String> =
-            after.iter().flat_map(|(name, ports)| ports.iter().map(move |port| (*port, name))).collect();
+        let at: BTreeMap<&String, &String> =
+            after.iter().flat_map(|(name, cells)| cells.iter().map(move |cell| (cell, name))).collect();
         let mut out = BTreeMap::new();
-        for (name, ports) in before {
-            if after.contains_key(name) || ports.is_empty() {
+        for (name, cells) in before {
+            if after.contains_key(name) || cells.is_empty() {
                 continue;
             }
-            let became: BTreeSet<Option<&&String>> = ports.iter().map(|port| at.get(port)).collect();
+            let became: BTreeSet<Option<&&String>> = cells.iter().map(|cell| at.get(cell)).collect();
             if let [Some(new)] = became.into_iter().collect::<Vec<_>>().as_slice() {
                 out.insert(name.clone(), (**new).clone());
             }
@@ -140,17 +140,18 @@ impl<'app> MachineRows<'app> {
         moved
     }
 
-    fn is_cell_output(output: &str) -> Option<i64> {
+    /// The cell a row of before names by its port (`srv:<port>`); none for any other output.
+    fn is_cell_output(output: &str) -> Option<String> {
         let digits = output.strip_prefix("srv:")?;
         (!digits.is_empty() && digits.len() <= 5 && digits.chars().all(|digit| digit.is_ascii_digit()))
-            .then(|| digits.parse().ok())
+            .then(|| CellId::read(&json!(digits)))
             .flatten()
     }
 
     /// `{srv:<port>: its model's output}` and the words for each.
     fn cells_named(
         data: &Value,
-        owners: &BTreeMap<i64, BTreeSet<(String, String)>>,
+        owners: &BTreeMap<String, BTreeSet<(String, String)>>,
     ) -> (BTreeMap<String, String>, BTreeMap<String, String>) {
         let mut named: BTreeSet<String> = BTreeSet::new();
         for pool in data.get("pools").and_then(Value::as_array).into_iter().flatten().filter(|pool| pool.is_object()) {
@@ -166,12 +167,12 @@ impl<'app> MachineRows<'app> {
         }
         let (mut mapping, mut labels) = (BTreeMap::new(), BTreeMap::new());
         for output in named {
-            let Some(found) = Self::is_cell_output(&output).and_then(|port| owners.get(&port)) else {
+            let Some(found) = Self::is_cell_output(&output).and_then(|cell| owners.get(&cell)) else {
                 continue;
             };
             if found.len() > 1 {
                 Log::line(&format!(
-                    "[machine-rows] {output}: {} machines list this port — its rows stay on the port",
+                    "[machine-rows] {output}: {} machines list this cell — its rows stay as they are",
                     found.len()
                 ));
                 continue;
@@ -305,31 +306,37 @@ mod tests {
 
     fn host() -> Value {
         json!({"id": "h", "agentUrl": "http://a:1", "entryModels": [
-            {"id": "m", "copies": [{"port": 5}, {"port": 6}]},
-            {"id": "n", "copies": [{"port": 7}]},
+            {"id": "m", "copies": [{"id": "c5a", "port": 22005}, {"port": 22006}]},
+            {"id": "n", "copies": [{"id": "c7b", "port": null}]},
         ]})
     }
 
     #[test]
-    fn a_report_lists_its_models_and_their_ports() {
+    fn a_report_lists_its_models_and_their_cells() {
         let listed = MachineRows::listed(&host()).unwrap();
-        assert_eq!(listed["m"], [5, 6]);
+        assert_eq!(listed["m"], ["c5a", "c22006"], "a copy by its id, or by the port a scout of before names");
+        assert_eq!(listed["n"], ["c7b"], "a stopped copy holds no port and is still its cell");
         assert!(MachineRows::listed(&json!({"id": "h"})).is_none());
     }
 
     #[test]
     fn the_sole_copy_of_a_model_takes_the_model_with_it() {
         let host = host();
-        assert_eq!(MachineRows::sole_model(Some(&host), 7), Some(MachineOutputs::output_id("h", "n")));
-        assert_eq!(MachineRows::sole_model(Some(&host), 5), None);
-        assert_eq!(MachineRows::sole_model(None, 5), None);
+        assert_eq!(MachineRows::sole_model(Some(&host), "c7b"), Some(MachineOutputs::output_id("h", "n")));
+        assert_eq!(MachineRows::sole_model(Some(&host), "c5a"), None, "negative: one copy of two takes no model");
+        assert_eq!(MachineRows::sole_model(None, "c5a"), None);
     }
 
     #[test]
-    fn a_model_is_renamed_when_all_its_ports_serve_one_other() {
-        let before: Listed =
-            [("old".to_string(), vec![5, 6]), ("gone".to_string(), vec![9]), ("same".to_string(), vec![1])].into();
-        let after: Listed = [("new".to_string(), vec![5, 6]), ("same".to_string(), vec![1])].into();
+    fn a_model_is_renamed_when_all_its_cells_serve_one_other() {
+        let cells = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<String>>();
+        let before: Listed = [
+            ("old".to_string(), cells(&["c5", "c6"])),
+            ("gone".to_string(), cells(&["c9"])),
+            ("same".to_string(), cells(&["c1"])),
+        ]
+        .into();
+        let after: Listed = [("new".to_string(), cells(&["c5", "c6"])), ("same".to_string(), cells(&["c1"]))].into();
         let renamed = MachineRows::renames(Some(&before), Some(&after));
         assert_eq!(renamed, [("old".to_string(), "new".to_string())].into());
         assert!(MachineRows::renames(None, Some(&after)).is_empty());

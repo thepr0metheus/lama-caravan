@@ -18,6 +18,11 @@ Pinned by value, each claim with a positive and a negative:
     form as it always was;
   - the cell: its routes, what waits for the engine and what does not, the engine asked with the told language, the
     sample's words and its pace; an engine's longest sample; pcm only at 24 kHz;
+  - where an engine runs: each engine's own need of free VRAM (its measured peak, a fifth more, a tenth up — one 2.5 GB
+    stood for all three until 2026-11); through each engine's load, on its card with 1 MB more free than its need, on
+    the CPU with 1 MB less, the reason naming the figures; on the CPU the cards hidden before the engine's package is
+    imported, a card the cell pins too; TTS_DEVICE over all of it; no CUDA device, a reader that cannot tell — the CPU,
+    with the reason; the reader a Python of its own, reading torch's mem_get_info (a stand-in torch);
   - over HTTP, the controller's own code (CellTalk) against a running cell: it speaks in a sample's voice, keeps a voice,
     lists it, speaks in it by name, and a refusal of the cell comes back with its words.
 
@@ -32,6 +37,7 @@ import struct
 import sys
 import tempfile
 import threading
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -177,9 +183,197 @@ def section_engines():
           f"the cell makes the engine it was started with, its name in any case, and /health says where it runs ({got})")
     check(tts.TtsCell(["0"]).engine == "xtts" and tts.TtsCell(["0", "f5"]).kinds == ["tts", "tts.f5"],
           "with no engine named — XTTS; its kinds: the job, then the engine")
-    device = tts.Device(env={"TTS_DEVICE": "CPU"})
-    check(device.pick() == "cpu" and (device.name, device.reason) == ("cpu", "TTS_DEVICE"),
-          "TTS_DEVICE pins the device, and the reason says so")
+
+
+GB = 1024 ** 3
+MB = 1024 ** 2
+XTTS = "tts_models/multilingual/multi-dataset/xtts_v2"
+
+
+class Probe:
+    """A VRAM reader that answers what it is given — free bytes, None (no CUDA device) or an exception it raises — and
+    notes the cards the cell's environment showed each time it was asked."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.asked = []
+
+    def free(self, env):
+        self.asked.append(env.get("CUDA_VISIBLE_DEVICES"))
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+class Package(types.ModuleType):
+    """An engine's package, in sys.modules while a load runs: when the engine takes its class from it (the import), it
+    notes the cards the cell's environment showed then."""
+
+    def __init__(self, name, cls, env, seen):
+        super().__init__(name)
+        self.cls, self.env, self.seen = cls, env, seen
+
+    def __getattr__(self, attr):
+        if attr != self.cls.__name__:
+            raise AttributeError(attr)
+        self.seen.append(("import", self.env.get("CUDA_VISIBLE_DEVICES")))
+        return self.cls
+
+
+class EngineStand:
+    """The three engines' packages, stood in for a load: `seen` says when an engine took its package — the cards the
+    cell's environment showed then — and what it made of it."""
+
+    def __init__(self, env):
+        self.seen = seen = []
+
+        class TTS:
+            def __init__(self, name):
+                seen.append(("TTS", name))
+
+            def to(self, dev):
+                seen.append(("to", dev))
+                return self
+
+        class CosyVoice2:
+            def __init__(self, model_dir, load_jit, load_trt, fp16):
+                seen.append(("CosyVoice2", fp16))
+
+        class F5TTS:
+            def __init__(self, device):
+                seen.append(("F5TTS", device))
+
+        self.packages = {name: Package(name, cls, env, seen)
+                         for name, cls in (("TTS.api", TTS), ("cosyvoice.cli.cosyvoice", CosyVoice2), ("f5_tts.api", F5TTS))}
+        self.kept = {}
+
+    def __enter__(self):
+        self.kept = {name: sys.modules.get(name) for name in self.packages}
+        sys.modules.update(self.packages)
+        return self
+
+    def __exit__(self, *exc):
+        for name, module in self.kept.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+
+def loaded(engine, env, probe):
+    """(the load's answer, the Device, what the engine's packages saw) of `engine` loaded in `env`, its card read by
+    `probe`."""
+    device = tts.Device(env=env, probe=probe)
+    keep = os.environ.get("COQUI_TOS_AGREED")
+    try:
+        with EngineStand(env) as stand:
+            got = answer(lambda: engine.load(device))
+    finally:
+        if keep is None:
+            os.environ.pop("COQUI_TOS_AGREED", None)
+        else:
+            os.environ["COQUI_TOS_AGREED"] = keep
+    return got, device, stand.seen
+
+
+def section_device():
+    print("where an engine runs — on its card while the card has the engine's own need free, else on the CPU:")
+    for cls, need in ((tts.XttsEngine, 2.9), (tts.CosyVoiceEngine, 5.1), (tts.F5Engine, 2.6)):
+        check(cls().need_gb == need, f"{cls.name} needs {need} GB free: its measured peak ({cls.peak_mib} MiB), a fifth "
+                                     f"more, rounded up to a tenth ({cls().need_gb})")
+
+    class Measured(tts.VoiceEngine):
+        def __init__(self, peak_mib):
+            self.peak_mib = peak_mib
+    check(Measured(1024).need_gb == 1.2, "a peak of 1024 MiB and its fifth are 1.2 GB exactly — no tenth added")
+    check(Measured(1029).need_gb == 1.3, "negative: 1029 MiB and its fifth (1.206 GB) are rounded UP, to 1.3 — not to the "
+                                         "nearest 1.2")
+
+    # Each engine through its own load, 1 MB either side of its own need, on a card the cell pins.
+    cases = (
+        ("xtts", int(2.9 * GB) + MB, "cuda", "2.90 GB VRAM free, needs 2.9 GB", [("import", "1"), ("TTS", XTTS), ("to", "cuda")]),
+        ("xtts", int(2.9 * GB) - MB, "cpu", "only 2.89 GB VRAM free, needs 2.9 GB", [("import", ""), ("TTS", XTTS), ("to", "cpu")]),
+        ("cosyvoice", int(5.1 * GB) + MB, "cuda", "5.10 GB VRAM free, needs 5.1 GB", [("import", "1"), ("CosyVoice2", True)]),
+        ("cosyvoice", int(5.1 * GB) - MB, "cpu", "only 5.09 GB VRAM free, needs 5.1 GB", [("import", ""), ("CosyVoice2", False)]),
+        ("f5", int(2.6 * GB) + MB, "cuda", "2.60 GB VRAM free, needs 2.6 GB", [("import", "1"), ("F5TTS", "cuda")]),
+        ("f5", int(2.6 * GB) - MB, "cpu", "only 2.59 GB VRAM free, needs 2.6 GB", [("import", ""), ("F5TTS", "cpu")]),
+    )
+    for name, free, dev, reason, made in cases:
+        probe = Probe(free)
+        got, device, seen = loaded(tts.ENGINES[name](), {"CUDA_VISIBLE_DEVICES": "1"}, probe)
+        said = (got, device.name, device.reason, seen, probe.asked)
+        if dev == "cuda":
+            check(said == (None, "cuda", reason, made, ["1"]),
+                  f"{name}, 1 MB more free than its need on the card it pins: on that card, made there, the reason naming "
+                  f"both figures ({said})")
+        else:
+            check(said == (None, "cpu", reason, made, ["1"]),
+                  f"negative: {name}, 1 MB less: the CPU, the reason naming its need, the cards hidden before its package "
+                  f"is imported — the card it pins too ({said})")
+
+    probe = Probe(1 * GB)
+    got, device, seen = loaded(tts.CosyVoiceEngine(), {"TTS_DEVICE": "CUDA", "CUDA_VISIBLE_DEVICES": "1"}, probe)
+    said = (got, device.name, device.reason, seen, probe.asked)
+    check(said == (None, "cuda", "TTS_DEVICE", [("import", "1"), ("CosyVoice2", True)], []),
+          f"TTS_DEVICE=cuda over the need: CosyVoice2 on the card it pins with 1 GB free, the card not even read ({said})")
+    probe = Probe(20 * GB)
+    got, device, seen = loaded(tts.XttsEngine(), {"TTS_DEVICE": "cpu"}, probe)
+    said = (got, device.name, device.reason, seen, probe.asked)
+    check(said == (None, "cpu", "TTS_DEVICE", [("import", ""), ("TTS", XTTS), ("to", "cpu")], []),
+          f"negative: TTS_DEVICE=cpu over 20 GB free: the CPU, the cards hidden, the card not even read ({said})")
+
+    env = {}
+    device = tts.Device(env=env, probe=Probe(None))
+    said = (device.pick(2.9), device.reason, env)
+    check(said == ("cpu", "torch sees no CUDA device", {"CUDA_VISIBLE_DEVICES": ""}),
+          f"no CUDA device torch can see: the CPU, and the reason says so ({said})")
+    env = {}
+    device = tts.Device(env=env, probe=Probe(RuntimeError("the VRAM reader said nothing: CUDA error: unknown error")))
+    said = (device.pick(2.9), device.reason, env)
+    check(said == ("cpu", "probe failed: the VRAM reader said nothing: CUDA error: unknown error", {"CUDA_VISIBLE_DEVICES": ""}),
+          f"negative: a reader that cannot tell — the CPU, its words the reason, not a figure ({said})")
+
+
+#: torch as the VRAM reader sees it: a card while CUDA_VISIBLE_DEVICES does not hide them, its free and total bytes as
+#: the environment says, and CUDA's failure when it says one.
+FAKE_TORCH = '''import os
+
+
+class cuda:
+    @staticmethod
+    def is_available():
+        return os.environ.get("CUDA_VISIBLE_DEVICES") != ""
+
+    @staticmethod
+    def mem_get_info():
+        if os.environ.get("FAKE_CUDA_FAILS"):
+            raise RuntimeError(os.environ["FAKE_CUDA_FAILS"])
+        return int(os.environ["FAKE_FREE"]), int(os.environ["FAKE_TOTAL"])
+'''
+
+
+def section_reader(box):
+    print("the VRAM reader — a Python of its own, so CUDA never comes up in the cell's process:")
+    (box.dir / "torch").mkdir()
+    (box.dir / "torch" / "__init__.py").write_text(FAKE_TORCH, encoding="utf-8")
+    base = {key: value for key, value in os.environ.items() if key not in ("CUDA_VISIBLE_DEVICES", "TTS_DEVICE")}
+    base.update({"PYTHONPATH": str(box.dir), "PYTHONDONTWRITEBYTECODE": "1", "FAKE_FREE": str(6 * GB),
+                 "FAKE_TOTAL": str(24 * GB)})
+    reader = tts.VramProbe()
+    got = answer(lambda: reader.free(dict(base)))
+    check(got == 6 * GB, f"the free bytes of device 0, as torch's mem_get_info says them — not the total ({got})")
+    got = answer(lambda: reader.free(dict(base, CUDA_VISIBLE_DEVICES="")))
+    check(got is None, f"the cell's environment reaches it: the cards hidden there — no CUDA device, not 0 bytes free ({got})")
+    got = answer(lambda: reader.free(dict(base, FAKE_CUDA_FAILS="CUDA error: unknown error")))
+    check(got == ("raised", "RuntimeError: the VRAM reader said nothing: RuntimeError: CUDA error: unknown error"),
+          f"negative: CUDA fails in the reader — raised with its last words, not a figure ({got})")
+    got = answer(lambda: tts.VramProbe(str(box.dir / "no-python")).free(dict(base)))
+    check(got[0] == "raised" and "FileNotFoundError" in got[1], f"negative: no Python to read with — raised, not a figure ({got})")
+    env = dict(base)
+    device = tts.Device(env=env)
+    said = (device.pick(5.1), device.reason, env.get("CUDA_VISIBLE_DEVICES"), "torch" in sys.modules)
+    check(said == ("cuda", "6.00 GB VRAM free, needs 5.1 GB", None, False),
+          f"the whole way: the reader's figure decides, and torch was never imported in this process ({said})")
 
 
 def section_sample(box):
@@ -390,6 +584,8 @@ def main():
     try:
         section_language()
         section_engines()
+        section_device()
+        section_reader(box)
         section_sample(box)
         section_shelf(box)
         section_ask(box)
